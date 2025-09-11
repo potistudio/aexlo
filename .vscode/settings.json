@@ -13,5 +13,8 @@
 		"sdata",
 		"sprintf",
 		"Unionable"
+	],
+	"editor.rulers": [
+		60,
 	]
 }
