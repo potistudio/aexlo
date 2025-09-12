@@ -3,9 +3,16 @@
 #[macro_use]
 extern crate dlopen_derive;
 
+extern crate log;
+extern crate env_logger as logger;
+
+
 use dlopen::wrapper::{ Container, WrapperApi };
-use std::ffi::{CStr, CString};
+use std::ffi::{ CStr, CString };
+
 use std::error::Error;
+use std::io::Write;
+
 
 // Configuration constants
 const BASE_PATH: &str = "./test";
@@ -16,7 +23,7 @@ const SPRINTF_BUFFER_SIZE: usize = 256;
 pub extern "C" fn rusty_sin(x: f64) -> f64 {
 	let result = x.sin();
 
-	println!("[DEBUG] called: rusty_sin(x: {}) -> {}", x, result);
+	log::debug!("function was called: rusty_sin(x: {}) -> {}", x, result);
 	result
 }
 
@@ -302,8 +309,8 @@ impl PluginInstance {
 			_ => return Err(format!("Unsupported OS: {}. Supported platforms are Windows and macOS.", os).into()),
 		};
 
-		println!("[INFO] OS Detected: {}", os);
-		println!("[INFO] Loading library: {} from {}", MODULE_NAME, module_path);
+		log::info!("OS is detected: {}", os);
+		log::info!("Loading library: {} from {}", MODULE_NAME, module_path);
 
 		// Check if the plugin file exists
 		if !std::path::Path::new(&module_path).exists() {
@@ -316,7 +323,7 @@ impl PluginInstance {
 			Container::load(&module_path)
 		}.map_err(|e| format!("Failed to load library {}: {}", module_path, e))?;
 
-		println!("[INFO] Plugin loaded successfully");
+		log::info!("Plugin was loaded successfully");
 		//* -------------------------------------------- *//
 
 
@@ -327,18 +334,18 @@ impl PluginInstance {
 		//* ---- Test ANSI callbacks ------------------- *//
 		if let Some(sin_fn) = self.ansi.sin {
 			unsafe {
-				println!("[TEST] ANSI sin(π) = {} (expected != 0)", sin_fn(std::f64::consts::PI));
+				log::debug!("[TEST] ANSI sin(π) = {} (expected != 0)", sin_fn(std::f64::consts::PI));
 			}
 		} else {
-			println!("[WARN] ANSI sin callback not set");
+			log::warn!("ANSI sin callback not set");
 		}
 		//* -------------------------------------------- *//
 
 
 		//* ---- Call entry point with PF_Cmd_ABOUT ---- *//
 		// Call Entry Point with minimal parameters first to test basic loading
-		println!("[DEBUG] OutData::my_version (before): {}", self.out_data.my_version);
-		println!("[INFO] Calling EffectMain with cmd: {:?} (PF_Cmd_ABOUT)", self.cmd);
+		log::debug!("OutData::my_version (before): {}", self.out_data.my_version);
+		log::info!("Calling EffectMain with cmd: {:?} (PF_Cmd_ABOUT)", self.cmd);
 
 		// Try with minimal viable parameters - AE plugins typically need non-null in_data and out_data
 		let result = unsafe {
@@ -352,7 +359,7 @@ impl PluginInstance {
 			)
 		};
 
-		println!("[DEBUG] EffectMain result: {}", result);
+		log::debug!("EffectMain result: {}", result);
 		//* -------------------------------------------- *//
 
 
@@ -367,21 +374,51 @@ impl PluginInstance {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-	println!("==== After Effects Plugin Loader ====");
+	println!("======== After Effects Plugin Loader ========");
+
+	//* ---- Initialize logger -------------------------- */
+	unsafe { std::env::set_var("RUST_LOG", "debug"); }
+	logger::Builder::from_default_env()
+		.format(|buffer, record| {
+			let timestamp = buffer.timestamp_micros();
+
+			let padded_level = match record.level() {
+				log::Level::Error => "<ERROR>",
+				log::Level::Warn  => "<WARN> ",
+				log::Level::Info  => "<INFO> ",
+				log::Level::Debug => "<DEBUG>",
+				log::Level::Trace => "<TRACE>",
+			};
+
+			writeln!(
+				buffer,
+				"[{timestamp}] {padded_level} {args} - {file}:{line}",
+				args = record.args(),
+				file = record.file().unwrap_or("unknown"),
+				line = record.line().unwrap_or(0)
+			)
+		})
+		.init();
+
+	log::error!("This is an error message");
+	log::warn!("This is a warning message");
+	log::info!("This is an info message");
+	log::debug!("This is a debug message");
+	//* ------------------------------------------------- */
 
 	let mut instance = PluginInstance::new();
 
 	match instance.call_plugin() {
 		Ok(()) => {
-			println!("[SUCCESS] Plugin executed successfully!");
+			log::info!("SUCCESS! Plugin executed successfully!");
 		},
 
 		Err(e) => {
-			eprintln!("[ERROR] Failed to execute plugin: {}", e);
+			eprintln!("ERROR! Failed to execute plugin: {}", e);
 			return Err(e);
 		}
 	}
 
-	println!("==== Execution completed ====");
+	println!("======== Execution completed ========");
 	Ok(())
 }
