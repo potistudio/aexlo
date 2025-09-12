@@ -376,6 +376,10 @@ impl PluginInstance {
 fn main() -> Result<(), Box<dyn Error>> {
 	println!("======== After Effects Plugin Loader ========");
 
+	let standard_font = figlet_rs::FIGfont::standard().unwrap();
+	let figure = standard_font.convert("aexlo-rs");
+	println!("{}", figure.unwrap());
+
 	//* ---- Initialize logger -------------------------- */
 	unsafe { std::env::set_var("RUST_LOG", "debug"); }
 	logger::Builder::from_default_env()
