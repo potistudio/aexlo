@@ -10,6 +10,8 @@ extern crate env_logger as logger;
 use dlopen::wrapper::{ Container, WrapperApi };
 use std::ffi::{ CStr, CString };
 
+use colored::Colorize;
+
 use std::error::Error;
 use std::io::Write;
 
@@ -19,13 +21,81 @@ const BASE_PATH: &str = "./test";
 const MODULE_NAME: &str = "SDK_Noise";
 const SPRINTF_BUFFER_SIZE: usize = 256;
 
-// Export C functions for After Effects callbacks
+pub struct DiagnosticBuilder {
+	level: log::Level,
+	message: String,
+	file: &'static str,
+	line: u32,
+	args: Vec<(String, f64)>,
+	result: Option<f64>,
+}
+
+impl DiagnosticBuilder {
+	fn new(
+		level: log::Level,
+		message: String,
+		file: &'static str,
+		line: u32,
+		args: Vec<(String, f64)>,
+		result: Option<f64>,
+	) -> Self {
+		Self { level, message, file, line, args, result }
+	}
+
+	fn from_default() -> Self {
+		Self {
+			level: log::Level::Debug,
+			message: String::new(),
+			file: "unknown",
+			line: 0,
+			args: Vec::new(),
+			result: None,
+		}
+	}
+
+	fn add_arg(mut self, name: &str, value: f64) -> Self {
+		self.args.push((name.to_string(), value));
+		self
+	}
+
+	fn set_result(mut self, _result: f64) -> Self {
+		self.result = Some(_result);
+		self
+	}
+
+	fn emit(&self) {
+		let timestamp = chrono::Utc::now().format("%H:%M:%S%.6f").to_string();
+		let padded_level = match self.level {
+			log::Level::Error => "<ERROR>".red().bold(),
+			log::Level::Warn  => "<WARN> ".yellow().bold(),
+			log::Level::Info  => "<INFO> ".blue().bold(),
+			log::Level::Debug => "<DEBUG>".green().bold(),
+			log::Level::Trace => "<TRACE>".white().bold(),
+		};
+
+		println!(
+			"[{timestamp}] {padded_level} {message}",
+			message = "function has called".white().bold()
+		);
+		println!("{}[ {} ]", "  ╭─", "InData/utils/ansi/sin");
+		println!("{}{}: {}", "  │   ", self.args[0].0, self.args[0].1.to_string().yellow());
+		println!("{}", "  ◇".to_string().blue());
+		println!("{} {}", "  ╰─►", self.result.unwrap_or(0.0).to_string().yellow());
+	}
+}
+
+
 pub extern "C" fn rusty_sin(x: f64) -> f64 {
 	let result = x.sin();
 
-	log::debug!("function was called: rusty_sin(x: {}) -> {}", x, result);
+	DiagnosticBuilder::from_default()
+		.add_arg("x", x)
+		.set_result(result)
+		.emit();
+
 	result
 }
+
 
 pub unsafe extern "C" fn rusty_sprintf(
 	arg1: *mut after_effects_sys::A_char,
@@ -103,6 +173,19 @@ pub unsafe extern "C" fn rusty_sprintf(
 			*((arg1 as *mut u8).add(SPRINTF_BUFFER_SIZE - 1)) = 0;
 		}
 	}
+
+	println!(
+		"[{timestamp}] {level}{message}",
+		timestamp = chrono::Utc::now().format("%H:%M:%S%.6f").to_string(),
+		level = "DEBUG".blue().bold(),
+		message = ": function has called".white().bold()
+	);
+	println!("{}[{name}]", "  ╭─", name = "InData/utils/ansi/sprintf");
+	println!("{} arg1: [buffer of size {size}]", "  │   ", size = SPRINTF_BUFFER_SIZE);
+	println!("{} arg2: \"Hello from {}! Number: %d, String: %s\"", "  │   ", MODULE_NAME);
+	println!("{} arg3: 42", "  │   ");
+	println!("{} arg4: \"Test String\"", "  │   ");
+	println!("{}", "──╯  ");
 
 	after_effects_sys::PF_Err_NONE as i32
 }
@@ -387,11 +470,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 			let timestamp = buffer.timestamp_micros();
 
 			let padded_level = match record.level() {
-				log::Level::Error => "<ERROR>",
-				log::Level::Warn  => "<WARN> ",
-				log::Level::Info  => "<INFO> ",
-				log::Level::Debug => "<DEBUG>",
-				log::Level::Trace => "<TRACE>",
+				log::Level::Error => "<ERROR>".red().bold(),
+				log::Level::Warn  => "<WARN> ".yellow().bold(),
+				log::Level::Info  => "<INFO> ".blue().bold(),
+				log::Level::Debug => "<DEBUG>".green().bold(),
+				log::Level::Trace => "<TRACE>".white().bold(),
 			};
 
 			writeln!(
