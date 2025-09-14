@@ -3,6 +3,13 @@ name = "aexlo-rs"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+all = [
+	"diagnostics"
+]
+
+diagnostics = []
+
 [dependencies]
 after-effects-sys = "0.2.1"
 chrono = "0.4.42"

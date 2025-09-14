@@ -63,7 +63,8 @@ impl DiagnosticBuilder {
 		self
 	}
 
-	fn emit(&self) {
+	#[cfg(feature = "diagnostics")]
+	fn emit(self) {
 		let timestamp = chrono::Utc::now().format("%H:%M:%S%.6f").to_string();
 		let padded_level = match self.level {
 			log::Level::Error => "<ERROR>".red().bold(),
@@ -82,6 +83,10 @@ impl DiagnosticBuilder {
 		println!("{}", "  ◇".to_string().blue());
 		println!("{} {}", "  ╰─►", self.result.unwrap_or(0.0).to_string().yellow());
 	}
+
+	#[cfg(not(feature = "diagnostics"))]
+	#[inline(always)]
+	fn emit(self) {	}
 }
 
 

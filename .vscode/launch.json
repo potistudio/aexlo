@@ -9,7 +9,8 @@
 				"args": [
 					"build",
 					"--bin=aexlo-rs",
-					"--package=aexlo-rs"
+					"--package=aexlo-rs",
+					"--all-features"
 				],
 				"filter": {
 					"name": "aexlo-rs",
