@@ -22,39 +22,38 @@ const MODULE_NAME: &str = "SDK_Noise";
 const SPRINTF_BUFFER_SIZE: usize = 256;
 
 pub struct DiagnosticBuilder {
-	level: log::Level,
+	name: String,
 	message: String,
-	file: &'static str,
-	line: u32,
-	args: Vec<(String, f64)>,
+	args: Vec<(String, String)>,
 	result: Option<f64>,
 }
 
 impl DiagnosticBuilder {
 	fn new(
-		level: log::Level,
+		name: String,
 		message: String,
-		file: &'static str,
-		line: u32,
-		args: Vec<(String, f64)>,
+		args: Vec<(String, String)>,
 		result: Option<f64>,
 	) -> Self {
-		Self { level, message, file, line, args, result }
+		Self { name, message, args, result }
 	}
 
 	fn from_default() -> Self {
 		Self {
-			level: log::Level::Debug,
+			name: String::new(),
 			message: String::new(),
-			file: "unknown",
-			line: 0,
 			args: Vec::new(),
 			result: None,
 		}
 	}
 
-	fn add_arg(mut self, name: &str, value: f64) -> Self {
+	fn add_arg(mut self, name: &str, value: String) -> Self {
 		self.args.push((name.to_string(), value));
+		self
+	}
+
+	fn set_name(mut self, _name: &str) -> Self {
+		self.name = _name.to_string();
 		self
 	}
 
@@ -66,22 +65,17 @@ impl DiagnosticBuilder {
 	#[cfg(feature = "diagnostics")]
 	fn emit(self) {
 		let timestamp = chrono::Utc::now().format("%H:%M:%S%.6f").to_string();
-		let padded_level = match self.level {
-			log::Level::Error => "<ERROR>".red().bold(),
-			log::Level::Warn  => "<WARN> ".yellow().bold(),
-			log::Level::Info  => "<INFO> ".blue().bold(),
-			log::Level::Debug => "<DEBUG>".green().bold(),
-			log::Level::Trace => "<TRACE>".white().bold(),
-		};
+		let level = "<DEBUG>".green().bold();
+		let message = "function has called".white().bold();
 
-		println!(
-			"[{timestamp}] {padded_level} {message}",
-			message = "function has called".white().bold()
-		);
-		println!("{}[ {} ]", "  ╭─", "InData/utils/ansi/sin");
-		println!("{}{}: {}", "  │   ", self.args[0].0, self.args[0].1.to_string().yellow());
+		println!("[{timestamp}] {level} {message}");
+		println!("{}[ {} ]", "  ╭─", self.name);
+		for (arg_name, arg_value) in &self.args {
+			println!("{}{}: {}", "  │   ", arg_name, arg_value.to_string().yellow());
+		}
 		println!("{}", "  ◇".to_string().blue());
 		println!("{} {}", "  ╰─►", self.result.unwrap_or(0.0).to_string().yellow());
+		println!("");
 	}
 
 	#[cfg(not(feature = "diagnostics"))]
@@ -94,7 +88,8 @@ pub extern "C" fn rusty_sin(x: f64) -> f64 {
 	let result = x.sin();
 
 	DiagnosticBuilder::from_default()
-		.add_arg("x", x)
+		.set_name("InData/utils/ansi/sin")
+		.add_arg("x", format!("{}", x))
 		.set_result(result)
 		.emit();
 
@@ -191,6 +186,13 @@ pub unsafe extern "C" fn rusty_sprintf(
 	println!("{} arg3: 42", "  │   ");
 	println!("{} arg4: \"Test String\"", "  │   ");
 	println!("{}", "──╯  ");
+
+	DiagnosticBuilder::from_default()
+		.set_name("InData/utils/ansi/sin")
+		.add_arg("arg1", format!("{:?}", format_str))
+		// .add_arg("arg2", "")
+		// .set_result(format!("{:?}", c_result))
+		.emit();
 
 	after_effects_sys::PF_Err_NONE as i32
 }
@@ -438,7 +440,7 @@ impl PluginInstance {
 		// Try with minimal viable parameters - AE plugins typically need non-null in_data and out_data
 		let result = unsafe {
 			container.EffectMain(
-				after_effects_sys::PF_Cmd_ABOUT as i32, // Use ABOUT command which is the safest
+				after_effects_sys::PF_Cmd_GLOBAL_SETUP as i32, // Use ABOUT command which is the safest
 				&mut self.in_data,
 				&mut self.out_data,
 				std::ptr::null_mut(), // params - can be null for ABOUT
@@ -447,6 +449,7 @@ impl PluginInstance {
 			)
 		};
 
+		log::debug!("OutData::my_version (after): {}", self.out_data.my_version);
 		log::debug!("EffectMain result: {}", result);
 		//* -------------------------------------------- *//
 
@@ -462,11 +465,19 @@ impl PluginInstance {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-	println!("======== After Effects Plugin Loader ========");
+	println!("");
+	println!("========  {name} --- After Effects Plugin Loader  ========", name = "aexlo-rs".bold());
 
-	let standard_font = figlet_rs::FIGfont::standard().unwrap();
-	let figure = standard_font.convert("aexlo-rs");
-	println!("{}", figure.unwrap());
+	println!("________  _______      ___    ___ ___       ________                 ________  ________");
+	println!("|\\   __  \\|\\  ___ \\    |\\  \\  /  /|\\  \\     |\\   __  \\               |\\   __  \\|\\   ____\\");
+	println!("\\ \\  \\|\\  \\ \\   __/|   \\ \\  \\/  / | \\  \\    \\ \\  \\|\\  \\  ____________\\ \\  \\|\\  \\ \\  \\___|_");
+	println!(" \\ \\   __  \\ \\  \\_|/__  \\ \\    / / \\ \\  \\    \\ \\  \\\\\\  \\|\\____________\\ \\   _  _\\ \\_____  \\");
+	println!("  \\ \\  \\ \\  \\ \\  \\_|\\ \\  /     \\/   \\ \\  \\____\\ \\  \\\\\\  \\|____________|\\ \\  \\\\  \\\\|____|\\  \\");
+	println!("   \\ \\__\\ \\__\\ \\_______\\/  /\\   \\    \\ \\_______\\ \\_______\\              \\ \\__\\\\ _\\ ____\\_\\  \\");
+	println!("    \\|__|\\|__|\\|_______/__/ /\\ __\\    \\|_______|\\|_______|               \\|__|\\|__|\\_________\\");
+	println!("                       |__|/ \\|__|                                                \\|_________|");
+	println!("");
+
 
 	//* ---- Initialize logger -------------------------- */
 	unsafe { std::env::set_var("RUST_LOG", "debug"); }
@@ -497,6 +508,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	log::info!("This is an info message");
 	log::debug!("This is a debug message");
 	//* ------------------------------------------------- */
+
 
 	let mut instance = PluginInstance::new();
 
