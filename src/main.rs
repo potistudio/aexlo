@@ -8,6 +8,7 @@ extern crate env_logger as logger;
 
 
 use dlopen::wrapper::{ Container, WrapperApi };
+use core::time;
 use std::ffi::{ CStr, CString };
 
 use colored::Colorize;
@@ -470,7 +471,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	unsafe { std::env::set_var("RUST_LOG", "debug"); }
 	logger::Builder::from_default_env()
 		.format(|buffer, record| {
-			let timestamp = buffer.timestamp_micros();
+			let timestamp = chrono::Utc::now().format("%H:%M:%S%.6f").to_string();
 
 			let padded_level = match record.level() {
 				log::Level::Error => "<ERROR>".red().bold(),
