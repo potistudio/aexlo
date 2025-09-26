@@ -25,20 +25,11 @@ pub struct DiagnosticBuilder {
 	name: String,
 	message: String,
 	args: Vec<(String, String)>,
-	result: Option<f64>,
+	result: Option<String>,
 }
 
 impl DiagnosticBuilder {
-	fn new(
-		name: String,
-		message: String,
-		args: Vec<(String, String)>,
-		result: Option<f64>,
-	) -> Self {
-		Self { name, message, args, result }
-	}
-
-	fn from_default() -> Self {
+	pub fn new() -> Self {
 		Self {
 			name: String::new(),
 			message: String::new(),
@@ -47,34 +38,42 @@ impl DiagnosticBuilder {
 		}
 	}
 
-	fn add_arg(mut self, name: &str, value: String) -> Self {
-		self.args.push((name.to_string(), value));
+	pub fn add_arg(&mut self, name: impl Into<String>, value: impl ToString) -> &mut Self {
+		self.args.push((name.into(), value.to_string()));
 		self
 	}
 
-	fn set_name(mut self, _name: &str) -> Self {
-		self.name = _name.to_string();
+	pub fn set_name(&mut self, name: impl Into<String>) -> &mut Self {
+		self.name = name.into();
 		self
 	}
 
-	fn set_result(mut self, _result: f64) -> Self {
-		self.result = Some(_result);
+	pub fn set_result(&mut self, result: impl ToString) -> &mut Self {
+		self.result = Some(result.to_string());
 		self
 	}
 
 	#[cfg(feature = "diagnostics")]
-	fn emit(self) {
+	pub fn emit(&mut self) {
 		let timestamp = chrono::Utc::now().format("%H:%M:%S%.6f").to_string();
 		let level = "<DEBUG>".green().bold();
 		let message = "function has called".white().bold();
 
+		let DiagnosticBuilder { name, args, result, .. } = self;
+
 		println!("[{timestamp}] {level} {message}");
-		println!("{}[ {} ]", "  ╭─", self.name);
-		for (arg_name, arg_value) in &self.args {
-			println!("{}{}: {}", "  │   ", arg_name, arg_value.to_string().yellow());
+		println!("{}[ {} ]", "  ╭─", name);
+
+		for (arg_name, arg_value) in args {
+			println!("{}{}: {}", "  │   ", arg_name, arg_value.yellow());
 		}
-		println!("{}", "  ◇".to_string().blue());
-		println!("{} {}", "  ╰─►", self.result.unwrap_or(0.0).to_string().yellow());
+
+		println!("{}", "  ◇".blue());
+
+		if let Some(x) = result {
+			println!("{} {}", "  ╰─►", x.yellow());
+		}
+
 		println!("");
 	}
 
@@ -87,9 +86,9 @@ impl DiagnosticBuilder {
 pub extern "C" fn rusty_sin(x: f64) -> f64 {
 	let result = x.sin();
 
-	DiagnosticBuilder::from_default()
+	DiagnosticBuilder::new()
 		.set_name("InData/utils/ansi/sin")
-		.add_arg("x", format!("{}", x))
+		.add_arg("x", x)
 		.set_result(result)
 		.emit();
 
@@ -116,6 +115,10 @@ pub unsafe extern "C" fn rusty_sprintf(
 	let mut result = String::new();
 	let mut chars = format_str.chars().peekable();
 
+	let mut d = DiagnosticBuilder::new();
+	d.set_name("InData/utils/ansi/sin")
+		.add_arg("arg1", &format!("{:?}", format_str));
+
 	while let Some(c) = chars.next() {
 		if c == '%' {
 			if let Some(next) = chars.next() {
@@ -124,13 +127,14 @@ pub unsafe extern "C" fn rusty_sprintf(
 						// Get an integer argument
 						let arg = unsafe { args.arg::<i32>() };
 						result.push_str(&arg.to_string());
+						d.add_arg("arg", &format!("{:?}", arg));
 					},
 					's' => {
 						// Get a string argument
 						let ptr = unsafe { args.arg::<*const i8>() };
 						if !ptr.is_null() {
 							match unsafe { CStr::from_ptr(ptr) }.to_str() {
-								Ok(s) => result.push_str(s),
+								Ok(s) => { result.push_str(s); d.add_arg("arg", &format!("{:?}", s)); },
 								Err(_) => result.push_str("(invalid)"),
 							}
 						} else {
@@ -174,24 +178,7 @@ pub unsafe extern "C" fn rusty_sprintf(
 		}
 	}
 
-	println!(
-		"[{timestamp}] {level}{message}",
-		timestamp = chrono::Utc::now().format("%H:%M:%S%.6f").to_string(),
-		level = "DEBUG".blue().bold(),
-		message = ": function has called".white().bold()
-	);
-	println!("{}[{name}]", "  ╭─", name = "InData/utils/ansi/sprintf");
-	println!("{} arg1: [buffer of size {size}]", "  │   ", size = SPRINTF_BUFFER_SIZE);
-	println!("{} arg2: \"Hello from {}! Number: %d, String: %s\"", "  │   ", MODULE_NAME);
-	println!("{} arg3: 42", "  │   ");
-	println!("{} arg4: \"Test String\"", "  │   ");
-	println!("{}", "──╯  ");
-
-	DiagnosticBuilder::from_default()
-		.set_name("InData/utils/ansi/sin")
-		.add_arg("arg1", format!("{:?}", format_str))
-		// .add_arg("arg2", "")
-		// .set_result(format!("{:?}", c_result))
+	d.set_result(&format!("{:?}", c_result))
 		.emit();
 
 	after_effects_sys::PF_Err_NONE as i32
@@ -440,7 +427,7 @@ impl PluginInstance {
 		// Try with minimal viable parameters - AE plugins typically need non-null in_data and out_data
 		let result = unsafe {
 			container.EffectMain(
-				after_effects_sys::PF_Cmd_GLOBAL_SETUP as i32, // Use ABOUT command which is the safest
+				after_effects_sys::PF_Cmd_ABOUT as i32, // Use ABOUT command which is the safest
 				&mut self.in_data,
 				&mut self.out_data,
 				std::ptr::null_mut(), // params - can be null for ABOUT
@@ -503,10 +490,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 		})
 		.init();
 
-	log::error!("This is an error message");
-	log::warn!("This is a warning message");
-	log::info!("This is an info message");
-	log::debug!("This is a debug message");
+	// log::error!("This is an error message");
+	// log::warn!("This is a warning message");
+	// log::info!("This is an info message");
+	// log::debug!("This is a debug message");
 	//* ------------------------------------------------- */
 
 
