@@ -3,7 +3,19 @@ name = "aexlo-rs"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+all = [
+	"diagnostics"
+]
+
+diagnostics = []
+
 [dependencies]
 after-effects-sys = "0.2.1"
+chrono = "0.4.42"
+colored = "3.0.0"
 dlopen = "0.1.8"
 dlopen_derive = "0.1.4"
+env_logger = "0.11.8"
+figlet-rs = "0.1.5"
+log = "0.4.28"

@@ -3,6 +3,7 @@
 		"aexlo",
 		"appl",
 		"checkin",
+		"chrono",
 		"dephault",
 		"dlopen",
 		"downsample",
@@ -13,5 +14,11 @@
 		"sdata",
 		"sprintf",
 		"Unionable"
+	],
+	"editor.rulers": [
+		60,
+	],
+	"rust-analyzer.cargo.features": [
+		"all",
 	]
 }

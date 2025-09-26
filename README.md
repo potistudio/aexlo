@@ -1,4 +1,15 @@
-# aexlo
+# After Effects Plugin (.aex) Adapter Project
+
+> Adapter for rendering AE Effects **without Adobe After Effects**.
+
+## Status
+
+Work in progress. Currently, Re-implementation on Rust has just begun. If you want to see the current result, [the C++ implementation is available here](https://github.com/potistudio/aexlo.js/releases/tag/v0.1a).
+
+## Warnings
+
+- is tested only on my environment (win_x64 & macOS_arm64).
+- has no GUI, no CLI, and no Tests.
 
 ## Behavior
 
