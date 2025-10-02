@@ -10,7 +10,6 @@ use colored::Colorize;
 use aexlo::PluginInstance;
 
 //* Configuration constants */
-const BASE_PATH: &str = "./mocks";
 const MODULE_NAME: &str = "SDK_Noise";
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -58,7 +57,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 	//* ------------------------------------------------- */
 
 
-	let mut instance = PluginInstance::new(std::path::Path::new(&format!("{}/{}", BASE_PATH, MODULE_NAME)));
+	let exe_dir = std::env::current_exe().unwrap();
+	let plugin_path = exe_dir.parent().unwrap().join(MODULE_NAME);
+
+	let mut instance = PluginInstance::new(plugin_path.as_path());
 	match instance.render() {
 		Ok(()) => {
 			log::info!("SUCCESS! Plugin executed successfully!");
