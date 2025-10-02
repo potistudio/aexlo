@@ -1,29 +1,14 @@
-[package]
-name = "aexlo-rs"
-version = "0.1.0"
-edition = "2024"
-
-[features]
-all = [
-	"diagnostics"
+[workspace]
+resolver = "2"
+members = [
+	"aexlo",
+	"wrapper",
+	"examples/*",
 ]
 
-diagnostics = []
-
 [profile.release]
-opt-level = 3        # LLVMの最適化レベル最大
-lto = "fat"          # リンク時最適化。crate間最適化までやる
-codegen-units = 1    # 並列コンパイル捨ててでも最適化しやすくする
-strip = false        # デバッグシンボル削除
-panic = "abort"      # unwindを捨ててコスト削減
-
-
-[dependencies]
-after-effects-sys = "0.2.1"
-chrono = "0.4.42"
-colored = "3.0.0"
-dlopen = "0.1.8"
-dlopen_derive = "0.1.4"
-env_logger = "0.11.8"
-figlet-rs = "0.1.5"
-log = "0.4.28"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = false
+panic = "abort"

@@ -1,11 +1,11 @@
 use std::error::Error;
+use std::ffi::{ c_void, CStr, CString };
 use std::path::{ Path, PathBuf };
-use std::ptr::{null, null_mut};
-
-use crate::diagnostics::DiagnosticBuilder;
+use std::ptr::{ null_mut };
 
 use dlopen::wrapper::{ Container, WrapperApi };
-use std::ffi::{ c_void, CStr, CString };
+
+use crate::diagnostics::DiagnosticBuilder;
 
 /// Simple `atan()` function implementation
 pub extern "C" fn atan(x: f64) -> f64 {
@@ -79,7 +79,6 @@ pub extern "C" fn sin(x: f64) -> f64 {
 
 	result
 }
-
 
 pub unsafe extern "C" fn rusty_sprintf(
 	arg1: *mut after_effects_sys::A_char,
@@ -348,7 +347,7 @@ impl PluginInstance {
 			display_flags: 0,
 			fs_flags: 0,
 			curve_tolerance: 0.0,
-			useExponent: false as i8,
+			useExponent: false as u8,
 			exponent: 1.0,
 		};
 

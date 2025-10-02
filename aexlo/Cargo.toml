@@ -1,0 +1,29 @@
+[package]
+name = "aexlo"
+description = "Run After Effects plugin without Adobe dependency."
+version = "0.0.1"
+authors = [ "potistudio <potistudio@proton.me>" ]
+license = "MIT"
+repository = "https://github.com/potistudio/aexlo-rs"
+keywords = [ "after-effects", "graphics", "emulator" ]
+readme = "README.md"
+resolver = "2"
+edition = "2024"
+
+[features]
+all = [
+	"diagnostics"
+]
+default = [ ]
+
+diagnostics = [ ]
+
+[dependencies]
+wrapper = { path = "../wrapper" }
+after-effects-sys = "0.2.1"
+chrono = "0.4.42"
+colored = "3.0.0"
+dlopen = "0.1.8"
+dlopen_derive = "0.1.4"
+env_logger = "0.11.8"
+log = "0.4.28"

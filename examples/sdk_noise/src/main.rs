@@ -1,8 +1,3 @@
-#![feature(c_variadic)]
-
-#[macro_use]
-extern crate dlopen_derive;
-
 extern crate env_logger as logger;
 extern crate log;
 
@@ -11,13 +6,12 @@ use std::io::Write;
 
 use colored::Colorize;
 
-mod diagnostics;
-mod plugin_instance;
-pub use plugin_instance::PluginInstance;
+// pub use aex::plugin_instance::PluginInstance;
+use aexlo::PluginInstance;
 
 //* Configuration constants */
-const BASE_PATH: &str = "./test";
-const MODULE_NAME: &str = "nothing";
+const BASE_PATH: &str = "./mocks";
+const MODULE_NAME: &str = "SDK_Noise";
 
 fn main() -> Result<(), Box<dyn Error>> {
 	println!("");
