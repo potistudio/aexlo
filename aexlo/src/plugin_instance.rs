@@ -193,7 +193,7 @@ pub unsafe extern "C" fn acquire_suite(
 #[allow(non_snake_case)]
 pub struct EffectMain {
 	EffectMain: unsafe extern "C" fn (
-		cmd:      after_effects_sys::PF_Cmd,
+		cmd:      after_effects::RawCommand,
 		in_data:  *mut after_effects_sys::PF_InData,
 		out_data: *mut after_effects_sys::PF_OutData,
 		params:   after_effects_sys::PF_ParamList,
@@ -204,7 +204,7 @@ pub struct EffectMain {
 
 pub struct PluginInstance {
 	path: PathBuf,
-	cmd: after_effects_sys::PF_Cmd,
+	cmd: after_effects::RawCommand,
 	ansi: after_effects_sys::PF_ANSICallbacks,
 	utility_callbacks: after_effects_sys::_PF_UtilCallbacks,
 	pica: after_effects_sys::SPBasicSuite,
@@ -389,7 +389,7 @@ impl PluginInstance {
 		// Initialize InData
 		let mut instance = PluginInstance {
 			path: path.to_path_buf(),
-			cmd: after_effects_sys::PF_Cmd_ABOUT as i32,
+			cmd: after_effects::RawCommand::About,
 			ansi,
 			utility_callbacks,
 			pica: pica,
@@ -561,7 +561,7 @@ impl PluginInstance {
 	}
 
 	pub fn render(&mut self) -> Result<(), Box<dyn Error>> {
-		self.cmd = after_effects_sys::PF_Cmd_RENDER as i32;
+		self.cmd = after_effects::RawCommand::Render;
 
 		log::info!("Calling EffectMain with cmd: {:?} (PF_Cmd_RENDER)", self.cmd);
 

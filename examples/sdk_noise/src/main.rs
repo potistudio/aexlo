@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let plugin_path = exe_dir.parent().unwrap().join(MODULE_NAME);
 
 	let mut instance = PluginInstance::new(plugin_path.as_path());
-	match instance.render() {
+	match instance.call_plugin() {
 		Ok(()) => {
 			log::info!("SUCCESS! Plugin executed successfully!");
 		},
