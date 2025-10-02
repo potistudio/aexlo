@@ -1,14 +1,76 @@
 use std::error::Error;
 use std::path::{ Path, PathBuf };
+use std::ptr::{null, null_mut};
 
 use crate::diagnostics::DiagnosticBuilder;
 
 use dlopen::wrapper::{ Container, WrapperApi };
-use std::ffi::{ CStr, CString };
+use std::ffi::{ c_void, CStr, CString };
 
-pub extern "C" fn rusty_sin(x: f64) -> f64 {
+/// Simple `atan()` function implementation
+pub extern "C" fn atan(x: f64) -> f64 {
+	let result = x.atan();
+
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
+		.set_name("InData/utils/ansi/atan")
+		.add_arg("x", x)
+		.set_result(result)
+		.emit();
+
+	result
+}
+
+/// Simple `atan2()` function implementation
+pub extern "C" fn atan2(y: f64, x: f64) -> f64 {
+	let result = y.atan2(x);
+
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
+		.set_name("InData/utils/ansi/atan2")
+		.add_arg("y", y)
+		.add_arg("x", x)
+		.set_result(result)
+		.emit();
+
+	result
+}
+
+/// Simple `ceil()` function implementation
+pub extern "C" fn ceil(x: f64) -> f64 {
+	let result = x.ceil();
+
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
+		.set_name("InData/utils/ansi/ceil")
+		.add_arg("x", x)
+		.set_result(result)
+		.emit();
+
+	result
+}
+
+/// Simple `cos()` function implementation
+#[inline(always)]
+pub extern "C" fn cos(x: f64) -> f64 {
+	let result = x.cos();
+
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
+		.set_name("InData/utils/ansi/cos")
+		.add_arg("x", x)
+		.set_result(result)
+		.emit();
+
+	result
+}
+
+/// Simple `sin()` function implementation
+#[inline(always)]
+pub extern "C" fn sin(x: f64) -> f64 {
 	let result = x.sin();
 
+	#[cfg(feature = "diagnostics")]
 	DiagnosticBuilder::new()
 		.set_name("InData/utils/ansi/sin")
 		.add_arg("x", x)
@@ -109,6 +171,22 @@ pub unsafe extern "C" fn rusty_sprintf(
 	after_effects_sys::PF_Err_NONE as i32
 }
 
+pub unsafe extern "C" fn acquire_suite(
+	name: *const i8,
+	version: i32,
+	suite: *mut *const c_void
+) -> i32 {
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
+		.set_name("SPBasicSuite/AcquireSuite")
+		.add_arg("name", &format!("{:?}", unsafe{ CStr::from_ptr(name) }))
+		.add_arg("version", version)
+		.add_arg("suite", &format!("{:?}", suite))
+		.emit();
+
+	after_effects_sys::PF_Err_NONE as i32
+}
+
 
 // Wrapper for After Effects plugin entry point
 // Note: EffectMain naming is required by the C API and cannot be changed
@@ -130,8 +208,11 @@ pub struct PluginInstance {
 	cmd: after_effects_sys::PF_Cmd,
 	ansi: after_effects_sys::PF_ANSICallbacks,
 	utility_callbacks: after_effects_sys::_PF_UtilCallbacks,
+	pica: after_effects_sys::SPBasicSuite,
 	in_data: after_effects_sys::PF_InData,
 	out_data: after_effects_sys::PF_OutData,
+	params: Vec<after_effects_sys::PF_ParamDef>,
+	layer: after_effects_sys::PF_LayerDef,
 }
 
 impl PluginInstance {
@@ -152,10 +233,10 @@ impl PluginInstance {
 		};
 
 		let ansi = after_effects_sys::PF_ANSICallbacks {
-			atan: None,
-			atan2: None,
-			ceil: None,
-			cos: None,
+			atan: Some(atan),
+			atan2: Some(atan2),
+			ceil: Some(ceil),
+			cos: Some(cos),
 			exp: None,
 			fabs: None,
 			floor: None,
@@ -164,7 +245,7 @@ impl PluginInstance {
 			log: None,
 			log10: None,
 			pow: None,
-			sin: Some(rusty_sin),
+			sin: Some(sin),
 			sqrt: None,
 			tan: None,
 			sprintf: Some(rusty_sprintf),
@@ -231,12 +312,88 @@ impl PluginInstance {
 			reserved: [0; 1],
 		};
 
+		let ld = after_effects_sys::PF_LayerDef {
+			reserved0: null_mut(),
+			reserved1: null_mut(),
+			world_flags: 0 as after_effects_sys::PF_WorldFlags,
+			data: null_mut(),
+			rowbytes: 0,
+			width: 0,
+			height: 0,
+			extent_hint: after_effects_sys::PF_UnionableRect { left: 0, top: 0, right: 0, bottom: 0 },
+			platform_ref: null_mut(),
+			reserved_long1: 0,
+			reserved_long4: null_mut(),
+			pix_aspect_ratio: after_effects_sys::PF_RationalScale { num: 1, den: 1 }, // Fixed: den should not be 0
+			reserved_long2: null_mut(),
+			origin_x: 0,
+			origin_y: 0,
+			reserved_long3: 0,
+			dephault: 0,
+		};
+
+		let fs_d = after_effects_sys::PF_FloatSliderDef {
+			//* Parameter Value */
+			value: 100.0,
+			phase: 0.0,
+			value_desc: [0; 32],
+
+			//* Parameter Description */
+			valid_min: 0.0,
+			valid_max: 1000.0,
+			slider_min: 0.0,
+			slider_max: 100.0,
+			dephault: 100.0,
+			precision: 2,
+			display_flags: 0,
+			fs_flags: 0,
+			curve_tolerance: 0.0,
+			useExponent: false as i8,
+			exponent: 1.0,
+		};
+
+		let param_list = vec![
+			after_effects_sys::PF_ParamDef {
+				ui_flags: 0,
+				flags: 0,
+				param_type: 10 as after_effects_sys::PF_ParamType,  // Float Slider,
+				name: [0; 32],
+				ui_height: 0,
+				ui_width: 0,
+				unused: 0,
+				u: after_effects_sys::PF_ParamDefUnion { ld },
+				uu: after_effects_sys::PF_ParamDef__bindgen_ty_1 { id: 0 },
+			},
+			after_effects_sys::PF_ParamDef {
+				ui_flags: 0,
+				flags: 0,
+				param_type: 10 as after_effects_sys::PF_ParamType,  // Float Slider,
+				name: [0; 32],
+				ui_height: 0,
+				ui_width: 0,
+				unused: 0,
+				u: after_effects_sys::PF_ParamDefUnion { fs_d },
+				uu: after_effects_sys::PF_ParamDef__bindgen_ty_1 { id: 0 },
+			}
+		];
+
+		let pica = after_effects_sys::SPBasicSuite {
+			AcquireSuite: Some(acquire_suite),
+			ReleaseSuite: None,
+			IsEqual: None,
+			AllocateBlock: None,
+			FreeBlock: None,
+			ReallocateBlock: None,
+			Undefined: None,
+		};
+
 		// Initialize InData
 		let mut instance = PluginInstance {
 			path: path.to_path_buf(),
 			cmd: after_effects_sys::PF_Cmd_ABOUT as i32,
 			ansi,
 			utility_callbacks,
+			pica: pica,
 			in_data: after_effects_sys::PF_InData {
 				inter:           interact_callbacks,
 				utils:           std::ptr::null_mut(), // Will be set after creation
@@ -265,14 +422,14 @@ impl PluginInstance {
 				downsample_y:    after_effects_sys::PF_RationalScale { num: 1, den: 1 }, // Fixed: den should not be 0
 				pixel_aspect_ratio: after_effects_sys::PF_RationalScale { num: 1, den: 1 }, // Fixed: den should not be 0
 				in_flags:        after_effects_sys::PF_InFlag_NONE as i32,
-				global_data :    std::ptr::null_mut(),
-				sequence_data:   std::ptr::null_mut(),
-				frame_data:      std::ptr::null_mut(),
+				global_data :    null_mut(),
+				sequence_data:   null_mut(),
+				frame_data:      null_mut(),
 				start_sampL:     0,
 				dur_sampL:       0,
 				total_sampL:     0,
-				src_snd:         after_effects_sys::PF_SoundWorld { fi: after_effects_sys::PF_SoundFormatInfo { rateF: 1.0, num_channels: 2, format: 16, sample_size: 1024 }, num_samples: 1024, dataP: std::ptr::null_mut() },
-				pica_basicP:     std::ptr::null_mut(),
+				src_snd:         after_effects_sys::PF_SoundWorld { fi: after_effects_sys::PF_SoundFormatInfo { rateF: 1.0, num_channels: 2, format: 16, sample_size: 1024 }, num_samples: 1024, dataP: null_mut() },
+				pica_basicP:     null_mut(),  // Will be set to &mut instance.pica later
 				pre_effect_source_origin_x: 0,
 				pre_effect_source_origin_y: 0,
 				shutter_phase:   0
@@ -280,11 +437,11 @@ impl PluginInstance {
 			out_data: after_effects_sys::PF_OutData {
 				my_version: 0,
 				name: [0; 32],
-				global_data: std::ptr::null_mut(),
+				global_data: null_mut(),
 				num_params: 0,
-				sequence_data: std::ptr::null_mut(),
+				sequence_data: null_mut(),
 				flat_sdata_size: 0,
-				frame_data: std::ptr::null_mut(),
+				frame_data: null_mut(),
 				width: 0,
 				height: 0,
 				origin: after_effects_sys::PF_Point { h: 0, v: 0 },
@@ -292,13 +449,34 @@ impl PluginInstance {
 				return_msg: [0; 256],
 				start_sampL: 0,
 				dur_sampL: 0,
-				dest_snd: after_effects_sys::PF_SoundWorld { fi: after_effects_sys::PF_SoundFormatInfo { rateF: 44100.0, num_channels: 2, format: 16, sample_size: 1024 }, num_samples: 1024, dataP: std::ptr::null_mut() }, // Fixed: more realistic sample rate
+				dest_snd: after_effects_sys::PF_SoundWorld { fi: after_effects_sys::PF_SoundFormatInfo { rateF: 44100.0, num_channels: 2, format: 16, sample_size: 1024 }, num_samples: 1024, dataP: null_mut() }, // Fixed: more realistic sample rate
 				out_flags2: after_effects_sys::PF_OutFlag2_NONE as i32,
 			},
+			params: param_list,
+			layer: after_effects_sys::PF_LayerDef {
+				reserved0: null_mut(),
+				reserved1: null_mut(),
+				world_flags: 0 as after_effects_sys::PF_WorldFlags,
+				data: null_mut(),
+				rowbytes: 0,
+				width: 0,
+				height: 0,
+				extent_hint: after_effects_sys::PF_UnionableRect { left: 0, top: 0, right: 0, bottom: 0 },
+				platform_ref: null_mut(),
+				reserved_long1: 0,
+				reserved_long4: null_mut(),
+				pix_aspect_ratio: after_effects_sys::PF_RationalScale { num: 1, den: 1 }, // Fixed: den should not be 0
+				reserved_long2: null_mut(),
+				origin_x: 0,
+				origin_y: 0,
+				reserved_long3: 0,
+				dephault: 0,
+			}
 		};
 
 		// Now set the utils pointer to reference our owned utility_callbacks
 		instance.in_data.utils = &mut instance.utility_callbacks;
+		instance.in_data.pica_basicP = &mut instance.pica;
 
 		instance
 	}
@@ -343,11 +521,11 @@ impl PluginInstance {
 
 		//* ---- Test ANSI callbacks ------------------- *//
 		if let Some(sin_fn) = self.ansi.sin {
-			unsafe {
-				log::debug!("[TEST] ANSI sin(π) = {} (expected != 0)", sin_fn(std::f64::consts::PI));
-			}
-		} else {
-			log::warn!("ANSI sin callback not set");
+			unsafe{ log::debug!("ANSI sin(π) = {} (expected != 0)", sin_fn(std::f64::consts::PI)); }
+		}
+
+		if let Some(cos_fn) = self.ansi.cos {
+			unsafe{ log::debug!("ANSI cos(π) = {} (expected != 1)", cos_fn(std::f64::consts::PI)); }
 		}
 		//* -------------------------------------------- *//
 
@@ -360,11 +538,11 @@ impl PluginInstance {
 		// Try with minimal viable parameters - AE plugins typically need non-null in_data and out_data
 		let result = unsafe {
 			container.EffectMain(
-				after_effects_sys::PF_Cmd_ABOUT as i32, // Use ABOUT command which is the safest
+				self.cmd, // Use ABOUT command which is the safest
 				&mut self.in_data,
 				&mut self.out_data,
-				std::ptr::null_mut(), // params - can be null for ABOUT
-				std::ptr::null_mut(), // output - can be null for ABOUT
+				&mut self.params.as_mut_ptr(), // params - can be null for ABOUT
+				&mut self.layer, // output - can be null for ABOUT
 				std::ptr::null_mut()  // extra - typically null
 			)
 		};
@@ -381,5 +559,34 @@ impl PluginInstance {
 		//* -------------------------------------------- *//
 
 		Ok(())
+	}
+
+	pub fn render(&mut self) -> Result<(), Box<dyn Error>> {
+		self.cmd = after_effects_sys::PF_Cmd_RENDER as i32;
+
+		log::info!("Calling EffectMain with cmd: {:?} (PF_Cmd_RENDER)", self.cmd);
+
+		self.call_plugin()?;
+
+		Ok(())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_sin() {
+		let angle = std::f64::consts::PI / 2.0; // 90 degrees
+		let result = sin(angle);
+		assert!((result - 1.0).abs() < 1e-10, "sin(π/2) should be approximately 1.0");
+	}
+
+	#[test]
+	fn test_cos() {
+		let angle = std::f64::consts::PI; // 180 degrees
+		let result = cos(angle);
+		assert!((result + 1.0).abs() < 1e-10, "cos(π) should be approximately -1.0");
 	}
 }

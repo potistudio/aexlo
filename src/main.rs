@@ -3,8 +3,8 @@
 #[macro_use]
 extern crate dlopen_derive;
 
-extern crate log;
 extern crate env_logger as logger;
+extern crate log;
 
 use std::error::Error;
 use std::io::Write;
@@ -13,15 +13,15 @@ use colored::Colorize;
 
 mod diagnostics;
 mod plugin_instance;
-use plugin_instance::PluginInstance;
+pub use plugin_instance::PluginInstance;
 
-// Configuration constants
+//* Configuration constants */
 const BASE_PATH: &str = "./test";
-const MODULE_NAME: &str = "SDK_Noise";
+const MODULE_NAME: &str = "nothing";
 
 fn main() -> Result<(), Box<dyn Error>> {
 	println!("");
-	println!("========  {name} --- After Effects Plugin Loader  ========", name = "aexlo-rs".bold());
+	println!("========  {} --- After Effects Plugin Loader  ========", "aexlo-rs".bold());
 	println!("________  _______      ___    ___ ___       ________                 ________  ________");
 	println!("|\\   __  \\|\\  ___ \\    |\\  \\  /  /|\\  \\     |\\   __  \\               |\\   __  \\|\\   ____\\");
 	println!("\\ \\  \\|\\  \\ \\   __/|   \\ \\  \\/  / | \\  \\    \\ \\  \\|\\  \\  ____________\\ \\  \\|\\  \\ \\  \\___|_");
@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 
 	//* ---- Initialize logger -------------------------- */
-	unsafe { std::env::set_var("RUST_LOG", "debug"); }
+	unsafe{ std::env::set_var("RUST_LOG", "debug"); }
 	logger::Builder::from_default_env()
 		.format(|buffer, record| {
 			let timestamp = chrono::Utc::now().format("%H:%M:%S%.6f").to_string();
@@ -65,8 +65,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 
 	let mut instance = PluginInstance::new(std::path::Path::new(&format!("{}/{}", BASE_PATH, MODULE_NAME)));
-
-	match instance.call_plugin() {
+	match instance.render() {
 		Ok(()) => {
 			log::info!("SUCCESS! Plugin executed successfully!");
 		},
