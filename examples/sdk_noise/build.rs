@@ -4,7 +4,6 @@ use std::path::PathBuf;
 fn main() {
 	let manifest = var("CARGO_MANIFEST_DIR").unwrap();  // path to Cargo.toml
 	let target   = var("CARGO_CFG_TARGET_OS").unwrap();  // windows, macos, etc.
-	let profile  = var("PROFILE").unwrap();  // debug or release
 
 	let mock_dir = match target.as_str() {
 		"windows" => PathBuf::from(&manifest).join("tests/mocks/windows"),
@@ -20,7 +19,7 @@ fn main() {
 		let src   = entry.path();
 
 		if src.is_file() {
-			std::fs::copy(&src, &dest.join(src.file_name().unwrap())).unwrap();
+			std::fs::copy(&src, dest.join(src.file_name().unwrap())).unwrap();
 		} else if src.is_dir() {
 			copy_dir_all(&src, &dest.join(src.file_name().unwrap())).unwrap();
 		} else {
