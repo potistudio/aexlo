@@ -186,9 +186,9 @@ pub unsafe extern "C" fn acquire_suite(
 	#[cfg(feature = "diagnostics")]
 	DiagnosticBuilder::new()
 		.set_name("SPBasicSuite/AcquireSuite")
-		.add_arg("name", format!("{:?}", unsafe{ CStr::from_ptr(_name) }))
-		.add_arg("version", _version)
-		.add_arg("suite", format!("{:?}", _suite))
+		.add_arg("name", format!("{:?}", unsafe{ CStr::from_ptr(name) }))
+		.add_arg("version", version)
+		.add_arg("suite", format!("{:?}", suite))
 		.emit();
 
 	after_effects_sys::PF_Err_NONE
