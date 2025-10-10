@@ -59,8 +59,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 	// log::info!("This is an info message");
 	// log::debug!("This is a debug message");
 	//* ------------------------------------------------- */
-	let exe_dir = std::env::current_exe().unwrap();
-	let plugin_path = exe_dir.parent().unwrap().join(MODULE_NAME);
+	let exe_dir = std::env::current_exe()..expect("Failed to get current executable path");
+	let plugin_path = exe_dir.parent().expect("Failed to get parent directory of executable").join(MODULE_NAME);
 
 	let mut instance = PluginInstance::new(plugin_path.as_path());
 	match instance.call_plugin() {

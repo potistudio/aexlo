@@ -2,8 +2,8 @@ use std::env::var;
 use std::path::PathBuf;
 
 fn main() {
-	let manifest = var("CARGO_MANIFEST_DIR").unwrap(); // path to Cargo.toml
-	let target = var("CARGO_CFG_TARGET_OS").unwrap(); // windows, macos, etc.
+	let manifest = var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR env var is not set."); // path to Cargo.toml
+	let target = var("CARGO_CFG_TARGET_OS").expect("CARGO_CFG_TARGET_OS env var is not set."); // windows, macos, etc.
 
 	let mock_dir = match target.as_str() {
 		"windows" => PathBuf::from(&manifest).join("tests/mocks/windows"),
@@ -11,10 +11,10 @@ fn main() {
 		_ => return,
 	};
 
-	let out_dir = var("OUT_DIR").unwrap(); // path to target/debug/build/<>/out
+	let out_dir = var("OUT_DIR").expect("OUT_DIR env var is not set."); // path to target/debug/build/<>/out
 	let dest = PathBuf::from(&out_dir).join("../../../"); // target/debug or target/release
 
-	for entry in std::fs::read_dir(mock_dir).unwrap() {
+	for entry in std::fs::read_dir(mock_dir).expect("mock_dir does not exist or is not a directory.") {
 		let entry = entry.unwrap();
 		let src = entry.path();
 
