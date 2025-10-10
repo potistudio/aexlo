@@ -1,0 +1,3 @@
+[package]
+name = "wrapper"
+edition = "2024"

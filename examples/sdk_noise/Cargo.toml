@@ -1,0 +1,16 @@
+[package]
+name = "sdk_noise"
+edition = "2024"
+
+[features]
+default = [ ]
+diagnostics = [ "aexlo/diagnostics" ]
+
+[dependencies]
+aexlo = { path = "../../aexlo" }
+chrono = "0.4.42"
+colored = "3.0.0"
+dlopen = "0.1.8"
+dlopen_derive = "0.1.4"
+env_logger = "0.11.8"
+log = "0.4.28"

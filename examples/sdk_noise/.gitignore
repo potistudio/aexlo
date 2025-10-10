@@ -1,0 +1,2 @@
+tests/mocks/*
+!SDK_Noise.*

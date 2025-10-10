@@ -1,6 +1,6 @@
-/target
-/dll
-/plugins
+# Build artifacts
+target/
 
-# macOS
+# macOS system files
 .DS_Store
+Thumbs.db
