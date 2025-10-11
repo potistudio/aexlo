@@ -3,7 +3,9 @@ name = "sdk_noise"
 edition = "2024"
 
 [features]
-default = [ ]
+all = [ "default" ]
+min = [ ]
+default = [ "diagnostics" ]
 diagnostics = [ "aexlo/diagnostics" ]
 
 [dependencies]

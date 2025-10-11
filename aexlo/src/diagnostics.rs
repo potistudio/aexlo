@@ -1,5 +1,6 @@
 use colored::Colorize;
 
+/// Diagnostic builder for logging function calls and their arguments/results
 pub struct DiagnosticBuilder {
 	name: String,
 	// message: String,
@@ -8,6 +9,7 @@ pub struct DiagnosticBuilder {
 }
 
 impl DiagnosticBuilder {
+	/// Create a new DiagnosticBuilder instance
 	pub fn new() -> Self {
 		Self {
 			name: String::new(),
@@ -17,21 +19,25 @@ impl DiagnosticBuilder {
 		}
 	}
 
+	/// Add an argument to the diagnostic
 	pub fn add_arg(&mut self, name: impl Into<String>, value: impl ToString) -> &mut Self {
 		self.args.push((name.into(), value.to_string()));
 		self
 	}
 
+	/// Set the name of the function being diagnosed
 	pub fn set_name(&mut self, name: impl Into<String>) -> &mut Self {
 		self.name = name.into();
 		self
 	}
 
+	/// Set the result of the function being diagnosed
 	pub fn set_result(&mut self, result: impl ToString) -> &mut Self {
 		self.result = Some(result.to_string());
 		self
 	}
 
+	/// Emit the diagnostic log
 	#[cfg(feature = "diagnostics")]
 	pub fn emit(&mut self) {
 		let timestamp = chrono::Utc::now().format("%H:%M:%S%.6f").to_string();
@@ -55,7 +61,7 @@ impl DiagnosticBuilder {
 			println!("  ╰─► {}", x.yellow());
 		}
 
-		println!("");
+		println!();
 	}
 
 	#[cfg(not(feature = "diagnostics"))]

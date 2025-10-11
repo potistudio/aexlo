@@ -1,9 +1,10 @@
 use std::error::Error;
-use std::ffi::{ c_void, CStr, CString };
-use std::path::{ Path, PathBuf };
-use std::ptr::{ null_mut };
+use std::ffi::{CStr, CString, c_void};
+use std::path::{Path, PathBuf};
+use std::ptr::null_mut;
 
-use dlopen::wrapper::{ Container, WrapperApi };
+use after_effects_sys::*;
+use dlopen::wrapper::{Container, WrapperApi};
 
 use crate::diagnostics::DiagnosticBuilder;
 
@@ -119,22 +120,25 @@ pub unsafe extern "C" fn rusty_sprintf(
 						let arg = unsafe { args.arg::<i32>() };
 						result.push_str(&arg.to_string());
 						d.add_arg("arg", format!("{:?}", arg));
-					},
+					}
 					's' => {
 						// Get a string argument
 						let ptr = unsafe { args.arg::<*const i8>() };
 						if !ptr.is_null() {
 							match unsafe { CStr::from_ptr(ptr) }.to_str() {
-								Ok(s) => { result.push_str(s); d.add_arg("arg", format!("{:?}", s)); },
+								Ok(s) => {
+									result.push_str(s);
+									d.add_arg("arg", format!("{:?}", s));
+								}
 								Err(_) => result.push_str("(invalid)"),
 							}
 						} else {
 							result.push_str("(null)");
 						}
-					},
+					}
 					'%' => {
 						result.push('%');
-					},
+					}
 					_ => {
 						// Unsupported format specifier, just include it as-is
 						result.push('%');
@@ -147,7 +151,10 @@ pub unsafe extern "C" fn rusty_sprintf(
 		}
 	}
 
-		println!("sprintf called with format: {:?}, result: {:?}", format_str, result);
+	println!(
+		"sprintf called with format: {:?}, result: {:?}",
+		format_str, result
+	);
 
 	// Copy result to the output buffer
 	let c_result = match CString::new(result) {
@@ -169,8 +176,7 @@ pub unsafe extern "C" fn rusty_sprintf(
 		}
 	}
 
-	d.set_result(format!("{:?}", c_result))
-		.emit();
+	d.set_result(format!("{:?}", c_result)).emit();
 
 	after_effects_sys::PF_Err_NONE
 }
@@ -178,52 +184,101 @@ pub unsafe extern "C" fn rusty_sprintf(
 /// Emulates `SPBasicSuite::AcquireSuite` function
 /// # Safety
 /// This function is unsafe because it handles raw pointers.
-pub unsafe extern "C" fn acquire_suite(
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rusty_acquire_suite(
 	name: *const i8,
 	version: i32,
-	suite: *mut *const c_void
+	suite: *mut *const c_void,
 ) -> i32 {
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("SPBasicSuite/AcquireSuite")
-		.add_arg("name", format!("{:?}", unsafe{ CStr::from_ptr(name) }))
-		.add_arg("version", version)
-		.add_arg("suite", format!("{:?}", suite))
-		.emit();
+	if suite.is_null() || name.is_null() {
+		return after_effects_sys::PF_Err_BAD_CALLBACK_PARAM;
+	}
 
-	after_effects_sys::PF_Err_NONE
+	unsafe {
+		let suite_name = match CStr::from_ptr(name).to_str() {
+			Ok(s) => s,
+			Err(_) => return after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED,
+		};
+
+		#[cfg(feature = "diagnostics")]
+		DiagnosticBuilder::new()
+			.set_name("SPBasicSuite/AcquireSuite")
+			.add_arg("name", format!("{:?}", CStr::from_ptr(name)))
+			.add_arg("version", version)
+			.add_arg("suite", format!("{:?}", suite))
+			.emit();
+
+		match (suite_name, version) {
+			("PF World Transform Suite", 1) => {
+				*suite = null_mut();
+
+				log::info!("Acquired PF World Transform Suite v1");
+				after_effects_sys::PF_Err_NONE
+			}
+			_ => {
+				log::warn!("Requested unknown suite: {} v{}", suite_name, version);
+				after_effects_sys::PF_Err_OUT_OF_MEMORY
+			}
+		}
+	}
 }
 
+/// Emulates `SPBasicSuite::ReleaseSuite` function
+/// # Safety
+/// This function is unsafe because it handles raw pointers.
+pub unsafe extern "C" fn rusty_release_suite(
+	name: *const ::std::os::raw::c_char,
+	version: int32,
+) -> PF_Err {
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
+		.set_name("SPBasicSuite/ReleaseSuite")
+		.add_arg("name", format!("{:?}", unsafe { CStr::from_ptr(name) }))
+		.add_arg("version", version)
+		.emit();
 
-// Wrapper for After Effects plugin entry point
-// Note: EffectMain naming is required by the C API and cannot be changed
+	if name.is_null() {
+		return after_effects_sys::PF_Err_BAD_CALLBACK_PARAM;
+	}
+
+	PF_Err_NONE
+}
+
+/// Wrapper for After Effects plugin entry point
+/// Note: EffectMain naming is required by the C API and cannot be changed
 #[derive(WrapperApi)]
 #[allow(non_snake_case)]
 pub struct EffectMain {
 	#[allow(non_snake_case)]
-	EffectMain: unsafe extern "C" fn (
-		cmd:      after_effects::RawCommand,
-		in_data:  *mut after_effects_sys::PF_InData,
+	EffectMain: unsafe extern "C" fn(
+		cmd: after_effects::RawCommand,
+		in_data: *mut after_effects_sys::PF_InData,
 		out_data: *mut after_effects_sys::PF_OutData,
-		params:   after_effects_sys::PF_ParamList,
-		output:   *mut after_effects_sys::PF_LayerDef,
-		extra:    *mut ::std::os::raw::c_void,
+		params: after_effects_sys::PF_ParamList,
+		output: *mut after_effects_sys::PF_LayerDef,
+		extra: *mut ::std::os::raw::c_void,
 	) -> after_effects_sys::PF_Err,
 }
 
+/// Represents an instance of an After Effects plugin
 pub struct PluginInstance {
 	path: PathBuf,
 	cmd: after_effects::RawCommand,
 	ansi: after_effects_sys::PF_ANSICallbacks,
 	utility_callbacks: after_effects_sys::_PF_UtilCallbacks,
-	pica: after_effects_sys::SPBasicSuite,
-	in_data: after_effects_sys::PF_InData,
+
+	/// Basic Suite pointer
+	pub pica: Box<after_effects_sys::SPBasicSuite>,
+
+	/// InData structure
+	pub in_data: after_effects_sys::PF_InData,
 	out_data: after_effects_sys::PF_OutData,
 	params: Vec<after_effects_sys::PF_ParamDef>,
 	layer: after_effects_sys::PF_LayerDef,
 }
 
 impl PluginInstance {
+	/// Create a new PluginInstance with default values
 	pub fn new(path: &Path) -> Self {
 		// Initialize Interact Callbacks
 		let interact_callbacks = after_effects_sys::PF_InteractCallbacks {
@@ -328,7 +383,12 @@ impl PluginInstance {
 			rowbytes: 0,
 			width: 0,
 			height: 0,
-			extent_hint: after_effects_sys::PF_UnionableRect { left: 0, top: 0, right: 0, bottom: 0 },
+			extent_hint: after_effects_sys::PF_UnionableRect {
+				left: 0,
+				top: 0,
+				right: 0,
+				bottom: 0,
+			},
 			platform_ref: null_mut(),
 			reserved_long1: 0,
 			reserved_long4: null_mut(),
@@ -364,7 +424,7 @@ impl PluginInstance {
 			after_effects_sys::PF_ParamDef {
 				ui_flags: 0,
 				flags: 0,
-				param_type: 10 as after_effects_sys::PF_ParamType,  // Float Slider,
+				param_type: 10 as after_effects_sys::PF_ParamType, // Float Slider,
 				name: [0; 32],
 				ui_height: 0,
 				ui_width: 0,
@@ -375,25 +435,25 @@ impl PluginInstance {
 			after_effects_sys::PF_ParamDef {
 				ui_flags: 0,
 				flags: 0,
-				param_type: 10 as after_effects_sys::PF_ParamType,  // Float Slider,
+				param_type: 10 as after_effects_sys::PF_ParamType, // Float Slider,
 				name: [0; 32],
 				ui_height: 0,
 				ui_width: 0,
 				unused: 0,
 				u: after_effects_sys::PF_ParamDefUnion { fs_d },
 				uu: after_effects_sys::PF_ParamDef__bindgen_ty_1 { id: 0 },
-			}
+			},
 		];
 
-		let pica = after_effects_sys::SPBasicSuite {
-			AcquireSuite: Some(acquire_suite),
-			ReleaseSuite: None,
+		let pica = Box::new(after_effects_sys::SPBasicSuite {
+			AcquireSuite: Some(rusty_acquire_suite),
+			ReleaseSuite: Some(rusty_release_suite),
 			IsEqual: None,
 			AllocateBlock: None,
 			FreeBlock: None,
 			ReallocateBlock: None,
 			Undefined: None,
-		};
+		});
 
 		// Initialize InData
 		let mut instance = PluginInstance {
@@ -403,44 +463,61 @@ impl PluginInstance {
 			utility_callbacks,
 			pica,
 			in_data: after_effects_sys::PF_InData {
-				inter:           interact_callbacks,
-				utils:           std::ptr::null_mut(), // Will be set after creation
-				effect_ref:      std::ptr::null_mut(),
-				quality:         after_effects_sys::PF_Quality_HI,
-				version:         after_effects_sys::PF_SpecVersion { major: 13, minor: 28 },
-				serial_num:      -2147483648,
-				appl_id:         1180193859,
-				num_params:      0,
-				reserved:        0,
-				what_cpu:        3,
-				what_fpu:        0,
-				current_time:    0,
-				time_step:       1024,
-				total_time:      0,
+				inter: interact_callbacks,
+				utils: std::ptr::null_mut(), // Will be set after creation
+				effect_ref: std::ptr::null_mut(),
+				quality: after_effects_sys::PF_Quality_HI,
+				version: after_effects_sys::PF_SpecVersion {
+					major: 13,
+					minor: 28,
+				},
+				serial_num: -2147483648,
+				appl_id: 1180193859,
+				num_params: 0,
+				reserved: 0,
+				what_cpu: 3,
+				what_fpu: 0,
+				current_time: 0,
+				time_step: 1024,
+				total_time: 0,
 				local_time_step: 0,
-				time_scale:      0,
-				field:           after_effects_sys::PF_Field_UPPER,
-				shutter_angle:   0,
-				width:           1920,
-				height:          1080,
-				extent_hint:     after_effects_sys::PF_UnionableRect { left: 0, top: 0, right: 1920, bottom: 1080 },
+				time_scale: 0,
+				field: after_effects_sys::PF_Field_UPPER,
+				shutter_angle: 0,
+				width: 1920,
+				height: 1080,
+				extent_hint: after_effects_sys::PF_UnionableRect {
+					left: 0,
+					top: 0,
+					right: 1920,
+					bottom: 1080,
+				},
 				output_origin_x: 0,
 				output_origin_y: 0,
-				downsample_x:    after_effects_sys::PF_RationalScale { num: 1, den: 1 }, // Fixed: den should not be 0
-				downsample_y:    after_effects_sys::PF_RationalScale { num: 1, den: 1 }, // Fixed: den should not be 0
+				downsample_x: after_effects_sys::PF_RationalScale { num: 1, den: 1 }, // Fixed: den should not be 0
+				downsample_y: after_effects_sys::PF_RationalScale { num: 1, den: 1 }, // Fixed: den should not be 0
 				pixel_aspect_ratio: after_effects_sys::PF_RationalScale { num: 1, den: 1 }, // Fixed: den should not be 0
-				in_flags:        after_effects_sys::PF_InFlag_NONE,
-				global_data :    null_mut(),
-				sequence_data:   null_mut(),
-				frame_data:      null_mut(),
-				start_sampL:     0,
-				dur_sampL:       0,
-				total_sampL:     0,
-				src_snd:         after_effects_sys::PF_SoundWorld { fi: after_effects_sys::PF_SoundFormatInfo { rateF: 1.0, num_channels: 2, format: 16, sample_size: 1024 }, num_samples: 1024, dataP: null_mut() },
-				pica_basicP:     null_mut(),  // Will be set to &mut instance.pica later
+				in_flags: after_effects_sys::PF_InFlag_NONE,
+				global_data: null_mut(),
+				sequence_data: null_mut(),
+				frame_data: null_mut(),
+				start_sampL: 0,
+				dur_sampL: 0,
+				total_sampL: 0,
+				src_snd: after_effects_sys::PF_SoundWorld {
+					fi: after_effects_sys::PF_SoundFormatInfo {
+						rateF: 1.0,
+						num_channels: 2,
+						format: 16,
+						sample_size: 1024,
+					},
+					num_samples: 1024,
+					dataP: null_mut(),
+				},
+				pica_basicP: null_mut(), // Will be set to &mut instance.pica later
 				pre_effect_source_origin_x: 0,
 				pre_effect_source_origin_y: 0,
-				shutter_phase:   0
+				shutter_phase: 0,
 			},
 			out_data: after_effects_sys::PF_OutData {
 				my_version: 0,
@@ -457,7 +534,16 @@ impl PluginInstance {
 				return_msg: [0; 256],
 				start_sampL: 0,
 				dur_sampL: 0,
-				dest_snd: after_effects_sys::PF_SoundWorld { fi: after_effects_sys::PF_SoundFormatInfo { rateF: 44100.0, num_channels: 2, format: 16, sample_size: 1024 }, num_samples: 1024, dataP: null_mut() }, // Fixed: more realistic sample rate
+				dest_snd: after_effects_sys::PF_SoundWorld {
+					fi: after_effects_sys::PF_SoundFormatInfo {
+						rateF: 44100.0,
+						num_channels: 2,
+						format: 16,
+						sample_size: 1024,
+					},
+					num_samples: 1024,
+					dataP: null_mut(),
+				}, // Fixed: more realistic sample rate
 				out_flags2: after_effects_sys::PF_OutFlag2_NONE,
 			},
 			params: param_list,
@@ -469,7 +555,12 @@ impl PluginInstance {
 				rowbytes: 0,
 				width: 0,
 				height: 0,
-				extent_hint: after_effects_sys::PF_UnionableRect { left: 0, top: 0, right: 0, bottom: 0 },
+				extent_hint: after_effects_sys::PF_UnionableRect {
+					left: 0,
+					top: 0,
+					right: 0,
+					bottom: 0,
+				},
 				platform_ref: null_mut(),
 				reserved_long1: 0,
 				reserved_long4: null_mut(),
@@ -479,22 +570,26 @@ impl PluginInstance {
 				origin_y: 0,
 				reserved_long3: 0,
 				dephault: 0,
-			}
+			},
 		};
 
 		// Now set the utils pointer to reference our owned utility_callbacks
 		instance.in_data.utils = &mut instance.utility_callbacks;
-		instance.in_data.pica_basicP = &mut instance.pica;
+		instance.in_data.pica_basicP = instance.pica.as_mut() as *mut _;
 
 		instance
 	}
 
 	/// Call the plugin entry point
 	pub fn call_plugin(&mut self) -> Result<(), Box<dyn Error>> {
-		let dir = self.path.parent()
+		let dir = self
+			.path
+			.parent()
 			.and_then(|s| s.to_str())
 			.ok_or("Invalid module path")?;
-		let name = self.path.file_name()
+		let name = self
+			.path
+			.file_name()
 			.and_then(|s| s.to_str())
 			.ok_or("Invalid module name")?;
 		// Detect OS
@@ -502,7 +597,13 @@ impl PluginInstance {
 		let module_path = match os {
 			"windows" => format!("{}/{}.aex", dir, name),
 			"macos" => format!("{}/{}.plugin/Contents/MacOS/{}", dir, name, name),
-			_ => return Err(format!("Unsupported OS: {}. Supported platforms are Windows and macOS.", os).into()),
+			_ => {
+				return Err(format!(
+					"Unsupported OS: {}. Supported platforms are Windows and macOS.",
+					os
+				)
+				.into());
+			}
 		};
 
 		log::info!("OS is detected: {}", os);
@@ -513,31 +614,63 @@ impl PluginInstance {
 			return Err(format!("Plugin file not found: {}", module_path).into());
 		}
 
-
 		//* ---- Load DLL ------------------------------ *//
-		let container: Container<EffectMain> = unsafe {
-			Container::load(&module_path)
-		}.map_err(|e| format!("Failed to load library {}: {}", module_path, e))?;
+		let container: Container<EffectMain> = unsafe { Container::load(&module_path) }
+			.map_err(|e| format!("Failed to load library {}: {}", module_path, e))?;
 
 		log::info!("Plugin was loaded successfully");
 		//* -------------------------------------------- *//
 
-
 		// Ensure utils pointer is set correctly
 		self.in_data.utils = &mut self.utility_callbacks;
 
-
 		//* ---- Test ANSI callbacks ------------------- *//
 		if let Some(sin_fn) = self.ansi.sin {
-			unsafe{ log::debug!("ANSI sin(π) = {} (expected != 0)", sin_fn(std::f64::consts::PI)); }
+			unsafe {
+				log::debug!(
+					"ANSI sin(π) = {} (expected != 0)",
+					sin_fn(std::f64::consts::PI)
+				);
+			}
 		}
 
 		if let Some(cos_fn) = self.ansi.cos {
-			unsafe{ log::debug!("ANSI cos(π) = {} (expected != 1)", cos_fn(std::f64::consts::PI)); }
+			unsafe {
+				log::debug!(
+					"ANSI cos(π) = {} (expected != 1)",
+					cos_fn(std::f64::consts::PI)
+				);
+			}
 		}
 		//* -------------------------------------------- *//
 
+		//* ---- Assert callback function pointers ------ */
+		unsafe {
+			let address = (*self.in_data.pica_basicP).AcquireSuite.unwrap() as *const ();
+			log::debug!("SPBasicSuite::AcquireSuite address: {:?}", address);
 
+			// not None
+			if let Some(acquire_suite_fn) = (*self.in_data.pica_basicP).AcquireSuite {
+				log::debug!("AcquireSuite function pointer is valid");
+
+				let mut a = after_effects_sys::PF_WorldSuite1 {
+					new_world: None,
+					dispose_world: None,
+				};
+
+				// ERROR: STATUS_ACCESS_VIOLATION
+				acquire_suite_fn(
+					std::ffi::CString::new("PF World Transform Suite")
+						.unwrap()
+						.as_ptr(),
+					1,
+					&mut a as *const _ as *mut *const c_void,
+				);
+			} else {
+				log::warn!("AcquireSuite function pointer is None");
+			}
+		}
+		//* --------------------------------------------- */
 		//* ---- Call entry point with PF_Cmd_ABOUT ---- *//
 		// Call Entry Point with minimal parameters first to test basic loading
 		log::debug!("OutData::my_version (before): {}", self.out_data.my_version);
@@ -550,15 +683,14 @@ impl PluginInstance {
 				&mut self.in_data,
 				&mut self.out_data,
 				&mut self.params.as_mut_ptr(), // params - can be null for ABOUT
-				&mut self.layer, // output - can be null for ABOUT
-				std::ptr::null_mut()  // extra - typically null
+				&mut self.layer,               // output - can be null for ABOUT
+				std::ptr::null_mut(),          // extra - typically null
 			)
 		};
 
 		log::debug!("OutData::my_version (after): {}", self.out_data.my_version);
 		log::debug!("EffectMain result: {}", result);
 		//* -------------------------------------------- *//
-
 
 		//* ---- Check for errors ---------------------- *//
 		if result != after_effects_sys::PF_Err_NONE {
@@ -569,10 +701,14 @@ impl PluginInstance {
 		Ok(())
 	}
 
+	/// Call the plugin with PF_Cmd_RENDER command
 	pub fn render(&mut self) -> Result<(), Box<dyn Error>> {
 		self.cmd = after_effects::RawCommand::Render;
 
-		log::info!("Calling EffectMain with cmd: {:?} (PF_Cmd_RENDER)", self.cmd);
+		log::info!(
+			"Calling EffectMain with cmd: {:?} (PF_Cmd_RENDER)",
+			self.cmd
+		);
 
 		self.call_plugin()?;
 
@@ -588,13 +724,43 @@ mod tests {
 	fn test_sin() {
 		let angle = std::f64::consts::PI / 2.0; // 90 degrees
 		let result = sin(angle);
-		assert!((result - 1.0).abs() < 1e-10, "sin(π/2) should be approximately 1.0");
+		assert!(
+			(result - 1.0).abs() < 1e-10,
+			"sin(π/2) should be approximately 1.0"
+		);
 	}
 
 	#[test]
 	fn test_cos() {
 		let angle = std::f64::consts::PI; // 180 degrees
 		let result = cos(angle);
-		assert!((result + 1.0).abs() < 1e-10, "cos(π) should be approximately -1.0");
+		assert!(
+			(result + 1.0).abs() < 1e-10,
+			"cos(π) should be approximately -1.0"
+		);
+	}
+
+	#[test]
+	fn suites() {
+		unsafe {
+			let instance = PluginInstance::new(Path::new("hell"));
+
+			assert!((*instance.in_data.pica_basicP).AcquireSuite.is_some());
+
+			if let Some(acquire_suite_fn) = (*instance.in_data.pica_basicP).AcquireSuite {
+				let mut a = after_effects_sys::PF_WorldSuite1 {
+					new_world: None,
+					dispose_world: None,
+				};
+
+				acquire_suite_fn(
+					std::ffi::CString::new("PF World Transform Suite")
+						.unwrap()
+						.as_ptr(),
+					1,
+					&mut a as *const _ as *mut *const c_void,
+				);
+			}
+		}
 	}
 }
