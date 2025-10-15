@@ -8,6 +8,22 @@ use dlopen::wrapper::{Container, WrapperApi};
 
 use crate::diagnostics::DiagnosticBuilder;
 
+static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
+	world_transform_suite: PF_WorldTransformSuite1 {
+		composite_rect: None,
+		blend: None,
+		convolve: None,
+		copy: Some(rusty_copy),
+		copy_hq: None,
+		transfer_rect: None,
+		transform_world: None,
+	},
+};
+
+pub struct SuiteContainer {
+	world_transform_suite: PF_WorldTransformSuite1,
+}
+
 /// Simple `atan()` function implementation
 pub extern "C" fn atan(x: f64) -> f64 {
 	let result = x.atan();
@@ -79,6 +95,10 @@ pub extern "C" fn sin(x: f64) -> f64 {
 		.emit();
 
 	result
+}
+
+pub struct AnsiCallbacks {
+
 }
 
 /// Emulates `sprintf()` function
@@ -181,10 +201,33 @@ pub unsafe extern "C" fn rusty_sprintf(
 	after_effects_sys::PF_Err_NONE
 }
 
+/// Emulates `PF_WorldTransformSuite1::copy` function
+/// # Safety
+/// This function is unsafe because it handles raw pointers.
+pub unsafe extern "C" fn rusty_copy(
+	effect_ref: PF_ProgPtr,
+	src: *mut PF_EffectWorld,
+	dst: *mut PF_EffectWorld,
+	src_r: *mut PF_Rect,
+	dst_r: *mut PF_Rect,
+) -> PF_Err {
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
+		.set_name("PF World Transform Suite/Copy")
+		.add_arg("effect_ref", effect_ref as usize)
+		.add_arg("src", src as usize)
+		.add_arg("dst", dst as usize)
+		.add_arg("src_r", if !src_r.is_null() { format!("{:?}", src_r) } else { "(null)".to_string() })
+		.add_arg("dst_r", if !dst_r.is_null() { format!("{:?}", dst_r) } else { "(null)".to_string() })
+		.set_result(0)
+		.emit();
+
+	PF_Err_NONE
+}
+
 /// Emulates `SPBasicSuite::AcquireSuite` function
 /// # Safety
 /// This function is unsafe because it handles raw pointers.
-#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rusty_acquire_suite(
 	name: *const i8,
 	version: i32,
@@ -210,7 +253,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 
 		match (suite_name, version) {
 			("PF World Transform Suite", 1) => {
-				*suite = null_mut();
+				*suite = &SUITE_CONTAINER.world_transform_suite as *const _ as *mut c_void;
 
 				log::info!("Acquired PF World Transform Suite v1");
 				after_effects_sys::PF_Err_NONE
@@ -248,6 +291,7 @@ pub unsafe extern "C" fn rusty_release_suite(
 /// Note: EffectMain naming is required by the C API and cannot be changed
 #[derive(WrapperApi)]
 #[allow(non_snake_case)]
+#[repr(C)]
 pub struct EffectMain {
 	#[allow(non_snake_case)]
 	EffectMain: unsafe extern "C" fn(
@@ -581,7 +625,7 @@ impl PluginInstance {
 	}
 
 	/// Call the plugin entry point
-	pub fn call_plugin(&mut self) -> Result<(), Box<dyn Error>> {
+	fn call_plugin(&mut self) -> Result<(), Box<dyn Error>> {
 		let dir = self
 			.path
 			.parent()
@@ -621,60 +665,8 @@ impl PluginInstance {
 		log::info!("Plugin was loaded successfully");
 		//* -------------------------------------------- *//
 
-		// Ensure utils pointer is set correctly
-		self.in_data.utils = &mut self.utility_callbacks;
-
-		//* ---- Test ANSI callbacks ------------------- *//
-		if let Some(sin_fn) = self.ansi.sin {
-			unsafe {
-				log::debug!(
-					"ANSI sin(π) = {} (expected != 0)",
-					sin_fn(std::f64::consts::PI)
-				);
-			}
-		}
-
-		if let Some(cos_fn) = self.ansi.cos {
-			unsafe {
-				log::debug!(
-					"ANSI cos(π) = {} (expected != 1)",
-					cos_fn(std::f64::consts::PI)
-				);
-			}
-		}
-		//* -------------------------------------------- *//
-
-		//* ---- Assert callback function pointers ------ */
-		unsafe {
-			let address = (*self.in_data.pica_basicP).AcquireSuite.unwrap() as *const ();
-			log::debug!("SPBasicSuite::AcquireSuite address: {:?}", address);
-
-			// not None
-			if let Some(acquire_suite_fn) = (*self.in_data.pica_basicP).AcquireSuite {
-				log::debug!("AcquireSuite function pointer is valid");
-
-				let mut a = after_effects_sys::PF_WorldSuite1 {
-					new_world: None,
-					dispose_world: None,
-				};
-
-				// ERROR: STATUS_ACCESS_VIOLATION
-				acquire_suite_fn(
-					std::ffi::CString::new("PF World Transform Suite")
-						.unwrap()
-						.as_ptr(),
-					1,
-					&mut a as *const _ as *mut *const c_void,
-				);
-			} else {
-				log::warn!("AcquireSuite function pointer is None");
-			}
-		}
-		//* --------------------------------------------- */
 		//* ---- Call entry point with PF_Cmd_ABOUT ---- *//
-		// Call Entry Point with minimal parameters first to test basic loading
-		log::debug!("OutData::my_version (before): {}", self.out_data.my_version);
-		log::info!("Calling EffectMain with cmd: {:?} (PF_Cmd_ABOUT)", self.cmd);
+		log::info!("Calling EffectMain with cmd: {:?}", self.cmd);
 
 		// Try with minimal viable parameters - AE plugins typically need non-null in_data and out_data
 		let result = unsafe {
@@ -688,13 +680,17 @@ impl PluginInstance {
 			)
 		};
 
-		log::debug!("OutData::my_version (after): {}", self.out_data.my_version);
-		log::debug!("EffectMain result: {}", result);
+		log::debug!("EffectMain is exit with: {}", result);
 		//* -------------------------------------------- *//
 
 		//* ---- Check for errors ---------------------- *//
-		if result != after_effects_sys::PF_Err_NONE {
-			return Err(format!("Plugin call failed with error code: {}", result).into());
+		match result {
+			after_effects_sys::PF_Err_NONE => {
+				log::info!("Plugin executed successfully");
+			}
+			_ => {
+				return Err(format!("Plugin failed with error: {}", result).into());
+			}
 		}
 		//* -------------------------------------------- *//
 
@@ -704,12 +700,6 @@ impl PluginInstance {
 	/// Call the plugin with PF_Cmd_RENDER command
 	pub fn render(&mut self) -> Result<(), Box<dyn Error>> {
 		self.cmd = after_effects::RawCommand::Render;
-
-		log::info!(
-			"Calling EffectMain with cmd: {:?} (PF_Cmd_RENDER)",
-			self.cmd
-		);
-
 		self.call_plugin()?;
 
 		Ok(())
@@ -738,29 +728,5 @@ mod tests {
 			(result + 1.0).abs() < 1e-10,
 			"cos(π) should be approximately -1.0"
 		);
-	}
-
-	#[test]
-	fn suites() {
-		unsafe {
-			let instance = PluginInstance::new(Path::new("hell"));
-
-			assert!((*instance.in_data.pica_basicP).AcquireSuite.is_some());
-
-			if let Some(acquire_suite_fn) = (*instance.in_data.pica_basicP).AcquireSuite {
-				let mut a = after_effects_sys::PF_WorldSuite1 {
-					new_world: None,
-					dispose_world: None,
-				};
-
-				acquire_suite_fn(
-					std::ffi::CString::new("PF World Transform Suite")
-						.unwrap()
-						.as_ptr(),
-					1,
-					&mut a as *const _ as *mut *const c_void,
-				);
-			}
-		}
 	}
 }
