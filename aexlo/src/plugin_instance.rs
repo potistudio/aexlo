@@ -9,6 +9,13 @@ use dlopen::wrapper::{Container, WrapperApi};
 use crate::diagnostics::DiagnosticBuilder;
 
 static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
+	iterate_8_suite: PF_Iterate8Suite2 {
+		iterate: Some(rusty_iterate_8),
+		iterate_origin: None,
+		iterate_lut: None,
+		iterate_origin_non_clip_src: None,
+		iterate_generic: None,
+	},
 	world_transform_suite: PF_WorldTransformSuite1 {
 		composite_rect: None,
 		blend: None,
@@ -21,6 +28,7 @@ static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 };
 
 pub struct SuiteContainer {
+	iterate_8_suite: PF_Iterate8Suite2,
 	world_transform_suite: PF_WorldTransformSuite1,
 }
 
@@ -258,6 +266,12 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 				log::info!("Acquired PF World Transform Suite v1");
 				after_effects_sys::PF_Err_NONE
 			}
+			("PF Iterate8 Suite", 2) => {
+				*suite = &SUITE_CONTAINER.iterate_8_suite as *const _ as *mut c_void;
+
+				log::info!("Acquired PF Iterate8 Suite v2");
+				after_effects_sys::PF_Err_NONE
+			}
 			_ => {
 				log::warn!("Requested unknown suite: {} v{}", suite_name, version);
 				after_effects_sys::PF_Err_OUT_OF_MEMORY
@@ -282,6 +296,57 @@ pub unsafe extern "C" fn rusty_release_suite(
 
 	if name.is_null() {
 		return after_effects_sys::PF_Err_BAD_CALLBACK_PARAM;
+	}
+
+	PF_Err_NONE
+}
+
+unsafe extern "C" fn rusty_iterate_8(
+	in_data: *mut PF_InData,
+	progress_base: A_long,
+	progress_final: A_long,
+	src: *mut PF_EffectWorld,
+	area: *const PF_Rect,
+	refcon: *mut ::std::os::raw::c_void,
+	pix_fn: ::std::option::Option<
+		unsafe extern "C" fn(
+			refcon: *mut ::std::os::raw::c_void,
+			x: A_long,
+			y: A_long,
+			in_: *mut PF_Pixel,
+			out: *mut PF_Pixel,
+		) -> PF_Err,
+	>,
+	dst: *mut PF_EffectWorld,
+) -> PF_Err {
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
+		.set_name("PF Iterate8 Suite/iterate")
+		.add_arg("in_data", format!("{:?}", in_data))
+		.add_arg("progress_base", progress_base)
+		.add_arg("progress_final", progress_final)
+		.add_arg("src", format!("{:?}", src))
+		.add_arg("area", if !area.is_null() { format!("{:?}", area) } else { "(null)".to_string() })
+		.add_arg("refcon", format!("{:?}", refcon))
+		.add_arg("pix_fn", if pix_fn.is_some() { "Some" } else { "None" })
+		.add_arg("dst", format!("{:?}", dst))
+		.set_result(0)
+		.emit();
+
+	if let Some(func) = pix_fn {
+		let width = 10;
+
+		let mut in_pixel = PF_Pixel { red: 0, green: 0, blue: 0, alpha: 255 };
+		let mut out_pixel = PF_Pixel { red: 0, green: 0, blue: 0, alpha: 255 };
+
+		for i in 0..20 {
+			let x = i % width;
+			let y = i / width;
+
+			// println!("Before pixel function call: in_pixel={:?}, out_pixel={:?}", in_pixel, out_pixel);
+			unsafe { func(refcon, x, y, &in_pixel as *const _ as *mut _, &out_pixel as *const _ as *mut _) };
+			println!("After pixel function call: in_pixel={:?}, out_pixel={:?}", in_pixel, out_pixel);
+		}
 	}
 
 	PF_Err_NONE
