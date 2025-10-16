@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 
 use after_effects_sys::*;
-use colored::*;
+use colored::Colorize;
 use dlopen::wrapper::{Container, WrapperApi};
 
 use crate::diagnostics::DiagnosticBuilder;
@@ -117,17 +117,17 @@ pub unsafe extern "C" fn rusty_sprintf(
 	arg1: *mut after_effects_sys::A_char,
 	arg2: *const after_effects_sys::A_char,
 	mut args: ...
-) -> i32 {
+) -> after_effects_sys::PF_Err {
 	const SPRINTF_BUFFER_SIZE: usize = 256;
 
 	// Safety checks
 	if arg1.is_null() || arg2.is_null() {
-		return after_effects_sys::PF_Err_BAD_CALLBACK_PARAM;
+		return after_effects_sys::PF_Err_BAD_CALLBACK_PARAM as after_effects_sys::PF_Err;
 	}
 
 	let format_str = match unsafe { CStr::from_ptr(arg2) }.to_str() {
 		Ok(s) => s,
-		Err(_) => return after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED,
+		Err(_) => return after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED as after_effects_sys::PF_Err,
 	};
 
 	// Simple implementation to handle %d and %s format specifiers
@@ -188,7 +188,7 @@ pub unsafe extern "C" fn rusty_sprintf(
 		Ok(s) => s,
 		Err(_) => {
 			eprintln!("[ERROR] sprintf: Formatted string contains NUL bytes");
-			return after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED;
+			return after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED as after_effects_sys::PF_Err;
 		}
 	};
 
@@ -205,7 +205,7 @@ pub unsafe extern "C" fn rusty_sprintf(
 
 	d.set_result(format!("{:?}", c_result)).emit();
 
-	after_effects_sys::PF_Err_NONE
+	after_effects_sys::PF_Err_NONE as after_effects_sys::PF_Err
 }
 
 /// Emulates `PF_WorldTransformSuite1::copy` function
@@ -243,7 +243,7 @@ pub unsafe extern "C" fn rusty_copy(
 		.set_result(0)
 		.emit();
 
-	PF_Err_NONE
+	PF_Err_NONE as PF_Err
 }
 
 /// Emulates `SPBasicSuite::AcquireSuite` function
@@ -255,13 +255,13 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 	suite: *mut *const c_void,
 ) -> i32 {
 	if suite.is_null() || name.is_null() {
-		return after_effects_sys::PF_Err_BAD_CALLBACK_PARAM;
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
 	unsafe {
 		let suite_name = match CStr::from_ptr(name).to_str() {
 			Ok(s) => s,
-			Err(_) => return after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED,
+			Err(_) => return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err,
 		};
 
 		#[cfg(feature = "diagnostics")]
@@ -277,17 +277,17 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 				*suite = &SUITE_CONTAINER.world_transform_suite as *const _ as *mut c_void;
 
 				log::info!("Acquired PF World Transform Suite v1");
-				after_effects_sys::PF_Err_NONE
+				PF_Err_NONE as PF_Err
 			}
 			("PF Iterate8 Suite", 2) => {
 				*suite = &SUITE_CONTAINER.iterate_8_suite as *const _ as *mut c_void;
 
 				log::info!("Acquired PF Iterate8 Suite v2");
-				after_effects_sys::PF_Err_NONE
+				PF_Err_NONE as PF_Err
 			}
 			_ => {
 				log::warn!("Requested unknown suite: {} v{}", suite_name, version);
-				after_effects_sys::PF_Err_OUT_OF_MEMORY
+				PF_Err_OUT_OF_MEMORY as PF_Err
 			}
 		}
 	}
@@ -308,10 +308,10 @@ pub unsafe extern "C" fn rusty_release_suite(
 		.emit();
 
 	if name.is_null() {
-		return after_effects_sys::PF_Err_BAD_CALLBACK_PARAM;
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	PF_Err_NONE
+	PF_Err_NONE as PF_Err
 }
 
 unsafe extern "C" fn rusty_iterate_8(
@@ -394,7 +394,7 @@ unsafe extern "C" fn rusty_iterate_8(
 		}
 	}
 
-	PF_Err_NONE
+	PF_Err_NONE as PF_Err
 }
 
 /// Wrapper for After Effects plugin entry point
@@ -570,7 +570,7 @@ impl PluginInstance {
 			display_flags: 0,
 			fs_flags: 0,
 			curve_tolerance: 0.0,
-			useExponent: false as i8,
+			useExponent: false as after_effects_sys::A_Boolean,
 			exponent: 1.0,
 		};
 
@@ -636,7 +636,7 @@ impl PluginInstance {
 				total_time: 0,
 				local_time_step: 0,
 				time_scale: 0,
-				field: after_effects_sys::PF_Field_UPPER,
+				field: PF_Field_UPPER as PF_Field,
 				shutter_angle: 0,
 				width: 1920,
 				height: 1080,
@@ -651,7 +651,7 @@ impl PluginInstance {
 				downsample_x: after_effects_sys::PF_RationalScale { num: 1, den: 1 }, // Fixed: den should not be 0
 				downsample_y: after_effects_sys::PF_RationalScale { num: 1, den: 1 }, // Fixed: den should not be 0
 				pixel_aspect_ratio: after_effects_sys::PF_RationalScale { num: 1, den: 1 }, // Fixed: den should not be 0
-				in_flags: after_effects_sys::PF_InFlag_NONE,
+				in_flags: PF_InFlag_NONE as PF_InFlags,
 				global_data: null_mut(),
 				sequence_data: null_mut(),
 				frame_data: null_mut(),
@@ -684,7 +684,7 @@ impl PluginInstance {
 				width: 0,
 				height: 0,
 				origin: after_effects_sys::PF_Point { h: 0, v: 0 },
-				out_flags: after_effects_sys::PF_OutFlag_NONE,
+				out_flags: after_effects_sys::PF_OutFlag_NONE as after_effects_sys::PF_OutFlags,
 				return_msg: [0; 256],
 				start_sampL: 0,
 				dur_sampL: 0,
@@ -698,7 +698,7 @@ impl PluginInstance {
 					num_samples: 1024,
 					dataP: null_mut(),
 				}, // Fixed: more realistic sample rate
-				out_flags2: after_effects_sys::PF_OutFlag2_NONE,
+				out_flags2: after_effects_sys::PF_OutFlag2_NONE as after_effects_sys::PF_OutFlags2,
 			},
 			params: param_list,
 			layer: after_effects_sys::PF_LayerDef {
@@ -747,6 +747,7 @@ impl PluginInstance {
 			.and_then(|s| s.to_str())
 			.ok_or("Invalid module name")?;
 		// Detect OS
+		log::info!("Detecting OS...");
 		let os = std::env::consts::OS;
 		let module_path = match os {
 			"windows" => format!("{}/{}.aex", dir, name),
@@ -760,8 +761,8 @@ impl PluginInstance {
 			}
 		};
 
-		log::info!("OS is detected: {}", os);
-		log::info!("Loading library: {} from {}", name, module_path);
+		log::info!("Detected OS: {}.", os.blue());
+		log::info!("Loading plugin: {} from {}.", name.blue(), module_path.blue());
 
 		// Check if the plugin file exists
 		if !std::path::Path::new(&module_path).exists() {
@@ -785,7 +786,7 @@ impl PluginInstance {
 		let container: Container<EffectMain> = unsafe { Container::load(&module_path) }
 			.map_err(|e| format!("Failed to load library {}: {}", module_path, e))?;
 
-		log::info!("Plugin was loaded successfully");
+		log::info!("Loaded plugin {}.", "successfully".green());
 		//* -------------------------------------------- *//
 
 		//* ---- Call entry point with PF_Cmd_ABOUT ---- *//
@@ -809,7 +810,8 @@ impl PluginInstance {
 			)
 		};
 
-		log::debug!("EffectMain exited with code: {}", result.to_string().blue());
+		log::info!("Called EffectMain {}.", "successfully".green());
+		log::debug!("EffectMain exited with code: {}.", result.to_string().blue());
 		//* -------------------------------------------- *//
 
 		//* ---- Extract the output layer result -------- */
@@ -820,7 +822,7 @@ impl PluginInstance {
 				(self.layer.rowbytes * self.layer.height) as usize,
 			)
 		};
-		log::info!("Extracted output layer {}", "successfully".green());
+		log::info!("Extracted output layer {}.", "successfully".green());
 
 		log::debug!("First 10 pixels (out of {}):", output_pixel_world.len());
 		for (i, pixel) in output_pixel_world.iter().enumerate().take(10) {
@@ -828,15 +830,39 @@ impl PluginInstance {
 		}
 		//* --------------------------------------------- */
 		//* ---- Check for errors ---------------------- *//
-		match result {
-			after_effects_sys::PF_Err_NONE => {
-				log::info!("Plugin executed successfully");
+		match result as u32 {
+			PF_Err_NONE => {
+				log::info!("Plugin executed {}.", "successfully".green());
 			}
 			_ => {
-				return Err(format!("Plugin failed with error: {}", result).into());
+				return Err(format!("Plugin has failed with error: {}.", result).into());
 			}
 		}
 		//* -------------------------------------------- *//
+
+		Ok(())
+	}
+
+	/// Call the plugin with PF_Cmd_RENDER command
+	pub fn about(&mut self) -> Result<(), Box<dyn Error>> {
+		self.cmd = after_effects::RawCommand::About;
+		self.call_plugin()?;
+
+		Ok(())
+	}
+
+	/// Call the plugin with PF_Cmd_RENDER command
+	pub fn setup_global(&mut self) -> Result<(), Box<dyn Error>> {
+		self.cmd = after_effects::RawCommand::GlobalSetup;
+		self.call_plugin()?;
+
+		Ok(())
+	}
+
+	/// Call the plugin with PF_Cmd_RENDER command
+	pub fn setup_params(&mut self) -> Result<(), Box<dyn Error>> {
+		self.cmd = after_effects::RawCommand::ParamsSetup;
+		self.call_plugin()?;
 
 		Ok(())
 	}
