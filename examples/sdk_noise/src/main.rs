@@ -66,16 +66,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 		.join(MODULE_NAME);
 
 	let mut instance = PluginInstance::new(plugin_path.as_path());
-	match instance.render() {
-		Ok(()) => {
-			log::info!("SUCCESS! Plugin executed successfully!");
-		}
-
-		Err(e) => {
-			eprintln!("ERROR! Failed to execute plugin: {}", e);
-			return Err(e);
-		}
-	}
+	instance.render()?;
 
 	println!("======== Execution completed ========\n");
 	Ok(())

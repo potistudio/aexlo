@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 
 use after_effects_sys::*;
+use colored::*;
 use dlopen::wrapper::{Container, WrapperApi};
 
 use crate::diagnostics::DiagnosticBuilder;
@@ -105,9 +106,7 @@ pub extern "C" fn sin(x: f64) -> f64 {
 	result
 }
 
-pub struct AnsiCallbacks {
-
-}
+pub struct AnsiCallbacks {}
 
 /// Emulates `sprintf()` function
 ///
@@ -225,8 +224,22 @@ pub unsafe extern "C" fn rusty_copy(
 		.add_arg("effect_ref", effect_ref as usize)
 		.add_arg("src", src as usize)
 		.add_arg("dst", dst as usize)
-		.add_arg("src_r", if !src_r.is_null() { format!("{:?}", src_r) } else { "(null)".to_string() })
-		.add_arg("dst_r", if !dst_r.is_null() { format!("{:?}", dst_r) } else { "(null)".to_string() })
+		.add_arg(
+			"src_r",
+			if !src_r.is_null() {
+				format!("{:?}", src_r)
+			} else {
+				"(null)".to_string()
+			},
+		)
+		.add_arg(
+			"dst_r",
+			if !dst_r.is_null() {
+				format!("{:?}", dst_r)
+			} else {
+				"(null)".to_string()
+			},
+		)
 		.set_result(0)
 		.emit();
 
@@ -326,26 +339,58 @@ unsafe extern "C" fn rusty_iterate_8(
 		.add_arg("progress_base", progress_base)
 		.add_arg("progress_final", progress_final)
 		.add_arg("src", format!("{:?}", src))
-		.add_arg("area", if !area.is_null() { format!("{:?}", area) } else { "(null)".to_string() })
+		.add_arg(
+			"area",
+			if !area.is_null() {
+				format!("{:?}", area)
+			} else {
+				"(null)".to_string()
+			},
+		)
 		.add_arg("refcon", format!("{:?}", refcon))
 		.add_arg("pix_fn", if pix_fn.is_some() { "Some" } else { "None" })
 		.add_arg("dst", format!("{:?}", dst))
 		.set_result(0)
 		.emit();
 
+	let mut destination_layer;
+	unsafe { destination_layer = *dst };
+
 	if let Some(func) = pix_fn {
 		let width = 10;
+		let slice = std::slice::from_raw_parts_mut(
+			destination_layer.data,
+			(destination_layer.rowbytes * destination_layer.height) as usize,
+		);
 
-		let mut in_pixel = PF_Pixel { red: 0, green: 0, blue: 0, alpha: 255 };
-		let mut out_pixel = PF_Pixel { red: 0, green: 0, blue: 0, alpha: 255 };
+		let mut in_pixel = PF_Pixel {
+			red: 0,
+			green: 0,
+			blue: 0,
+			alpha: 255,
+		};
+		let mut out_pixel = PF_Pixel {
+			red: 0,
+			green: 0,
+			blue: 0,
+			alpha: 255,
+		};
 
 		for i in 0..20 {
 			let x = i % width;
 			let y = i / width;
 
 			// println!("Before pixel function call: in_pixel={:?}, out_pixel={:?}", in_pixel, out_pixel);
-			unsafe { func(refcon, x, y, &in_pixel as *const _ as *mut _, &out_pixel as *const _ as *mut _) };
-			println!("After pixel function call: in_pixel={:?}, out_pixel={:?}", in_pixel, out_pixel);
+			unsafe {
+				func(
+					refcon,
+					x,
+					y,
+					&in_pixel as *const _ as *mut _,
+					&out_pixel as *const _ as *mut _,
+				)
+			};
+			slice[(x + y * destination_layer.rowbytes) as usize] = out_pixel;
 		}
 	}
 
@@ -661,9 +706,9 @@ impl PluginInstance {
 				reserved1: null_mut(),
 				world_flags: 0 as after_effects_sys::PF_WorldFlags,
 				data: null_mut(),
-				rowbytes: 0,
-				width: 0,
-				height: 0,
+				rowbytes: 1920,
+				width: 1920,
+				height: 1080,
 				extent_hint: after_effects_sys::PF_UnionableRect {
 					left: 0,
 					top: 0,
@@ -723,6 +768,19 @@ impl PluginInstance {
 			return Err(format!("Plugin file not found: {}", module_path).into());
 		}
 
+		let width = 1920;
+		let height = 1080;
+		let mut pixel_world = vec![
+			PF_Pixel {
+				red: 0,
+				green: 0,
+				blue: 0,
+				alpha: 255
+			};
+			width * height
+		];
+		self.layer.data = pixel_world.as_mut_ptr() as *mut PF_Pixel;
+
 		//* ---- Load DLL ------------------------------ *//
 		let container: Container<EffectMain> = unsafe { Container::load(&module_path) }
 			.map_err(|e| format!("Failed to load library {}: {}", module_path, e))?;
@@ -731,9 +789,13 @@ impl PluginInstance {
 		//* -------------------------------------------- *//
 
 		//* ---- Call entry point with PF_Cmd_ABOUT ---- *//
-		log::info!("Calling EffectMain with cmd: {:?}", self.cmd);
+		log::info!(
+			"Calling EffectMain with command: {}...",
+			format!("{:?}", self.cmd).blue()
+		);
 
-		let mut params_ptr: Vec<*mut PF_ParamDef> = self.params.iter_mut().map(|p| p as *mut _).collect();
+		let mut params_ptr: Vec<*mut PF_ParamDef> =
+			self.params.iter_mut().map(|p| p as *mut _).collect();
 
 		// Try with minimal viable parameters - AE plugins typically need non-null in_data and out_data
 		let result = unsafe {
@@ -742,14 +804,29 @@ impl PluginInstance {
 				&mut self.in_data,
 				&mut self.out_data,
 				params_ptr.as_mut_ptr(), // params - can be null for ABOUT
-				&mut self.layer,               // output - can be null for ABOUT
-				std::ptr::null_mut(),          // extra - typically null
+				&mut self.layer,         // output - can be null for ABOUT
+				std::ptr::null_mut(),    // extra - typically null
 			)
 		};
 
-		log::debug!("EffectMain is exit with: {}", result);
+		log::debug!("EffectMain exited with code: {}", result.to_string().blue());
 		//* -------------------------------------------- *//
 
+		//* ---- Extract the output layer result -------- */
+		log::info!("Extracting output layer...");
+		let output_pixel_world = unsafe {
+			std::slice::from_raw_parts(
+				self.layer.data as *const PF_Pixel,
+				(self.layer.rowbytes * self.layer.height) as usize,
+			)
+		};
+		log::info!("Extracted output layer {}", "successfully".green());
+
+		log::debug!("First 10 pixels (out of {}):", output_pixel_world.len());
+		for (i, pixel) in output_pixel_world.iter().enumerate().take(10) {
+			log::debug!("    Pixel {}: {:?}", i, pixel);
+		}
+		//* --------------------------------------------- */
 		//* ---- Check for errors ---------------------- *//
 		match result {
 			after_effects_sys::PF_Err_NONE => {
