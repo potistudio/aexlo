@@ -1,6 +1,9 @@
 # Build artifacts
 target/
 
+# Source of examples
+/external/*
+
 # macOS system files
 .DS_Store
 Thumbs.db
