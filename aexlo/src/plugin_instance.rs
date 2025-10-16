@@ -106,8 +106,6 @@ pub extern "C" fn sin(x: f64) -> f64 {
 	result
 }
 
-pub struct AnsiCallbacks {}
-
 /// Emulates `sprintf()` function
 ///
 /// # Safety
@@ -127,7 +125,9 @@ pub unsafe extern "C" fn rusty_sprintf(
 
 	let format_str = match unsafe { CStr::from_ptr(arg2) }.to_str() {
 		Ok(s) => s,
-		Err(_) => return after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED as after_effects_sys::PF_Err,
+		Err(_) => {
+			return after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED as after_effects_sys::PF_Err;
+		}
 	};
 
 	// Simple implementation to handle %d and %s format specifiers
@@ -570,7 +570,7 @@ impl PluginInstance {
 			display_flags: 0,
 			fs_flags: 0,
 			curve_tolerance: 0.0,
-			useExponent: false as after_effects_sys::A_Boolean,
+			useExponent: false as PF_Boolean,
 			exponent: 1.0,
 		};
 
@@ -618,7 +618,7 @@ impl PluginInstance {
 			pica,
 			in_data: after_effects_sys::PF_InData {
 				inter: interact_callbacks,
-				utils: std::ptr::null_mut(), // Will be set after creation
+				utils: null_mut(), // Will be set later
 				effect_ref: std::ptr::null_mut(),
 				quality: after_effects_sys::PF_Quality_HI,
 				version: after_effects_sys::PF_SpecVersion {
@@ -762,7 +762,11 @@ impl PluginInstance {
 		};
 
 		log::info!("Detected OS: {}.", os.blue());
-		log::info!("Loading plugin: {} from {}.", name.blue(), module_path.blue());
+		log::info!(
+			"Loading plugin: {} from {}.",
+			name.blue(),
+			module_path.blue()
+		);
 
 		// Check if the plugin file exists
 		if !std::path::Path::new(&module_path).exists() {
@@ -811,7 +815,10 @@ impl PluginInstance {
 		};
 
 		log::info!("Called EffectMain {}.", "successfully".green());
-		log::debug!("EffectMain exited with code: {}.", result.to_string().blue());
+		log::debug!(
+			"EffectMain exited with code: {}.",
+			result.to_string().blue()
+		);
 		//* -------------------------------------------- *//
 
 		//* ---- Extract the output layer result -------- */
@@ -830,7 +837,7 @@ impl PluginInstance {
 		}
 		//* --------------------------------------------- */
 		//* ---- Check for errors ---------------------- *//
-		match result as u32 {
+		match result as PF_Err {
 			PF_Err_NONE => {
 				log::info!("Plugin executed {}.", "successfully".green());
 			}

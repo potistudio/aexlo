@@ -54,10 +54,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 		})
 		.init();
 
-	// log::error!("This is an error message");
-	// log::warn!("This is a warning message");
-	// log::info!("This is an info message");
-	// log::debug!("This is a debug message");
 	//* ------------------------------------------------- */
 	let exe_dir = std::env::current_exe().expect("Failed to get current executable path");
 	let plugin_path = exe_dir
