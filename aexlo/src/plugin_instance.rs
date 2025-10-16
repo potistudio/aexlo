@@ -668,13 +668,15 @@ impl PluginInstance {
 		//* ---- Call entry point with PF_Cmd_ABOUT ---- *//
 		log::info!("Calling EffectMain with cmd: {:?}", self.cmd);
 
+		let mut params_ptr: Vec<*mut PF_ParamDef> = self.params.iter_mut().map(|p| p as *mut _).collect();
+
 		// Try with minimal viable parameters - AE plugins typically need non-null in_data and out_data
 		let result = unsafe {
 			container.EffectMain(
 				self.cmd, // Use ABOUT command which is the safest
 				&mut self.in_data,
 				&mut self.out_data,
-				&mut self.params.as_mut_ptr(), // params - can be null for ABOUT
+				params_ptr.as_mut_ptr(), // params - can be null for ABOUT
 				&mut self.layer,               // output - can be null for ABOUT
 				std::ptr::null_mut(),          // extra - typically null
 			)
