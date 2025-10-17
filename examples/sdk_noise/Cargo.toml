@@ -1,12 +1,9 @@
 [package]
 name = "sdk_noise"
-edition = "2024"
+authors.workspace = true
+license.workspace  = true
+edition.workspace = true
 
-[features]
-all = [ "default" ]
-min = [ ]
-default = [ "diagnostics" ]
-diagnostics = [ "aexlo/diagnostics" ]
 
 [dependencies]
 aexlo = { path = "../../aexlo" }

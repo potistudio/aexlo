@@ -8,3 +8,9 @@ pub enum Command {
 	ParamSetup,
 	Render,
 }
+
+mod pixel;
+mod layer;
+
+pub use pixel::*;
+pub use layer::*;

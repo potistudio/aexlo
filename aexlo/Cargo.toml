@@ -12,16 +12,10 @@ resolver = "2"
 edition = "2024"
 
 [features]
-all = [
-	"diagnostics"
-]
-default = [ ]
-
-diagnostics = [ ]
 
 [dependencies]
 wrapper = { path = "../wrapper" }
-after-effects-sys = "0.2.1"
+after-effects-sys = "0.3.0"
 chrono = "0.4.42"
 colored = "3.0.0"
 dlopen = "0.1.8"

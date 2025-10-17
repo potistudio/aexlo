@@ -33,181 +33,6 @@ pub struct SuiteContainer {
 	world_transform_suite: PF_WorldTransformSuite1,
 }
 
-/// Simple `atan()` function implementation
-pub extern "C" fn atan(x: f64) -> f64 {
-	let result = x.atan();
-
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("InData/utils/ansi/atan")
-		.add_arg("x", x)
-		.set_result(result)
-		.emit();
-
-	result
-}
-
-/// Simple `atan2()` function implementation
-pub extern "C" fn atan2(y: f64, x: f64) -> f64 {
-	let result = y.atan2(x);
-
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("InData/utils/ansi/atan2")
-		.add_arg("y", y)
-		.add_arg("x", x)
-		.set_result(result)
-		.emit();
-
-	result
-}
-
-/// Simple `ceil()` function implementation
-pub extern "C" fn ceil(x: f64) -> f64 {
-	let result = x.ceil();
-
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("InData/utils/ansi/ceil")
-		.add_arg("x", x)
-		.set_result(result)
-		.emit();
-
-	result
-}
-
-/// Simple `cos()` function implementation
-#[inline(always)]
-pub extern "C" fn cos(x: f64) -> f64 {
-	let result = x.cos();
-
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("InData/utils/ansi/cos")
-		.add_arg("x", x)
-		.set_result(result)
-		.emit();
-
-	result
-}
-
-/// Simple `sin()` function implementation
-#[inline(always)]
-pub extern "C" fn sin(x: f64) -> f64 {
-	let result = x.sin();
-
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("InData/utils/ansi/sin")
-		.add_arg("x", x)
-		.set_result(result)
-		.emit();
-
-	result
-}
-
-/// Emulates `sprintf()` function
-///
-/// # Safety
-///
-/// This function is unsafe because it handles raw pointers.
-pub unsafe extern "C" fn rusty_sprintf(
-	arg1: *mut after_effects_sys::A_char,
-	arg2: *const after_effects_sys::A_char,
-	mut args: ...
-) -> after_effects_sys::PF_Err {
-	const SPRINTF_BUFFER_SIZE: usize = 256;
-
-	// Safety checks
-	if arg1.is_null() || arg2.is_null() {
-		return after_effects_sys::PF_Err_BAD_CALLBACK_PARAM as after_effects_sys::PF_Err;
-	}
-
-	let format_str = match unsafe { CStr::from_ptr(arg2) }.to_str() {
-		Ok(s) => s,
-		Err(_) => {
-			return after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED as after_effects_sys::PF_Err;
-		}
-	};
-
-	// Simple implementation to handle %d and %s format specifiers
-	let mut result = String::new();
-	let mut chars = format_str.chars().peekable();
-
-	let mut d = DiagnosticBuilder::new();
-	d.set_name("InData/utils/ansi/sin")
-		.add_arg("arg1", format!("{:?}", format_str));
-
-	while let Some(c) = chars.next() {
-		if c == '%' {
-			if let Some(next) = chars.next() {
-				match next {
-					'd' => {
-						// Get an integer argument
-						let arg = unsafe { args.arg::<i32>() };
-						result.push_str(&arg.to_string());
-						d.add_arg("arg", format!("{:?}", arg));
-					}
-					's' => {
-						// Get a string argument
-						let ptr = unsafe { args.arg::<*const i8>() };
-						if !ptr.is_null() {
-							match unsafe { CStr::from_ptr(ptr) }.to_str() {
-								Ok(s) => {
-									result.push_str(s);
-									d.add_arg("arg", format!("{:?}", s));
-								}
-								Err(_) => result.push_str("(invalid)"),
-							}
-						} else {
-							result.push_str("(null)");
-						}
-					}
-					'%' => {
-						result.push('%');
-					}
-					_ => {
-						// Unsupported format specifier, just include it as-is
-						result.push('%');
-						result.push(next);
-					}
-				}
-			}
-		} else {
-			result.push(c);
-		}
-	}
-
-	println!(
-		"sprintf called with format: {:?}, result: {:?}",
-		format_str, result
-	);
-
-	// Copy result to the output buffer
-	let c_result = match CString::new(result) {
-		Ok(s) => s,
-		Err(_) => {
-			eprintln!("[ERROR] sprintf: Formatted string contains NUL bytes");
-			return after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED as after_effects_sys::PF_Err;
-		}
-	};
-
-	let bytes = c_result.as_bytes_with_nul();
-	let copy_len = bytes.len().min(SPRINTF_BUFFER_SIZE);
-	unsafe {
-		std::ptr::copy_nonoverlapping(bytes.as_ptr(), arg1 as *mut u8, copy_len);
-
-		// Ensure null termination if we hit buffer limit
-		if copy_len == SPRINTF_BUFFER_SIZE && copy_len > 0 {
-			*((arg1 as *mut u8).add(SPRINTF_BUFFER_SIZE - 1)) = 0;
-		}
-	}
-
-	d.set_result(format!("{:?}", c_result)).emit();
-
-	after_effects_sys::PF_Err_NONE as after_effects_sys::PF_Err
-}
-
 /// Emulates `PF_WorldTransformSuite1::copy` function
 /// # Safety
 /// This function is unsafe because it handles raw pointers.
@@ -363,18 +188,8 @@ unsafe extern "C" fn rusty_iterate_8(
 			pixels as usize,
 		)};
 
-		let in_pixel = PF_Pixel {
-			red: 0,
-			green: 0,
-			blue: 0,
-			alpha: 255,
-		};
-		let out_pixel = PF_Pixel {
-			red: 0,
-			green: 0,
-			blue: 0,
-			alpha: 255,
-		};
+		let mut in_pixel = wrapper::Pixel::<wrapper::Depth8>::black();
+		let mut out_pixel = wrapper::Pixel::<wrapper::Depth8>::black();
 
 		pixel_slice.iter_mut().enumerate().for_each(|(i, p)| {
 			let x = i as i32 % width;
@@ -385,12 +200,12 @@ unsafe extern "C" fn rusty_iterate_8(
 					refcon,
 					x,
 					y,
-					&in_pixel as *const _ as *mut _,
-					&out_pixel as *const _ as *mut _,
+					&mut in_pixel as *mut _ as *mut _,
+					&mut out_pixel as *mut _ as *mut _,
 				)
 			};
 
-			*p = out_pixel;
+			*p = out_pixel.into();
 		});
 	}
 
@@ -428,6 +243,7 @@ pub struct PluginInstance {
 	out_data: after_effects_sys::PF_OutData,
 	params: Vec<after_effects_sys::PF_ParamDef>,
 	pub layer: after_effects_sys::PF_LayerDef,
+	lllllayer: wrapper::Layer<wrapper::Depth8>,
 }
 
 impl PluginInstance {
@@ -449,10 +265,10 @@ impl PluginInstance {
 		};
 
 		let ansi = after_effects_sys::PF_ANSICallbacks {
-			atan: Some(atan),
-			atan2: Some(atan2),
-			ceil: Some(ceil),
-			cos: Some(cos),
+			atan: Some(crate::ansi::atan_sys),
+			atan2: Some(crate::ansi::atan2_sys),
+			ceil: Some(crate::ansi::ceil_sys),
+			cos: Some(crate::ansi::cos_sys),
 			exp: None,
 			fabs: None,
 			floor: None,
@@ -461,10 +277,10 @@ impl PluginInstance {
 			log: None,
 			log10: None,
 			pow: None,
-			sin: Some(sin),
+			sin: Some(crate::ansi::sin_sys),
 			sqrt: None,
 			tan: None,
-			sprintf: Some(rusty_sprintf),
+			sprintf: Some(crate::ansi::sprintf_sys),
 			strcpy: None,
 			asin: None,
 			acos: None,
@@ -700,6 +516,7 @@ impl PluginInstance {
 				out_flags2: after_effects_sys::PF_OutFlag2_NONE as after_effects_sys::PF_OutFlags2,
 			},
 			params: param_list,
+			lllllayer: wrapper::Layer::<wrapper::Depth8>::blank(1920, 1080),
 			layer: after_effects_sys::PF_LayerDef {
 				reserved0: null_mut(),
 				reserved1: null_mut(),
@@ -729,6 +546,7 @@ impl PluginInstance {
 		// Now set the utils pointer to reference our owned utility_callbacks
 		instance.in_data.utils = &mut instance.utility_callbacks;
 		instance.in_data.pica_basicP = instance.pica.as_mut() as *mut _;
+		instance.layer.data = instance.lllllayer.pixels.as_mut_ptr() as *mut PF_Pixel;
 
 		instance
 	}
@@ -772,19 +590,6 @@ impl PluginInstance {
 			return Err(format!("Plugin file not found: {}", module_path).into());
 		}
 
-		let width = 1920;
-		let height = 1080;
-		let mut pixel_world = vec![
-			PF_Pixel {
-				red: 0,
-				green: 0,
-				blue: 0,
-				alpha: 255
-			};
-			width * height
-		];
-		self.layer.data = pixel_world.as_mut_ptr() as *mut PF_Pixel;
-
 		//* ---- Load DLL ------------------------------ *//
 		let container: Container<EffectMain> = unsafe { Container::load(&module_path) }
 			.map_err(|e| format!("Failed to load library {}: {}", module_path, e))?;
@@ -819,42 +624,6 @@ impl PluginInstance {
 			result.to_string().blue()
 		);
 		//* -------------------------------------------- *//
-
-		//* ---- Extract the output layer result -------- */
-		log::info!("Extracting output layer...");
-		let output_pixel_world = unsafe {
-			std::slice::from_raw_parts(
-				self.layer.data as *const PF_Pixel,
-				(self.layer.rowbytes * self.layer.height) as usize,
-			)
-		};
-		log::info!("Extracted output layer {}.", "successfully".green());
-
-		log::debug!("First 10 pixels (out of {}):", output_pixel_world.len());
-		for (i, pixel) in output_pixel_world.iter().enumerate().take(10) {
-			log::debug!("    Pixel {}: {:?}", i, pixel);
-		}
-
-		let output_buffer: Vec<u8> = output_pixel_world
-			.iter()
-			// .take(40)
-			.flat_map(|p| vec![p.red, p.green, p.blue, p.alpha])
-			.collect();
-
-		let mut writer = Vec::<u8>::new();
-
-		let mut header = mtpng::Header::new();
-		header.set_size(1920, 1080)?;
-		header.set_color(mtpng::ColorType::TruecolorAlpha, 8)?;
-
-		let options = mtpng::encoder::Options::default();
-		let mut encoder = mtpng::encoder::Encoder::new(&mut writer, &options);
-		encoder.write_header(&header)?;
-		encoder.write_image_rows(&output_buffer)?;
-		encoder.finish()?;
-
-		std::fs::write("output.png", writer)?;
-		//* --------------------------------------------- */
 
 		//* ---- Check for errors ---------------------- *//
 		match result as PF_Err {
@@ -901,29 +670,16 @@ impl PluginInstance {
 
 		Ok(())
 	}
-}
 
-#[cfg(test)]
-mod tests {
-	use super::*;
+	pub fn output_layer(&self) -> wrapper::Layer<wrapper::Depth8> {
+		let width = self.layer.width;
+		let height = self.layer.height;
+		let pixels = self.lllllayer.pixels.clone();
 
-	#[test]
-	fn test_sin() {
-		let angle = std::f64::consts::PI / 2.0; // 90 degrees
-		let result = sin(angle);
-		assert!(
-			(result - 1.0).abs() < 1e-10,
-			"sin(π/2) should be approximately 1.0"
-		);
-	}
-
-	#[test]
-	fn test_cos() {
-		let angle = std::f64::consts::PI; // 180 degrees
-		let result = cos(angle);
-		assert!(
-			(result + 1.0).abs() < 1e-10,
-			"cos(π) should be approximately -1.0"
-		);
+		wrapper::Layer::new(
+			width as u32,
+			height as u32,
+			pixels.iter().map(|p| (*p)).collect(),
+		)
 	}
 }
