@@ -8,10 +8,11 @@ repository = "https://github.com/potistudio/aexlo-rs"
 keywords = [ "after-effects", "graphics", "emulator" ]
 categories = [ "emulator" ]
 readme = "README.md"
-resolver = "2"
 edition = "2024"
 
 [features]
+all = [ "diagnostics" ]
+diagnostics = [ ]
 
 [dependencies]
 wrapper = { path = "../wrapper" }

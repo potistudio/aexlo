@@ -4,6 +4,12 @@ authors.workspace = true
 license.workspace  = true
 edition.workspace = true
 
+[features]
+diagnostics = [ "aexlo/diagnostics" ]
+
+[[bench]]
+name = "render_full"
+harness = false
 
 [dependencies]
 aexlo = { path = "../../aexlo" }
@@ -14,3 +20,6 @@ dlopen_derive = "0.1.4"
 env_logger = "0.11.8"
 log = "0.4.28"
 mtpng = "0.4.1"
+
+[dev-dependencies]
+criterion = "0.7.0"

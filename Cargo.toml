@@ -10,3 +10,8 @@ members = [
 authors = [ "potistudio <potistudio@proton.me>" ]
 license = "MIT"
 edition = "2024"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
