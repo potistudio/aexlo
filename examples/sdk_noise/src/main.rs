@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	//* ---- Initialize logger -------------------------- */
 	unsafe {
-		std::env::set_var("RUST_LOG", "error");
+		std::env::set_var("RUST_LOG", "warn");
 	}
 
 	logger::Builder::from_default_env()
@@ -70,6 +70,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	//* ---- Execute the plugin ------------------------- */
 	let mut instance = PluginInstance::new(plugin_path.as_path());
+	instance.load()?;
 
 	// Warmup run to stabilize system
 	log::info!("Performing warmup run...");

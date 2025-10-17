@@ -230,6 +230,7 @@ pub struct EffectMain {
 
 /// Represents an instance of an After Effects plugin
 pub struct PluginInstance {
+	container: Option<Container<EffectMain>>,
 	path: PathBuf,
 	cmd: after_effects::RawCommand,
 	ansi: after_effects_sys::PF_ANSICallbacks,
@@ -249,6 +250,8 @@ pub struct PluginInstance {
 impl PluginInstance {
 	/// Create a new PluginInstance with default values
 	pub fn new(path: &Path) -> Self {
+		let width = 1920;
+		let height = 1080;
 		// Initialize Interact Callbacks
 		let interact_callbacks = after_effects_sys::PF_InteractCallbacks {
 			checkout_param: None,
@@ -426,6 +429,7 @@ impl PluginInstance {
 
 		// Initialize InData
 		let mut instance = PluginInstance {
+			container: None,
 			path: path.to_path_buf(),
 			cmd: after_effects::RawCommand::About,
 			ansi,
@@ -516,15 +520,15 @@ impl PluginInstance {
 				out_flags2: after_effects_sys::PF_OutFlag2_NONE as after_effects_sys::PF_OutFlags2,
 			},
 			params: param_list,
-			lllllayer: wrapper::Layer::<wrapper::Depth8>::blank(1920, 1080),
+			lllllayer: wrapper::Layer::<wrapper::Depth8>::blank(width, height),
 			layer: after_effects_sys::PF_LayerDef {
 				reserved0: null_mut(),
 				reserved1: null_mut(),
 				world_flags: 0 as after_effects_sys::PF_WorldFlags,
 				data: null_mut(),
-				rowbytes: 1920,
-				width: 1920,
-				height: 1080,
+				rowbytes: width as i32,
+				width: width as i32,
+				height: height as i32,
 				extent_hint: after_effects_sys::PF_UnionableRect {
 					left: 0,
 					top: 0,
@@ -551,8 +555,7 @@ impl PluginInstance {
 		instance
 	}
 
-	/// Call the plugin entry point
-	fn call_plugin(&mut self) -> Result<(), Box<dyn Error>> {
+	pub fn load(&mut self) -> Result<(), Box<dyn Error>> {
 		let dir = self
 			.path
 			.parent()
@@ -563,7 +566,8 @@ impl PluginInstance {
 			.file_name()
 			.and_then(|s| s.to_str())
 			.ok_or("Invalid module name")?;
-		// Detect OS
+
+		//* ---- Detect OS ------------------------------ */
 		log::info!("Detecting OS...");
 		let os = std::env::consts::OS;
 		let module_path = match os {
@@ -579,6 +583,9 @@ impl PluginInstance {
 		};
 
 		log::info!("Detected OS: {}.", os.blue());
+		//* --------------------------------------------- */
+
+		//* ---- Load Plugin --------------------------- *//
 		log::info!(
 			"Loading plugin: {} from {}.",
 			name.blue(),
@@ -587,17 +594,20 @@ impl PluginInstance {
 
 		// Check if the plugin file exists
 		if !std::path::Path::new(&module_path).exists() {
-			return Err(format!("Plugin file not found: {}", module_path).into());
+			return Err(format!("Plugin not found: {}", module_path).into());
 		}
 
-		//* ---- Load DLL ------------------------------ *//
-		let container: Container<EffectMain> = unsafe { Container::load(&module_path) }
-			.map_err(|e| format!("Failed to load library {}: {}", module_path, e))?;
+		self.container = Some(unsafe { Container::load(&module_path) }
+			.map_err(|e| format!("Failed to load plugin {}: {}", module_path, e))?);
 
 		log::info!("Loaded plugin {}.", "successfully".green());
 		//* -------------------------------------------- *//
 
-		//* ---- Call entry point with PF_Cmd_ABOUT ---- *//
+		Ok(())
+	}
+
+	/// Call the plugin entry point
+	fn call_plugin(&mut self) -> Result<(), Box<dyn Error>> {
 		log::info!(
 			"Calling EffectMain with command: {}...",
 			format!("{:?}", self.cmd).blue()
@@ -606,33 +616,36 @@ impl PluginInstance {
 		let mut params_ptr: Vec<*mut PF_ParamDef> =
 			self.params.iter_mut().map(|p| p as *mut _).collect();
 
-		// Try with minimal viable parameters - AE plugins typically need non-null in_data and out_data
-		let result = unsafe {
-			container.EffectMain(
-				self.cmd, // Use ABOUT command which is the safest
-				&mut self.in_data,
-				&mut self.out_data,
-				params_ptr.as_mut_ptr(), // params - can be null for ABOUT
-				&mut self.layer,         // output - can be null for ABOUT
-				std::ptr::null_mut(),    // extra - typically null
-			)
-		};
+		if let Some(container) = &self.container {
+			let result = unsafe{
+				container.EffectMain(
+					self.cmd,
+					&mut self.in_data,
+					&mut self.out_data,
+					params_ptr.as_mut_ptr(),
+					&mut self.layer,
+					std::ptr::null_mut(),
+			)};
 
-		log::info!("Called EffectMain {}.", "successfully".green());
-		log::debug!(
-			"EffectMain exited with code: {}.",
-			result.to_string().blue()
-		);
-		//* -------------------------------------------- *//
+			log::info!("Called EffectMain {}.", "successfully".green());
+			log::debug!(
+				"EffectMain exited with code: {}.",
+				result.to_string().blue()
+			);
 
-		//* ---- Check for errors ---------------------- *//
-		match result as PF_Err {
-			PF_Err_NONE => {
-				log::info!("Plugin executed {}.", "successfully".green());
+			//* ---- Check for errors ---------------------- *//
+			match result as PF_Err {
+				PF_Err_NONE => {
+					log::info!("Plugin executed {}.", "successfully".green());
+				}
+				_ => {
+					return Err(format!("Plugin has failed with error: {}.", result).into());
+				}
 			}
-			_ => {
-				return Err(format!("Plugin has failed with error: {}.", result).into());
-			}
+			//* -------------------------------------------- *//
+		} else {
+			log::warn!("Plugin container is not loaded. Loading now...");
+			return Err("Plugin is not loaded. Call load() before calling the plugin.".into());
 		}
 		//* -------------------------------------------- *//
 

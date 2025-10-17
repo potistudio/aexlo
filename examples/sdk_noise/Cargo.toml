@@ -5,6 +5,7 @@ license.workspace  = true
 edition.workspace = true
 
 [features]
+all = [ "diagnostics" ]
 diagnostics = [ "aexlo/diagnostics" ]
 
 [[bench]]
