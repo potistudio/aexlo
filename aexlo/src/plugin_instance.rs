@@ -178,35 +178,32 @@ unsafe extern "C" fn rusty_iterate_8(
 		.set_result(0)
 		.emit();
 
-	let destination_layer = unsafe { *dst };
+	let func = match pix_fn {
+		Some(f) => f,
+		None => return PF_Err_NONE as PF_Err,
+	};
 
-	if let Some(func) = pix_fn {
-		let width = destination_layer.width;
-		let pixels = destination_layer.width * destination_layer.height;
-		let pixel_slice = unsafe { std::slice::from_raw_parts_mut(
-			destination_layer.data,
-			pixels as usize,
-		)};
+	let destination_layer = unsafe { &mut *dst };
+	let width = destination_layer.width;
+	let height = destination_layer.height;
+	let pixels = width * height;
 
-		let mut in_pixel = wrapper::Pixel::<wrapper::Depth8>::black();
-		let mut out_pixel = wrapper::Pixel::<wrapper::Depth8>::black();
+	let pixel_slice =
+		unsafe { std::slice::from_raw_parts_mut(destination_layer.data, pixels as usize) };
 
-		pixel_slice.iter_mut().enumerate().for_each(|(i, p)| {
-			let x = i as i32 % width;
-			let y = i as i32 / width;
+	let mut in_pixel: PF_Pixel = unsafe { std::mem::zeroed() };
+	let mut out_pixel: PF_Pixel = unsafe { std::mem::zeroed() };
 
-			unsafe {
-				func(
-					refcon,
-					x,
-					y,
-					&mut in_pixel as *mut _ as *mut _,
-					&mut out_pixel as *mut _ as *mut _,
-				)
-			};
+	let in_ptr = &mut in_pixel as *mut _ as *mut PF_Pixel8;
+	let out_ptr = &mut out_pixel as *mut _ as *mut PF_Pixel8;
 
-			*p = out_pixel.into();
-		});
+	for (i, pixel) in pixel_slice.iter_mut().enumerate() {
+		let x = i as i32 % width;
+		let y = i as i32 / width;
+
+		unsafe { func(refcon, x, y, in_ptr, out_ptr) };
+
+		*pixel = out_pixel
 	}
 
 	PF_Err_NONE as PF_Err
@@ -584,7 +581,6 @@ impl PluginInstance {
 
 		log::info!("Detected OS: {}.", os.blue());
 		//* --------------------------------------------- */
-
 		//* ---- Load Plugin --------------------------- *//
 		log::info!(
 			"Loading plugin: {} from {}.",
@@ -597,8 +593,10 @@ impl PluginInstance {
 			return Err(format!("Plugin not found: {}", module_path).into());
 		}
 
-		self.container = Some(unsafe { Container::load(&module_path) }
-			.map_err(|e| format!("Failed to load plugin {}: {}", module_path, e))?);
+		self.container = Some(
+			unsafe { Container::load(&module_path) }
+				.map_err(|e| format!("Failed to load plugin {}: {}", module_path, e))?,
+		);
 
 		log::info!("Loaded plugin {}.", "successfully".green());
 		//* -------------------------------------------- *//
@@ -616,36 +614,36 @@ impl PluginInstance {
 		let mut params_ptr: Vec<*mut PF_ParamDef> =
 			self.params.iter_mut().map(|p| p as *mut _).collect();
 
-		if let Some(container) = &self.container {
-			let result = unsafe{
-				container.EffectMain(
-					self.cmd,
-					&mut self.in_data,
-					&mut self.out_data,
-					params_ptr.as_mut_ptr(),
-					&mut self.layer,
-					std::ptr::null_mut(),
-			)};
+		let container = self
+			.container
+			.as_ref()
+			.ok_or("Plugin container is not loaded. Call load() before calling the plugin.")?;
 
-			log::info!("Called EffectMain {}.", "successfully".green());
-			log::debug!(
-				"EffectMain exited with code: {}.",
-				result.to_string().blue()
-			);
+		let result = unsafe {
+			container.EffectMain(
+				self.cmd,
+				&mut self.in_data,
+				&mut self.out_data,
+				params_ptr.as_mut_ptr(),
+				&mut self.layer,
+				std::ptr::null_mut(),
+			)
+		};
 
-			//* ---- Check for errors ---------------------- *//
-			match result as PF_Err {
-				PF_Err_NONE => {
-					log::info!("Plugin executed {}.", "successfully".green());
-				}
-				_ => {
-					return Err(format!("Plugin has failed with error: {}.", result).into());
-				}
+		log::info!("Called EffectMain {}.", "successfully".green());
+		log::debug!(
+			"EffectMain exited with code: {}.",
+			result.to_string().blue()
+		);
+
+		//* ---- Check for errors ---------------------- *//
+		match result as PF_Err {
+			PF_Err_NONE => {
+				log::info!("Plugin executed {}.", "successfully".green());
 			}
-			//* -------------------------------------------- *//
-		} else {
-			log::warn!("Plugin container is not loaded. Loading now...");
-			return Err("Plugin is not loaded. Call load() before calling the plugin.".into());
+			_ => {
+				return Err(format!("Plugin has failed with error: {}.", result).into());
+			}
 		}
 		//* -------------------------------------------- *//
 
