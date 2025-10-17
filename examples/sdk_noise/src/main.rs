@@ -64,6 +64,19 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let mut instance = PluginInstance::new(plugin_path.as_path());
 	instance.render()?;
 
+	// let output_pixel_world = unsafe {
+	// 	std::slice::from_raw_parts(
+	// 		instance.layer.data as *const aexlo::PF_Pixel,
+	// 		(instance.layer.rowbytes * instance.layer.height) as usize,
+	// 	)
+	// };
+	// log::debug!("Output dimensions: {:?}", unsafe { *instance.layer.data });
+
+	// let output_buffer = output_pixel_world
+	// 	.iter()
+	// 	.flat_map(|p| vec![p.red, p.green, p.blue, p.alpha])
+	// 	.collect::<Vec<u8>>();
+
 	println!("======== Execution completed ========\n");
 	Ok(())
 }

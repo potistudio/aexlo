@@ -353,34 +353,33 @@ unsafe extern "C" fn rusty_iterate_8(
 		.set_result(0)
 		.emit();
 
-	let mut destination_layer;
-	unsafe { destination_layer = *dst };
+	let destination_layer = unsafe { *dst };
 
 	if let Some(func) = pix_fn {
-		let width = 10;
-		let slice = std::slice::from_raw_parts_mut(
+		let width = destination_layer.width;
+		let pixels = destination_layer.width * destination_layer.height;
+		let pixel_slice = unsafe { std::slice::from_raw_parts_mut(
 			destination_layer.data,
-			(destination_layer.rowbytes * destination_layer.height) as usize,
-		);
+			pixels as usize,
+		)};
 
-		let mut in_pixel = PF_Pixel {
+		let in_pixel = PF_Pixel {
 			red: 0,
 			green: 0,
 			blue: 0,
 			alpha: 255,
 		};
-		let mut out_pixel = PF_Pixel {
+		let out_pixel = PF_Pixel {
 			red: 0,
 			green: 0,
 			blue: 0,
 			alpha: 255,
 		};
 
-		for i in 0..20 {
-			let x = i % width;
-			let y = i / width;
+		pixel_slice.iter_mut().enumerate().for_each(|(i, p)| {
+			let x = i as i32 % width;
+			let y = i as i32 / width;
 
-			// println!("Before pixel function call: in_pixel={:?}, out_pixel={:?}", in_pixel, out_pixel);
 			unsafe {
 				func(
 					refcon,
@@ -390,8 +389,9 @@ unsafe extern "C" fn rusty_iterate_8(
 					&out_pixel as *const _ as *mut _,
 				)
 			};
-			slice[(x + y * destination_layer.rowbytes) as usize] = out_pixel;
-		}
+
+			*p = out_pixel;
+		});
 	}
 
 	PF_Err_NONE as PF_Err
@@ -400,7 +400,6 @@ unsafe extern "C" fn rusty_iterate_8(
 /// Wrapper for After Effects plugin entry point
 /// Note: EffectMain naming is required by the C API and cannot be changed
 #[derive(WrapperApi)]
-#[allow(non_snake_case)]
 #[repr(C)]
 pub struct EffectMain {
 	#[allow(non_snake_case)]
@@ -428,7 +427,7 @@ pub struct PluginInstance {
 	pub in_data: after_effects_sys::PF_InData,
 	out_data: after_effects_sys::PF_OutData,
 	params: Vec<after_effects_sys::PF_ParamDef>,
-	layer: after_effects_sys::PF_LayerDef,
+	pub layer: after_effects_sys::PF_LayerDef,
 }
 
 impl PluginInstance {
@@ -556,7 +555,7 @@ impl PluginInstance {
 
 		let fs_d = after_effects_sys::PF_FloatSliderDef {
 			//* Parameter Value */
-			value: 100.0,
+			value: 50.0,
 			phase: 0.0,
 			value_desc: [0; 32],
 
@@ -835,7 +834,28 @@ impl PluginInstance {
 		for (i, pixel) in output_pixel_world.iter().enumerate().take(10) {
 			log::debug!("    Pixel {}: {:?}", i, pixel);
 		}
+
+		let output_buffer: Vec<u8> = output_pixel_world
+			.iter()
+			// .take(40)
+			.flat_map(|p| vec![p.red, p.green, p.blue, p.alpha])
+			.collect();
+
+		let mut writer = Vec::<u8>::new();
+
+		let mut header = mtpng::Header::new();
+		header.set_size(1920, 1080)?;
+		header.set_color(mtpng::ColorType::TruecolorAlpha, 8)?;
+
+		let options = mtpng::encoder::Options::default();
+		let mut encoder = mtpng::encoder::Encoder::new(&mut writer, &options);
+		encoder.write_header(&header)?;
+		encoder.write_image_rows(&output_buffer)?;
+		encoder.finish()?;
+
+		std::fs::write("output.png", writer)?;
 		//* --------------------------------------------- */
+
 		//* ---- Check for errors ---------------------- *//
 		match result as PF_Err {
 			PF_Err_NONE => {

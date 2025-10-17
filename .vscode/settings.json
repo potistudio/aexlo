@@ -7,12 +7,16 @@
 		"dephault",
 		"dlopen",
 		"downsample",
+		"mtpng",
 		"nonoverlapping",
 		"peekable",
+		"refcon",
+		"repr",
 		"rowbytes",
 		"samp",
 		"sdata",
 		"sprintf",
+		"Truecolor",
 		"Unionable"
 	],
 	"editor.rulers": [
