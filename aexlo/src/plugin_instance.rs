@@ -10,7 +10,21 @@ use dlopen::wrapper::{Container, WrapperApi};
 use crate::diagnostics::DiagnosticBuilder;
 
 unsafe extern "C" {
-	fn Iterate8(a: i32, b: i32) -> i32;
+	fn Iterate8(
+		pixel_count: i32,
+		in_layer: *mut PF_Pixel8,
+		out_layer: *mut PF_Pixel8,
+		controller: *const c_void,
+		func: Option<
+			unsafe extern "C" fn(
+				refcon: *mut c_void,
+				x: A_long,
+				y: A_long,
+				in_pixel: *mut PF_Pixel8,
+				out_pixel: *mut PF_Pixel8,
+			) -> PF_Err,
+		>,
+	);
 }
 
 static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
@@ -182,35 +196,26 @@ unsafe extern "C" fn rusty_iterate_8(
 		.set_result(0)
 		.emit();
 
-	let func = match pix_fn {
-		Some(f) => f,
-		None => return PF_Err_NONE as PF_Err,
-	};
-
 	let destination_layer = unsafe { &mut *dst };
-	let width = destination_layer.width;
-	let height = destination_layer.height;
+	let width = destination_layer.width as u32;
+	let height = destination_layer.height as u32;
 	let pixels = width * height;
 
 	let pixel_slice =
 		unsafe { std::slice::from_raw_parts_mut(destination_layer.data, pixels as usize) };
 
-	let mut in_pixel = wrapper::Pixel::<wrapper::Depth8>::black();
-	let mut out_pixel = wrapper::Pixel::<wrapper::Depth8>::black();
+	let mut in_layer = wrapper::Layer::blank(width, height);
 
-	let in_ptr = &mut in_pixel as *mut _ as *mut PF_Pixel8;
-	let out_ptr = &mut out_pixel as *mut _ as *mut PF_Pixel8;
+	let in_layer_sys = in_layer
+		.pixels
+		.iter()
+		.map(|p| (*p).into())
+		.collect::<Vec<PF_Pixel8>>();
 
-	for (i, pixel) in pixel_slice.iter_mut().enumerate() {
-		let x = i as i32 % width;
-		let y = i as i32 / width;
+	let in_ptr = in_layer_sys.as_ptr() as *mut PF_Pixel8;
+	let out_ptr = pixel_slice.as_mut_ptr() as *mut PF_Pixel8;
 
-		unsafe { func(refcon, x, y, in_ptr, out_ptr) };
-
-		*pixel = out_pixel.into()
-	}
-
-	println!("{}", unsafe { Iterate8(1, 2) });
+	unsafe { Iterate8(pixels as i32, in_ptr, out_ptr, refcon, pix_fn) };
 
 	PF_Err_NONE as PF_Err
 }
