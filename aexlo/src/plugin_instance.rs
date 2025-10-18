@@ -191,8 +191,8 @@ unsafe extern "C" fn rusty_iterate_8(
 	let pixel_slice =
 		unsafe { std::slice::from_raw_parts_mut(destination_layer.data, pixels as usize) };
 
-	let mut in_pixel: PF_Pixel = unsafe { std::mem::zeroed() };
-	let mut out_pixel: PF_Pixel = unsafe { std::mem::zeroed() };
+	let mut in_pixel = wrapper::Pixel::<wrapper::Depth8>::black();
+	let mut out_pixel = wrapper::Pixel::<wrapper::Depth8>::black();
 
 	let in_ptr = &mut in_pixel as *mut _ as *mut PF_Pixel8;
 	let out_ptr = &mut out_pixel as *mut _ as *mut PF_Pixel8;
@@ -203,7 +203,7 @@ unsafe extern "C" fn rusty_iterate_8(
 
 		unsafe { func(refcon, x, y, in_ptr, out_ptr) };
 
-		*pixel = out_pixel
+		*pixel = out_pixel.into()
 	}
 
 	PF_Err_NONE as PF_Err
