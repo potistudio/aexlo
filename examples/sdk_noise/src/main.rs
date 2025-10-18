@@ -56,8 +56,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 		.init();
 	//* ------------------------------------------------- */
 
-
-
 	//* ---- Determine plugin path ---------------------- */
 	let exe_dir = std::env::current_exe().expect("Failed to get current executable path");
 	let plugin_path = exe_dir
@@ -65,8 +63,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 		.expect("Failed to get parent directory of executable")
 		.join(MODULE_NAME);
 	//* ------------------------------------------------- */
-
-
 
 	//* ---- Execute the plugin ------------------------- */
 	let mut instance = PluginInstance::new(plugin_path.as_path());
@@ -94,12 +90,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let avg = total / times.len() as u32;
 	let min = *times.iter().min().unwrap();
 	let max = *times.iter().max().unwrap();
-	let variance = times.iter()
+	let variance = times
+		.iter()
 		.map(|&t| {
 			let diff = (t.as_secs_f64() - avg.as_secs_f64()).powi(2);
 			diff
 		})
-		.sum::<f64>() / times.len() as f64;
+		.sum::<f64>()
+		/ times.len() as f64;
 	let stddev = variance.sqrt();
 
 	log::error!("\n{}", "=== Benchmark Results ===".bold());
@@ -110,8 +108,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 	log::error!("  Std Dev:    {:.6}s", stddev);
 	log::error!("  Total:      {:.2?}", total);
 	//* ------------------------------------------------- */
-
-
 
 	//* ---- Extract the output layer ------------------- */
 	log::info!("Extracting output layer...");
@@ -124,11 +120,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 	}
 	//* ------------------------------------------------- */
 
-
-
 	//* ---- Write output image as PNG ------------------ */
 	log::info!("Writing output image to 'output.png'...");
-	let output_buffer: Vec<u8> = layer.pixels
+	let output_buffer: Vec<u8> = layer
+		.pixels
 		.iter()
 		.flat_map(|p| vec![p.red, p.green, p.blue, p.alpha])
 		.collect();
@@ -148,8 +143,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 	std::fs::write("output.png", writer)?;
 	log::info!("Wrote output image {}.", "successfully".green());
 	//* ------------------------------------------------- */
-
-
 
 	println!("======== Execution completed ========\n");
 	Ok(())

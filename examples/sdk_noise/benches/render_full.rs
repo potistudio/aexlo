@@ -1,6 +1,6 @@
-use std::hint::black_box;
-use criterion::{criterion_group, criterion_main, Criterion};
 use aexlo::*;
+use criterion::{Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 
 const MODULE_NAME: &str = "SDK_Noise";
 
@@ -25,8 +25,5 @@ fn benchmark_rendering_full(criterion: &mut Criterion) {
 	});
 }
 
-criterion_group!(
-	benches,
-	benchmark_rendering_full,
-);
+criterion_group!(benches, benchmark_rendering_full,);
 criterion_main!(benches);
