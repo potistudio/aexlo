@@ -25,3 +25,6 @@ env_logger = "0.11.8"
 log = "0.4.28"
 after-effects = "0.2.1"
 mtpng = "0.4.1"
+
+[build-dependencies]
+cmake = "0.1.54"
