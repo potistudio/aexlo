@@ -7,10 +7,10 @@
 #[macro_use]
 extern crate dlopen_derive;
 
+mod ansi;
 mod diagnostics;
 mod plugin_instance;
-mod ansi;
 
+pub use after_effects_sys::PF_Pixel;
 pub use diagnostics::*;
 pub use plugin_instance::*;
-pub use after_effects_sys::PF_Pixel;

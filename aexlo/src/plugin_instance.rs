@@ -9,6 +9,10 @@ use dlopen::wrapper::{Container, WrapperApi};
 
 use crate::diagnostics::DiagnosticBuilder;
 
+unsafe extern "C" {
+	fn Iterate8(a: i32, b: i32) -> i32;
+}
+
 static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	iterate_8_suite: PF_Iterate8Suite2 {
 		iterate: Some(rusty_iterate_8),
@@ -205,6 +209,8 @@ unsafe extern "C" fn rusty_iterate_8(
 
 		*pixel = out_pixel.into()
 	}
+
+	println!("{}", unsafe { Iterate8(1, 2) });
 
 	PF_Err_NONE as PF_Err
 }
