@@ -382,7 +382,7 @@ impl PluginInstance {
 
 		let fs_d = after_effects_sys::PF_FloatSliderDef {
 			//* Parameter Value */
-			value: 50.0,
+			value: 83.56,
 			phase: 0.0,
 			value_desc: [0; 32],
 
