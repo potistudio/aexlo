@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::ffi::{CStr, CString, c_void};
+use std::ffi::{CStr, c_void};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 
@@ -648,7 +648,7 @@ impl PluginInstance {
 		);
 
 		//* ---- Check for errors ---------------------- *//
-		match result as PF_Err {
+		match result as u32 {
 			PF_Err_NONE => {
 				log::info!("Plugin executed {}.", "successfully".green());
 			}
@@ -701,7 +701,7 @@ impl PluginInstance {
 		wrapper::Layer::new(
 			width as u32,
 			height as u32,
-			pixels.iter().map(|p| (*p)).collect(),
+			pixels.iter().map(|p| *p).collect(),
 		)
 	}
 }
