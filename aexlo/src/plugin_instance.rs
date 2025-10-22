@@ -207,7 +207,6 @@ unsafe extern "C" fn rusty_iterate_8(
 	let mut in_layer = wrapper::Layer::blank(width, height);
 
 	let in_layer_sys = in_layer
-		.pixels
 		.iter()
 		.map(|p| (*p).into())
 		.collect::<Vec<PF_Pixel8>>();
@@ -558,7 +557,7 @@ impl PluginInstance {
 		// Now set the utils pointer to reference our owned utility_callbacks
 		instance.in_data.utils = &mut instance.utility_callbacks;
 		instance.in_data.pica_basicP = instance.pica.as_mut() as *mut _;
-		instance.layer.data = instance.lllllayer.pixels.as_mut_ptr() as *mut PF_Pixel;
+		instance.layer = instance.lllllayer.as_sys();
 
 		instance
 	}
@@ -648,7 +647,7 @@ impl PluginInstance {
 		);
 
 		//* ---- Check for errors ---------------------- *//
-		match result as u32 {
+		match result as i32 {
 			PF_Err_NONE => {
 				log::info!("Plugin executed {}.", "successfully".green());
 			}
@@ -694,14 +693,6 @@ impl PluginInstance {
 	}
 
 	pub fn output_layer(&self) -> wrapper::Layer<wrapper::Depth8> {
-		let width = self.layer.width;
-		let height = self.layer.height;
-		let pixels = self.lllllayer.pixels.clone();
-
-		wrapper::Layer::new(
-			width as u32,
-			height as u32,
-			pixels.iter().map(|p| *p).collect(),
-		)
+		self.lllllayer.clone()
 	}
 }

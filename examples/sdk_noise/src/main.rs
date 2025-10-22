@@ -55,7 +55,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 		})
 		.init();
 	//* ------------------------------------------------- */
-
 	//* ---- Determine plugin path ---------------------- */
 	let exe_dir = std::env::current_exe().expect("Failed to get current executable path");
 	let plugin_path = exe_dir
@@ -63,7 +62,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 		.expect("Failed to get parent directory of executable")
 		.join(MODULE_NAME);
 	//* ------------------------------------------------- */
-
 	//* ---- Execute the plugin ------------------------- */
 	let mut instance = PluginInstance::new(plugin_path.as_path());
 	instance.load()?;
@@ -108,22 +106,19 @@ fn main() -> Result<(), Box<dyn Error>> {
 	log::error!("  Std Dev:    {:.6}s", stddev);
 	log::error!("  Total:      {:.2?}", total);
 	//* ------------------------------------------------- */
-
 	//* ---- Extract the output layer ------------------- */
 	log::info!("Extracting output layer...");
 	let layer = instance.output_layer();
 	log::info!("Extracted output layer {}.", "successfully".green());
 
-	log::debug!("First 10 pixels (out of {}):", layer.pixels.len());
-	for (i, pixel) in layer.pixels.iter().enumerate().take(10) {
+	log::debug!("First 10 pixels (out of {}):", layer.len());
+	for (i, pixel) in layer.iter().enumerate().take(10) {
 		log::debug!("    Pixel {}: {:?}", i, pixel);
 	}
 	//* ------------------------------------------------- */
-
 	//* ---- Write output image as PNG ------------------ */
 	log::info!("Writing output image to 'output.png'...");
 	let output_buffer: Vec<u8> = layer
-		.pixels
 		.iter()
 		.flat_map(|p| vec![p.red, p.green, p.blue, p.alpha])
 		.collect();
@@ -143,7 +138,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 	std::fs::write("output.png", writer)?;
 	log::info!("Wrote output image {}.", "successfully".green());
 	//* ------------------------------------------------- */
-
 	println!("======== Execution completed ========\n");
 	Ok(())
 }
