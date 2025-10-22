@@ -220,6 +220,23 @@ unsafe extern "C" fn rusty_iterate_8(
 	PF_Err_NONE as PF_Err
 }
 
+unsafe extern "C" fn rusty_add_param(
+	effect_ref: PF_ProgPtr,
+	index: PF_ParamIndex,
+	def: PF_ParamDefPtr,
+) -> PF_Err {
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
+		.set_name("PF Interact Callbacks/AddParam")
+		.add_arg("effect_ref", effect_ref as usize)
+		.add_arg("index", index)
+		.add_arg("def", format!("{:?}", def))
+		.set_result(0)
+		.emit();
+
+	PF_Err_NONE as PF_Err
+}
+
 /// Wrapper for After Effects plugin entry point
 /// Note: EffectMain naming is required by the C API and cannot be changed
 #[derive(WrapperApi)]
@@ -264,7 +281,7 @@ impl PluginInstance {
 		let interact_callbacks = after_effects_sys::PF_InteractCallbacks {
 			checkout_param: None,
 			checkin_param: None,
-			add_param: None,
+			add_param: Some(rusty_add_param),
 			abort: None,
 			progress: None,
 			register_ui: None,

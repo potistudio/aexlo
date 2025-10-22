@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	//* ---- Initialize logger -------------------------- */
 	unsafe {
-		std::env::set_var("RUST_LOG", "warn");
+		std::env::set_var("RUST_LOG", "debug");
 	}
 
 	logger::Builder::from_default_env()
@@ -55,7 +55,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 		})
 		.init();
 	//* ------------------------------------------------- */
-
 	//* ---- Determine plugin path ---------------------- */
 	let exe_dir = std::env::current_exe().expect("Failed to get current executable path");
 	let plugin_path = exe_dir
@@ -63,16 +62,19 @@ fn main() -> Result<(), Box<dyn Error>> {
 		.expect("Failed to get parent directory of executable")
 		.join(MODULE_NAME);
 	//* ------------------------------------------------- */
-
 	//* ---- Execute the plugin ------------------------- */
 	let mut instance = PluginInstance::new(plugin_path.as_path());
 	instance.load()?;
 
 	// Warmup run to stabilize system
-	log::info!("Performing warmup run...");
+	// log::info!("Performing warmup run...");
+	instance.about()?;
+	instance.setup_global()?;
+	instance.setup_params()?;
 	instance.render()?;
 
 	// Benchmark runs
+	/*
 	const BENCHMARK_ITERATIONS: usize = 10;
 	let mut times = Vec::with_capacity(BENCHMARK_ITERATIONS);
 
@@ -108,7 +110,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	log::error!("  Std Dev:    {:.6}s", stddev);
 	log::error!("  Total:      {:.2?}", total);
 	//* ------------------------------------------------- */
-
+	*/
 	//* ---- Extract the output layer ------------------- */
 	log::info!("Extracting output layer...");
 	let layer = instance.output_layer();
@@ -119,7 +121,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 		log::debug!("    Pixel {}: {:?}", i, pixel);
 	}
 	//* ------------------------------------------------- */
-
 	//* ---- Write output image as PNG ------------------ */
 	log::info!("Writing output image to 'output.png'...");
 	let output_buffer: Vec<u8> = layer
@@ -143,7 +144,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 	std::fs::write("output.png", writer)?;
 	log::info!("Wrote output image {}.", "successfully".green());
 	//* ------------------------------------------------- */
-
 	println!("======== Execution completed ========\n");
 	Ok(())
 }
