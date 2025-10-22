@@ -9,14 +9,11 @@ edition.workspace = true
 all = []
 
 [dependencies]
-bytemuck = { version = "1.24.0", features = ["derive"] }
+aexlo = { path = "../../aexlo" }
+eframe = "0.33.0"
 env_logger = "0.11.8"
-imgui = "0.11.0"
-imgui-wgpu = "0.24.0"
-imgui-winit-support = "0.11.0"
-pollster = "0.3.0"
-wgpu = "0.17.2"
-winit = "0.27.5"
+log = "0.4.28"
+rand = "0.9.2"
 
 [[bin]]
 name = "demo"

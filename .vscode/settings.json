@@ -8,6 +8,8 @@
 		"dephault",
 		"dlopen",
 		"downsample",
+		"eframe",
+		"egui",
 		"fabs",
 		"fmod",
 		"hypot",
