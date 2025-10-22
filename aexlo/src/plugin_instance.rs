@@ -204,7 +204,7 @@ unsafe extern "C" fn rusty_iterate_8(
 	let pixel_slice =
 		unsafe { std::slice::from_raw_parts_mut(destination_layer.data, pixels as usize) };
 
-	let mut in_layer = wrapper::Layer::blank(width, height);
+	let in_layer = wrapper::Layer::blank(width, height);
 
 	let in_layer_sys = in_layer
 		.iter()
@@ -240,7 +240,6 @@ pub struct PluginInstance {
 	container: Option<Container<EffectMain>>,
 	path: PathBuf,
 	cmd: after_effects::RawCommand,
-	ansi: after_effects_sys::PF_ANSICallbacks,
 	utility_callbacks: after_effects_sys::_PF_UtilCallbacks,
 
 	/// Basic Suite pointer
@@ -439,7 +438,6 @@ impl PluginInstance {
 			container: None,
 			path: path.to_path_buf(),
 			cmd: after_effects::RawCommand::About,
-			ansi,
 			utility_callbacks,
 			pica,
 			in_data: after_effects_sys::PF_InData {

@@ -16,6 +16,7 @@
 		"mtpng",
 		"nonoverlapping",
 		"peekable",
+		"premultiply",
 		"procs",
 		"refcon",
 		"repr",

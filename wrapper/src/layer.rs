@@ -1,4 +1,4 @@
-use after_effects_sys::{PF_LayerDef, PF_Pixel, PF_Pixel16};
+use after_effects_sys::{PF_LayerDef, PF_Pixel};
 
 use super::pixel::{Depth8, Pixel, PixelDepth};
 use core::ops::{Index, IndexMut};
@@ -157,7 +157,7 @@ impl Layer<Depth8> {
 	}
 }
 
-// Conditional impls so `Layer<D>` implements common traits when the inner pixel type does.
+// Conditional implements so `Layer<D>` implements common traits when the inner pixel type does.
 impl<D> Clone for Layer<D>
 where
 	D: PixelDepth,
