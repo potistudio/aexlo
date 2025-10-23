@@ -116,15 +116,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let layer = instance.output_layer();
 	log::info!("Extracted output layer {}.", "successfully".green());
 
-	log::debug!("First 10 pixels (out of {}):", layer.pixels.len());
-	for (i, pixel) in layer.pixels.iter().enumerate().take(10) {
+	log::debug!("First 10 pixels (out of {}):", layer.len());
+	for (i, pixel) in layer.iter().enumerate().take(10) {
 		log::debug!("    Pixel {}: {:?}", i, pixel);
 	}
 	//* ------------------------------------------------- */
 	//* ---- Write output image as PNG ------------------ */
 	log::info!("Writing output image to 'output.png'...");
 	let output_buffer: Vec<u8> = layer
-		.pixels
 		.iter()
 		.flat_map(|p| vec![p.red, p.green, p.blue, p.alpha])
 		.collect();
