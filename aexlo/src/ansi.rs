@@ -16,11 +16,6 @@ pub(crate) extern "C" fn atan_sys(x: f64) -> f64 {
 	result
 }
 
-/// Wrapper for `atan()` function
-pub(crate) fn atan(x: f64) -> f64 {
-	x.atan()
-}
-
 /// Raw `atan2()` function implementation
 pub(crate) extern "C" fn atan2_sys(y: f64, x: f64) -> f64 {
 	let result = y.atan2(x);
@@ -36,11 +31,6 @@ pub(crate) extern "C" fn atan2_sys(y: f64, x: f64) -> f64 {
 	result
 }
 
-/// Wrapper for `atan2()` function
-pub(crate) fn atan2(y: f64, x: f64) -> f64 {
-	y.atan2(x)
-}
-
 /// Raw `ceil()` function implementation
 pub(crate) extern "C" fn ceil_sys(x: f64) -> f64 {
 	let result = x.ceil();
@@ -53,11 +43,6 @@ pub(crate) extern "C" fn ceil_sys(x: f64) -> f64 {
 		.emit();
 
 	result
-}
-
-/// Wrapper for `ceil()` function
-pub(crate) fn ceil(x: f64) -> f64 {
-	x.ceil()
 }
 
 /// Raw `cos()` function implementation
@@ -75,11 +60,6 @@ pub(crate) extern "C" fn cos_sys(x: f64) -> f64 {
 	result
 }
 
-/// Wrapper for `cos()` function
-pub(crate) fn cos(x: f64) -> f64 {
-	x.cos()
-}
-
 /// Raw `sin()` function implementation
 #[inline(always)]
 pub(crate) extern "C" fn sin_sys(x: f64) -> f64 {
@@ -93,11 +73,6 @@ pub(crate) extern "C" fn sin_sys(x: f64) -> f64 {
 		.emit();
 
 	result
-}
-
-/// Wrapper for `sin()` function
-pub(crate) fn sin(x: f64) -> f64 {
-	x.sin()
 }
 
 /// Emulates `sprintf()` function
@@ -200,29 +175,4 @@ pub unsafe extern "C" fn sprintf_sys(
 	d.set_result(format!("{:?}", c_result)).emit();
 
 	after_effects_sys::PF_Err_NONE as after_effects_sys::PF_Err
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn test_sin() {
-		let angle = std::f64::consts::PI / 2.0; // 90 degrees
-		let result = sin(angle);
-		assert!(
-			(result - 1.0).abs() < 1e-10,
-			"sin(π/2) should be approximately 1.0"
-		);
-	}
-
-	#[test]
-	fn test_cos() {
-		let angle = std::f64::consts::PI; // 180 degrees
-		let result = cos(angle);
-		assert!(
-			(result + 1.0).abs() < 1e-10,
-			"cos(π) should be approximately -1.0"
-		);
-	}
 }

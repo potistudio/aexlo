@@ -12,7 +12,7 @@ use colored::Colorize;
 use aexlo::PluginInstance;
 
 //* Configuration constants */
-const MODULE_NAME: &str = "SDK_Noise";
+const MODULE_NAME: &str = "DisplacerPro";
 
 fn main() -> Result<(), Box<dyn Error>> {
 	#[rustfmt::skip]
@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	// Warmup run to stabilize system
 	// log::info!("Performing warmup run...");
 	instance.about()?;
-	instance.setup_global()?;
+	// instance.setup_global()?;
 	instance.setup_params()?;
 	instance.render()?;
 

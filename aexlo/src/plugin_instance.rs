@@ -1,223 +1,12 @@
-use std::error::Error;
-use std::ffi::{CStr, c_void};
-use std::path::{Path, PathBuf};
-use std::ptr::null_mut;
-
+use crate::suites::SuiteContainer;
 use after_effects_sys::*;
 use colored::Colorize;
 use dlopen::wrapper::{Container, WrapperApi};
+use std::error::Error;
+use std::path::{Path, PathBuf};
+use std::ptr::null_mut;
 
 use crate::diagnostics::DiagnosticBuilder;
-
-unsafe extern "C" {
-	fn Iterate8(
-		pixel_count: i32,
-		in_layer: *mut PF_Pixel8,
-		out_layer: *mut PF_Pixel8,
-		controller: *const c_void,
-		func: Option<
-			unsafe extern "C" fn(
-				refcon: *mut c_void,
-				x: A_long,
-				y: A_long,
-				in_pixel: *mut PF_Pixel8,
-				out_pixel: *mut PF_Pixel8,
-			) -> PF_Err,
-		>,
-	);
-}
-
-static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
-	iterate_8_suite: PF_Iterate8Suite2 {
-		iterate: Some(rusty_iterate_8),
-		iterate_origin: None,
-		iterate_lut: None,
-		iterate_origin_non_clip_src: None,
-		iterate_generic: None,
-	},
-	world_transform_suite: PF_WorldTransformSuite1 {
-		composite_rect: None,
-		blend: None,
-		convolve: None,
-		copy: Some(rusty_copy),
-		copy_hq: None,
-		transfer_rect: None,
-		transform_world: None,
-	},
-};
-
-pub struct SuiteContainer {
-	iterate_8_suite: PF_Iterate8Suite2,
-	world_transform_suite: PF_WorldTransformSuite1,
-}
-
-/// Emulates `PF_WorldTransformSuite1::copy` function
-/// # Safety
-/// This function is unsafe because it handles raw pointers.
-pub unsafe extern "C" fn rusty_copy(
-	effect_ref: PF_ProgPtr,
-	src: *mut PF_EffectWorld,
-	dst: *mut PF_EffectWorld,
-	src_r: *mut PF_Rect,
-	dst_r: *mut PF_Rect,
-) -> PF_Err {
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("PF World Transform Suite/Copy")
-		.add_arg("effect_ref", effect_ref as usize)
-		.add_arg("src", src as usize)
-		.add_arg("dst", dst as usize)
-		.add_arg(
-			"src_r",
-			if !src_r.is_null() {
-				format!("{:?}", src_r)
-			} else {
-				"(null)".to_string()
-			},
-		)
-		.add_arg(
-			"dst_r",
-			if !dst_r.is_null() {
-				format!("{:?}", dst_r)
-			} else {
-				"(null)".to_string()
-			},
-		)
-		.set_result(0)
-		.emit();
-
-	PF_Err_NONE as PF_Err
-}
-
-/// Emulates `SPBasicSuite::AcquireSuite` function
-/// # Safety
-/// This function is unsafe because it handles raw pointers.
-pub unsafe extern "C" fn rusty_acquire_suite(
-	name: *const i8,
-	version: i32,
-	suite: *mut *const c_void,
-) -> i32 {
-	if suite.is_null() || name.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	unsafe {
-		let suite_name = match CStr::from_ptr(name).to_str() {
-			Ok(s) => s,
-			Err(_) => return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err,
-		};
-
-		#[cfg(feature = "diagnostics")]
-		DiagnosticBuilder::new()
-			.set_name("SPBasicSuite/AcquireSuite")
-			.add_arg("name", format!("{:?}", CStr::from_ptr(name)))
-			.add_arg("version", version)
-			.add_arg("suite", format!("{:?}", suite))
-			.emit();
-
-		match (suite_name, version) {
-			("PF World Transform Suite", 1) => {
-				*suite = &SUITE_CONTAINER.world_transform_suite as *const _ as *mut c_void;
-
-				log::info!("Acquired PF World Transform Suite v1");
-				PF_Err_NONE as PF_Err
-			}
-			("PF Iterate8 Suite", 2) => {
-				*suite = &SUITE_CONTAINER.iterate_8_suite as *const _ as *mut c_void;
-
-				log::info!("Acquired PF Iterate8 Suite v2");
-				PF_Err_NONE as PF_Err
-			}
-			_ => {
-				log::warn!("Requested unknown suite: {} v{}", suite_name, version);
-				PF_Err_OUT_OF_MEMORY as PF_Err
-			}
-		}
-	}
-}
-
-/// Emulates `SPBasicSuite::ReleaseSuite` function
-/// # Safety
-/// This function is unsafe because it handles raw pointers.
-pub unsafe extern "C" fn rusty_release_suite(
-	name: *const ::std::os::raw::c_char,
-	version: int32,
-) -> PF_Err {
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("SPBasicSuite/ReleaseSuite")
-		.add_arg("name", format!("{:?}", unsafe { CStr::from_ptr(name) }))
-		.add_arg("version", version)
-		.emit();
-
-	if name.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	PF_Err_NONE as PF_Err
-}
-
-unsafe extern "C" fn rusty_iterate_8(
-	in_data: *mut PF_InData,
-	progress_base: A_long,
-	progress_final: A_long,
-	src: *mut PF_EffectWorld,
-	area: *const PF_Rect,
-	refcon: *mut ::std::os::raw::c_void,
-	pix_fn: ::std::option::Option<
-		unsafe extern "C" fn(
-			refcon: *mut ::std::os::raw::c_void,
-			x: A_long,
-			y: A_long,
-			in_: *mut PF_Pixel,
-			out: *mut PF_Pixel,
-		) -> PF_Err,
-	>,
-	dst: *mut PF_EffectWorld,
-) -> PF_Err {
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("PF Iterate8 Suite/iterate")
-		.add_arg("in_data", format!("{:?}", in_data))
-		.add_arg("progress_base", progress_base)
-		.add_arg("progress_final", progress_final)
-		.add_arg("src", format!("{:?}", src))
-		.add_arg(
-			"area",
-			if !area.is_null() {
-				format!("{:?}", area)
-			} else {
-				"(null)".to_string()
-			},
-		)
-		.add_arg("refcon", format!("{:?}", refcon))
-		.add_arg("pix_fn", if pix_fn.is_some() { "Some" } else { "None" })
-		.add_arg("dst", format!("{:?}", dst))
-		.set_result(0)
-		.emit();
-
-	let destination_layer = unsafe { &mut *dst };
-	let width = destination_layer.width as u32;
-	let height = destination_layer.height as u32;
-	let pixels = width * height;
-
-	let pixel_slice =
-		unsafe { std::slice::from_raw_parts_mut(destination_layer.data, pixels as usize) };
-
-	let in_layer = wrapper::Layer::blank(width, height);
-
-	let in_layer_sys = in_layer
-		.iter()
-		.map(|p| (*p).into())
-		.collect::<Vec<PF_Pixel8>>();
-
-	let in_ptr = in_layer_sys.as_ptr() as *mut PF_Pixel8;
-	let out_ptr = pixel_slice.as_mut_ptr() as *mut PF_Pixel8;
-
-	unsafe { Iterate8(pixels as i32, in_ptr, out_ptr, refcon, pix_fn) };
-
-	PF_Err_NONE as PF_Err
-}
 
 unsafe extern "C" fn rusty_add_param(
 	effect_ref: PF_ProgPtr,
@@ -236,8 +25,75 @@ unsafe extern "C" fn rusty_add_param(
 	PF_Err_NONE as PF_Err
 }
 
-/// Wrapper for After Effects plugin entry point
-/// Note: EffectMain naming is required by the C API and cannot be changed
+unsafe extern "C" fn CheckoutParam_sys(
+	effect_ref: PF_ProgPtr,
+	index: PF_ParamIndex,
+	what_time: A_long,
+	time_step: A_long,
+	time_scale: A_u_long,
+	param: *mut PF_ParamDef,
+) -> PF_Err {
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
+		.set_name("InteractCallbacks/RegisterUI")
+		.add_arg("effect_ref", effect_ref as usize)
+		.add_arg("index", index)
+		.add_arg("what_time", what_time)
+		.add_arg("time_step", time_step)
+		.add_arg("time_scale", time_scale)
+		.add_arg("param", format! {"{:?}", param})
+		.set_result(0)
+		.emit();
+
+	PF_Err_NONE as PF_Err
+}
+
+unsafe extern "C" fn checkin_param_sys(effect_ref: PF_ProgPtr, param: *mut PF_ParamDef) -> PF_Err {
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
+		.set_name("InteractCallbacks/CheckinParam")
+		.add_arg("effect_ref", effect_ref as usize)
+		.add_arg("param", format! {"{:?}", param})
+		.set_result(0)
+		.emit();
+
+	PF_Err_NONE as PF_Err
+}
+
+unsafe extern "C" fn RegisterUI_sys(
+	effect_ref: PF_ProgPtr,
+	cust_info: *mut PF_CustomUIInfo,
+) -> PF_Err {
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
+		.set_name("InteractCallbacks/RegisterUI")
+		.add_arg("effect_ref", effect_ref as usize)
+		.add_arg("cust_info", format!("{:?}", cust_info))
+		.set_result(0)
+		.emit();
+
+	PF_Err_NONE as PF_Err
+}
+
+unsafe extern "C" fn GetPlatformData_sys(
+	effect_ref: PF_ProgPtr,
+	which: PF_PlatDataID,
+	data: *mut ::std::os::raw::c_void,
+) -> PF_Err {
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
+		.set_name("UtilityCallbacks/GetPlatformData")
+		.add_arg("effect_ref", effect_ref as usize)
+		.add_arg("which", which)
+		.add_arg("data", format!("{:?}", data))
+		.set_result(0)
+		.emit();
+
+	PF_Err_NONE as PF_Err
+}
+
+/// Wrapper for After Effects plugin entry point \
+/// Note: EffectMain naming is required by the AE API and cannot be changed
 #[derive(WrapperApi)]
 #[repr(C)]
 pub struct EffectMain {
@@ -257,6 +113,8 @@ pub struct PluginInstance {
 	container: Option<Container<EffectMain>>,
 	path: PathBuf,
 	cmd: after_effects::RawCommand,
+	world: after_effects_sys::PF_LayerDef,
+
 	utility_callbacks: after_effects_sys::_PF_UtilCallbacks,
 
 	/// Basic Suite pointer
@@ -266,7 +124,6 @@ pub struct PluginInstance {
 	pub in_data: after_effects_sys::PF_InData,
 	out_data: after_effects_sys::PF_OutData,
 	params: Vec<after_effects_sys::PF_ParamDef>,
-	pub layer: after_effects_sys::PF_LayerDef,
 	lllllayer: wrapper::Layer<wrapper::Depth8>,
 }
 
@@ -277,40 +134,17 @@ impl PluginInstance {
 		let height = 1080;
 		// Initialize Interact Callbacks
 		let interact_callbacks = after_effects_sys::PF_InteractCallbacks {
-			checkout_param: None,
-			checkin_param: None,
+			checkout_param: Some(CheckoutParam_sys),
+			checkin_param: Some(checkin_param_sys),
 			add_param: Some(rusty_add_param),
 			abort: None,
 			progress: None,
-			register_ui: None,
+			register_ui: Some(RegisterUI_sys),
 			checkout_layer_audio: None,
 			checkin_layer_audio: None,
 			get_audio_data: None,
 			reserved_str: [std::ptr::null_mut(); 3],
 			reserved: [std::ptr::null_mut(); 10],
-		};
-
-		let ansi = after_effects_sys::PF_ANSICallbacks {
-			atan: Some(crate::ansi::atan_sys),
-			atan2: Some(crate::ansi::atan2_sys),
-			ceil: Some(crate::ansi::ceil_sys),
-			cos: Some(crate::ansi::cos_sys),
-			exp: None,
-			fabs: None,
-			floor: None,
-			fmod: None,
-			hypot: None,
-			log: None,
-			log10: None,
-			pow: None,
-			sin: Some(crate::ansi::sin_sys),
-			sqrt: None,
-			tan: None,
-			sprintf: Some(crate::ansi::sprintf_sys),
-			strcpy: None,
-			asin: None,
-			acos: None,
-			ansi_procs: [0; 1],
 		};
 
 		let color = after_effects_sys::PF_ColorCallbacks {
@@ -351,9 +185,9 @@ impl PluginInstance {
 			host_dispose_handle: None,
 			get_callback_addr: None,
 			app: None,
-			ansi,
+			ansi: crate::suites::SUITE_CONTAINER.ansi,
 			colorCB: color,
-			get_platform_data: None,
+			get_platform_data: Some(GetPlatformData_sys),
 			host_get_handle_size: None,
 			iterate_origin_non_clip_src: None,
 			iterate_generic: None,
@@ -441,8 +275,8 @@ impl PluginInstance {
 		];
 
 		let pica = Box::new(after_effects_sys::SPBasicSuite {
-			AcquireSuite: Some(rusty_acquire_suite),
-			ReleaseSuite: Some(rusty_release_suite),
+			AcquireSuite: Some(crate::suites::rusty_acquire_suite),
+			ReleaseSuite: Some(crate::suites::rusty_release_suite),
 			IsEqual: None,
 			AllocateBlock: None,
 			FreeBlock: None,
@@ -543,7 +377,7 @@ impl PluginInstance {
 			},
 			params: param_list,
 			lllllayer: wrapper::Layer::<wrapper::Depth8>::blank(width, height),
-			layer: after_effects_sys::PF_LayerDef {
+			world: after_effects_sys::PF_LayerDef {
 				reserved0: null_mut(),
 				reserved1: null_mut(),
 				world_flags: 0 as after_effects_sys::PF_WorldFlags,
@@ -572,7 +406,7 @@ impl PluginInstance {
 		// Now set the utils pointer to reference our owned utility_callbacks
 		instance.in_data.utils = &mut instance.utility_callbacks;
 		instance.in_data.pica_basicP = instance.pica.as_mut() as *mut _;
-		instance.layer = instance.lllllayer.as_sys();
+		instance.world.data = instance.lllllayer.pixels.as_mut_ptr() as *mut PF_Pixel;
 
 		instance
 	}
@@ -650,7 +484,7 @@ impl PluginInstance {
 				&mut self.in_data,
 				&mut self.out_data,
 				params_ptr.as_mut_ptr(),
-				&mut self.layer,
+				&mut self.world,
 				std::ptr::null_mut(),
 			)
 		};
@@ -675,7 +509,7 @@ impl PluginInstance {
 		Ok(())
 	}
 
-	/// Call the plugin with PF_Cmd_RENDER command
+	/// Call the plugin with PF_Cmd_ABOUT command
 	pub fn about(&mut self) -> Result<(), Box<dyn Error>> {
 		self.cmd = after_effects::RawCommand::About;
 		self.call_plugin()?;
@@ -683,7 +517,7 @@ impl PluginInstance {
 		Ok(())
 	}
 
-	/// Call the plugin with PF_Cmd_RENDER command
+	/// Call the plugin with PF_Cmd_GLOBAL_SETUP command
 	pub fn setup_global(&mut self) -> Result<(), Box<dyn Error>> {
 		self.cmd = after_effects::RawCommand::GlobalSetup;
 		self.call_plugin()?;
@@ -691,7 +525,7 @@ impl PluginInstance {
 		Ok(())
 	}
 
-	/// Call the plugin with PF_Cmd_RENDER command
+	/// Call the plugin with PF_Cmd_PARAMS_SETUP command
 	pub fn setup_params(&mut self) -> Result<(), Box<dyn Error>> {
 		self.cmd = after_effects::RawCommand::ParamsSetup;
 		self.call_plugin()?;
@@ -708,6 +542,14 @@ impl PluginInstance {
 	}
 
 	pub fn output_layer(&self) -> wrapper::Layer<wrapper::Depth8> {
-		self.lllllayer.clone()
+		let width = self.world.width;
+		let height = self.world.height;
+		let pixels = self.lllllayer.pixels.clone();
+
+		wrapper::Layer::new(width as u32, height as u32, pixels.to_vec())
+	}
+
+	pub(crate) fn add_param(&mut self, param: after_effects_sys::PF_ParamDef) {
+		self.params.push(param);
 	}
 }

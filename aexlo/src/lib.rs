@@ -10,6 +10,7 @@ extern crate dlopen_derive;
 mod ansi;
 mod diagnostics;
 mod plugin_instance;
+mod suites;
 
 pub use after_effects_sys::PF_Pixel;
 pub use diagnostics::*;
