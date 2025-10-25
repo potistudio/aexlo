@@ -1,8 +1,8 @@
 use crate::suites::SuiteContainer;
 use after_effects_sys::*;
+use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use dlopen::wrapper::{Container, WrapperApi};
-use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 
@@ -411,17 +411,17 @@ impl PluginInstance {
 		instance
 	}
 
-	pub fn load(&mut self) -> Result<(), Box<dyn Error>> {
+	pub fn load(&mut self) -> Result<()> {
 		let dir = self
 			.path
 			.parent()
 			.and_then(|s| s.to_str())
-			.ok_or("Invalid module path")?;
+			.context("Invalid module directory")?;
 		let name = self
 			.path
 			.file_name()
 			.and_then(|s| s.to_str())
-			.ok_or("Invalid module name")?;
+			.context("Invalid module name")?;
 
 		//* ---- Detect OS ------------------------------ */
 		log::info!("Detecting OS...");
@@ -430,11 +430,10 @@ impl PluginInstance {
 			"windows" => format!("{}/{}.aex", dir, name),
 			"macos" => format!("{}/{}.plugin/Contents/MacOS/{}", dir, name, name),
 			_ => {
-				return Err(format!(
+				bail!(
 					"Unsupported OS: {}. Supported platforms are Windows and macOS.",
 					os
-				)
-				.into());
+				);
 			}
 		};
 
@@ -449,13 +448,11 @@ impl PluginInstance {
 
 		// Check if the plugin file exists
 		if !std::path::Path::new(&module_path).exists() {
-			return Err(format!("Plugin not found: {}", module_path).into());
+			bail!("Plugin not found: {}", module_path);
 		}
 
-		self.container = Some(
-			unsafe { Container::load(&module_path) }
-				.map_err(|e| format!("Failed to load plugin {}: {}", module_path, e))?,
-		);
+		self.container =
+			Some(unsafe { Container::load(&module_path) }.context("Failed to load plugin")?);
 
 		log::info!("Loaded plugin {}.", "successfully".green());
 		//* -------------------------------------------- *//
@@ -464,7 +461,7 @@ impl PluginInstance {
 	}
 
 	/// Call the plugin entry point
-	fn call_plugin(&mut self) -> Result<(), Box<dyn Error>> {
+	fn call_plugin(&mut self) -> Result<()> {
 		log::info!(
 			"Calling EffectMain with command: {}...",
 			format!("{:?}", self.cmd).blue()
@@ -476,7 +473,7 @@ impl PluginInstance {
 		let container = self
 			.container
 			.as_ref()
-			.ok_or("Plugin container is not loaded. Call load() before calling the plugin.")?;
+			.context("Plugin container is not loaded. Call load() before calling the plugin.")?;
 
 		let result = unsafe {
 			container.EffectMain(
@@ -501,7 +498,7 @@ impl PluginInstance {
 				log::info!("Plugin executed {}.", "successfully".green());
 			}
 			_ => {
-				return Err(format!("Plugin has failed with error: {}.", result).into());
+				bail!("Plugin has failed with error: {}.", result);
 			}
 		}
 		//* -------------------------------------------- *//
@@ -509,32 +506,32 @@ impl PluginInstance {
 		Ok(())
 	}
 
-	/// Call the plugin with PF_Cmd_ABOUT command
-	pub fn about(&mut self) -> Result<(), Box<dyn Error>> {
+	/// Call the plugin with `PF_Cmd_ABOUT` command
+	pub fn about(&mut self) -> Result<()> {
 		self.cmd = after_effects::RawCommand::About;
 		self.call_plugin()?;
 
 		Ok(())
 	}
 
-	/// Call the plugin with PF_Cmd_GLOBAL_SETUP command
-	pub fn setup_global(&mut self) -> Result<(), Box<dyn Error>> {
+	/// Call the plugin with `PF_Cmd_GLOBAL_SETUP` command
+	pub fn setup_global(&mut self) -> Result<()> {
 		self.cmd = after_effects::RawCommand::GlobalSetup;
 		self.call_plugin()?;
 
 		Ok(())
 	}
 
-	/// Call the plugin with PF_Cmd_PARAMS_SETUP command
-	pub fn setup_params(&mut self) -> Result<(), Box<dyn Error>> {
+	/// Call the plugin with `PF_Cmd_PARAMS_SETUP` command
+	pub fn setup_params(&mut self) -> Result<()> {
 		self.cmd = after_effects::RawCommand::ParamsSetup;
 		self.call_plugin()?;
 
 		Ok(())
 	}
 
-	/// Call the plugin with PF_Cmd_RENDER command
-	pub fn render(&mut self) -> Result<(), Box<dyn Error>> {
+	/// Call the plugin with `PF_Cmd_RENDER` command
+	pub fn render(&mut self) -> Result<()> {
 		self.cmd = after_effects::RawCommand::Render;
 		self.call_plugin()?;
 
