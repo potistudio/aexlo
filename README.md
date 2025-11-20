@@ -4,7 +4,10 @@
 
 ## Status
 
-Work in progress. Currently, Re-implementation on Rust has just begun. If you want to see the current result, [the C++ implementation is available here](https://github.com/potistudio/aexlo.js/releases/tag/v0.1a).
+Work in progress.\
+This library is a Rust implementation of my old Node.js library "[aexlo.js](https://github.com/potistudio/aexlo.js)".\
+If you want to see the result, [the old C++ implementation is here](https://github.com/potistudio/aexlo.js/releases/tag/v0.1a).\
+The latest progress of this library is can seen on [develop branch](https://github.com/potistudio/aexlo-rs/tree/develop).
 
 ## Warnings
 
