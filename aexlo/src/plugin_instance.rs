@@ -115,7 +115,7 @@ pub struct PluginInstance {
 	cmd: after_effects::RawCommand,
 	world: after_effects_sys::PF_LayerDef,
 
-	utility_callbacks: after_effects_sys::_PF_UtilCallbacks,
+	utility_callbacks: Box<after_effects_sys::_PF_UtilCallbacks>,
 
 	/// Basic Suite pointer
 	pub pica: Box<after_effects_sys::SPBasicSuite>,
@@ -158,7 +158,7 @@ impl PluginInstance {
 			Saturation: None,
 		};
 
-		let utility_callbacks = after_effects_sys::_PF_UtilCallbacks {
+		let utility_callbacks = Box::new(after_effects_sys::_PF_UtilCallbacks {
 			begin_sampling: None,
 			subpixel_sample: None,
 			area_sample: None,
@@ -202,7 +202,7 @@ impl PluginInstance {
 			get_pixel_data8: None,
 			get_pixel_data16: None,
 			reserved: [0; 1],
-		};
+		});
 
 		let ld = after_effects_sys::PF_LayerDef {
 			reserved0: null_mut(),
@@ -404,7 +404,7 @@ impl PluginInstance {
 		};
 
 		// Now set the utils pointer to reference our owned utility_callbacks
-		instance.in_data.utils = &mut instance.utility_callbacks;
+		instance.in_data.utils = instance.utility_callbacks.as_mut() as *mut _;
 		instance.in_data.pica_basicP = instance.pica.as_mut() as *mut _;
 		instance.world.data = instance.lllllayer.pixels.as_mut_ptr() as *mut PF_Pixel;
 
