@@ -406,7 +406,7 @@ impl PluginInstance {
 		// Now set the utils pointer to reference our owned utility_callbacks
 		instance.in_data.utils = instance.utility_callbacks.as_mut() as *mut _;
 		instance.in_data.pica_basicP = instance.pica.as_mut() as *mut _;
-		instance.world.data = instance.lllllayer.pixels.as_mut_ptr() as *mut PF_Pixel;
+		instance.world.data = instance.lllllayer.buffer_mut().as_mut_ptr() as *mut PF_Pixel;
 
 		instance
 	}
@@ -541,9 +541,9 @@ impl PluginInstance {
 	pub fn output_layer(&self) -> wrapper::Layer<wrapper::Depth8> {
 		let width = self.world.width;
 		let height = self.world.height;
-		let pixels = self.lllllayer.pixels.clone();
+		let pixels = self.lllllayer.buffer().to_vec();
 
-		wrapper::Layer::from_vec(width as u32, height as u32, pixels.to_vec())
+		wrapper::Layer::new(width as u32, height as u32, pixels).unwrap()
 	}
 
 	pub(crate) fn add_param(&mut self, param: after_effects_sys::PF_ParamDef) {

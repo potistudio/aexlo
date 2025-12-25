@@ -54,7 +54,6 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 	let mut in_layer = wrapper::Layer::blank(width, height);
 
 	let mut in_layer_sys = in_layer
-		.pixels
 		.iter()
 		.map(|p| (*p).into())
 		.collect::<Vec<PF_Pixel8>>();

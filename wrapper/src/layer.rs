@@ -5,10 +5,30 @@ use core::ops::{Index, IndexMut};
 use std::ptr::null_mut;
 
 /// A 2D raster of `Pixel<D>` stored in row-major order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayerError {
+	DimensionMismatch { expected: usize, actual: usize },
+}
+
+impl core::fmt::Display for LayerError {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		match self {
+			Self::DimensionMismatch { expected, actual } => write!(
+				f,
+				"Pixel data length ({}) does not match layer dimensions ({}).",
+				actual, expected
+			),
+		}
+	}
+}
+
+impl std::error::Error for LayerError {}
+
+/// A 2D raster of `Pixel<D>` stored in row-major order.
 pub struct Layer<D: PixelDepth> {
 	width: u32,
 	height: u32,
-	pub pixels: Vec<Pixel<D>>,
+	pixels: Vec<Pixel<D>>,
 }
 
 impl<D> Layer<D>
@@ -17,19 +37,21 @@ where
 {
 	/// Create a layer from dimensions and a pixel buffer.
 	///
-	/// Panics if `pixels.len() != width * height`.
-	pub fn from_vec(width: u32, height: u32, pixels: Vec<Pixel<D>>) -> Self {
-		assert_eq!(
-			pixels.len(),
-			(width * height) as usize,
-			"Pixel data length does not match layer dimensions."
-		);
+	/// Returns an error if `pixels.len() != width * height`.
+	pub fn new(width: u32, height: u32, pixels: Vec<Pixel<D>>) -> Result<Self, LayerError> {
+		let expected = (width * height) as usize;
+		if pixels.len() != expected {
+			return Err(LayerError::DimensionMismatch {
+				expected,
+				actual: pixels.len(),
+			});
+		}
 
-		Self {
+		Ok(Self {
 			width,
 			height,
 			pixels,
-		}
+		})
 	}
 
 	/// Return the width in pixels.
@@ -52,33 +74,23 @@ where
 		self.pixels.is_empty()
 	}
 
-	/// Get a reference to a pixel by (x, y) with bounds checking.
-	///
-	/// Panics if coordinates are out of bounds.
-	pub fn at(&self, x: u32, y: u32) -> &Pixel<D> {
-		assert!(x < self.width, "X coordinate out of bounds.");
-		assert!(y < self.height, "Y coordinate out of bounds.");
-
-		let idx = (y * self.width + x) as usize;
-		&self.pixels[idx]
+	/// Get a reference to the underlying pixel buffer.
+	pub fn buffer(&self) -> &[Pixel<D>] {
+		&self.pixels
 	}
 
-	/// Mutable access to a pixel at (x, y) with bounds checking.
-	pub fn at_mut(&mut self, x: u32, y: u32) -> &mut Pixel<D> {
-		assert!(x < self.width, "X coordinate out of bounds.");
-		assert!(y < self.height, "Y coordinate out of bounds.");
-
-		let idx = (y * self.width + x) as usize;
-		&mut self.pixels[idx]
+	/// Get a mutable reference to the underlying pixel buffer.
+	pub fn buffer_mut(&mut self) -> &mut [Pixel<D>] {
+		&mut self.pixels
 	}
 
 	/// Get a reference to a pixel by linear index (row-major).
-	pub fn get_index(&self, index: usize) -> Option<&Pixel<D>> {
+	pub fn get_linear(&self, index: usize) -> Option<&Pixel<D>> {
 		self.pixels.get(index)
 	}
 
 	/// Mutable get by linear index.
-	pub fn get_index_mut(&mut self, index: usize) -> Option<&mut Pixel<D>> {
+	pub fn get_linear_mut(&mut self, index: usize) -> Option<&mut Pixel<D>> {
 		self.pixels.get_mut(index)
 	}
 
@@ -138,7 +150,7 @@ where
 			reserved_long3: 0,
 			dephault: 0,
 			data: self.pixels.as_ptr() as *mut PF_Pixel,
-			rowbytes: self.width as i32,
+			rowbytes: (self.width as i32) * (std::mem::size_of::<Pixel<D>>() as i32),
 		}
 	}
 }
@@ -208,13 +220,19 @@ impl<D: PixelDepth> Index<(u32, u32)> for Layer<D> {
 
 	fn index(&self, index: (u32, u32)) -> &Self::Output {
 		let (x, y) = index;
-		self.at(x, y)
+		assert!(x < self.width, "X coordinate out of bounds.");
+		assert!(y < self.height, "Y coordinate out of bounds.");
+		let idx = (y * self.width + x) as usize;
+		&self.pixels[idx]
 	}
 }
 
 impl<D: PixelDepth> IndexMut<(u32, u32)> for Layer<D> {
 	fn index_mut(&mut self, index: (u32, u32)) -> &mut Self::Output {
 		let (x, y) = index;
-		self.at_mut(x, y)
+		assert!(x < self.width, "X coordinate out of bounds.");
+		assert!(y < self.height, "Y coordinate out of bounds.");
+		let idx = (y * self.width + x) as usize;
+		&mut self.pixels[idx]
 	}
 }
