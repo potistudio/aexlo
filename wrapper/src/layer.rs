@@ -8,7 +8,7 @@ use std::ptr::null_mut;
 pub struct Layer<D: PixelDepth> {
 	width: u32,
 	height: u32,
-	pixels: Vec<Pixel<D>>,
+	pub pixels: Vec<Pixel<D>>,
 }
 
 impl<D> Layer<D>

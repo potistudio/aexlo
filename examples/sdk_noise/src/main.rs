@@ -12,7 +12,7 @@ use colored::Colorize;
 use aexlo::PluginInstance;
 
 //* Configuration constants */
-const MODULE_NAME: &str = "DisplacerPro";
+const MODULE_NAME: &str = "SDK_Noise";
 
 fn main() -> Result<(), Box<dyn Error>> {
 	#[rustfmt::skip]

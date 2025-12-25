@@ -543,7 +543,7 @@ impl PluginInstance {
 		let height = self.world.height;
 		let pixels = self.lllllayer.pixels.clone();
 
-		wrapper::Layer::new(width as u32, height as u32, pixels.to_vec())
+		wrapper::Layer::from_vec(width as u32, height as u32, pixels.to_vec())
 	}
 
 	pub(crate) fn add_param(&mut self, param: after_effects_sys::PF_ParamDef) {
