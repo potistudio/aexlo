@@ -1,5 +1,6 @@
 use crate::diagnostics::*;
 use after_effects_sys::*;
+use rayon::prelude::*;
 
 /// Emulates `PF_WorldTransformSuite1::copy` function
 /// # Safety
@@ -11,30 +12,114 @@ pub unsafe extern "C" fn Copy_sys(
 	src_r: *mut PF_Rect,
 	dst_r: *mut PF_Rect,
 ) -> PF_Err {
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("PF World Transform Suite/Copy")
-		.add_arg("effect_ref", effect_ref as usize)
-		.add_arg("src", src as usize)
-		.add_arg("dst", dst as usize)
-		.add_arg(
-			"src_r",
-			if !src_r.is_null() {
-				format!("{:?}", src_r)
-			} else {
-				"(null)".to_string()
-			},
-		)
-		.add_arg(
-			"dst_r",
-			if !dst_r.is_null() {
-				format!("{:?}", dst_r)
-			} else {
-				"(null)".to_string()
-			},
-		)
-		.set_result(0)
-		.emit();
+	// Handle null source/dest pointers gracefully
+	if src.is_null() || dst.is_null() {
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	let src_world = unsafe { &mut *src };
+	let dst_world = unsafe { &mut *dst };
+
+	// Determine source rectangle
+	let src_rect = if !src_r.is_null() {
+		unsafe { *src_r }
+	} else {
+		PF_Rect {
+			left: 0,
+			top: 0,
+			right: src_world.width as i32,
+			bottom: src_world.height as i32,
+		}
+	};
+
+	// Determine destination point (top-left)
+	let (dst_x, dst_y) = if !dst_r.is_null() {
+		unsafe { ((*dst_r).left as i32, (*dst_r).top as i32) }
+	} else {
+		(src_rect.left as i32, src_rect.top as i32)
+	};
+
+	// Calculate copy dimensions
+	let copy_width = (src_rect.right as i32 - src_rect.left as i32).max(0);
+	let copy_height = (src_rect.bottom as i32 - src_rect.top as i32).max(0);
+
+	if copy_width == 0 || copy_height == 0 {
+		return PF_Err_NONE as PF_Err; // Nothing to copy
+	}
+
+	// Clipping: Ensure we don't read/write out of bounds
+	// Source clipping
+	let src_clamped_left = (src_rect.left as i32).max(0);
+	let src_clamped_top = (src_rect.top as i32).max(0);
+	// We also need to clip width/height based on src bounds
+	let src_avail_width = (src_world.width as i32) - (src_clamped_left as i32);
+	let src_avail_height = (src_world.height as i32) - (src_clamped_top as i32);
+
+	// Dest clipping
+	let dst_clamped_left = dst_x.max(0); // If negative dst, we must increment src start
+	let dst_clamped_top = dst_y.max(0);
+
+	let dst_avail_width = (dst_world.width as i32) - (dst_clamped_left as i32);
+	let dst_avail_height = (dst_world.height as i32) - (dst_clamped_top as i32);
+
+	// Adjust for negative destination offsets (if dst_x < 0, we skip pixels in src)
+	let skip_x = if dst_x < 0 { -dst_x } else { 0 };
+	let skip_y = if dst_y < 0 { -dst_y } else { 0 };
+
+	// Final dimensions to copy
+	let final_width = (copy_width - skip_x)
+		.min(src_avail_width)
+		.min(dst_avail_width);
+	let final_height = (copy_height - skip_y)
+		.min(src_avail_height)
+		.min(dst_avail_height);
+
+	if final_width <= 0 || final_height <= 0 {
+		return PF_Err_NONE as PF_Err;
+	}
+
+	// Calculate starting offsets
+	let actual_src_left = src_clamped_left as i32 + skip_x;
+	let actual_src_top = src_clamped_top as i32 + skip_y;
+	let actual_dst_left = (dst_x + skip_x) as i32;
+	let actual_dst_top = (dst_y + skip_y) as i32;
+
+	// Prepare data for parallel execution
+	// We cast to usize to pass across threads safely (assuming buffers are accessible/pinned)
+	let src_buffer_addr = src_world.data as usize;
+	let src_rowbytes = src_world.rowbytes as isize;
+	let dst_buffer_addr = dst_world.data as usize;
+	let dst_rowbytes = dst_world.rowbytes as isize;
+
+	// Size of a pixel in bytes. PF_EffectWorld usually PF_Pixel8 (4 bytes).
+	// But strictly it depends on deep color.
+	// For now assuming PF_Pixel8 (ARGB 8-bit).
+	let pixel_size = std::mem::size_of::<PF_Pixel8>();
+
+	// Parallel Copy
+	(0..final_height).into_par_iter().for_each(|y| {
+		let current_src_y = actual_src_top + y;
+		let current_dst_y = actual_dst_top + y;
+
+		// Calculate row start addresses
+		// Note: data is *mut c_void, treating as *mut u8 for offset
+		let src_row_ptr =
+			(src_buffer_addr as *const u8).wrapping_offset(current_src_y as isize * src_rowbytes);
+		let dst_row_ptr =
+			(dst_buffer_addr as *mut u8).wrapping_offset(current_dst_y as isize * dst_rowbytes);
+
+		// Calculate signal offsets within the row
+		let src_pixel_ptr = src_row_ptr.wrapping_add((actual_src_left as usize) * pixel_size);
+		let dst_pixel_ptr = dst_row_ptr.wrapping_add((actual_dst_left as usize) * pixel_size);
+
+		unsafe {
+			std::ptr::copy_nonoverlapping(
+				src_pixel_ptr,
+				dst_pixel_ptr,
+				(final_width as usize) * pixel_size,
+			);
+		}
+	});
 
 	PF_Err_NONE as PF_Err
 }

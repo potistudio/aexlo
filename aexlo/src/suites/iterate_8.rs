@@ -2,23 +2,7 @@ use crate::diagnostics::*;
 use after_effects_sys::*;
 use std::os::raw::c_void;
 
-unsafe extern "C" {
-	fn Iterate8(
-		pixel_count: i32,
-		in_layer: *mut PF_Pixel8,
-		out_layer: *mut PF_Pixel8,
-		controller: *const c_void,
-		func: Option<
-			unsafe extern "C" fn(
-				refcon: *mut c_void,
-				x: A_long,
-				y: A_long,
-				in_pixel: *mut PF_Pixel8,
-				out_pixel: *mut PF_Pixel8,
-			) -> PF_Err,
-		>,
-	);
-}
+use rayon::prelude::*;
 
 pub(super) unsafe extern "C" fn iterate_8_sys(
 	in_data: *mut PF_InData,
@@ -69,16 +53,47 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 
 	let mut in_layer = wrapper::Layer::blank(width, height);
 
-	let in_layer_sys = in_layer
+	let mut in_layer_sys = in_layer
 		.pixels
 		.iter()
 		.map(|p| (*p).into())
 		.collect::<Vec<PF_Pixel8>>();
 
-	let in_ptr = in_layer_sys.as_ptr() as *mut PF_Pixel8;
-	let out_ptr = pixel_slice.as_mut_ptr() as *mut PF_Pixel8;
+	// Cast refcon to usize to allow passing it to threads safely.
+	//
+	// SAFETY:
+	// We rely on the guarantee that the `refcon` pointer passed to `Iterate8`
+	// is safe to be shared across threads.
+	//
+	// - **Guarantor**: The API contract of the function calling this (Action/Effect suites).
+	// - **Conditions**: The caller MUST ensure that any data pointed to by `refcon`
+	//   is thread-safe for concurrent access if multiple threads are used.
+	// - **Consequences**: If the `refcon` points to non-thread-safe data, usage leads to UB.
+	let refcon_addr = refcon as usize;
 
-	unsafe { Iterate8(pixels as i32, in_ptr, out_ptr, refcon, pix_fn) };
+	// Parallel iteration using rayon
+	if let Some(func) = pix_fn {
+		pixel_slice
+			.par_iter_mut()
+			.zip(in_layer_sys.par_iter_mut())
+			.enumerate()
+			.for_each(move |(i, (out_pixel, in_pixel))| {
+				let y = (i as i32) / (width as i32);
+				let x = (i as i32) % (width as i32);
+
+				let refcon_ptr = refcon_addr as *mut c_void;
+
+				unsafe {
+					func(
+						refcon_ptr,
+						x,
+						y,
+						in_pixel as *mut PF_Pixel8,
+						out_pixel as *mut PF_Pixel8,
+					);
+				}
+			});
+	}
 
 	PF_Err_NONE as PF_Err
 }

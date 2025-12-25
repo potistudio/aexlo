@@ -26,6 +26,7 @@ log = "0.4.28"
 after-effects = "0.2.1"
 mtpng = "0.4.1"
 anyhow = { version = "1.0.100", features = ["backtrace"] }
+rayon = "1.11.0"
 
 [build-dependencies]
 cmake = "0.1.54"

@@ -138,6 +138,7 @@ dependencies = [
  "env_logger",
  "log",
  "mtpng",
+ "rayon",
  "wrapper",
 ]
 
