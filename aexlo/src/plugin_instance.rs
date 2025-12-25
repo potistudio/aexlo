@@ -124,6 +124,7 @@ pub struct PluginInstance {
 	pub in_data: after_effects_sys::PF_InData,
 	out_data: after_effects_sys::PF_OutData,
 	params: Vec<after_effects_sys::PF_ParamDef>,
+	input_layer: wrapper::Layer<wrapper::Depth8>,
 	lllllayer: wrapper::Layer<wrapper::Depth8>,
 }
 
@@ -204,30 +205,14 @@ impl PluginInstance {
 			reserved: [0; 1],
 		});
 
-		let ld = after_effects_sys::PF_LayerDef {
-			reserved0: null_mut(),
-			reserved1: null_mut(),
-			world_flags: 0 as after_effects_sys::PF_WorldFlags,
-			data: null_mut(),
-			rowbytes: 0,
-			width: 0,
-			height: 0,
-			extent_hint: after_effects_sys::PF_UnionableRect {
-				left: 0,
-				top: 0,
-				right: 0,
-				bottom: 0,
-			},
-			platform_ref: null_mut(),
-			reserved_long1: 0,
-			reserved_long4: null_mut(),
-			pix_aspect_ratio: after_effects_sys::PF_RationalScale { num: 1, den: 1 }, // Fixed: den should not be 0
-			reserved_long2: null_mut(),
-			origin_x: 0,
-			origin_y: 0,
-			reserved_long3: 0,
-			dephault: 0,
-		};
+		let input_layer = wrapper::Layer::<wrapper::Depth8>::new(
+			width,
+			height,
+			vec![wrapper::Pixel::<wrapper::Depth8>::black(); (width * height) as usize],
+		)
+		.unwrap();
+
+		let ld = input_layer.as_sys();
 
 		let fs_d = after_effects_sys::PF_FloatSliderDef {
 			//* Parameter Value */
@@ -253,7 +238,7 @@ impl PluginInstance {
 			after_effects_sys::PF_ParamDef {
 				ui_flags: 0,
 				flags: 0,
-				param_type: 10 as after_effects_sys::PF_ParamType, // Float Slider,
+				param_type: 0 as after_effects_sys::PF_ParamType, // Layer
 				name: [0; 32],
 				ui_height: 0,
 				ui_width: 0,
@@ -313,13 +298,13 @@ impl PluginInstance {
 				time_scale: 0,
 				field: PF_Field_UPPER as PF_Field,
 				shutter_angle: 0,
-				width: 1920,
-				height: 1080,
+				width: 1280,
+				height: 720,
 				extent_hint: after_effects_sys::PF_UnionableRect {
 					left: 0,
 					top: 0,
-					right: 1920,
-					bottom: 1080,
+					right: 1280,
+					bottom: 720,
 				},
 				output_origin_x: 0,
 				output_origin_y: 0,
@@ -376,13 +361,19 @@ impl PluginInstance {
 				out_flags2: after_effects_sys::PF_OutFlag2_NONE as after_effects_sys::PF_OutFlags2,
 			},
 			params: param_list,
-			lllllayer: wrapper::Layer::<wrapper::Depth8>::blank(width, height),
+			input_layer,
+			lllllayer: wrapper::Layer::<wrapper::Depth8>::new(
+				width,
+				height,
+				vec![wrapper::Pixel::<wrapper::Depth8>::black(); (width * height) as usize],
+			)
+			.unwrap(),
 			world: after_effects_sys::PF_LayerDef {
 				reserved0: null_mut(),
 				reserved1: null_mut(),
 				world_flags: 0 as after_effects_sys::PF_WorldFlags,
 				data: null_mut(),
-				rowbytes: width as i32,
+				rowbytes: (width * 4) as i32,
 				width: width as i32,
 				height: height as i32,
 				extent_hint: after_effects_sys::PF_UnionableRect {
