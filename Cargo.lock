@@ -2012,6 +2012,7 @@ name = "interactive"
 version = "0.0.1"
 dependencies = [
  "aexlo",
+ "anyhow",
  "eframe",
  "env_logger",
  "log",

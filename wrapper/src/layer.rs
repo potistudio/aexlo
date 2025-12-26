@@ -167,6 +167,21 @@ impl Layer<Depth8> {
 			pixels,
 		}
 	}
+
+	/// Convert the layer to a raw RGBA byte buffer.
+	/// This is useful for displaying in egui or other graphics libraries.
+	/// The output format is RGBA (4 bytes per pixel).
+	pub fn to_rgba_bytes(&self) -> Vec<u8> {
+		let mut bytes = Vec::with_capacity(self.pixels.len() * 4);
+		for pixel in &self.pixels {
+			// Pixel<Depth8> has ARGB layout, egui expects RGBA
+			bytes.push(pixel.red);
+			bytes.push(pixel.green);
+			bytes.push(pixel.blue);
+			bytes.push(pixel.alpha);
+		}
+		bytes
+	}
 }
 
 // Conditional implements so `Layer<D>` implements common traits when the inner pixel type does.

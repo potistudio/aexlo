@@ -1,58 +1,16 @@
-/*
-use eframe::egui;
-
-fn main() -> eframe::Result {
-	env_logger::init();
-
-	let options = eframe::NativeOptions::default();
-
-	eframe::run_native(
-		"Demo",
-		options,
-		Box::new(|_cc| Ok(Box::new(App::default()))),
-	)?;
-
-	Ok(())
-}
-
-#[derive(Debug, Default)]
-struct App {
-	name: String,
-	age: u8,
-}
-
-impl eframe::App for App {
-	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-		egui::CentralPanel::default().show(ctx, |ui| {
-			ui.heading("Hello World!");
-			ui.horizontal(|ui| {
-				let name_label = ui.label("Your name: ");
-				ui.text_edit_singleline(&mut self.name)
-					.labelled_by(name_label.id);
-			});
-			ui.add(egui::Slider::new(&mut self.age, 0..=120).text("age"));
-			if ui.button("Increment").clicked() {
-				self.age += 1;
-			}
-			ui.label(format!("Hello '{}', age {}", self.name, self.age));
-		});
-	}
-}
-*/
-
 use eframe::egui;
 
 fn main() -> eframe::Result<()> {
 	// Initialize logger
 	unsafe {
-		std::env::set_var("RUST_LOG", "debug");
+		std::env::set_var("RUST_LOG", "info");
 	}
 	env_logger::init();
 
 	let options = eframe::NativeOptions {
 		viewport: egui::ViewportBuilder::default()
 			.with_inner_size([1280.0, 720.0])
-			.with_title("aexlo Demo (SDK_Noise.aex)"),
+			.with_title("aexlo Interactive Demo"),
 		..Default::default()
 	};
 
@@ -61,180 +19,193 @@ fn main() -> eframe::Result<()> {
 	eframe::run_native(
 		"aexlo-demo",
 		options,
-		Box::new(|_cc| Ok(Box::new(PixelApp::default()))),
+		Box::new(|_cc| Ok(Box::new(AexloApp::new()))),
 	)
 }
 
-struct PixelApp {
-	// Pixel buffer: RGBA format (4 bytes per pixel)
+struct AexloApp {
+	// Rendered pixel buffer (RGBA format)
 	pixels: Vec<u8>,
 	width: usize,
 	height: usize,
 
-	// Texture handle for displaying the pixel buffer
+	// egui texture handle
 	texture: Option<egui::TextureHandle>,
 
-	// Drawing state
-	brush_color: egui::Color32,
-	brush_size: f32,
-	is_drawing: bool,
+	// Plugin instance
+	instance: Option<aexlo::PluginInstance>,
 
-	// UI state
-	show_grid: bool,
+	// Error message if plugin failed to load
+	error: Option<String>,
 
-	instance: aexlo::PluginInstance,
+	// FPS tracking
+	last_frame_time: std::time::Instant,
+	fps: f32,
+	frame_count: u32,
+	fps_update_time: std::time::Instant,
 }
 
-impl Default for PixelApp {
-	fn default() -> Self {
-		let width = 800;
-		let height = 600;
+impl AexloApp {
+	fn new() -> Self {
+		let width = 1920;
+		let height = 1080;
 
-		// Initialize pixel buffer with white background (RGBA)
-		let pixels = vec![255u8; width * height * 4];
-
+		// Try to load the plugin
 		let exe_dir = std::env::current_exe().expect("Failed to get current executable path");
 		let plugin_path = exe_dir
 			.parent()
-			.expect("Failed to get parent directory of executable")
+			.expect("Failed to get parent directory")
 			.join("SDK_Noise");
 
-		let mut instance = aexlo::PluginInstance::new(plugin_path.as_path());
-		instance.load().unwrap();
+		log::info!("Loading plugin from: {:?}", plugin_path);
+
+		let (instance, error) = match load_plugin(&plugin_path) {
+			Ok(inst) => (Some(inst), None),
+			Err(e) => {
+				log::error!("Failed to load plugin: {}", e);
+				(None, Some(e.to_string()))
+			}
+		};
 
 		Self {
-			pixels,
+			pixels: vec![0u8; width * height * 4],
 			width,
 			height,
 			texture: None,
-			brush_color: egui::Color32::BLACK,
-			brush_size: 5.0,
-			is_drawing: false,
-			show_grid: false,
 			instance,
+			error,
+			last_frame_time: std::time::Instant::now(),
+			fps: 0.0,
+			frame_count: 0,
+			fps_update_time: std::time::Instant::now(),
 		}
 	}
-}
 
-impl PixelApp {
-	fn set_pixel_random(&mut self) {
-		// use rand::Rng;
-		// let mut rng = rand::rng();
-		// self.pixels
-		// 	.iter_mut()
-		// 	.for_each(|p| *p = rng.random_range(0..255));
-		self.instance.render();
-		let rendered_layer = self.instance.output_layer();
-		// self.pixels.copy_from_slice(rendered_layer.pixels);
+	fn render_frame(&mut self) {
+		if let Some(instance) = &mut self.instance {
+			if let Err(e) = instance.render() {
+				log::error!("Render failed: {}", e);
+				return;
+			}
+
+			// Get rendered layer and convert to RGBA bytes
+			let layer = instance.output_layer();
+			self.pixels = layer.to_rgba_bytes();
+			self.width = layer.width() as usize;
+			self.height = layer.height() as usize;
+		}
 	}
 
-	/// Clear the canvas to white
-	fn clear_canvas(&mut self) {
-		self.pixels.fill(255);
-	}
-
-	/// Convert the pixel buffer to an egui ColorImage
-	fn pixels_to_image(&self) -> egui::ColorImage {
-		egui::ColorImage::from_rgba_unmultiplied([self.width, self.height], &self.pixels)
-	}
-
-	/// Update or create the texture from the pixel buffer
 	fn update_texture(&mut self, ctx: &egui::Context) {
-		let image = self.pixels_to_image();
+		let image = egui::ColorImage::from_rgba_unmultiplied(
+			[self.width, self.height],
+			&self.pixels,
+		);
 
 		if let Some(texture) = &mut self.texture {
 			texture.set(image, egui::TextureOptions::NEAREST);
 		} else {
-			self.texture =
-				Some(ctx.load_texture("pixel-canvas", image, egui::TextureOptions::NEAREST));
+			self.texture = Some(ctx.load_texture(
+				"rendered-output",
+				image,
+				egui::TextureOptions::NEAREST,
+			));
+		}
+	}
+
+	fn update_fps(&mut self) {
+		self.frame_count += 1;
+		let now = std::time::Instant::now();
+		let elapsed = now.duration_since(self.fps_update_time).as_secs_f32();
+
+		if elapsed >= 1.0 {
+			self.fps = self.frame_count as f32 / elapsed;
+			self.frame_count = 0;
+			self.fps_update_time = now;
 		}
 	}
 }
 
-impl eframe::App for PixelApp {
+fn load_plugin(path: &std::path::Path) -> anyhow::Result<aexlo::PluginInstance> {
+	let mut instance = aexlo::PluginInstance::new(path);
+	instance.load()?;
+	instance.about()?;
+	instance.setup_global()?;
+	instance.setup_params()?;
+	Ok(instance)
+}
+
+impl eframe::App for AexloApp {
 	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-		// Side panel for controls
-		egui::SidePanel::left("controls").show(ctx, |ui| {
-			ui.heading("🎨 Controls");
-			ui.separator();
+		// Update FPS
+		self.update_fps();
 
-			// Color picker
-			ui.label("Brush Color:");
-			egui::color_picker::color_edit_button_srgba(
-				ui,
-				&mut self.brush_color,
-				egui::color_picker::Alpha::Opaque,
-			);
+		// Sidebar with controls
+		egui::SidePanel::left("controls")
+			.resizable(true)
+			.default_width(250.0)
+			.show(ctx, |ui| {
+				ui.heading("� aexlo Interactive Demo");
+				ui.separator();
 
-			ui.add_space(10.0);
+				// FPS display
+				ui.label(format!("FPS: {:.1}", self.fps));
+				ui.label(format!("Resolution: {}x{}", self.width, self.height));
 
-			// Brush size slider
-			ui.label("Brush Size:");
-			ui.add(egui::Slider::new(&mut self.brush_size, 1.0..=50.0));
+				ui.separator();
 
-			ui.add_space(10.0);
+				// Plugin status
+				if let Some(error) = &self.error {
+					ui.colored_label(egui::Color32::RED, "❌ Plugin Error:");
+					ui.label(error);
+				} else {
+					ui.colored_label(egui::Color32::GREEN, "✅ Plugin Loaded");
+				}
 
-			// Brush preview
-			ui.label("Brush Preview:");
-			let (rect, _response) =
-				ui.allocate_exact_size(egui::vec2(60.0, 60.0), egui::Sense::hover());
-			ui.painter().rect_filled(rect, 0.0, egui::Color32::WHITE);
-			ui.painter()
-				.circle_filled(rect.center(), self.brush_size / 2.0, self.brush_color);
+				ui.separator();
 
-			ui.add_space(10.0);
+				// Instructions
+				ui.label("This demo renders an After Effects");
+				ui.label("plugin in real-time.");
+				ui.label("");
+				ui.label("The SDK_Noise.aex plugin generates");
+				ui.label("random noise patterns.");
+			});
 
-			// Clear button
-			if ui.button("🗑 Clear Canvas").clicked() {
-				self.clear_canvas();
-			}
-
-			ui.add_space(20.0);
-			ui.separator();
-
-			// Canvas info
-			ui.label(format!("Canvas: {}x{}", self.width, self.height));
-			ui.label(format!("Total Pixels: {}", self.width * self.height));
-			ui.label(format!("Buffer Size: {} bytes", self.pixels.len()));
-
-			ui.add_space(10.0);
-
-			// Grid toggle
-			ui.checkbox(&mut self.show_grid, "Show Grid (slow)");
-		});
-
-		// Central panel for canvas
+		// Main canvas area
 		egui::CentralPanel::default().show(ctx, |ui| {
-			ui.heading("Canvas");
-
-			// Update texture from pixel buffer
-			self.set_pixel_random();
+			// Render a new frame
+			self.render_frame();
 			self.update_texture(ctx);
 
 			if let Some(texture) = &self.texture {
 				let available_size = ui.available_size();
 				let texture_size = texture.size_vec2();
 
-				// Calculate scaling to fit in available space while maintaining aspect ratio
+				// Calculate scale to fit while maintaining aspect ratio
 				let scale = (available_size.x / texture_size.x)
 					.min(available_size.y / texture_size.y)
-					.min(1.0); // Don't scale up
+					.min(1.0);
 
 				let scaled_size = texture_size * scale;
 
 				// Center the image
-				ui.scope_builder(
-					egui::UiBuilder::new().max_rect(egui::Rect::from_min_size(
-						ui.available_rect_before_wrap().left_top(),
-						scaled_size,
-					)),
-					|ui| ui.image((texture.id(), scaled_size)),
-				);
-			}
+				let offset_x = (available_size.x - scaled_size.x) / 2.0;
+				let offset_y = (available_size.y - scaled_size.y) / 2.0;
 
-			// Request continuous repaints while drawing
-			log::info!("Repainting while drawing");
-			ctx.request_repaint();
+				ui.allocate_space(egui::vec2(offset_x, 0.0));
+				ui.vertical_centered(|ui| {
+					ui.add_space(offset_y);
+					ui.image((texture.id(), scaled_size));
+				});
+			} else {
+				ui.centered_and_justified(|ui| {
+					ui.heading("No texture available");
+				});
+			}
 		});
+
+		// Request continuous repaints for real-time rendering
+		ctx.request_repaint();
 	}
 }
