@@ -463,6 +463,27 @@ impl PluginInstance {
 		Ok(())
 	}
 
+	/// Get a reference to the internal output layer (zero-copy).
+	/// Use `write_output_rgba()` for best performance.
+	pub fn output_layer_ref(&self) -> &wrapper::Layer<wrapper::Depth8> {
+		&self.lllllayer
+	}
+
+	/// Write output pixels directly to an RGBA buffer (zero-allocation).
+	/// The buffer must have exactly `width * height * 4` bytes.
+	/// Returns `true` on success, `false` if buffer size mismatches.
+	pub fn write_output_rgba(&self, buffer: &mut [u8]) -> bool {
+		self.lllllayer.write_rgba_bytes(buffer)
+	}
+
+	/// Get output dimensions (width, height).
+	pub fn output_size(&self) -> (u32, u32) {
+		(self.lllllayer.width(), self.lllllayer.height())
+	}
+
+	/// [Deprecated] Creates a copy of the output layer.
+	/// Prefer `write_output_rgba()` for zero-copy performance.
+	#[deprecated(since = "0.1.0", note = "Use write_output_rgba() for zero-copy")]
 	pub fn output_layer(&self) -> wrapper::Layer<wrapper::Depth8> {
 		let width = self.world.width;
 		let height = self.world.height;

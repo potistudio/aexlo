@@ -88,20 +88,17 @@ impl AexloApp {
 				return;
 			}
 
-			// Get rendered layer and write directly to existing buffer (zero-allocation)
-			let layer = instance.output_layer();
-			let new_width = layer.width() as usize;
-			let new_height = layer.height() as usize;
-
-			// Resize buffer only if dimensions changed
-			let required_size = new_width * new_height * 4;
+			// Get dimensions and resize buffer only if needed
+			let (new_width, new_height) = instance.output_size();
+			let required_size = (new_width as usize) * (new_height as usize) * 4;
 			if self.pixels.len() != required_size {
 				self.pixels.resize(required_size, 0);
-				self.width = new_width;
-				self.height = new_height;
+				self.width = new_width as usize;
+				self.height = new_height as usize;
 			}
 
-			layer.write_rgba_bytes(&mut self.pixels);
+			// Write directly to buffer (zero-copy, zero-allocation)
+			instance.write_output_rgba(&mut self.pixels);
 		}
 	}
 
@@ -177,12 +174,10 @@ impl eframe::App for AexloApp {
 				ui.heading("🎛 Parameters");
 				ui.add_space(4.0);
 
-				// Float slider (0 - 1000)
-				let slider = egui::Slider::new(&mut self.float_param, 0.0..=1000.0)
+				let slider = egui::Slider::new(&mut self.float_param, 0.0..=100.0)
 					.text("Value")
 					.clamp_to_range(true);
 				if ui.add(slider).changed() {
-					// Update plugin parameter when slider changes
 					if let Some(instance) = &mut self.instance {
 						instance.set_param_float(1, self.float_param);
 					}
