@@ -133,77 +133,11 @@ impl PluginInstance {
 	pub fn new(path: &Path) -> Self {
 		let width = 1920;
 		let height = 1080;
-		// Initialize Interact Callbacks
-		let interact_callbacks = after_effects_sys::PF_InteractCallbacks {
-			checkout_param: Some(CheckoutParam_sys),
-			checkin_param: Some(checkin_param_sys),
-			add_param: Some(rusty_add_param),
-			abort: None,
-			progress: None,
-			register_ui: Some(RegisterUI_sys),
-			checkout_layer_audio: None,
-			checkin_layer_audio: None,
-			get_audio_data: None,
-			reserved_str: [std::ptr::null_mut(); 3],
-			reserved: [std::ptr::null_mut(); 10],
-		};
+		// Initialize Interact Callbacks using factory
+		let interact_callbacks = crate::suites::factories::create_interact_callbacks();
 
-		let color = after_effects_sys::PF_ColorCallbacks {
-			RGBtoHLS: None,
-			HLStoRGB: None,
-			RGBtoYIQ: None,
-			YIQtoRGB: None,
-			Luminance: None,
-			Hue: None,
-			Lightness: None,
-			Saturation: None,
-		};
-
-		let utility_callbacks = Box::new(after_effects_sys::_PF_UtilCallbacks {
-			begin_sampling: None,
-			subpixel_sample: None,
-			area_sample: None,
-			get_batch_func_is_deprecated: std::ptr::null_mut(),
-			end_sampling: None,
-			composite_rect: None,
-			blend: None,
-			convolve: None,
-			copy: None,
-			fill: None,
-			gaussian_kernel: None,
-			iterate: None,
-			premultiply: None,
-			premultiply_color: None,
-			new_world: None,
-			dispose_world: None,
-			iterate_origin: None,
-			iterate_lut: None,
-			transfer_rect: None,
-			transform_world: None,
-			host_new_handle: None,
-			host_lock_handle: None,
-			host_unlock_handle: None,
-			host_dispose_handle: None,
-			get_callback_addr: None,
-			app: None,
-			ansi: crate::suites::SUITE_CONTAINER.ansi,
-			colorCB: color,
-			get_platform_data: Some(GetPlatformData_sys),
-			host_get_handle_size: None,
-			iterate_origin_non_clip_src: None,
-			iterate_generic: None,
-			host_resize_handle: None,
-			subpixel_sample16: None,
-			area_sample16: None,
-			fill16: None,
-			premultiply_color16: None,
-			iterate16: None,
-			iterate_origin16: None,
-			iterate_origin_non_clip_src16: None,
-			get_pixel_data8: None,
-			get_pixel_data16: None,
-			reserved: [0; 1],
-		});
+		// Initialize Utility Callbacks using factory
+		let utility_callbacks = crate::suites::factories::create_utility_callbacks();
 
 		let input_layer = wrapper::Layer::<wrapper::Depth8>::new(
 			width,

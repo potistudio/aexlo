@@ -1,5 +1,6 @@
 mod ansi;
 mod effect_ui;
+pub mod factories;
 mod handle;
 mod iterate_8;
 mod world_transform;
@@ -109,21 +110,24 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 				PF_Err_NONE as PF_Err
 			}
 			("PF Handle Suite", 2) => {
-				*suite = &SUITE_CONTAINER.handle_suite as *const _ as *mut c_void;
+				let suite_box = factories::create_handle_suite_1();
+				*suite = Box::into_raw(suite_box) as *const c_void;
 
-				log::info!("Acquired PF Handle Suite v2");
+				log::info!("Acquired PF Handle Suite v2 (Factory)");
 				PF_Err_NONE as PF_Err
 			}
 			("PF World Transform Suite", 1) => {
-				*suite = &SUITE_CONTAINER.world_transform_suite as *const _ as *mut c_void;
+				let suite_box = factories::create_world_transform_suite_1();
+				*suite = Box::into_raw(suite_box) as *const c_void;
 
-				log::info!("Acquired PF World Transform Suite v1");
+				log::info!("Acquired PF World Transform Suite v1 (Factory)");
 				PF_Err_NONE as PF_Err
 			}
 			("PF Iterate8 Suite", 2) => {
-				*suite = &SUITE_CONTAINER.iterate_8_suite as *const _ as *mut c_void;
+				let suite_box = factories::create_iterate_8_suite_2();
+				*suite = Box::into_raw(suite_box) as *const c_void;
 
-				log::info!("Acquired PF Iterate8 Suite v2");
+				log::info!("Acquired PF Iterate8 Suite v2 (Factory)");
 				PF_Err_NONE as PF_Err
 			}
 			_ => {

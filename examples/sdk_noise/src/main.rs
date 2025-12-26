@@ -69,48 +69,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 	// Warmup run to stabilize system
 	// log::info!("Performing warmup run...");
 	instance.about()?;
-	// instance.setup_global()?;
+	instance.setup_global()?;
 	instance.setup_params()?;
 	instance.render()?;
 
-	// Benchmark runs
-	/*
-	const BENCHMARK_ITERATIONS: usize = 10;
-	let mut times = Vec::with_capacity(BENCHMARK_ITERATIONS);
-
-	log::info!("Running {} benchmark iterations...", BENCHMARK_ITERATIONS);
-	for i in 1..=BENCHMARK_ITERATIONS {
-		let start = std::time::Instant::now();
-		instance.render()?;
-		let duration = start.elapsed();
-		times.push(duration);
-		log::error!("Run {}/{}: {:.2?}", i, BENCHMARK_ITERATIONS, duration);
-	}
-
-	// Calculate statistics
-	let total: std::time::Duration = times.iter().sum();
-	let avg = total / times.len() as u32;
-	let min = *times.iter().min().unwrap();
-	let max = *times.iter().max().unwrap();
-	let variance = times
-		.iter()
-		.map(|&t| {
-			let diff = (t.as_secs_f64() - avg.as_secs_f64()).powi(2);
-			diff
-		})
-		.sum::<f64>()
-		/ times.len() as f64;
-	let stddev = variance.sqrt();
-
-	log::error!("\n{}", "=== Benchmark Results ===".bold());
-	log::error!("  Iterations: {}", BENCHMARK_ITERATIONS);
-	log::error!("  Average:    {:.2?}", avg);
-	log::error!("  Min:        {:.2?}", min);
-	log::error!("  Max:        {:.2?}", max);
-	log::error!("  Std Dev:    {:.6}s", stddev);
-	log::error!("  Total:      {:.2?}", total);
-	//* ------------------------------------------------- */
-	*/
 	//* ---- Extract the output layer ------------------- */
 	log::info!("Extracting output layer...");
 	let layer = instance.output_layer();

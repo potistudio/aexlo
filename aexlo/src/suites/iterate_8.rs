@@ -1,6 +1,7 @@
 use crate::diagnostics::*;
 use after_effects_sys::*;
 use std::os::raw::c_void;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 use rayon::prelude::*;
 
@@ -48,11 +49,14 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
+	// SAFETY: We create shared references here.
+	// We specifically avoid creating `&mut *dst` to prevent aliasing UB when using Rayon.
+	// Mutation of the destination buffer will occur via raw pointers derived from `dst_world.data`.
 	let src_world = unsafe { &*src };
-	let dst_world = unsafe { &mut *dst };
+	let dst_world = unsafe { &*dst };
 
 	if src_world.data.is_null() || dst_world.data.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err; // Or equivalent error for invalid buffer
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
 	// 1. Determine iteration bounds from `area` or default to `dst` extent
@@ -90,7 +94,6 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 	}
 
 	// Prepare pointers and strides for thread-safe access
-	// SAFETY: These base pointers and strides are derived from valid PF_EffectWorld structures provided by host.
 	let src_base_addr = src_world.data as usize;
 	let src_rowbytes = src_world.rowbytes as isize;
 	let dst_base_addr = dst_world.data as usize;
@@ -98,13 +101,32 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 
 	let pixel_size = std::mem::size_of::<PF_Pixel8>();
 
-	// Cast refcon to usize to allow passing it to threads safely (contract logic same as before).
+	// Validate pixel size assumption
+	// We act as Iterate8, so we assume PF_Pixel8.
+	// This debug assertion helps catch if rowbytes doesn't match the width*size expectation (indicating stride or wrong depth).
+	debug_assert!(
+		src_world.rowbytes >= (src_world.width as i32 * pixel_size as i32),
+		"Source rowbytes smaller than width * pixel_size"
+	);
+
+	// Cast refcon to usize to allow passing it to threads safely.
+	// SAFETY: The caller (After Effects or plugin) implicitly guarantees that `refcon` is thread-safe
+	// for concurrent reading/writing if they invoke a parallel suite function or if the plugin design allows it.
+	// As a generic suite implementation, we must rely on this contract.
 	let refcon_addr = refcon as usize;
+
+	// Atomic for error propagation from threads
+	let error_capsule = AtomicI32::new(PF_Err_NONE as i32);
 
 	// Parallel iteration using rayon
 	// Iterate over Y rows in parallel
 	if let Some(func) = pix_fn {
 		(0..height).into_par_iter().for_each(|y_offset| {
+			// Check for early exit on error (relaxed ordering is sufficient for "eventual" stop)
+			if error_capsule.load(Ordering::Relaxed) != PF_Err_NONE as i32 {
+				return;
+			}
+
 			let current_y = start_y + y_offset;
 			let current_x_start = start_x;
 
@@ -116,7 +138,7 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 
 			let refcon_ptr = refcon_addr as *mut c_void;
 
-			// Inner loop: iterate pixels in this row (sequential is usually fine for row, better cache loc)
+			// Inner loop: iterate pixels in this row
 			for x_offset in 0..width {
 				let current_x = current_x_start + x_offset;
 
@@ -126,16 +148,25 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 				let dst_pixel =
 					dst_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel8;
 
+				// SAFETY:
+				// 1. `dst_pixel` points to a unique memory location for this (x, y) coordinate.
+				//    The iteration ranges (0..height, 0..width) partition the buffer into disjoint sets.
+				//    No two threads will write to the same pixel address.
+				// 2. We are writing to `dst`, which is allowed via raw pointer even if `dst_world` is shared,
+				//    as long as we respect exclusive access rules (guaranteed by partitioning).
+				// 3. `src_pixel` is only read.
+				// 4. `func` is an external C function. We trust it adheres to the `Iterate` contract.
 				unsafe {
-					// We ignore return value of func? Sys API returns PF_Err, we should technically check it.
-					// But parallel iterators don't easily propagate errors without mutexes/atomics.
-					// Given optimization requirement, we assume success or handle generic abort mechanism if needed.
-					// For now, ignoring return is standard for raw high-perf loops unless abort is needed.
-					let _ = func(refcon_ptr, current_x, current_y, src_pixel, dst_pixel);
+					let err = func(refcon_ptr, current_x, current_y, src_pixel, dst_pixel);
+					if err != PF_Err_NONE as i32 {
+						// Attempt to store the first error. We don't care if we overwrite another error or lose one race.
+						error_capsule.store(err, Ordering::Relaxed);
+						return; // Stop processing this row
+					}
 				}
 			}
 		});
 	}
 
-	PF_Err_NONE as PF_Err
+	error_capsule.load(Ordering::Relaxed) as PF_Err
 }
