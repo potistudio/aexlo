@@ -182,6 +182,25 @@ impl Layer<Depth8> {
 		}
 		bytes
 	}
+
+	/// Write RGBA bytes directly into an existing buffer (zero-allocation).
+	/// The buffer must have exactly `width * height * 4` bytes.
+	/// Returns `true` if successful, `false` if buffer size mismatches.
+	pub fn write_rgba_bytes(&self, buffer: &mut [u8]) -> bool {
+		let required = self.pixels.len() * 4;
+		if buffer.len() != required {
+			return false;
+		}
+
+		for (i, pixel) in self.pixels.iter().enumerate() {
+			let offset = i * 4;
+			buffer[offset] = pixel.red;
+			buffer[offset + 1] = pixel.green;
+			buffer[offset + 2] = pixel.blue;
+			buffer[offset + 3] = pixel.alpha;
+		}
+		true
+	}
 }
 
 // Conditional implements so `Layer<D>` implements common traits when the inner pixel type does.

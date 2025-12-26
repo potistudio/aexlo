@@ -1,10 +1,6 @@
 use eframe::egui;
 
 fn main() -> eframe::Result<()> {
-	// Initialize logger
-	unsafe {
-		std::env::set_var("RUST_LOG", "info");
-	}
 	env_logger::init();
 
 	let options = eframe::NativeOptions {
@@ -43,6 +39,9 @@ struct AexloApp {
 	fps: f32,
 	frame_count: u32,
 	fps_update_time: std::time::Instant,
+
+	// Parameter control
+	float_param: f64,
 }
 
 impl AexloApp {
@@ -78,6 +77,7 @@ impl AexloApp {
 			fps: 0.0,
 			frame_count: 0,
 			fps_update_time: std::time::Instant::now(),
+			float_param: 100.0, // Default value
 		}
 	}
 
@@ -88,11 +88,20 @@ impl AexloApp {
 				return;
 			}
 
-			// Get rendered layer and convert to RGBA bytes
+			// Get rendered layer and write directly to existing buffer (zero-allocation)
 			let layer = instance.output_layer();
-			self.pixels = layer.to_rgba_bytes();
-			self.width = layer.width() as usize;
-			self.height = layer.height() as usize;
+			let new_width = layer.width() as usize;
+			let new_height = layer.height() as usize;
+
+			// Resize buffer only if dimensions changed
+			let required_size = new_width * new_height * 4;
+			if self.pixels.len() != required_size {
+				self.pixels.resize(required_size, 0);
+				self.width = new_width;
+				self.height = new_height;
+			}
+
+			layer.write_rgba_bytes(&mut self.pixels);
 		}
 	}
 
@@ -164,12 +173,20 @@ impl eframe::App for AexloApp {
 
 				ui.separator();
 
-				// Instructions
-				ui.label("This demo renders an After Effects");
-				ui.label("plugin in real-time.");
-				ui.label("");
-				ui.label("The SDK_Noise.aex plugin generates");
-				ui.label("random noise patterns.");
+				// Parameter controls
+				ui.heading("🎛 Parameters");
+				ui.add_space(4.0);
+
+				// Float slider (0 - 1000)
+				let slider = egui::Slider::new(&mut self.float_param, 0.0..=1000.0)
+					.text("Value")
+					.clamp_to_range(true);
+				if ui.add(slider).changed() {
+					// Update plugin parameter when slider changes
+					if let Some(instance) = &mut self.instance {
+						instance.set_param_float(1, self.float_param);
+					}
+				}
 			});
 
 		// Main canvas area

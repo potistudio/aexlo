@@ -474,4 +474,46 @@ impl PluginInstance {
 	pub(crate) fn add_param(&mut self, param: after_effects_sys::PF_ParamDef) {
 		self.params.push(param);
 	}
+
+	/// Get the number of parameters
+	pub fn param_count(&self) -> usize {
+		self.params.len()
+	}
+
+	/// Set a float parameter value by index.
+	/// Returns `true` if successful, `false` if index out of bounds or not a float param.
+	pub fn set_param_float(&mut self, index: usize, value: f64) -> bool {
+		if index >= self.params.len() {
+			return false;
+		}
+
+		// Check if this is a float slider type (param_type == 10)
+		let param = &mut self.params[index];
+		if param.param_type != 10 {
+			log::warn!("set_param_float: param {} is not a float slider (type={})", index, param.param_type);
+			return false;
+		}
+
+		// SAFETY: We verified param_type is 10 (float slider), so fs_d is the active union variant
+		unsafe {
+			param.u.fs_d.value = value;
+		}
+		true
+	}
+
+	/// Get a float parameter value by index.
+	/// Returns `None` if index out of bounds or not a float param.
+	pub fn get_param_float(&self, index: usize) -> Option<f64> {
+		if index >= self.params.len() {
+			return None;
+		}
+
+		let param = &self.params[index];
+		if param.param_type != 10 {
+			return None;
+		}
+
+		// SAFETY: We verified param_type is 10 (float slider), so fs_d is the active union variant
+		unsafe { Some(param.u.fs_d.value) }
+	}
 }
