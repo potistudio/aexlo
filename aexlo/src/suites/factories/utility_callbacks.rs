@@ -1,7 +1,7 @@
+use crate::diagnostics::*;
 use after_effects_sys::*;
 use std::os::raw::c_void;
 use std::sync::RwLock;
-use crate::diagnostics::*;
 
 // Global plugin path storage (UTF-16 for Windows)
 static PLUGIN_PATH: RwLock<Option<Vec<u16>>> = RwLock::new(None);
@@ -10,7 +10,11 @@ static PLUGIN_PATH: RwLock<Option<Vec<u16>>> = RwLock::new(None);
 /// The path should be absolute and will be stored as UTF-16.
 pub fn set_plugin_path(path: &std::path::Path) {
 	use std::os::windows::ffi::OsStrExt;
-	let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+	let wide: Vec<u16> = path
+		.as_os_str()
+		.encode_wide()
+		.chain(std::iter::once(0))
+		.collect();
 	if let Ok(mut guard) = PLUGIN_PATH.write() {
 		*guard = Some(wide);
 	}
@@ -272,24 +276,6 @@ unsafe extern "C" fn transform_world_stub(
 	PF_Err_NONE as PF_Err
 }
 
-unsafe extern "C" fn host_new_handle_stub(_size: A_HandleSize) -> PF_Handle {
-	log::warn!("STUB: host_new_handle called");
-	std::ptr::null_mut()
-}
-
-unsafe extern "C" fn host_lock_handle_stub(_handle: PF_Handle) -> *mut c_void {
-	log::warn!("STUB: host_lock_handle called");
-	std::ptr::null_mut()
-}
-
-unsafe extern "C" fn host_unlock_handle_stub(_handle: PF_Handle) {
-	log::warn!("STUB: host_unlock_handle called");
-}
-
-unsafe extern "C" fn host_dispose_handle_stub(_handle: PF_Handle) {
-	log::warn!("STUB: host_dispose_handle called");
-}
-
 unsafe extern "C" fn get_callback_addr_stub(
 	_effect_ref: PF_ProgPtr,
 	_quality: PF_Quality,
@@ -350,11 +336,6 @@ unsafe extern "C" fn get_platform_data_impl(
 	}
 }
 
-unsafe extern "C" fn host_get_handle_size_stub(_handle: PF_Handle) -> A_HandleSize {
-	log::warn!("STUB: host_get_handle_size called");
-	0
-}
-
 unsafe extern "C" fn iterate_origin_non_clip_src_stub(
 	_in_data: *mut PF_InData,
 	_progress_base: A_long,
@@ -391,14 +372,6 @@ unsafe extern "C" fn iterate_generic_stub(
 	>,
 ) -> PF_Err {
 	log::warn!("STUB: iterate_generic called");
-	PF_Err_NONE as PF_Err
-}
-
-unsafe extern "C" fn host_resize_handle_stub(
-	_new_sizeL: A_HandleSize,
-	_handlePH: *mut PF_Handle,
-) -> PF_Err {
-	log::warn!("STUB: host_resize_handle called");
 	PF_Err_NONE as PF_Err
 }
 
@@ -558,10 +531,10 @@ pub fn create_utility_callbacks() -> Box<_PF_UtilCallbacks> {
 		iterate_lut: Some(iterate_lut_stub),
 		transfer_rect: Some(transfer_rect_stub),
 		transform_world: Some(transform_world_stub),
-		host_new_handle: Some(host_new_handle_stub),
-		host_lock_handle: Some(host_lock_handle_stub),
-		host_unlock_handle: Some(host_unlock_handle_stub),
-		host_dispose_handle: Some(host_dispose_handle_stub),
+		host_new_handle: Some(super::handle_suite::host_new_handle_impl),
+		host_lock_handle: Some(super::handle_suite::host_lock_handle_impl),
+		host_unlock_handle: Some(super::handle_suite::host_unlock_handle_impl),
+		host_dispose_handle: Some(super::handle_suite::host_dispose_handle_impl),
 		get_callback_addr: Some(get_callback_addr_stub),
 		app: Some(app_stub),
 		ansi: super::super::SUITE_CONTAINER.ansi, // Use existing ANSI callbacks
@@ -576,10 +549,10 @@ pub fn create_utility_callbacks() -> Box<_PF_UtilCallbacks> {
 			Saturation: None,
 		},
 		get_platform_data: Some(get_platform_data_impl),
-		host_get_handle_size: Some(host_get_handle_size_stub),
+		host_get_handle_size: Some(super::handle_suite::host_get_handle_size_impl),
 		iterate_origin_non_clip_src: Some(iterate_origin_non_clip_src_stub),
 		iterate_generic: Some(iterate_generic_stub),
-		host_resize_handle: Some(host_resize_handle_stub),
+		host_resize_handle: Some(super::handle_suite::host_resize_handle_impl),
 		subpixel_sample16: Some(subpixel_sample16_stub),
 		area_sample16: Some(area_sample16_stub),
 		fill16: Some(fill16_stub),
