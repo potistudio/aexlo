@@ -12,7 +12,7 @@ use colored::Colorize;
 use aexlo::PluginInstance;
 
 //* Configuration constants */
-const MODULE_NAME: &str = "SDK_Noise";
+const MODULE_NAME: &str = "DeepGlow2";
 
 fn main() -> Result<(), Box<dyn Error>> {
 	#[rustfmt::skip]

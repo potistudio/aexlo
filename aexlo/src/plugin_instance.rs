@@ -379,6 +379,9 @@ impl PluginInstance {
 		self.container =
 			Some(unsafe { Container::load(&module_path) }.context("Failed to load plugin")?);
 
+		// Set plugin path for get_platform_data callback
+		crate::suites::factories::set_plugin_path(std::path::Path::new(&module_path));
+
 		log::info!("Loaded plugin {}.", "successfully".green());
 		//* -------------------------------------------- *//
 

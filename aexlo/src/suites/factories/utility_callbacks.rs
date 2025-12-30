@@ -1,5 +1,20 @@
 use after_effects_sys::*;
 use std::os::raw::c_void;
+use std::sync::RwLock;
+use crate::diagnostics::*;
+
+// Global plugin path storage (UTF-16 for Windows)
+static PLUGIN_PATH: RwLock<Option<Vec<u16>>> = RwLock::new(None);
+
+/// Set the plugin path for get_platform_data callback.
+/// The path should be absolute and will be stored as UTF-16.
+pub fn set_plugin_path(path: &std::path::Path) {
+	use std::os::windows::ffi::OsStrExt;
+	let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+	if let Ok(mut guard) = PLUGIN_PATH.write() {
+		*guard = Some(wide);
+	}
+}
 
 // ============================================================================
 // Stub Implementations (Logging Only)
@@ -291,13 +306,48 @@ unsafe extern "C" fn app_stub(_effect_ref: PF_ProgPtr, _selector: A_long, ...) -
 	PF_Err_NONE as PF_Err
 }
 
-unsafe extern "C" fn get_platform_data_stub(
+/// PF_PlatDataID constants
+const PF_PLAT_DATA_EXE_FILE_PATH_W: PF_PlatDataID = 7;
+const PF_PLAT_DATA_RES_FILE_PATH_W: PF_PlatDataID = 8;
+
+unsafe extern "C" fn get_platform_data_impl(
 	_effect_ref: PF_ProgPtr,
-	_which: PF_PlatDataID,
-	_data: *mut c_void,
+	which: PF_PlatDataID,
+	data: *mut c_void,
 ) -> PF_Err {
-	log::warn!("STUB: get_platform_data called");
-	PF_Err_NONE as PF_Err
+	let mut diagnostic = DiagnosticBuilder::new()
+		.set_name("get_platform_data")
+		.add_arg("which", &which)
+		.add_arg("data", format!("{:?}", data));
+
+	if data.is_null() {
+		log::warn!("get_platform_data: data pointer is null");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	match which {
+		PF_PLAT_DATA_EXE_FILE_PATH_W | PF_PLAT_DATA_RES_FILE_PATH_W => {
+			// Return plugin path as UTF-16
+			if let Ok(guard) = PLUGIN_PATH.read() {
+				if let Some(ref path) = *guard {
+					// Copy path to output buffer (max AEFX_MAX_PATH = 260)
+					let dst = data as *mut u16;
+					let copy_len = path.len().min(260);
+					unsafe {
+						std::ptr::copy_nonoverlapping(path.as_ptr(), dst, copy_len);
+					}
+					log::info!("get_platform_data: returned plugin path (len={})", copy_len);
+					return PF_Err_NONE as PF_Err;
+				}
+			}
+			log::warn!("get_platform_data: plugin path not set");
+			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+		}
+		_ => {
+			log::warn!("get_platform_data: unsupported which={}", which);
+			PF_Err_NONE as PF_Err // Return OK for unsupported, as AE does
+		}
+	}
 }
 
 unsafe extern "C" fn host_get_handle_size_stub(_handle: PF_Handle) -> A_HandleSize {
@@ -525,7 +575,7 @@ pub fn create_utility_callbacks() -> Box<_PF_UtilCallbacks> {
 			Lightness: None,
 			Saturation: None,
 		},
-		get_platform_data: Some(get_platform_data_stub),
+		get_platform_data: Some(get_platform_data_impl),
 		host_get_handle_size: Some(host_get_handle_size_stub),
 		iterate_origin_non_clip_src: Some(iterate_origin_non_clip_src_stub),
 		iterate_generic: Some(iterate_generic_stub),
