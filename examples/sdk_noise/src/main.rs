@@ -12,7 +12,7 @@ use colored::Colorize;
 use aexlo::PluginInstance;
 
 //* Configuration constants */
-const MODULE_NAME: &str = "DeepGlow2";
+const MODULE_NAME: &str = "SDK_Noise";
 
 fn main() -> Result<(), Box<dyn Error>> {
 	#[rustfmt::skip]
@@ -28,40 +28,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 		println!("                       |__|/ \\|__|                                                \\|_________|\n");
 	}
 
-	//* ---- Initialize logger -------------------------- */
-	unsafe {
-		std::env::set_var("RUST_LOG", "debug");
-	}
+	env_logger::init();
 
-	logger::Builder::from_default_env()
-		.format(|buffer, record| {
-			let timestamp = chrono::Utc::now().format("%H:%M:%S%.6f").to_string();
-
-			let padded_level = match record.level() {
-				log::Level::Error => "<ERROR>".red().bold(),
-				log::Level::Warn => "<WARN> ".yellow().bold(),
-				log::Level::Info => "<INFO> ".blue().bold(),
-				log::Level::Debug => "<DEBUG>".green().bold(),
-				log::Level::Trace => "<TRACE>".white().bold(),
-			};
-
-			writeln!(
-				buffer,
-				"[{timestamp}] {padded_level} {args} - {file}:{line}",
-				args = record.args(),
-				file = record.file().unwrap_or("unknown"),
-				line = record.line().unwrap_or(0)
-			)
-		})
-		.init();
-	//* ------------------------------------------------- */
 	//* ---- Determine plugin path ---------------------- */
 	let exe_dir = std::env::current_exe().expect("Failed to get current executable path");
 	let plugin_path = exe_dir
 		.parent()
 		.expect("Failed to get parent directory of executable")
 		.join(MODULE_NAME);
-	//* ------------------------------------------------- */
+
 	//* ---- Execute the plugin ------------------------- */
 	let mut instance = PluginInstance::new(plugin_path.as_path());
 	instance.load()?;
@@ -82,7 +57,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	for (i, pixel) in layer.iter().enumerate().take(10) {
 		log::debug!("    Pixel {}: {:?}", i, pixel);
 	}
-	//* ------------------------------------------------- */
+
 	//* ---- Write output image as PNG ------------------ */
 	log::info!("Writing output image to 'output.png'...");
 	let output_buffer: Vec<u8> = layer
@@ -104,7 +79,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	std::fs::write("output.png", writer)?;
 	log::info!("Wrote output image {}.", "successfully".green());
-	//* ------------------------------------------------- */
+
 	println!("======== Execution completed ========\n");
 	Ok(())
 }

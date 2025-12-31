@@ -1,12 +1,12 @@
 [package]
 name = "sdk_noise"
 authors.workspace = true
-license.workspace  = true
+license.workspace = true
 edition.workspace = true
 
 [features]
-all = [ "diagnostics" ]
-diagnostics = [ "aexlo/diagnostics" ]
+all = ["diagnostics"]
+diagnostics = ["aexlo/diagnostics"]
 
 [[bench]]
 name = "render_full"
@@ -16,8 +16,6 @@ harness = false
 aexlo = { path = "../../aexlo" }
 chrono = "0.4.42"
 colored = "3.0.0"
-dlopen = "0.1.8"
-dlopen_derive = "0.1.4"
 env_logger = "0.11.8"
 log = "0.4.28"
 mtpng = "0.4.1"

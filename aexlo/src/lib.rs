@@ -23,14 +23,9 @@
 // Required for variadic sprintf emulation in ANSI callbacks.
 // This is an implementation detail and should not affect public API stability.
 #![feature(c_variadic)]
-
 // Enforce code quality
 #![warn(clippy::all)]
 #![allow(non_snake_case)]
-
-// External crates
-#[macro_use]
-extern crate dlopen_derive;
 
 // Internal modules (not exposed)
 mod ansi;

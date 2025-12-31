@@ -2,7 +2,7 @@ use crate::suites::SuiteContainer;
 use after_effects_sys::*;
 use anyhow::{Context, Result, bail};
 use colored::Colorize;
-use dlopen::wrapper::{Container, WrapperApi};
+use dlopen2::wrapper::{Container, WrapperApi};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 
@@ -514,14 +514,16 @@ impl PluginInstance {
 		// Check if this is a float slider type (param_type == 10)
 		let param = &mut self.params[index];
 		if param.param_type != 10 {
-			log::warn!("set_param_float: param {} is not a float slider (type={})", index, param.param_type);
+			log::warn!(
+				"set_param_float: param {} is not a float slider (type={})",
+				index,
+				param.param_type
+			);
 			return false;
 		}
 
 		// SAFETY: We verified param_type is 10 (float slider), so fs_d is the active union variant
-		unsafe {
-			param.u.fs_d.value = value;
-		}
+		param.u.fs_d.value = value;
 		true
 	}
 
