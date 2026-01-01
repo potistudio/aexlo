@@ -26,6 +26,3 @@ mtpng = "0.4.1"
 anyhow = { version = "1.0.100", features = ["backtrace"] }
 rayon = "1.11.0"
 dlopen2 = "0.8.2"
-
-[build-dependencies]
-cmake = "0.1.54"

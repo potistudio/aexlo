@@ -131,7 +131,6 @@ dependencies = [
  "after-effects-sys 0.3.0",
  "anyhow",
  "chrono",
- "cmake",
  "colored",
  "dlopen2",
  "env_logger",
@@ -878,15 +877,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bde03770d3df201d4fb868f2c9c59e66a3e4e2bd06692a0fe701e7103c7e84d4"
 dependencies = [
  "error-code",
-]
-
-[[package]]
-name = "cmake"
-version = "0.1.54"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7caa3f9de89ddbe2c607f4101924c5abec803763ae9534e4f4d7d8f84aa81f0"
-dependencies = [
- "cc",
 ]
 
 [[package]]
