@@ -9,12 +9,23 @@ static PLUGIN_PATH: RwLock<Option<Vec<u16>>> = RwLock::new(None);
 /// Set the plugin path for get_platform_data callback.
 /// The path should be absolute and will be stored as UTF-16.
 pub fn set_plugin_path(path: &std::path::Path) {
-	use std::os::windows::ffi::OsStrExt;
-	let wide: Vec<u16> = path
-		.as_os_str()
-		.encode_wide()
-		.chain(std::iter::once(0))
-		.collect();
+	let wide: Vec<u16> = {
+		#[cfg(windows)]
+		{
+			use std::os::windows::ffi::OsStrExt;
+			path.as_os_str()
+				.encode_wide()
+				.chain(std::iter::once(0))
+				.collect()
+		}
+		#[cfg(not(windows))]
+		{
+			path.to_string_lossy()
+				.encode_utf16()
+				.chain(std::iter::once(0))
+				.collect()
+		}
+	};
 	if let Ok(mut guard) = PLUGIN_PATH.write() {
 		*guard = Some(wide);
 	}
