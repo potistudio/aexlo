@@ -23,6 +23,6 @@ env_logger = "0.11.8"
 log = "0.4.28"
 after-effects = "0.2.1"
 mtpng = "0.4.1"
-anyhow = { version = "1.0.100", features = ["backtrace"] }
+thiserror = "2.0"
 rayon = "1.11.0"
 dlopen2 = "0.8.2"

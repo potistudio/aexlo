@@ -1,6 +1,11 @@
+use crate::error::{AexloError, Result};
 use crate::suites::SuiteContainer;
-use after_effects_sys::*;
-use anyhow::{Context, Result, bail};
+use after_effects::ParamType;
+use after_effects_sys::{
+	A_long, A_u_long, PF_Boolean, PF_CustomUIInfo, PF_Err, PF_Err_NONE, PF_Field, PF_Field_UPPER,
+	PF_InFlag_NONE, PF_InFlags, PF_ParamDef, PF_ParamDefPtr, PF_ParamIndex, PF_ParamType, PF_Pixel,
+	PF_PlatDataID, PF_ProgPtr,
+};
 use colored::Colorize;
 use dlopen2::wrapper::{Container, WrapperApi};
 use std::path::{Path, PathBuf};
@@ -96,7 +101,7 @@ unsafe extern "C" fn GetPlatformData_sys(
 /// Note: EffectMain naming is required by the AE API and cannot be changed
 #[derive(WrapperApi)]
 #[repr(C)]
-pub struct EffectMain {
+pub struct EffectMainApi {
 	#[allow(non_snake_case)]
 	EffectMain: unsafe extern "C" fn(
 		cmd: after_effects::RawCommand,
@@ -110,7 +115,7 @@ pub struct EffectMain {
 
 /// Represents an instance of an After Effects plugin
 pub struct PluginInstance {
-	container: Option<Container<EffectMain>>,
+	container: Option<Container<EffectMainApi>>,
 	path: PathBuf,
 	cmd: after_effects::RawCommand,
 	world: after_effects_sys::PF_LayerDef,
@@ -337,16 +342,20 @@ impl PluginInstance {
 	}
 
 	pub fn load(&mut self) -> Result<()> {
-		let dir = self
-			.path
-			.parent()
-			.and_then(|s| s.to_str())
-			.context("Invalid module directory")?;
+		let dir =
+			self.path
+				.parent()
+				.and_then(|s| s.to_str())
+				.ok_or_else(|| AexloError::InvalidPath {
+					message: "Invalid module directory".to_string(),
+				})?;
 		let name = self
 			.path
 			.file_name()
 			.and_then(|s| s.to_str())
-			.context("Invalid module name")?;
+			.ok_or_else(|| AexloError::InvalidPath {
+				message: "Invalid module name".to_string(),
+			})?;
 
 		//* ---- Detect OS ------------------------------ */
 		log::info!("Detecting OS...");
@@ -355,10 +364,7 @@ impl PluginInstance {
 			"windows" => format!("{}/{}.aex", dir, name),
 			"macos" => format!("{}/{}.plugin/Contents/MacOS/{}", dir, name, name),
 			_ => {
-				bail!(
-					"Unsupported OS: {}. Supported platforms are Windows and macOS.",
-					os
-				);
+				return Err(AexloError::UnsupportedOS { os: os.to_string() });
 			}
 		};
 
@@ -373,11 +379,10 @@ impl PluginInstance {
 
 		// Check if the plugin file exists
 		if !std::path::Path::new(&module_path).exists() {
-			bail!("Plugin not found: {}", module_path);
+			return Err(AexloError::PluginNotFound { path: module_path });
 		}
 
-		self.container =
-			Some(unsafe { Container::load(&module_path) }.context("Failed to load plugin")?);
+		self.container = Some(unsafe { Container::load(&module_path) }?);
 
 		// Set plugin path for get_platform_data callback
 		crate::suites::factories::set_plugin_path(std::path::Path::new(&module_path));
@@ -401,7 +406,7 @@ impl PluginInstance {
 		let container = self
 			.container
 			.as_ref()
-			.context("Plugin container is not loaded. Call load() before calling the plugin.")?;
+			.ok_or(AexloError::ContainerNotLoaded)?;
 
 		let result = unsafe {
 			container.EffectMain(
@@ -425,8 +430,8 @@ impl PluginInstance {
 			PF_Err_NONE => {
 				log::info!("Plugin executed {}.", "successfully".green());
 			}
-			_ => {
-				bail!("Plugin has failed with error: {}.", result);
+			code => {
+				return Err(AexloError::PluginExecutionFailed { code });
 			}
 		}
 		//* -------------------------------------------- *//
@@ -495,6 +500,7 @@ impl PluginInstance {
 		wrapper::Layer::new(width as u32, height as u32, pixels).unwrap()
 	}
 
+	/// Add a parameter definition dynamically
 	pub(crate) fn add_param(&mut self, param: after_effects_sys::PF_ParamDef) {
 		self.params.push(param);
 	}
@@ -505,26 +511,28 @@ impl PluginInstance {
 	}
 
 	/// Set a float parameter value by index.
-	/// Returns `true` if successful, `false` if index out of bounds or not a float param.
-	pub fn set_param_float(&mut self, index: usize, value: f64) -> bool {
+	pub fn set_param_float(&mut self, index: usize, value: f64) -> Result<()> {
+		// Check index bounds
 		if index >= self.params.len() {
-			return false;
+			return Err(AexloError::ParamIndexOutOfBounds {
+				index,
+				max: self.params.len(),
+			});
 		}
 
 		// Check if this is a float slider type (param_type == 10)
-		let param = &mut self.params[index];
-		if param.param_type != 10 {
-			log::warn!(
-				"set_param_float: param {} is not a float slider (type={})",
+		let target_param = &mut self.params[index];
+		if target_param.param_type != ParamType::FloatSlider as PF_ParamType {
+			return Err(AexloError::ParamTypeMismatch {
 				index,
-				param.param_type
-			);
-			return false;
+				expected: "FloatSlider",
+				actual: target_param.param_type,
+			});
 		}
 
-		// SAFETY: We verified param_type is 10 (float slider), so fs_d is the active union variant
-		param.u.fs_d.value = value;
-		true
+		// SAFETY: We verified param type, so fs_d is the active union variant
+		target_param.u.fs_d.value = value;
+		Ok(())
 	}
 
 	/// Get a float parameter value by index.
@@ -534,12 +542,12 @@ impl PluginInstance {
 			return None;
 		}
 
-		let param = &self.params[index];
-		if param.param_type != 10 {
+		let target_param = &self.params[index];
+		if target_param.param_type != ParamType::FloatSlider as PF_ParamType {
 			return None;
 		}
 
-		// SAFETY: We verified param_type is 10 (float slider), so fs_d is the active union variant
-		unsafe { Some(param.u.fs_d.value) }
+		// SAFETY: We verified param type is float slider, so fs_d is the active union variant
+		unsafe { Some(target_param.u.fs_d.value) }
 	}
 }

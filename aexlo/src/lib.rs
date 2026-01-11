@@ -30,6 +30,7 @@
 // Internal modules (not exposed)
 mod ansi;
 mod diagnostics;
+mod error;
 mod plugin_instance;
 
 // Internal modules exposed for advanced use
@@ -42,6 +43,9 @@ pub(crate) mod suites;
 
 /// Re-export `PF_Pixel` for working with pixel data.
 pub use after_effects_sys::PF_Pixel;
+
+/// Error types for aexlo operations.
+pub use error::{AexloError, Result};
 
 /// The core plugin loader and executor.
 pub use plugin_instance::PluginInstance;
