@@ -36,12 +36,12 @@ unsafe extern "C" fn add_param_impl(
 
 	// Copy the param definition and store it
 	let param = unsafe { *def };
-	crate::param_manager::add_param(_effect_ref, param);
+	crate::host::params::add_param(_effect_ref, param);
 
 	log::info!(
 		"add_param: stored param, effect_ref={:#x}, total={}",
 		_effect_ref as usize,
-		crate::param_manager::get_params_count(_effect_ref)
+		crate::host::params::get_params_count(_effect_ref)
 	);
 
 	PF_Err_NONE as PF_Err

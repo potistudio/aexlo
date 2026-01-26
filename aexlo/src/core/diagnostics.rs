@@ -88,7 +88,8 @@ impl<'a> Diagnostic<'a> {
 	/// Emit via the `log` crate (no colors, structured).
 	#[cfg(feature = "diagnostics")]
 	pub fn log(&self) {
-		let args_str: Vec<String> = self.args
+		let args_str: Vec<String> = self
+			.args
 			.iter()
 			.map(|(k, v)| format!("{}={}", k, v))
 			.collect();

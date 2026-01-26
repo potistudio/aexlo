@@ -1,21 +1,20 @@
-mod ansi;
-mod effect_ui;
-pub mod factories;
-mod handle;
-mod iterate_8;
-mod world_transform;
+pub mod ansi;
+pub mod handle;
+pub mod iterate;
+pub mod transform;
+pub mod ui;
 
-use crate::diagnostics::*;
+use crate::core::diagnostics::*;
 use after_effects_sys::*;
 use std::ffi::CStr;
 use std::os::raw::c_void;
 
 pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	ansi: PF_ANSICallbacks {
-		atan: Some(crate::ansi::atan_sys),
-		atan2: Some(crate::ansi::atan2_sys),
-		ceil: Some(crate::ansi::ceil_sys),
-		cos: Some(crate::ansi::cos_sys),
+		atan: Some(ansi::atan_sys),
+		atan2: Some(ansi::atan2_sys),
+		ceil: Some(ansi::ceil_sys),
+		cos: Some(ansi::cos_sys),
 		exp: None,
 		fabs: None,
 		floor: None,
@@ -24,50 +23,23 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 		log: None,
 		log10: None,
 		pow: None,
-		sin: Some(crate::ansi::sin_sys),
+		sin: Some(ansi::sin_sys),
 		sqrt: None,
 		tan: None,
-		sprintf: Some(crate::ansi::sprintf_sys),
+		sprintf: Some(ansi::sprintf_sys),
 		strcpy: None,
 		asin: None,
 		acos: None,
 		ansi_procs: [0; 1],
 	},
 	effect_ui: PF_EffectUISuite1 {
-		PF_SetOptionsButtonName: Some(effect_ui::SetOptionButtonName_sys),
-	},
-	handle_suite: PF_HandleSuite1 {
-		host_new_handle: None,
-		host_lock_handle: None,
-		host_unlock_handle: None,
-		host_dispose_handle: None,
-		host_get_handle_size: None,
-		host_resize_handle: None,
-	},
-	iterate_8_suite: PF_Iterate8Suite2 {
-		iterate: Some(iterate_8::iterate_8_sys),
-		iterate_origin: None,
-		iterate_lut: None,
-		iterate_origin_non_clip_src: None,
-		iterate_generic: None,
-	},
-	world_transform_suite: PF_WorldTransformSuite1 {
-		composite_rect: None,
-		blend: None,
-		convolve: None,
-		copy: Some(world_transform::Copy_sys),
-		copy_hq: None,
-		transfer_rect: None,
-		transform_world: None,
+		PF_SetOptionsButtonName: Some(ui::SetOptionButtonName_sys),
 	},
 };
 
-pub(super) struct SuiteContainer {
-	pub(super) ansi: PF_ANSICallbacks,
-	pub(super) effect_ui: PF_EffectUISuite1,
-	pub(super) handle_suite: PF_HandleSuite1,
-	pub(super) iterate_8_suite: PF_Iterate8Suite2,
-	pub(super) world_transform_suite: PF_WorldTransformSuite1,
+pub struct SuiteContainer {
+	pub ansi: PF_ANSICallbacks,
+	pub effect_ui: PF_EffectUISuite1,
 }
 
 /// Emulates `SPBasicSuite::AcquireSuite` function
@@ -110,21 +82,21 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 				PF_Err_NONE as PF_Err
 			}
 			("PF Handle Suite", 2) => {
-				let suite_box = factories::create_handle_suite_1();
+				let suite_box = handle::create_handle_suite_1();
 				*suite = Box::into_raw(suite_box) as *const c_void;
 
 				log::info!("Acquired PF Handle Suite v2 (Factory)");
 				PF_Err_NONE as PF_Err
 			}
 			("PF World Transform Suite", 1) => {
-				let suite_box = factories::create_world_transform_suite_1();
+				let suite_box = transform::create_world_transform_suite_1();
 				*suite = Box::into_raw(suite_box) as *const c_void;
 
 				log::info!("Acquired PF World Transform Suite v1 (Factory)");
 				PF_Err_NONE as PF_Err
 			}
 			("PF Iterate8 Suite", 2) => {
-				let suite_box = factories::create_iterate_8_suite_2();
+				let suite_box = iterate::create_iterate_8_suite_2();
 				*suite = Box::into_raw(suite_box) as *const c_void;
 
 				log::info!("Acquired PF Iterate8 Suite v2 (Factory)");

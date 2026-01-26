@@ -1,4 +1,4 @@
-use crate::diagnostics::*;
+use crate::core::diagnostics::*;
 use after_effects_sys::*;
 use std::os::raw::c_void;
 use std::sync::RwLock;
@@ -542,13 +542,13 @@ pub fn create_utility_callbacks() -> Box<_PF_UtilCallbacks> {
 		iterate_lut: Some(iterate_lut_stub),
 		transfer_rect: Some(transfer_rect_stub),
 		transform_world: Some(transform_world_stub),
-		host_new_handle: Some(super::handle_suite::host_new_handle_impl),
-		host_lock_handle: Some(super::handle_suite::host_lock_handle_impl),
-		host_unlock_handle: Some(super::handle_suite::host_unlock_handle_impl),
-		host_dispose_handle: Some(super::handle_suite::host_dispose_handle_impl),
+		host_new_handle: Some(crate::suites::handle::host_new_handle_impl),
+		host_lock_handle: Some(crate::suites::handle::host_lock_handle_impl),
+		host_unlock_handle: Some(crate::suites::handle::host_unlock_handle_impl),
+		host_dispose_handle: Some(crate::suites::handle::host_dispose_handle_impl),
 		get_callback_addr: Some(get_callback_addr_stub),
 		app: Some(app_stub),
-		ansi: super::super::SUITE_CONTAINER.ansi, // Use existing ANSI callbacks
+		ansi: crate::suites::SUITE_CONTAINER.ansi, // Use existing ANSI callbacks
 		colorCB: PF_ColorCallbacks {
 			RGBtoHLS: None,
 			HLStoRGB: None,
@@ -560,10 +560,10 @@ pub fn create_utility_callbacks() -> Box<_PF_UtilCallbacks> {
 			Saturation: None,
 		},
 		get_platform_data: Some(get_platform_data_impl),
-		host_get_handle_size: Some(super::handle_suite::host_get_handle_size_impl),
+		host_get_handle_size: Some(crate::suites::handle::host_get_handle_size_impl),
 		iterate_origin_non_clip_src: Some(iterate_origin_non_clip_src_stub),
 		iterate_generic: Some(iterate_generic_stub),
-		host_resize_handle: Some(super::handle_suite::host_resize_handle_impl),
+		host_resize_handle: Some(crate::suites::handle::host_resize_handle_impl),
 		subpixel_sample16: Some(subpixel_sample16_stub),
 		area_sample16: Some(area_sample16_stub),
 		fill16: Some(fill16_stub),

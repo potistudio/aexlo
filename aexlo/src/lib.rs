@@ -28,13 +28,10 @@
 #![allow(non_snake_case)]
 
 // Internal modules (not exposed)
-mod ansi;
-mod diagnostics;
-mod error;
-mod plugin_instance;
+pub mod core;
+pub mod host;
 
 // Internal modules exposed for advanced use
-pub(crate) mod param_manager;
 pub(crate) mod suites;
 
 // ============================================================================
@@ -45,11 +42,11 @@ pub(crate) mod suites;
 pub use after_effects_sys::PF_Pixel;
 
 /// Error types for aexlo operations.
-pub use error::{AexloError, Result};
+pub use core::error::{AexloError, Result};
 
 /// The core plugin loader and executor.
-pub use plugin_instance::PluginInstance;
+pub use core::instance::PluginInstance;
 
 /// Diagnostic utilities (feature-gated).
 #[cfg(feature = "diagnostics")]
-pub use diagnostics::{Diagnostic, DiagnosticBuilder};
+pub use core::diagnostics::{Diagnostic, DiagnosticBuilder};

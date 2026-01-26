@@ -1,4 +1,4 @@
-use crate::diagnostics::*;
+use crate::core::diagnostics::*;
 use after_effects_sys::*;
 use std::ffi::CStr;
 
