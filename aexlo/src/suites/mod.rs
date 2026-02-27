@@ -46,6 +46,7 @@ pub struct SuiteContainer {
 /// Emulates `SPBasicSuite::AcquireSuite` function
 /// # Safety
 /// This function is unsafe because it handles raw pointers.
+#[allow(non_snake_case)]
 pub unsafe extern "C" fn rusty_acquire_suite(
 	name: *const i8,
 	version: i32,
@@ -55,75 +56,97 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	unsafe {
-		let suite_name = match CStr::from_ptr(name).to_str() {
+	let suite_name = unsafe {
+		match CStr::from_ptr(name).to_str() {
 			Ok(s) => s,
 			Err(_) => return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err,
-		};
+		}
+	};
 
-		#[cfg(feature = "diagnostics")]
-		DiagnosticBuilder::new()
-			.set_name("SPBasicSuite/AcquireSuite")
-			.add_arg("name", format!("{:?}", CStr::from_ptr(name)))
-			.add_arg("version", version)
-			.add_arg("suite", format!("{:?}", suite))
-			.emit();
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
+		.set_name("SPBasicSuite/AcquireSuite")
+		.add_arg("name", format!("{:?}", unsafe { CStr::from_ptr(name) }))
+		.add_arg("version", version)
+		.add_arg("suite", format!("{:?}", suite))
+		.emit();
 
-		match (suite_name, version) {
-			("PF ANSI Suite", 1) => {
-				*suite = &SUITE_CONTAINER.ansi as *const _ as *mut c_void;
-
-				log::info!("Acquired PF ANSI Suite v1");
-				PF_Err_NONE as PF_Err
+	// Select creator function (returns Box<Suite_type>)
+	match (suite_name, version) {
+		// Static suites (managed directly)
+		("PF ANSI Suite", 1) => {
+			unsafe {
+				*suite = &SUITE_CONTAINER.ansi as *const _ as *const c_void;
 			}
-			("PF Effect UI Suite", 1) => {
-				*suite = &SUITE_CONTAINER.effect_ui as *const _ as *mut c_void;
-
-				log::info!("Acquired PF Effect UI Suite v1");
-				PF_Err_NONE as PF_Err
+			log::info!("Acquired PF ANSI Suite v1");
+			return PF_Err_NONE as PF_Err;
+		}
+		("PF Effect UI Suite", 1) => {
+			unsafe {
+				*suite = &SUITE_CONTAINER.effect_ui as *const _ as *const c_void;
 			}
-			("PF Handle Suite", 2) => {
-				let suite_box = handle::create_handle_suite_1();
-				*suite = Box::into_raw(suite_box) as *const c_void;
-
-				log::info!("Acquired PF Handle Suite v2 (Factory)");
-				PF_Err_NONE as PF_Err
+			log::info!("Acquired PF Effect UI Suite v1");
+			return PF_Err_NONE as PF_Err;
+		}
+		// Dynamic suites (managed by registry)
+		("PF Handle Suite", 2) => {
+			unsafe {
+				match SUITE_REGISTRY.acquire(suite_name, version, || Box::into_raw(handle::create_handle_suite_1())) {
+					Ok(ptr) => {
+						*suite = ptr as *const c_void;
+						log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
+						PF_Err_NONE as PF_Err
+					}
+					Err(err) => err,
+				}
 			}
-			("PF World Transform Suite", 1) => {
-				let suite_box = transform::create_world_transform_suite_1();
-				*suite = Box::into_raw(suite_box) as *const c_void;
-
-				log::info!("Acquired PF World Transform Suite v1 (Factory)");
-				PF_Err_NONE as PF_Err
-			}
-			("PF Iterate8 Suite", 2) => {
-				let suite_box = iterate::create_iterate_8_suite_2();
-				*suite = Box::into_raw(suite_box) as *const c_void;
-
-				log::info!("Acquired PF Iterate8 Suite v2 (Factory)");
-				PF_Err_NONE as PF_Err
-			}
-			("PF Utility Suite", 5..=9) => {
-				let suite_box = utility::create_utility_suite();
-				*suite = Box::into_raw(suite_box) as *const c_void;
-
-				log::info!("Acquired PF Utility Suite v{} (Factory)", version);
-				PF_Err_NONE as PF_Err
-			}
-			_ => {
-				log::warn!("Requested unknown suite: {} v{}", suite_name, version);
-				PF_Err_OUT_OF_MEMORY as PF_Err
+		("PF World Transform Suite", 1) => {
+			unsafe {
+				match SUITE_REGISTRY.acquire(suite_name, version, || Box::into_raw(transform::create_world_transform_suite_1())) {
+					Ok(ptr) => {
+						*suite = ptr as *const c_void;
+						log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
+						PF_Err_NONE as PF_Err
+					}
+					Err(err) => err,
+				}
 			}
 		}
-	}
+		("PF Iterate8 Suite", 2) => {
+			unsafe {
+				match SUITE_registry.acquire(suite_name, version, || Box::into_raw(iterate::create_iterate_8_suite_2())) {
+					Ok(ptr) => {
+						*suite = ptr as *const c_void;
+						log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
+						PF_Err_NONE as PF_Err
+					}
+					Err(err) => err,
+				}
+			}
+		}
+		("PF Utility Suite", 5..=9) => {
+			unsafe {
+				match SUITE_registry.acquire(suite_name, version, || Box::into_raw(utility::create_utility_suite())) {
+					Ok(ptr) => {
+						*suite = ptr as *const c_void;
+						log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
+						PF_Err_NONE as PF_Err
+					}
+					Err(err) => err,
+				}
+			}
+			}
+		_ => return PF_Err_OUT_OF_MEMORY as PF_Err,
+		}
 }
 
 /// Emulates `SPBasicSuite::ReleaseSuite` function
 /// # Safety
 /// This function is unsafe because it handles raw pointers.
+#[allow(non_snake_case)]
 pub unsafe extern "C" fn rusty_release_suite(
 	name: *const ::std::os::raw::c_char,
-	version: int32,
+	version: i32,
 ) -> PF_Err {
 	#[cfg(feature = "diagnostics")]
 	DiagnosticBuilder::new()
@@ -136,5 +159,18 @@ pub unsafe extern "C" fn rusty_release_suite(
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	PF_Err_NONE as PF_Err
-}
+	let suite_name = unsafe {
+		match CStr::from_ptr(name).to_str() {
+			Ok(s) => s,
+			Err(_) => return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err,
+		}
+	};
+
+	// Static suites are not managed by registry
+	if suite_name == "PF ANSI Suite" || suite_name == "PF Effect UI Suite" {
+		return PF_Err_NONE as PF_Err;
+	}
+
+	// Release from registry (decrements ref count, drops Arc when 0)
+	SUITE_REGISTRY.release(suite_name, version)
+

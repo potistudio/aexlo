@@ -17,12 +17,12 @@ pub unsafe extern "C" fn Copy_sys(
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	let src_world = unsafe { &mut *src };
-	let dst_world = unsafe { &mut *dst };
+	let src_world = &mut *src;
+	let dst_world = &mut *dst;
 
 	// Determine source rectangle
 	let src_rect = if !src_r.is_null() {
-		unsafe { *src_r }
+		*src_r
 	} else {
 		PF_Rect {
 			left: 0,
@@ -34,7 +34,7 @@ pub unsafe extern "C" fn Copy_sys(
 
 	// Determine destination point (top-left)
 	let (dst_x, dst_y) = if !dst_r.is_null() {
-		unsafe { ((*dst_r).left as i32, (*dst_r).top as i32) }
+		((*dst_r).left as i32, (*dst_r).top as i32)
 	} else {
 		(src_rect.left as i32, src_rect.top as i32)
 	};
@@ -104,21 +104,19 @@ pub unsafe extern "C" fn Copy_sys(
 		// Calculate row start addresses
 		// Note: data is *mut c_void, treating as *mut u8 for offset
 		let src_row_ptr =
-			(src_buffer_addr as *const u8).wrapping_offset(current_src_y as isize * src_rowbytes);
+			(src_buffer_addr as *const u8).wrapping_offset((current_src_y as isize) * src_rowbytes);
 		let dst_row_ptr =
-			(dst_buffer_addr as *mut u8).wrapping_offset(current_dst_y as isize * dst_rowbytes);
+			(dst_buffer_addr as *mut u8).wrapping_offset((current_dst_y as isize) * dst_rowbytes);
 
 		// Calculate signal offsets within the row
 		let src_pixel_ptr = src_row_ptr.wrapping_add((actual_src_left as usize) * pixel_size);
 		let dst_pixel_ptr = dst_row_ptr.wrapping_add((actual_dst_left as usize) * pixel_size);
 
-		unsafe {
-			std::ptr::copy_nonoverlapping(
-				src_pixel_ptr,
-				dst_pixel_ptr,
-				(final_width as usize) * pixel_size,
-			);
-		}
+		std::ptr::copy_nonoverlapping(
+			src_pixel_ptr,
+			dst_pixel_ptr,
+			(final_width as usize) * pixel_size,
+		);
 	});
 
 	PF_Err_NONE as PF_Err
