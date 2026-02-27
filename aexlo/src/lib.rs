@@ -34,6 +34,7 @@ pub mod host;
 // Internal modules exposed for advanced use
 pub(crate) mod suites;
 
+pub use suites::macros;
 // ============================================================================
 // Public API
 // ============================================================================

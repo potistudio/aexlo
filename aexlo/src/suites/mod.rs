@@ -4,6 +4,7 @@ pub mod iterate;
 pub mod transform;
 pub mod ui;
 pub mod utility;
+pub mod macros;
 
 use crate::core::diagnostics::*;
 use after_effects_sys::*;
