@@ -3,6 +3,7 @@ pub mod handle;
 pub mod iterate;
 pub mod transform;
 pub mod ui;
+pub mod utility;
 
 use crate::core::diagnostics::*;
 use after_effects_sys::*;
@@ -100,6 +101,13 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 				*suite = Box::into_raw(suite_box) as *const c_void;
 
 				log::info!("Acquired PF Iterate8 Suite v2 (Factory)");
+				PF_Err_NONE as PF_Err
+			}
+			("PF Utility Suite", 5..=9) => {
+				let suite_box = utility::create_utility_suite();
+				*suite = Box::into_raw(suite_box) as *const c_void;
+
+				log::info!("Acquired PF Utility Suite v{} (Factory)", version);
 				PF_Err_NONE as PF_Err
 			}
 			_ => {
