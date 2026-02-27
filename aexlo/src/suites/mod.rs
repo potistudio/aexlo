@@ -5,8 +5,10 @@ pub mod transform;
 pub mod ui;
 pub mod utility;
 pub mod macros;
+pub mod registry;
 
 use crate::core::diagnostics::*;
+use crate::suites::registry::SUITE_REGISTRY;
 use after_effects_sys::*;
 use std::ffi::CStr;
 use std::os::raw::c_void;
