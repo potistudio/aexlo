@@ -392,10 +392,12 @@ unsafe extern "C" fn get_platform_data_impl(
 	which: PF_PlatDataID,
 	data: *mut c_void,
 ) -> PF_Err {
-	let mut diagnostic = DiagnosticBuilder::new()
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
 		.set_name("get_platform_data")
 		.add_arg("which", &which)
-		.add_arg("data", format!("{:?}", data));
+		.add_arg("data", format!("{:?}", data))
+		.emit();
 
 	if data.is_null() {
 		log::warn!("get_platform_data: data pointer is null");
