@@ -1,6 +1,8 @@
 //! Macros for generating Suite stub functions
 
-use after_effects_sys::*;
+//! Macros for generating Suite stub functions
+
+/// Simple logging stub generator
 
 /// Simple logging stub generator
 ///
