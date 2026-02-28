@@ -392,10 +392,12 @@ unsafe extern "C" fn get_platform_data_impl(
 	which: PF_PlatDataID,
 	data: *mut c_void,
 ) -> PF_Err {
-	let mut diagnostic = DiagnosticBuilder::new()
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
 		.set_name("get_platform_data")
 		.add_arg("which", &which)
-		.add_arg("data", format!("{:?}", data));
+		.add_arg("data", format!("{:?}", data))
+		.emit();
 
 	if data.is_null() {
 		log::warn!("get_platform_data: data pointer is null");
@@ -407,15 +409,20 @@ unsafe extern "C" fn get_platform_data_impl(
 			// Return plugin path as UTF-16
 			if let Ok(guard) = PLUGIN_PATH.read() {
 				if let Some(ref path) = *guard {
-					// Copy path to output buffer (max AEFX_MAX_PATH = 260)
-					let dst = data as *mut u16;
-					let copy_len = path.len().min(260);
-					unsafe {
-						std::ptr::copy_nonoverlapping(path.as_ptr(), dst, copy_len);
+				// Copy path to output buffer (max AEFX_MAX_PATH = 260)
+				let dst = data as *mut u16;
+				const AEFX_MAX_PATH: usize = 260;
+				let copy_len = path.len().min(AEFX_MAX_PATH);
+				unsafe {
+					std::ptr::copy_nonoverlapping(path.as_ptr(), dst, copy_len);
+					// Ensure null termination if truncated
+					if path.len() > AEFX_MAX_PATH {
+						*dst.add(AEFX_MAX_PATH - 1) = 0;
 					}
-					log::info!("get_platform_data: returned plugin path (len={})", copy_len);
-					return PF_Err_NONE as PF_Err;
 				}
+				log::info!("get_platform_data: returned plugin path (len={})", copy_len);
+				return PF_Err_NONE as PF_Err;
+			}
 			}
 			log::warn!("get_platform_data: plugin path not set");
 			PF_Err_BAD_CALLBACK_PARAM as PF_Err
