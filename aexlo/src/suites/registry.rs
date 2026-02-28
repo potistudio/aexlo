@@ -67,12 +67,32 @@ pub fn release(name: &str, version: i32) -> PF_Err {
 
 	let mut guard = registry.write().expect("SuiteRegistry lock poisoned");
 	if let Some(entry) = guard.get_mut(&key) {
-		let prev_count = entry.ref_count.fetch_sub(1, Ordering::SeqCst);
+		// Atomically decrement ref_count only if it's greater than 0
+		let result = entry.ref_count.fetch_update(
+			Ordering::SeqCst,
+			Ordering::SeqCst,
+			|current| {
+				if current > 0 {
+					Some(current - 1)
+				} else {
+					None // Already 0, don't decrement (would underflow)
+				}
+			}
+		);
 
-		if prev_count <= 1 {
-			// Reference count reached 0, remove from registry
-			// The Arc in SuiteEntry will be dropped, freeing memory
-			guard.remove(&key);
+		match result {
+			Ok(new_count) => {
+				if new_count == 0 {
+					// Reference count reached 0, remove from registry
+					// The Arc in SuiteEntry will be dropped, freeing memory
+					guard.remove(&key);
+				}
+			}
+			Err(_) => {
+				// Ref count was already 0 - invalid operation
+				log::warn!("Attempted to release a suite with ref_count already 0: {} v{}", name, version);
+				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			}
 		}
 	}
 	PF_Err_NONE as PF_Err
