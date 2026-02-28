@@ -28,17 +28,17 @@ pub fn acquire<T>(
 	let key = (name.to_string(), version);
 	let registry = SUITE_REGISTRY.get_or_init(|| RwLock::new(HashMap::new()));
 
-	// Check if Suite already exists
-	{
-		let guard = registry.read().expect("SuiteRegistry lock poisoned");
-		if let Some(entry) = guard.get(&key) {
-			entry.ref_count.fetch_add(1, Ordering::SeqCst);
-			let ptr = Arc::as_ptr(&entry.suite);
-			return Ok(ptr);
-		}
+	let mut guard = registry.write().expect("SuiteRegistry lock poisoned");
+
+	// Check if Suite already exists (while holding write lock to prevent TOCTOU race)
+	if let Some(entry) = guard.get_mut(&key) {
+		// Increment ref count for existing entry
+		entry.ref_count.fetch_add(1, Ordering::SeqCst);
+		let ptr = Arc::as_ptr(&entry.suite);
+		return Ok(ptr);
 	}
 
-	// Create new Suite
+	// Suite doesn't exist - create new one
 	// We convert Box to Arc here, so Arc owns the Suite
 	let suite: Arc<()> = Arc::new(*unsafe { Box::from_raw(Box::into_raw(creator()) as *mut ()) });
 	let ptr = Arc::as_ptr(&suite);
@@ -48,10 +48,8 @@ pub fn acquire<T>(
 		ref_count: AtomicUsize::new(1),
 	};
 
-	{
-		let mut guard = registry.write().expect("SuiteRegistry lock poisoned");
-		guard.insert(key, entry);
-	}
+	// Insert new entry (still holding write lock, ensuring no duplicate)
+	guard.insert(key, entry);
 
 	Ok(ptr)
 }
