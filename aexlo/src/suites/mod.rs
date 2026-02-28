@@ -8,7 +8,7 @@ pub mod macros;
 pub mod registry;
 
 use crate::core::diagnostics::*;
-use crate::suites::registry::SUITE_REGISTRY;
+use crate::suites::registry::{acquire, release};
 use after_effects_sys::*;
 use std::ffi::CStr;
 use std::os::raw::c_void;
@@ -94,7 +94,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 		// Dynamic suites (managed by registry)
 		("PF Handle Suite", 2) => {
 			unsafe {
-				match SUITE_REGISTRY.acquire(suite_name, version, || Box::into_raw(handle::create_handle_suite_1())) {
+				match acquire(suite_name, version, || handle::create_handle_suite_1()) {
 					Ok(ptr) => {
 						*suite = ptr as *const c_void;
 						log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
@@ -103,9 +103,10 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 					Err(err) => err,
 				}
 			}
+		}
 		("PF World Transform Suite", 1) => {
 			unsafe {
-				match SUITE_REGISTRY.acquire(suite_name, version, || Box::into_raw(transform::create_world_transform_suite_1())) {
+				match acquire(suite_name, version, || transform::create_world_transform_suite_1()) {
 					Ok(ptr) => {
 						*suite = ptr as *const c_void;
 						log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
@@ -117,7 +118,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 		}
 		("PF Iterate8 Suite", 2) => {
 			unsafe {
-				match SUITE_registry.acquire(suite_name, version, || Box::into_raw(iterate::create_iterate_8_suite_2())) {
+				match acquire(suite_name, version, || iterate::create_iterate_8_suite_2()) {
 					Ok(ptr) => {
 						*suite = ptr as *const c_void;
 						log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
@@ -129,7 +130,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 		}
 		("PF Utility Suite", 5..=9) => {
 			unsafe {
-				match SUITE_registry.acquire(suite_name, version, || Box::into_raw(utility::create_utility_suite())) {
+				match acquire(suite_name, version, || utility::create_utility_suite()) {
 					Ok(ptr) => {
 						*suite = ptr as *const c_void;
 						log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
@@ -138,9 +139,9 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 					Err(err) => err,
 				}
 			}
-			}
-		_ => return PF_Err_OUT_OF_MEMORY as PF_Err,
 		}
+		_ => return PF_Err_OUT_OF_MEMORY as PF_Err,
+	}
 }
 
 /// Emulates `SPBasicSuite::ReleaseSuite` function
@@ -175,5 +176,6 @@ pub unsafe extern "C" fn rusty_release_suite(
 	}
 
 	// Release from registry (decrements ref count, drops Arc when 0)
-	SUITE_REGISTRY.release(suite_name, version)
+	release(suite_name, version)
+}
 
