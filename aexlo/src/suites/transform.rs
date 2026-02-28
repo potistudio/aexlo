@@ -17,6 +17,12 @@ pub unsafe extern "C" fn Copy_sys(
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
+	// Check if src and dst point to the same buffer
+	if std::ptr::eq(src, dst) {
+		// Same buffer - nothing to copy
+		return PF_Err_NONE as PF_Err;
+	}
+
 	let src_world = &mut *src;
 	let dst_world = &mut *dst;
 
