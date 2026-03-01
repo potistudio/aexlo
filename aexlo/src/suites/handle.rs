@@ -43,7 +43,7 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 	//
 	// Better approach for strict alignment:
 	// We need 8 bytes for size.
-	// If we align the *allocation* to 16 bytes:
+	// If we align = *allocation* to 16 bytes:
 	// Addr: 0x...0  -> Size (8 bytes)
 	// Addr: 0x...8  -> Padding (8 bytes)
 	// Addr: 0x...10 -> User Data (Aligned 16)
@@ -61,17 +61,17 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 		}
 	};
 
-	let ptr = unsafe { alloc(layout) };
+	let ptr = alloc(layout);
 	if ptr.is_null() {
 		log::error!("host_new_handle: allocation failed for size {}", size);
 		return ptr::null_mut();
 	}
 
 	// Store size at the beginning of allocation
-	unsafe { *(ptr as *mut usize) = size as usize };
+	*(ptr as *mut usize) = size as usize;
 
 	// User data starts at offset 16 (HANDLE_ALIGNMENT)
-	let user_ptr = unsafe { ptr.add(header_size) };
+	let user_ptr = ptr.add(header_size);
 
 	// Alloc a handle (pointer to pointer)
 	// NOTE: We also use `alloc` for the handle itself to avoid panic on OOM from Box::new
@@ -79,16 +79,16 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 	let handle_layout = Layout::new::<*mut c_void>();
 
 	// Safe to use alloc for small layout, but still unsafe fn
-	let handle_ptr = unsafe { alloc(handle_layout) as *mut *mut c_void };
+	let handle_ptr = alloc(handle_layout) as *mut *mut c_void;
 
 	if handle_ptr.is_null() {
 		log::error!("host_new_handle: handle storage allocation failed");
 		// Cleanup the data buffer we just allocated
-		unsafe { dealloc(ptr, layout) };
+		dealloc(ptr, layout);
 		return ptr::null_mut();
 	}
 
-	unsafe { *handle_ptr = user_ptr as *mut c_void };
+	*handle_ptr = user_ptr as *mut c_void;
 
 	handle_ptr as PF_Handle
 }
@@ -109,7 +109,7 @@ pub(crate) unsafe extern "C" fn host_lock_handle_impl(pf_handle: PF_Handle) -> *
 	}
 
 	// Dereference handle to get user data pointer
-	unsafe { *pf_handle as *mut c_void }
+	*pf_handle as *mut c_void
 }
 
 /// Unlocks the handle. (No-op in this simple implementation)
@@ -130,7 +130,7 @@ pub(crate) unsafe extern "C" fn host_dispose_handle_impl(pf_handle: PF_Handle) {
 	}
 
 	// 1. Get the pointer to user data
-	let user_ptr = unsafe { *(pf_handle as *mut *mut u8) };
+	let user_ptr = *(pf_handle as *mut *mut u8);
 
 	// 2. Free the user data buffer if it exists
 	if !user_ptr.is_null() {
@@ -138,15 +138,15 @@ pub(crate) unsafe extern "C" fn host_dispose_handle_impl(pf_handle: PF_Handle) {
 		let header_size = HANDLE_ALIGNMENT;
 
 		// Unsafe sub
-		let base_ptr = unsafe { user_ptr.sub(header_size) };
+		let base_ptr = user_ptr.sub(header_size);
 
 		// Read size
-		let size = unsafe { *(base_ptr as *mut usize) };
+		let size = *(base_ptr as *mut usize);
 		let total_size = header_size + size;
 
 		// Reconstruct layout
 		if let Ok(layout) = Layout::from_size_align(total_size, HANDLE_ALIGNMENT) {
-			unsafe { dealloc(base_ptr, layout) };
+			dealloc(base_ptr, layout);
 		} else {
 			log::error!("host_dispose_handle: failed to recreate layout during free");
 		}
@@ -155,7 +155,7 @@ pub(crate) unsafe extern "C" fn host_dispose_handle_impl(pf_handle: PF_Handle) {
 	// 3. Free the handle storage itself
 	// We allocated this with `alloc(Layout::new::<*mut c_void>())`
 	let handle_layout = Layout::new::<*mut c_void>();
-	unsafe { dealloc(pf_handle as *mut u8, handle_layout) };
+	dealloc(pf_handle as *mut u8, handle_layout);
 }
 
 /// Returns the size of the allocated data.
@@ -167,15 +167,15 @@ pub(crate) unsafe extern "C" fn host_get_handle_size_impl(pf_handle: PF_Handle) 
 		return 0;
 	}
 
-	let user_ptr = unsafe { *(pf_handle as *mut *mut u8) };
+	let user_ptr = *(pf_handle as *mut *mut u8);
 	if user_ptr.is_null() {
 		return 0;
 	}
 
 	// Back up to read size
 	let header_size = HANDLE_ALIGNMENT;
-	let base_ptr = unsafe { user_ptr.sub(header_size) };
-	unsafe { *(base_ptr as *mut usize) as A_HandleSize }
+	let base_ptr = user_ptr.sub(header_size);
+	*(base_ptr as *mut usize) as A_HandleSize
 }
 
 /// Resizes the handle to the new size.
@@ -190,13 +190,13 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 	if handlePH.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
-	let pf_handle = unsafe { *handlePH };
+	let pf_handle = *handlePH;
 
 	if pf_handle.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	let user_ptr = unsafe { *(pf_handle as *mut *mut u8) };
+	let user_ptr = *(pf_handle as *mut *mut u8);
 
 	if user_ptr.is_null() {
 		// If the handle exists but points to NULL, treat as new alloc?
@@ -206,8 +206,8 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 	}
 
 	let header_size = HANDLE_ALIGNMENT;
-	let base_ptr = unsafe { user_ptr.sub(header_size) };
-	let old_size = unsafe { *(base_ptr as *mut usize) };
+	let base_ptr = user_ptr.sub(header_size);
+	let old_size = *(base_ptr as *mut usize);
 
 	let old_total = header_size + old_size;
 	let new_total = header_size + new_sizeL as usize;
@@ -215,7 +215,7 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 	// Realloc
 	// We trusted layout was created with HANDLE_ALIGNMENT
 	if let Ok(old_layout) = Layout::from_size_align(old_total, HANDLE_ALIGNMENT) {
-		let new_ptr = unsafe { realloc(base_ptr, old_layout, new_total) };
+		let new_ptr = realloc(base_ptr, old_layout, new_total);
 
 		if new_ptr.is_null() {
 			log::error!("host_resize_handle: realloc failed");
@@ -223,13 +223,13 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 		}
 
 		// Update size in prefix
-		unsafe { *(new_ptr as *mut usize) = new_sizeL as usize };
+		*(new_ptr as *mut usize) = new_sizeL as usize;
 
 		// Update handle to point to new user data
-		let new_user_ptr = unsafe { new_ptr.add(header_size) };
+		let new_user_ptr = new_ptr.add(header_size);
 
-		// Update the handle to point to the new user pointer
-		unsafe { *(pf_handle as *mut *mut u8) = new_user_ptr };
+		// Update handle to point to the new user pointer
+		*(pf_handle as *mut *mut u8) = new_user_ptr;
 
 		PF_Err_NONE as PF_Err
 	} else {
@@ -243,13 +243,15 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 // ============================================================================
 
 /// Creates a dynamically allocated `PF_HandleSuite1` instance with working implementations.
+/// Returns a Box<> that will be converted to Arc by the registry.
 pub fn create_handle_suite_1() -> Box<PF_HandleSuite1> {
-	Box::new(PF_HandleSuite1 {
+	let suite = Box::new(PF_HandleSuite1 {
 		host_new_handle: Some(host_new_handle_impl),
 		host_lock_handle: Some(host_lock_handle_impl),
 		host_unlock_handle: Some(host_unlock_handle_impl),
 		host_dispose_handle: Some(host_dispose_handle_impl),
 		host_get_handle_size: Some(host_get_handle_size_impl),
 		host_resize_handle: Some(host_resize_handle_impl),
-	})
+	});
+	suite
 }

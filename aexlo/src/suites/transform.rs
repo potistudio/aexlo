@@ -17,12 +17,28 @@ pub unsafe extern "C" fn Copy_sys(
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	let src_world = unsafe { &mut *src };
-	let dst_world = unsafe { &mut *dst };
+	// Check if src and dst point to the same buffer
+	if std::ptr::eq(src, dst) {
+		// Same buffer - nothing to copy
+		return PF_Err_NONE as PF_Err;
+	}
+
+	let src_world = &mut *src;
+	let dst_world = &mut *dst;
+
+	// Calculate buffer addresses for overlap detection
+	// Buffers overlap if: src_addr <= dst_addr + dst_size && dst_addr <= src_addr + src_size
+	let src_addr = src_world.data as usize;
+	let dst_addr = dst_world.data as usize;
+	let src_size = (src_world.height as usize) * (src_world.rowbytes as usize);
+	let dst_size = (dst_world.height as usize) * (dst_world.rowbytes as usize);
+	let src_end = src_addr.saturating_add(src_size);
+	let dst_end = dst_addr.saturating_add(dst_size);
+	let buffers_overlap = !(src_end <= dst_addr || dst_end <= src_addr);
 
 	// Determine source rectangle
 	let src_rect = if !src_r.is_null() {
-		unsafe { *src_r }
+		*src_r
 	} else {
 		PF_Rect {
 			left: 0,
@@ -34,7 +50,7 @@ pub unsafe extern "C" fn Copy_sys(
 
 	// Determine destination point (top-left)
 	let (dst_x, dst_y) = if !dst_r.is_null() {
-		unsafe { ((*dst_r).left as i32, (*dst_r).top as i32) }
+		((*dst_r).left as i32, (*dst_r).top as i32)
 	} else {
 		(src_rect.left as i32, src_rect.top as i32)
 	};
@@ -104,21 +120,27 @@ pub unsafe extern "C" fn Copy_sys(
 		// Calculate row start addresses
 		// Note: data is *mut c_void, treating as *mut u8 for offset
 		let src_row_ptr =
-			(src_buffer_addr as *const u8).wrapping_offset(current_src_y as isize * src_rowbytes);
+			(src_buffer_addr as *const u8).wrapping_offset((current_src_y as isize) * src_rowbytes);
 		let dst_row_ptr =
-			(dst_buffer_addr as *mut u8).wrapping_offset(current_dst_y as isize * dst_rowbytes);
+			(dst_buffer_addr as *mut u8).wrapping_offset((current_dst_y as isize) * dst_rowbytes);
 
 		// Calculate signal offsets within the row
 		let src_pixel_ptr = src_row_ptr.wrapping_add((actual_src_left as usize) * pixel_size);
 		let dst_pixel_ptr = dst_row_ptr.wrapping_add((actual_dst_left as usize) * pixel_size);
 
-		unsafe {
+		// Use std::ptr::copy if buffers overlap (safe for overlapping regions),
+	// otherwise use copy_nonoverlapping for better performance
+	unsafe {
+		if buffers_overlap {
+			std::ptr::copy(src_pixel_ptr, dst_pixel_ptr, (final_width as usize) * pixel_size);
+		} else {
 			std::ptr::copy_nonoverlapping(
 				src_pixel_ptr,
 				dst_pixel_ptr,
 				(final_width as usize) * pixel_size,
 			);
 		}
+	}
 	});
 
 	PF_Err_NONE as PF_Err
@@ -222,8 +244,9 @@ unsafe extern "C" fn transform_world_stub(
 
 /// Creates a dynamically allocated `PF_WorldTransformSuite1` instance.
 /// All function pointers are populated with either real implementations or logging stubs.
+/// Returns a Box<> that will be converted to Arc by the registry.
 pub fn create_world_transform_suite_1() -> Box<PF_WorldTransformSuite1> {
-	Box::new(PF_WorldTransformSuite1 {
+	let suite = Box::new(PF_WorldTransformSuite1 {
 		composite_rect: Some(composite_rect_stub),
 		blend: Some(blend_stub),
 		convolve: Some(convolve_stub),
@@ -231,5 +254,6 @@ pub fn create_world_transform_suite_1() -> Box<PF_WorldTransformSuite1> {
 		copy_hq: Some(copy_hq_stub),
 		transfer_rect: Some(transfer_rect_stub),
 		transform_world: Some(transform_world_stub),
-	})
+	});
+	suite
 }

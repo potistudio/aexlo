@@ -2,14 +2,10 @@ use crate::core::error::{AexloError, Result};
 // use crate::suites::SuiteContainer; // Not needed
 
 use after_effects::ParamType;
-use after_effects_sys::{
-	PF_Boolean, PF_Err_NONE, PF_Field, PF_Field_UPPER, PF_InFlag_NONE, PF_InFlags, PF_ParamDef,
-	PF_ParamType, PF_Pixel,
-};
+use after_effects_sys::{PF_Boolean, PF_Err_NONE, PF_ParamDef, PF_ParamType, PF_Pixel};
 use colored::Colorize;
 use dlopen2::wrapper::{Container, WrapperApi};
 use std::path::{Path, PathBuf};
-use std::ptr::null_mut;
 
 /// Wrapper for After Effects plugin entry point \
 /// Note: EffectMain naming is required by the AE API and cannot be changed
@@ -17,7 +13,7 @@ use std::ptr::null_mut;
 #[repr(C)]
 pub struct EffectMainApi {
 	#[allow(non_snake_case)]
-	EntryPointFunc: unsafe extern "C" fn(
+	EffectMain: unsafe extern "C" fn(
 		cmd: after_effects::RawCommand,
 		in_data: *mut after_effects_sys::PF_InData,
 		out_data: *mut after_effects_sys::PF_OutData,
@@ -132,6 +128,7 @@ impl PluginInstance {
 			in_data: crate::core::helpers::InDataBuilder::new()
 				.with_size(1280, 720)
 				.with_callbacks(interact_callbacks)
+				.with_global_data(unsafe { crate::suites::handle::host_new_handle_impl(0) })
 				.build(),
 			out_data: crate::core::helpers::OutDataBuilder::new().build(),
 			params: param_list,
@@ -223,7 +220,7 @@ impl PluginInstance {
 			.ok_or(AexloError::ContainerNotLoaded)?;
 
 		let result = unsafe {
-			container.EntryPointFunc(
+			container.EffectMain(
 				self.cmd,
 				&mut self.in_data,
 				&mut self.out_data,
@@ -365,5 +362,33 @@ impl PluginInstance {
 
 		// SAFETY: We verified param type is float slider, so fs_d is the active union variant
 		unsafe { Some(target_param.u.fs_d.value) }
+	}
+
+	/// Get the output message from the plugin (set during About command).
+	///
+	/// # Note
+	/// The message may contain line breaks and special characters (e.g. \r, \n).
+	///
+	/// # Returns
+	///
+	/// A `String` containing the message. Invalid UTF-8 sequences are replaced with the
+	/// Unicode replacement character (�).
+	///
+	/// # Example
+	/// ```no_run
+	/// let mut instance = PluginInstance::new("SDK_Noise");
+	/// instance.load()?;
+	///
+	/// instance.about()?;
+	/// println!("Plugin Message: {}", instance.message());
+	/// ```
+	pub fn message(&self) -> String {
+		let bytes = &self.out_data.return_msg;
+
+		// Cramp the buffer at the first null byte (if any) to avoid trailing garbage
+		let cramped_length = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+
+		let utf8: Vec<u8> = bytes[..cramped_length].iter().map(|&b| b as u8).collect();
+		String::from_utf8_lossy(&utf8).into_owned()
 	}
 }

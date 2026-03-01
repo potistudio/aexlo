@@ -1,9 +1,8 @@
 use crate::core::diagnostics::*;
 use after_effects_sys::*;
+use rayon::prelude::*;
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicI32, Ordering};
-
-use rayon::prelude::*;
 
 pub(super) unsafe extern "C" fn iterate_8_sys(
 	in_data: *mut PF_InData,
@@ -52,8 +51,8 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 	// SAFETY: We create shared references here.
 	// We specifically avoid creating `&mut *dst` to prevent aliasing UB when using Rayon.
 	// Mutation of the destination buffer will occur via raw pointers derived from `dst_world.data`.
-	let src_world = unsafe { &*src };
-	let dst_world = unsafe { &*dst };
+	let src_world = &*src;
+	let dst_world = &*dst;
 
 	if src_world.data.is_null() || dst_world.data.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
@@ -61,7 +60,7 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 
 	// 1. Determine iteration bounds from `area` or default to `dst` extent
 	let mut rect = if !area.is_null() {
-		unsafe { *area }
+		*area
 	} else {
 		PF_Rect {
 			left: 0,
@@ -132,7 +131,7 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 
 			// Calculate row start (byte offset)
 			let src_row_ptr =
-				(src_base_addr as *mut u8).wrapping_offset((current_y as isize) * src_rowbytes);
+				(src_base_addr as *const u8).wrapping_offset((current_y as isize) * src_rowbytes);
 			let dst_row_ptr =
 				(dst_base_addr as *mut u8).wrapping_offset((current_y as isize) * dst_rowbytes);
 
@@ -156,13 +155,11 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 				//    as long as we respect exclusive access rules (guaranteed by partitioning).
 				// 3. `src_pixel` is only read.
 				// 4. `func` is an external C function. We trust it adheres to the `Iterate` contract.
-				unsafe {
-					let err = func(refcon_ptr, current_x, current_y, src_pixel, dst_pixel);
-					if err != PF_Err_NONE as i32 {
-						// Attempt to store the first error. We don't care if we overwrite another error or lose one race.
-						error_capsule.store(err, Ordering::Relaxed);
-						return; // Stop processing this row
-					}
+				let err = func(refcon_ptr, current_x, current_y, src_pixel, dst_pixel);
+				if err != PF_Err_NONE as i32 {
+					// Attempt to store the first error. We don't care if we overwrite another error or lose one race.
+					error_capsule.store(err, Ordering::Relaxed);
+					return; // Stop processing this row
 				}
 			}
 		});
@@ -259,12 +256,14 @@ unsafe extern "C" fn iterate_generic_stub(
 
 /// Creates a dynamically allocated `PF_Iterate8Suite2` instance.
 /// All function pointers are populated with either real implementations or logging stubs.
+/// Returns a Box<> that will be converted to Arc by the registry.
 pub fn create_iterate_8_suite_2() -> Box<PF_Iterate8Suite2> {
-	Box::new(PF_Iterate8Suite2 {
+	let suite = Box::new(PF_Iterate8Suite2 {
 		iterate: Some(iterate_8_sys),
 		iterate_origin: Some(iterate_origin_stub),
 		iterate_lut: Some(iterate_lut_stub),
 		iterate_origin_non_clip_src: Some(iterate_origin_non_clip_src_stub),
 		iterate_generic: Some(iterate_generic_stub),
-	})
+	});
+	suite
 }
