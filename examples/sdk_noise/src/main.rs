@@ -44,9 +44,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 	// Warmup run to stabilize system
 	// log::info!("Performing warmup run...");
 	instance.about()?;
-	instance.setup_global()?;
-	instance.setup_params()?;
-	instance.render()?;
+	println!("The Output Message: {:?}", instance.message());
+
+	// instance.setup_global()?;
+	// instance.setup_params()?;
+	// instance.render()?;
 
 	//* ---- Extract the output layer ------------------- */
 	log::info!("Extracting output layer...");

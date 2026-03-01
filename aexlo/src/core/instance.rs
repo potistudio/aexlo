@@ -363,4 +363,24 @@ impl PluginInstance {
 		// SAFETY: We verified param type is float slider, so fs_d is the active union variant
 		unsafe { Some(target_param.u.fs_d.value) }
 	}
+
+	/// Get the output message from the plugin (set during About command).
+	///
+	/// # Note
+	/// The message may contain line breaks and special characters(e.g. \r, \n).
+	///
+	/// # Example
+	/// ```no_run
+	/// let mut instance = PluginInstance::new("SDK_Noise");
+	/// instance.load()?;
+	///
+	/// instance.about()?;
+	/// println!("Plugin Message: {}", instance.message());
+	/// ```
+	pub fn message(&self) -> &str {
+		// SAFETY: We assume the plugin correctly null-terminates the message string
+		unsafe { std::ffi::CStr::from_ptr(self.out_data.return_msg.as_ptr()) }
+			.to_str()
+			.unwrap_or("(invalid UTF-8)")
+	}
 }
