@@ -26,6 +26,16 @@ pub unsafe extern "C" fn Copy_sys(
 	let src_world = &mut *src;
 	let dst_world = &mut *dst;
 
+	// Calculate buffer addresses for overlap detection
+	// Buffers overlap if: src_addr <= dst_addr + dst_size && dst_addr <= src_addr + src_size
+	let src_addr = src_world.data as usize;
+	let dst_addr = dst_world.data as usize;
+	let src_size = (src_world.height as usize) * (src_world.rowbytes as usize);
+	let dst_size = (dst_world.height as usize) * (dst_world.rowbytes as usize);
+	let src_end = src_addr.saturating_add(src_size);
+	let dst_end = dst_addr.saturating_add(dst_size);
+	let buffers_overlap = !(src_end <= dst_addr || dst_end <= src_addr);
+
 	// Determine source rectangle
 	let src_rect = if !src_r.is_null() {
 		*src_r
@@ -118,11 +128,19 @@ pub unsafe extern "C" fn Copy_sys(
 		let src_pixel_ptr = src_row_ptr.wrapping_add((actual_src_left as usize) * pixel_size);
 		let dst_pixel_ptr = dst_row_ptr.wrapping_add((actual_dst_left as usize) * pixel_size);
 
-		std::ptr::copy_nonoverlapping(
-			src_pixel_ptr,
-			dst_pixel_ptr,
-			(final_width as usize) * pixel_size,
-		);
+		// Use std::ptr::copy if buffers overlap (safe for overlapping regions),
+	// otherwise use copy_nonoverlapping for better performance
+	unsafe {
+		if buffers_overlap {
+			std::ptr::copy(src_pixel_ptr, dst_pixel_ptr, (final_width as usize) * pixel_size);
+		} else {
+			std::ptr::copy_nonoverlapping(
+				src_pixel_ptr,
+				dst_pixel_ptr,
+				(final_width as usize) * pixel_size,
+			);
+		}
+	}
 	});
 
 	PF_Err_NONE as PF_Err
