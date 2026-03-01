@@ -367,7 +367,12 @@ impl PluginInstance {
 	/// Get the output message from the plugin (set during About command).
 	///
 	/// # Note
-	/// The message may contain line breaks and special characters(e.g. \r, \n).
+	/// The message may contain line breaks and special characters (e.g. \r, \n).
+	///
+	/// # Returns
+	///
+	/// A `String` containing the message. Invalid UTF-8 sequences are replaced with the
+	/// Unicode replacement character (�).
 	///
 	/// # Example
 	/// ```no_run
@@ -377,10 +382,13 @@ impl PluginInstance {
 	/// instance.about()?;
 	/// println!("Plugin Message: {}", instance.message());
 	/// ```
-	pub fn message(&self) -> &str {
-		// SAFETY: We assume the plugin correctly null-terminates the message string
+	pub fn message(&self) -> String {
+		// SAFETY: `return_msg` is a fixed-size array ([i8; 256]) within `out_data`,
+		// which is owned by `self`. The pointer is always valid and points to memory
+		// that lives as long as `self.out_data`. The string is null-terminated
+		// by the plugin convention.
 		unsafe { std::ffi::CStr::from_ptr(self.out_data.return_msg.as_ptr()) }
-			.to_str()
-			.unwrap_or("(invalid UTF-8)")
+			.to_string_lossy()
+			.into_owned()
 	}
 }
