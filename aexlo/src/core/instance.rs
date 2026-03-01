@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 #[repr(C)]
 pub struct EffectMainApi {
 	#[allow(non_snake_case)]
-	EntryPointFunc: unsafe extern "C" fn(
+	EffectMain: unsafe extern "C" fn(
 		cmd: after_effects::RawCommand,
 		in_data: *mut after_effects_sys::PF_InData,
 		out_data: *mut after_effects_sys::PF_OutData,
@@ -220,7 +220,7 @@ impl PluginInstance {
 			.ok_or(AexloError::ContainerNotLoaded)?;
 
 		let result = unsafe {
-			container.EntryPointFunc(
+			container.EffectMain(
 				self.cmd,
 				&mut self.in_data,
 				&mut self.out_data,
