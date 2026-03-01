@@ -100,12 +100,11 @@ pub fn release(name: &str, version: i32) -> PF_Err {
 				if new_count == 0 {
 					// Reference count reached 0, remove from registry
 					// Convert the raw pointer back to Box and drop it to free memory
-					let suite_ptr = unsafe { entry.suite_ptr.as_ptr::<()>() };
+			Ok(prev_count) => {
+				if prev_count == 1 {
+					// Reference count reached 0, remove from registry
+					// The Arc in SuiteEntry will be dropped, freeing memory
 					guard.remove(&key);
-					// SAFETY: We own this pointer from when it was created with Box::into_raw
-					// and we're the only one who will call drop on it
-					let _ = unsafe { Box::from_raw(suite_ptr as *mut ()) };
-				}
 			}
 			Err(_) => {
 				// Ref count was already 0 - invalid operation
