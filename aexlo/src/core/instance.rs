@@ -383,12 +383,12 @@ impl PluginInstance {
 	/// println!("Plugin Message: {}", instance.message());
 	/// ```
 	pub fn message(&self) -> String {
-		// SAFETY: `return_msg` is a fixed-size array ([i8; 256]) within `out_data`,
-		// which is owned by `self`. The pointer is always valid and points to memory
-		// that lives as long as `self.out_data`. The string is null-terminated
-		// by the plugin convention.
-		unsafe { std::ffi::CStr::from_ptr(self.out_data.return_msg.as_ptr()) }
-			.to_string_lossy()
-			.into_owned()
+		let bytes = &self.out_data.return_msg;
+
+		// Cramp the buffer at the first null byte (if any) to avoid trailing garbage
+		let cramped_length = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+
+		let utf8: Vec<u8> = bytes[..cramped_length].iter().map(|&b| b as u8).collect();
+		String::from_utf8_lossy(&utf8).into_owned()
 	}
 }
