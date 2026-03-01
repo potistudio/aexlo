@@ -1,13 +1,31 @@
 //! Suite Registry for managing Suite lifecycle with reference counting
 
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, atomic::{AtomicUsize, Ordering}};
+use std::sync::{RwLock, atomic::{AtomicUsize, Ordering}};
 use after_effects_sys::*;
 use std::sync::OnceLock;
 
+/// Sendable wrapper for raw pointers (Suite pointers)
+#[derive(Debug)]
+struct SendablePtr(usize);
+
+unsafe impl Send for SendablePtr {}
+unsafe impl Sync for SendablePtr {}
+
+impl SendablePtr {
+	unsafe fn as_ptr<T>(&self) -> *const T {
+		self.0 as *const T
+	}
+
+	unsafe fn from_ptr<T>(ptr: *const T) -> Self {
+		Self(ptr as usize)
+	}
+}
+
 /// Suite registry entry with reference counting
 struct SuiteEntry {
-	suite: Arc<()>,
+	// Raw pointer to the Suite (owned by the registry, will be Box::from_raw on drop)
+	suite_ptr: SendablePtr,
 	ref_count: AtomicUsize,
 }
 
@@ -17,7 +35,7 @@ pub static SUITE_REGISTRY: OnceLock<RwLock<HashMap<(String, i32), SuiteEntry>>> 
 /// Acquire a Suite, creating it if necessary (lazy initialization)
 ///
 /// # Safety
-/// The returned pointer is valid as long as the Arc in the registry is alive.
+/// The returned pointer is valid as long as the registry entry exists.
 /// The creator function must return a valid Box containing a Suite.
 #[allow(non_snake_case)]
 pub fn acquire<T>(
@@ -34,30 +52,29 @@ pub fn acquire<T>(
 	if let Some(entry) = guard.get_mut(&key) {
 		// Increment ref count for existing entry
 		entry.ref_count.fetch_add(1, Ordering::SeqCst);
-		let ptr = Arc::as_ptr(&entry.suite);
-		return Ok(ptr);
+		return Ok(unsafe { entry.suite_ptr.as_ptr() });
 	}
 
 	// Suite doesn't exist - create new one
-	// We convert Box to Arc here, so Arc owns the Suite
-	let suite: Arc<()> = Arc::new(*unsafe { Box::from_raw(Box::into_raw(creator()) as *mut ()) });
-	let ptr = Arc::as_ptr(&suite);
+	// Convert Box to raw pointer and store it
+	let suite_ptr: *const T = Box::into_raw(creator());
+	let suite_ptr_sendable = unsafe { SendablePtr::from_ptr(suite_ptr) };
 
 	let entry = SuiteEntry {
-		suite,
+		suite_ptr: suite_ptr_sendable,
 		ref_count: AtomicUsize::new(1),
 	};
 
 	// Insert new entry (still holding write lock, ensuring no duplicate)
 	guard.insert(key, entry);
 
-	Ok(ptr)
+	Ok(suite_ptr as *const ())
 }
 
 /// Release a Suite (decrement reference count)
 ///
 /// When reference count reaches 0, the Suite is removed from the registry
-/// and the Arc is dropped, freeing the memory.
+/// and the memory is freed using Box::from_raw.
 #[allow(non_snake_case)]
 pub fn release(name: &str, version: i32) -> PF_Err {
 	let key = (name.to_string(), version);
@@ -82,8 +99,12 @@ pub fn release(name: &str, version: i32) -> PF_Err {
 			Ok(new_count) => {
 				if new_count == 0 {
 					// Reference count reached 0, remove from registry
-					// The Arc in SuiteEntry will be dropped, freeing memory
+					// Convert the raw pointer back to Box and drop it to free memory
+					let suite_ptr = unsafe { entry.suite_ptr.as_ptr::<()>() };
 					guard.remove(&key);
+					// SAFETY: We own this pointer from when it was created with Box::into_raw
+					// and we're the only one who will call drop on it
+					let _ = unsafe { Box::from_raw(suite_ptr as *mut ()) };
 				}
 			}
 			Err(_) => {
