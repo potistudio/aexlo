@@ -2,7 +2,8 @@
 
 use crate::suites::macros::stub_log;
 use after_effects_sys::*;
-use std::ptr;
+use crate::suites::macros::stub_log;
+use after_effects_sys::*;
 
 stub_log!(get_filter_instance_id_stub,
 	_effect_ref: PF_ProgPtr,
