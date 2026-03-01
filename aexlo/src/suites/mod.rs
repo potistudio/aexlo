@@ -92,54 +92,48 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 			return PF_Err_NONE as PF_Err;
 		}
 		// Dynamic suites (managed by registry)
-		("PF Handle Suite", 2) => {
-			unsafe {
-				match acquire(suite_name, version, || handle::create_handle_suite_1()) {
-					Ok(ptr) => {
-						*suite = ptr as *const c_void;
-						log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
-						PF_Err_NONE as PF_Err
-					}
-					Err(err) => err,
+		("PF Handle Suite", 2) => unsafe {
+			match acquire(suite_name, version, || handle::create_handle_suite_1()) {
+				Ok(ptr) => {
+					*suite = ptr as *const c_void;
+					log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
+					PF_Err_NONE as PF_Err
 				}
+				Err(err) => err,
 			}
-		}
-		("PF World Transform Suite", 1) => {
-			unsafe {
-				match acquire(suite_name, version, || transform::create_world_transform_suite_1()) {
-					Ok(ptr) => {
-						*suite = ptr as *const c_void;
-						log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
-						PF_Err_NONE as PF_Err
-					}
-					Err(err) => err,
+		},
+		("PF World Transform Suite", 1) => unsafe {
+			match acquire(suite_name, version, || {
+				transform::create_world_transform_suite_1()
+			}) {
+				Ok(ptr) => {
+					*suite = ptr as *const c_void;
+					log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
+					PF_Err_NONE as PF_Err
 				}
+				Err(err) => err,
 			}
-		}
-		("PF Iterate8 Suite", 2) => {
-			unsafe {
-				match acquire(suite_name, version, || iterate::create_iterate_8_suite_2()) {
-					Ok(ptr) => {
-						*suite = ptr as *const c_void;
-						log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
-						PF_Err_NONE as PF_Err
-					}
-					Err(err) => err,
+		},
+		("PF Iterate8 Suite", 2) => unsafe {
+			match acquire(suite_name, version, || iterate::create_iterate_8_suite_2()) {
+				Ok(ptr) => {
+					*suite = ptr as *const c_void;
+					log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
+					PF_Err_NONE as PF_Err
 				}
+				Err(err) => err,
 			}
-		}
-		("PF Utility Suite", 5..=9) => {
-			unsafe {
-				match acquire(suite_name, version, || utility::create_utility_suite()) {
-					Ok(ptr) => {
-						*suite = ptr as *const c_void;
-						log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
-						PF_Err_NONE as PF_Err
-					}
-					Err(err) => err,
+		},
+		("PF Utility Suite", 5..=9) => unsafe {
+			match acquire(suite_name, version, || utility::create_utility_suite()) {
+				Ok(ptr) => {
+					*suite = ptr as *const c_void;
+					log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
+					PF_Err_NONE as PF_Err
 				}
+				Err(err) => err,
 			}
-		}
+		},
 		_ => return PF_Err_OUT_OF_MEMORY as PF_Err,
 	}
 }
@@ -163,11 +157,9 @@ pub unsafe extern "C" fn rusty_release_suite(
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	let suite_name = unsafe {
-		match CStr::from_ptr(name).to_str() {
-			Ok(s) => s,
-			Err(_) => return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err,
-		}
+	let suite_name = match CStr::from_ptr(name).to_str() {
+		Ok(s) => s,
+		Err(_) => return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err,
 	};
 
 	// Static suites are not managed by registry
