@@ -1,11 +1,11 @@
 pub mod ansi;
 pub mod handle;
 pub mod iterate;
+pub mod macros;
+pub mod registry;
 pub mod transform;
 pub mod ui;
 pub mod utility;
-pub mod macros;
-pub mod registry;
 
 use crate::core::diagnostics::*;
 use crate::suites::registry::{acquire, release};
@@ -170,4 +170,3 @@ pub unsafe extern "C" fn rusty_release_suite(
 	// Release from registry (decrements ref count, drops Arc when 0)
 	release(suite_name, version)
 }
-

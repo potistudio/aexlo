@@ -1,4 +1,4 @@
-//! aexlo — After Effects Plugin Loader and Emulator
+//! aexlo — After Effects Plugin(.aex) Loader and Emulator
 //!
 //! This crate provides functionality to load and execute After Effects plugins (.aex)
 //! outside of After Effects, enabling testing, automation, and custom rendering pipelines.
@@ -10,10 +10,18 @@
 //!
 //! let mut instance = PluginInstance::new(std::path::Path::new("SDK_Noise"));
 //! instance.load().expect("Failed to load plugin"); // Initialize plugin
-//! instance.about().expect("About command failed"); // Get plugin info
-//! instance.setup_global().expect("Global setup failed"); // Setup global state (flags, etc.)
-//! instance.setup_params().expect("Params setup failed"); // Setup parameters
-//! instance.render().expect("Render failed"); // Render frame
+//!
+//! // Get plugin info
+//! instance.about().expect("About command failed");
+//!
+//! // Setup global state (flags, etc.)
+//! instance.setup_global().expect("Global setup failed");
+//!
+//! // Setup parameters
+//! instance.setup_params().expect("Params setup failed");
+//!
+//! // Render frame
+//! instance.render().expect("Render failed");
 //! ```
 //!
 //! # Features
@@ -27,11 +35,9 @@
 #![warn(clippy::all)]
 #![allow(non_snake_case)]
 
-// Internal modules (not exposed)
 pub mod core;
 pub mod host;
 
-// Internal modules exposed for advanced use
 pub(crate) mod suites;
 
 pub use suites::macros;

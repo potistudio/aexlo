@@ -3,7 +3,7 @@ use std::ffi::{CStr, CString};
 use crate::core::diagnostics::DiagnosticBuilder;
 
 macro_rules! impl_math_sys {
-	($name:ident, $func:ident, 1, $arg:literal, $diag_path:literal) => {
+	($name:ident, $func:ident, $arg:literal, $diag_path:literal) => {
 		#[inline(always)]
 		pub(crate) extern "C" fn $name(x: f64) -> f64 {
 			let result = x.$func();
@@ -18,7 +18,7 @@ macro_rules! impl_math_sys {
 			result
 		}
 	};
-	($name:ident, $func:ident, 2, $arg1:literal, $arg2:literal, $diag_path:literal) => {
+	($name:ident, $func:ident, $arg1:literal, $arg2:literal, $diag_path:literal) => {
 		#[inline(always)]
 		pub(crate) extern "C" fn $name(a: f64, b: f64) -> f64 {
 			let result = a.$func(b);
@@ -36,11 +36,11 @@ macro_rules! impl_math_sys {
 	};
 }
 
-impl_math_sys!(atan_sys, atan, 1, "x", "InData/utils/ansi/atan");
-impl_math_sys!(atan2_sys, atan2, 2, "y", "x", "InData/utils/ansi/atan2");
-impl_math_sys!(ceil_sys, ceil, 1, "x", "InData/utils/ansi/ceil");
-impl_math_sys!(cos_sys, cos, 1, "x", "InData/utils/ansi/cos");
-impl_math_sys!(sin_sys, sin, 1, "x", "InData/utils/ansi/sin");
+impl_math_sys!(atan_sys, atan, "x", "InData/utils/ansi/atan");
+impl_math_sys!(atan2_sys, atan2, "y", "x", "InData/utils/ansi/atan2");
+impl_math_sys!(ceil_sys, ceil, "x", "InData/utils/ansi/ceil");
+impl_math_sys!(cos_sys, cos, "x", "InData/utils/ansi/cos");
+impl_math_sys!(sin_sys, sin, "x", "InData/utils/ansi/sin");
 
 /// Emulates `sprintf()` function
 ///
