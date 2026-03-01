@@ -1,9 +1,5 @@
 //! Macros for generating Suite stub functions
 
-//! Macros for generating Suite stub functions
-
-/// Simple logging stub generator
-
 /// Simple logging stub generator
 ///
 /// Creates an FFI-compatible stub function that logs a warning and returns PF_Err_NONE.
