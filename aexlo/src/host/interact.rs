@@ -1,8 +1,24 @@
 use after_effects_sys::*;
 
 // ============================================================================
-// Stub Implementations (Logging Only)
+// Parameter Management
 // ============================================================================
+
+// Global effect_ref storage for parameter operations
+static mut GLOBAL_EFFECT_REF: PF_ProgPtr = std::ptr::null_mut();
+
+/// Get the current effect_ref (stored during GLOBAL_SETUP)
+fn get_effect_ref() -> PF_ProgPtr {
+	unsafe { GLOBAL_EFFECT_REF }
+}
+
+/// Set the current effect ref (called during GLOBAL_SETUP)
+pub fn set_effect_ref(effect_ref: PF_ProgPtr) {
+	unsafe {
+		GLOBAL_EFFECT_REF = effect_ref;
+	}
+	log::debug!("Set effect_ref to {:#x}", effect_ref as usize);
+}
 
 unsafe extern "C" fn checkout_param_stub(
 	_effect_ref: PF_ProgPtr,
@@ -12,7 +28,31 @@ unsafe extern "C" fn checkout_param_stub(
 	_time_scale: A_u_long,
 	_param: *mut PF_ParamDef,
 ) -> PF_Err {
-	log::warn!("STUB: checkout_param called");
+	if _param.is_null() {
+		log::warn!("checkout_param: param pointer is null");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	// Get params from ParamManager using the stored effect_ref
+	let effect_ref = get_effect_ref();
+	let params = crate::host::params::get_params(effect_ref);
+
+	if (_index as usize) >= params.len() {
+		log::warn!(
+			"checkout_param: index {} out of bounds (total={})",
+			_index,
+			params.len()
+		);
+		return 1 as PF_Err; // Return error code
+	}
+
+	// Copy param to output
+	let param = &params[_index as usize];
+	unsafe {
+		std::ptr::copy_nonoverlapping(param, _param, 1);
+	}
+
+	log::debug!("checkout_param: returned param at index={}", _index);
 	PF_Err_NONE as PF_Err
 }
 
@@ -20,7 +60,13 @@ unsafe extern "C" fn checkin_param_stub(
 	_effect_ref: PF_ProgPtr,
 	_param: *mut PF_ParamDef,
 ) -> PF_Err {
-	log::warn!("STUB: checkin_param called");
+	if _param.is_null() {
+		log::warn!("checkin_param: param pointer is null");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	// For now, just log - no-op for checkin
+	log::debug!("checkin_param called for effect_ref={:#x}", get_effect_ref() as usize);
 	PF_Err_NONE as PF_Err
 }
 
@@ -36,7 +82,14 @@ unsafe extern "C" fn add_param_impl(
 
 	// Copy the param definition and store it
 	let param = unsafe { *def };
+
+	// Store the param in ParamManager
 	crate::host::params::add_param(_effect_ref, param);
+
+	// Set the effect_ref if it's null (first call during GLOBAL_SETUP)
+	if get_effect_ref().is_null() && !_effect_ref.is_null() {
+		set_effect_ref(_effect_ref);
+	}
 
 	log::info!(
 		"add_param: stored param, effect_ref={:#x}, total={}",

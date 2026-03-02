@@ -12,7 +12,7 @@ use colored::Colorize;
 use aexlo::PluginInstance;
 
 //* Configuration constants */
-const MODULE_NAME: &str = "DeepGlow2";
+const MODULE_NAME: &str = "AOD_VoronoiGenerate";
 
 fn main() -> Result<(), Box<dyn Error>> {
 	#[rustfmt::skip]
@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	println!("plugin information: {:?}", message);
 
 	// instance.setup_global()?;
-	// instance.setup_params()?;
+	instance.setup_params()?;
 	// instance.render()?;
 
 	//* ---- Extract the output layer ------------------- */

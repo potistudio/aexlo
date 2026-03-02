@@ -28,6 +28,8 @@ pub struct PluginInstance {
 	container: Option<Container<EffectMainApi>>,
 	path: PathBuf,
 	cmd: after_effects::RawCommand,
+	global_setup_done: bool,
+	params_setup_done: bool,
 	world: after_effects_sys::PF_LayerDef,
 
 	utility_callbacks: Box<after_effects_sys::_PF_UtilCallbacks>,
@@ -123,6 +125,8 @@ impl PluginInstance {
 			container: None,
 			path: path.to_path_buf(),
 			cmd: after_effects::RawCommand::About,
+			global_setup_done: false,
+			params_setup_done: false,
 			utility_callbacks,
 			pica,
 			in_data: crate::core::helpers::InDataBuilder::new()
@@ -147,6 +151,7 @@ impl PluginInstance {
 		// Now set the utils pointer to reference our owned utility_callbacks
 		instance.in_data.utils = instance.utility_callbacks.as_mut() as *mut _;
 		instance.in_data.pica_basicP = instance.pica.as_mut() as *mut _;
+		instance.in_data.effect_ref = instance.in_data.global_data as _;
 		instance.world.data = instance.lllllayer.buffer_mut().as_mut_ptr() as *mut PF_Pixel;
 
 		instance
@@ -230,6 +235,15 @@ impl PluginInstance {
 			)
 		};
 
+		if !self.out_data.global_data.is_null() {
+			self.in_data.global_data = self.out_data.global_data;
+			self.in_data.effect_ref = self.in_data.global_data as _;
+		}
+
+		if !self.out_data.sequence_data.is_null() {
+			self.in_data.sequence_data = self.out_data.sequence_data;
+		}
+
 		log::info!("Called EffectMain {}.", "successfully".green());
 		log::debug!(
 			"EffectMain exited with code: {}.",
@@ -264,14 +278,27 @@ impl PluginInstance {
 	pub fn setup_global(&mut self) -> Result<()> {
 		self.cmd = after_effects::RawCommand::GlobalSetup;
 		self.call_plugin()?;
+		self.global_setup_done = true;
+		self.params_setup_done = false;
 
 		Ok(())
 	}
 
 	/// Call the plugin with `PF_Cmd_PARAMS_SETUP` command
 	pub fn setup_params(&mut self) -> Result<()> {
+		if !self.global_setup_done {
+			log::debug!("GlobalSetup not executed yet; running it before ParamsSetup");
+			self.setup_global()?;
+		}
+
+		if self.params_setup_done {
+			log::debug!("Skipping duplicate ParamsSetup for plugin instance");
+			return Ok(());
+		}
+
 		self.cmd = after_effects::RawCommand::ParamsSetup;
 		self.call_plugin()?;
+		self.params_setup_done = true;
 
 		Ok(())
 	}
