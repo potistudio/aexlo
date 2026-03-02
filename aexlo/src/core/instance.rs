@@ -253,11 +253,11 @@ impl PluginInstance {
 	}
 
 	/// Call the plugin with `PF_Cmd_ABOUT` command
-	pub fn about(&mut self) -> Result<()> {
+	pub fn about(&mut self) -> Result<String> {
 		self.cmd = after_effects::RawCommand::About;
 		self.call_plugin()?;
 
-		Ok(())
+		Ok(self.message())
 	}
 
 	/// Call the plugin with `PF_Cmd_GLOBAL_SETUP` command
@@ -382,7 +382,7 @@ impl PluginInstance {
 	/// instance.about()?;
 	/// println!("Plugin Message: {}", instance.message());
 	/// ```
-	pub fn message(&self) -> String {
+	fn message(&self) -> String {
 		let bytes = &self.out_data.return_msg;
 
 		// Cramp the buffer at the first null byte (if any) to avoid trailing garbage

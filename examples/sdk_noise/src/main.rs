@@ -41,10 +41,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let mut instance = PluginInstance::new(plugin_path.as_path());
 	instance.load()?;
 
-	// Warmup run to stabilize system
-	// log::info!("Performing warmup run...");
-	instance.about()?;
-	println!("The Output Message: {:?}", instance.message());
+	//* ------------------------------------------------- */
+	//* Call `about()`                                    */
+	//* This function means to call the plugin with       */
+	//* `PF_Cmd_ABOUT` command, which is used to retrieve */
+	//* the plugin's information.                         */
+	//* ------------------------------------------------- */
+	let message = instance.about()?;
+	println!("plugin information: {:?}", message);
 
 	// instance.setup_global()?;
 	// instance.setup_params()?;
