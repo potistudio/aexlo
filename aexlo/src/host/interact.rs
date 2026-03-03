@@ -66,7 +66,10 @@ unsafe extern "C" fn checkin_param_stub(
 	}
 
 	// For now, just log - no-op for checkin
-	log::debug!("checkin_param called for effect_ref={:#x}", get_effect_ref() as usize);
+	log::debug!(
+		"checkin_param called for effect_ref={:#x}",
+		get_effect_ref() as usize
+	);
 	PF_Err_NONE as PF_Err
 }
 

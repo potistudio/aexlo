@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let message = instance.about()?;
 	println!("plugin information: {:?}", message);
 
-	// instance.setup_global()?;
+	instance.setup_global()?;
 	instance.setup_params()?;
 	// instance.render()?;
 
