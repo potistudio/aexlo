@@ -12,7 +12,7 @@ use colored::Colorize;
 use aexlo::PluginInstance;
 
 //* Configuration constants */
-const MODULE_NAME: &str = "AOD_VoronoiGenerate";
+const MODULE_NAME: &str = "AnimatedNoise";
 
 fn main() -> Result<(), Box<dyn Error>> {
 	#[rustfmt::skip]
@@ -32,10 +32,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	//* ---- Determine plugin path ---------------------- */
 	let exe_dir = std::env::current_exe().expect("Failed to get current executable path");
-	let plugin_path = exe_dir
-		.parent()
-		.expect("Failed to get parent directory of executable")
-		.join(MODULE_NAME);
+	let plugin_path = std::path::PathBuf::from(
+		"/Users/poti/Projects/Develop/Rust/aexlo-rs/examples/sdk_noise/tests/mocks/macos/",
+	)
+	.join(MODULE_NAME);
 
 	//* ---- Execute the plugin ------------------------- */
 	let mut instance = PluginInstance::new(plugin_path.as_path());
@@ -52,11 +52,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	instance.setup_global()?;
 	instance.setup_params()?;
-	// instance.render()?;
+	instance.render()?;
 
 	//* ---- Extract the output layer ------------------- */
 	log::info!("Extracting output layer...");
-	let layer = instance.output_layer();
+	// let layer = instance.output_layer();
+	let layer = instance.output_layer_ref();
 	log::info!("Extracted output layer {}.", "successfully".green());
 
 	log::debug!("First 10 pixels (out of {}):", layer.len());

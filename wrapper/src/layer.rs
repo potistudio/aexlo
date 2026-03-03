@@ -137,8 +137,8 @@ where
 			extent_hint: after_effects_sys::PF_UnionableRect {
 				left: 0,
 				top: 0,
-				right: 0,
-				bottom: 0,
+				right: self.width as i32,
+				bottom: self.height as i32,
 			},
 			platform_ref: null_mut(),
 			reserved_long1: 0,

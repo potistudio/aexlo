@@ -4,28 +4,26 @@ use crate::core::error::{AexloError, Result};
 use after_effects::ParamType;
 use after_effects_sys::{PF_Boolean, PF_Err_NONE, PF_ParamDef, PF_ParamType, PF_Pixel};
 use colored::Colorize;
-use dlopen2::wrapper::{Container, WrapperApi};
+use dlopen2::raw::Library;
 use std::path::{Path, PathBuf};
 
-/// Wrapper for After Effects plugin entry point \
-/// Note: EffectMain naming is required by the AE API and cannot be changed
-#[derive(WrapperApi)]
-#[repr(C)]
-pub struct EffectMainApi {
-	#[allow(non_snake_case)]
-	EffectMain: unsafe extern "C" fn(
-		cmd: after_effects::RawCommand,
-		in_data: *mut after_effects_sys::PF_InData,
-		out_data: *mut after_effects_sys::PF_OutData,
-		params: after_effects_sys::PF_ParamList,
-		output: *mut after_effects_sys::PF_LayerDef,
-		extra: *mut ::std::os::raw::c_void,
-	) -> after_effects_sys::PF_Err,
-}
+const DEFAULT_ENTRY_POINT_NAME: &str = "EffectMain";
+
+type EntryPointFunc = unsafe extern "C" fn(
+	cmd: after_effects::RawCommand,
+	in_data: *mut after_effects_sys::PF_InData,
+	out_data: *mut after_effects_sys::PF_OutData,
+	params: after_effects_sys::PF_ParamList,
+	output: *mut after_effects_sys::PF_LayerDef,
+	extra: *mut ::std::os::raw::c_void,
+) -> after_effects_sys::PF_Err;
 
 /// Represents an instance of an After Effects plugin
 pub struct PluginInstance {
-	container: Option<Container<EffectMainApi>>,
+	library: Option<Library>,
+	entry_point: Option<EntryPointFunc>,
+	entry_point_name: Option<String>,
+	entry_point_candidates: Vec<String>,
 	path: PathBuf,
 	cmd: after_effects::RawCommand,
 	global_setup_done: bool,
@@ -46,6 +44,41 @@ pub struct PluginInstance {
 }
 
 impl PluginInstance {
+	fn make_input_layer_param(&self) -> PF_ParamDef {
+		let layer = self.input_layer.as_sys();
+
+		PF_ParamDef {
+			ui_flags: 0,
+			flags: 0,
+			param_type: ParamType::Layer as PF_ParamType,
+			name: [0; 32],
+			ui_height: 0,
+			ui_width: 0,
+			unused: 0,
+			u: after_effects_sys::PF_ParamDefUnion { ld: layer },
+			uu: after_effects_sys::PF_ParamDef__bindgen_ty_1 { id: 0 },
+		}
+	}
+
+	fn sync_render_params_from_host(&mut self) {
+		let effect_ref = self.in_data.effect_ref;
+		if effect_ref.is_null() {
+			return;
+		}
+
+		let host_params = crate::host::params::get_params(effect_ref);
+		if host_params.is_empty() {
+			return;
+		}
+
+		let mut params = Vec::with_capacity(host_params.len() + 1);
+		params.push(self.make_input_layer_param());
+		params.extend(host_params);
+
+		self.params = params;
+		self.in_data.num_params = self.params.len() as i32;
+	}
+
 	/// Create a new PluginInstance with default values
 	pub fn new(path: &Path) -> Self {
 		let width = 1920;
@@ -122,7 +155,10 @@ impl PluginInstance {
 
 		// Initialize InData
 		let mut instance = PluginInstance {
-			container: None,
+			library: None,
+			entry_point: None,
+			entry_point_name: None,
+			entry_point_candidates: vec![DEFAULT_ENTRY_POINT_NAME.to_string()],
 			path: path.to_path_buf(),
 			cmd: after_effects::RawCommand::About,
 			global_setup_done: false,
@@ -132,7 +168,7 @@ impl PluginInstance {
 			in_data: crate::core::helpers::InDataBuilder::new()
 				.with_size(1280, 720)
 				.with_callbacks(interact_callbacks)
-				.with_global_data(unsafe { crate::suites::handle::host_new_handle_impl(0) })
+				// .with_global_data(unsafe { crate::suites::handle::host_new_handle_impl(0) })
 				.build(),
 			out_data: crate::core::helpers::OutDataBuilder::new().build(),
 			params: param_list,
@@ -152,9 +188,66 @@ impl PluginInstance {
 		instance.in_data.utils = instance.utility_callbacks.as_mut() as *mut _;
 		instance.in_data.pica_basicP = instance.pica.as_mut() as *mut _;
 		instance.in_data.effect_ref = instance.in_data.global_data as _;
+		instance.in_data.num_params = instance.params.len() as i32;
 		instance.world.data = instance.lllllayer.buffer_mut().as_mut_ptr() as *mut PF_Pixel;
 
 		instance
+	}
+
+	pub fn with_entry_point_candidates<I, S>(mut self, names: I) -> Self
+	where
+		I: IntoIterator<Item = S>,
+		S: AsRef<str>,
+	{
+		self.set_entry_point_candidates(names);
+		self
+	}
+
+	pub fn set_entry_point_candidates<I, S>(&mut self, names: I)
+	where
+		I: IntoIterator<Item = S>,
+		S: AsRef<str>,
+	{
+		let mut candidates = Vec::new();
+		for name in names {
+			let trimmed = name.as_ref().trim();
+			if !trimmed.is_empty() && !candidates.iter().any(|s: &String| s == trimmed) {
+				candidates.push(trimmed.to_string());
+			}
+		}
+
+		if candidates.is_empty() {
+			candidates.push(DEFAULT_ENTRY_POINT_NAME.to_string());
+		}
+
+		self.entry_point_candidates = candidates;
+		self.entry_point = None;
+		self.entry_point_name = None;
+	}
+
+	fn resolve_entry_point(
+		lib: &Library,
+		candidates: &[String],
+	) -> Result<(EntryPointFunc, String)> {
+		let mut last_error = None;
+
+		for candidate in candidates {
+			match unsafe { lib.symbol::<EntryPointFunc>(candidate) } {
+				Ok(symbol) => return Ok((symbol, candidate.clone())),
+				Err(err) => {
+					log::debug!("Entry point symbol '{}' not resolved: {}", candidate, err);
+					last_error = Some(err);
+				}
+			}
+		}
+
+		if let Some(err) = last_error {
+			Err(err.into())
+		} else {
+			Err(AexloError::InvalidPath {
+				message: "No entry point candidates configured".to_string(),
+			})
+		}
 	}
 
 	pub fn load(&mut self) -> Result<()> {
@@ -198,10 +291,18 @@ impl PluginInstance {
 			return Err(AexloError::PluginNotFound { path: module_path });
 		}
 
-		self.container = Some(unsafe { Container::load(&module_path) }?);
+		let lib = Library::open(&module_path)?;
+		let (entry_point, resolved_name) =
+			Self::resolve_entry_point(&lib, &self.entry_point_candidates)?;
+
+		self.entry_point = Some(entry_point);
+		self.entry_point_name = Some(resolved_name.clone());
+		self.library = Some(lib);
 
 		// Set plugin path for get_platform_data callback
 		crate::host::utility::set_plugin_path(std::path::Path::new(&module_path));
+
+		log::info!("Resolved entry point symbol: {}.", resolved_name.blue());
 
 		log::info!("Loaded plugin {}.", "successfully".green());
 		//* -------------------------------------------- *//
@@ -211,21 +312,24 @@ impl PluginInstance {
 
 	/// Call the plugin entry point
 	fn call_plugin(&mut self) -> Result<()> {
+		let entry_point_name = self
+			.entry_point_name
+			.as_deref()
+			.unwrap_or(DEFAULT_ENTRY_POINT_NAME);
+
 		log::info!(
-			"Calling EffectMain with command: {}...",
+			"Calling {} with command: {}...",
+			entry_point_name.blue(),
 			format!("{:?}", self.cmd).blue()
 		);
 
 		let mut params_ptr: Vec<*mut PF_ParamDef> =
 			self.params.iter_mut().map(|p| p as *mut _).collect();
 
-		let container = self
-			.container
-			.as_ref()
-			.ok_or(AexloError::ContainerNotLoaded)?;
+		let entry_point = self.entry_point.ok_or(AexloError::ContainerNotLoaded)?;
 
 		let result = unsafe {
-			container.EffectMain(
+			entry_point(
 				self.cmd,
 				&mut self.in_data,
 				&mut self.out_data,
@@ -244,9 +348,14 @@ impl PluginInstance {
 			self.in_data.sequence_data = self.out_data.sequence_data;
 		}
 
-		log::info!("Called EffectMain {}.", "successfully".green());
+		log::info!(
+			"Called {} {}.",
+			entry_point_name.blue(),
+			"successfully".green()
+		);
 		log::debug!(
-			"EffectMain exited with code: {}.",
+			"{} exited with code: {}.",
+			entry_point_name.blue(),
 			result.to_string().blue()
 		);
 
@@ -298,6 +407,7 @@ impl PluginInstance {
 
 		self.cmd = after_effects::RawCommand::ParamsSetup;
 		self.call_plugin()?;
+		self.sync_render_params_from_host();
 		self.params_setup_done = true;
 
 		Ok(())
@@ -305,6 +415,7 @@ impl PluginInstance {
 
 	/// Call the plugin with `PF_Cmd_RENDER` command
 	pub fn render(&mut self) -> Result<()> {
+		self.sync_render_params_from_host();
 		self.cmd = after_effects::RawCommand::Render;
 		self.call_plugin()?;
 

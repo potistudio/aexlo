@@ -1,8 +1,10 @@
 use crate::core::diagnostics::*;
 use crate::suites::macros::stub_log;
 use after_effects_sys::*;
+use rayon::prelude::*;
 use std::os::raw::c_void;
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 // Global plugin path storage (UTF-16 for Windows)
 static PLUGIN_PATH: RwLock<Option<Vec<u16>>> = RwLock::new(None);
@@ -123,14 +125,14 @@ stub_log!(gaussian_kernel_stub,
 	_kernel: *mut c_void
 );
 
-stub_log!(iterate_stub,
-	_in_data: *mut PF_InData,
-	_progress_base: A_long,
-	_progress_final: A_long,
-	_src: *mut PF_EffectWorld,
-	_area: *const PF_Rect,
-	_refcon: *mut c_void,
-	_pix_fn: ::std::option::Option<
+unsafe extern "C" fn iterate_stub(
+	in_data: *mut PF_InData,
+	progress_base: A_long,
+	progress_final: A_long,
+	src: *mut PF_EffectWorld,
+	area: *const PF_Rect,
+	refcon: *mut c_void,
+	pix_fn: ::std::option::Option<
 		unsafe extern "C" fn(
 			refcon: *mut c_void,
 			x: A_long,
@@ -139,8 +141,118 @@ stub_log!(iterate_stub,
 			out: *mut PF_Pixel,
 		) -> PF_Err,
 	>,
-	_dst: *mut PF_EffectWorld
-);
+	dst: *mut PF_EffectWorld,
+) -> PF_Err {
+	#[cfg(not(feature = "diagnostics"))]
+	let _ = (in_data, progress_base, progress_final);
+
+	#[cfg(feature = "diagnostics")]
+	DiagnosticBuilder::new()
+		.set_name("UtilityCallbacks/iterate")
+		.add_arg("in_data", format!("{:?}", in_data))
+		.add_arg("progress_base", progress_base)
+		.add_arg("progress_final", progress_final)
+		.add_arg("src", format!("{:?}", src))
+		.add_arg(
+			"area",
+			if !area.is_null() {
+				format!("{:?}", area)
+			} else {
+				"(null)".to_string()
+			},
+		)
+		.add_arg("refcon", format!("{:?}", refcon))
+		.add_arg("pix_fn", if pix_fn.is_some() { "Some" } else { "None" })
+		.add_arg("dst", format!("{:?}", dst))
+		.set_result(0)
+		.emit();
+
+	if src.is_null() || dst.is_null() {
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	let src_world = unsafe { &*src };
+	let dst_world = unsafe { &*dst };
+
+	if src_world.data.is_null() || dst_world.data.is_null() {
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	let mut rect = if !area.is_null() {
+		unsafe { *area }
+	} else {
+		PF_Rect {
+			left: 0,
+			top: 0,
+			right: dst_world.width as i32,
+			bottom: dst_world.height as i32,
+		}
+	};
+
+	rect.left = rect.left.max(0);
+	rect.top = rect.top.max(0);
+	rect.right = rect.right.min(src_world.width as i32);
+	rect.bottom = rect.bottom.min(src_world.height as i32);
+	rect.right = rect.right.min(dst_world.width as i32);
+	rect.bottom = rect.bottom.min(dst_world.height as i32);
+
+	let start_x = rect.left as i32;
+	let start_y = rect.top as i32;
+	let end_x = rect.right as i32;
+	let end_y = rect.bottom as i32;
+
+	let width = (end_x - start_x).max(0);
+	let height = (end_y - start_y).max(0);
+
+	if width == 0 || height == 0 {
+		return PF_Err_NONE as PF_Err;
+	}
+
+	let src_base_addr = src_world.data as usize;
+	let src_rowbytes = src_world.rowbytes as isize;
+	let dst_base_addr = dst_world.data as usize;
+	let dst_rowbytes = dst_world.rowbytes as isize;
+	let pixel_size = std::mem::size_of::<PF_Pixel>();
+
+	debug_assert!(
+		src_world.rowbytes >= (src_world.width as i32 * pixel_size as i32),
+		"Source rowbytes smaller than width * pixel_size"
+	);
+
+	let refcon_addr = refcon as usize;
+	let error_capsule = AtomicI32::new(PF_Err_NONE as i32);
+
+	if let Some(func) = pix_fn {
+		(0..height).into_par_iter().for_each(|y_offset| {
+			if error_capsule.load(Ordering::Relaxed) != PF_Err_NONE as i32 {
+				return;
+			}
+
+			let current_y = start_y + y_offset;
+			let src_row_ptr =
+				(src_base_addr as *const u8).wrapping_offset((current_y as isize) * src_rowbytes);
+			let dst_row_ptr =
+				(dst_base_addr as *mut u8).wrapping_offset((current_y as isize) * dst_rowbytes);
+			let refcon_ptr = refcon_addr as *mut c_void;
+
+			for x_offset in 0..width {
+				let current_x = start_x + x_offset;
+				let src_pixel =
+					src_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel;
+				let dst_pixel =
+					dst_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel;
+
+				let err = unsafe { func(refcon_ptr, current_x, current_y, src_pixel, dst_pixel) };
+				if err != PF_Err_NONE as i32 {
+					error_capsule.store(err, Ordering::Relaxed);
+					return;
+				}
+			}
+		});
+	}
+
+	error_capsule.load(Ordering::Relaxed) as PF_Err
+}
 
 stub_log!(premultiply_stub,
 	_effect_ref: PF_ProgPtr,
@@ -409,20 +521,20 @@ unsafe extern "C" fn get_platform_data_impl(
 			// Return plugin path as UTF-16
 			if let Ok(guard) = PLUGIN_PATH.read() {
 				if let Some(ref path) = *guard {
-				// Copy path to output buffer (max AEFX_MAX_PATH = 260)
-				let dst = data as *mut u16;
-				const AEFX_MAX_PATH: usize = 260;
-				let copy_len = path.len().min(AEFX_MAX_PATH);
-				unsafe {
-					std::ptr::copy_nonoverlapping(path.as_ptr(), dst, copy_len);
-					// Ensure null termination if truncated
-					if path.len() > AEFX_MAX_PATH {
-						*dst.add(AEFX_MAX_PATH - 1) = 0;
+					// Copy path to output buffer (max AEFX_MAX_PATH = 260)
+					let dst = data as *mut u16;
+					const AEFX_MAX_PATH: usize = 260;
+					let copy_len = path.len().min(AEFX_MAX_PATH);
+					unsafe {
+						std::ptr::copy_nonoverlapping(path.as_ptr(), dst, copy_len);
+						// Ensure null termination if truncated
+						if path.len() > AEFX_MAX_PATH {
+							*dst.add(AEFX_MAX_PATH - 1) = 0;
+						}
 					}
+					log::info!("get_platform_data: returned plugin path (len={})", copy_len);
+					return PF_Err_NONE as PF_Err;
 				}
-				log::info!("get_platform_data: returned plugin path (len={})", copy_len);
-				return PF_Err_NONE as PF_Err;
-			}
 			}
 			log::warn!("get_platform_data: plugin path not set");
 			PF_Err_BAD_CALLBACK_PARAM as PF_Err

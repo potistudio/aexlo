@@ -2,12 +2,12 @@
 
 use after_effects_sys::*;
 use std::collections::HashMap;
+use std::mem;
 use std::sync::OnceLock;
 use std::sync::{
 	RwLock,
 	atomic::{AtomicUsize, Ordering},
 };
-use std::mem;
 
 /// Sendable wrapper for raw pointers (Suite pointers)
 #[derive(Debug)]
@@ -43,12 +43,7 @@ pub static SUITE_REGISTRY: OnceLock<RwLock<HashMap<(String, i32), SuiteEntry>>> 
 /// # Safety
 /// The returned pointer is valid as long as registry entry exists.
 /// The creator function must return a valid Box containing a Suite.
-#[allow(non_snake_case)]
-pub fn acquire<T>(
-	name: &str,
-	version: i32,
-	creator: fn() -> Box<T>,
-) -> Result<*const (), PF_Err> {
+pub fn acquire<T>(name: &str, version: i32, creator: fn() -> Box<T>) -> Result<*const (), PF_Err> {
 	let key = (name.to_string(), version);
 	let registry = SUITE_REGISTRY.get_or_init(|| RwLock::new(HashMap::new()));
 
@@ -82,7 +77,6 @@ pub fn acquire<T>(
 ///
 /// When reference count reaches 0, the Suite is removed from the registry
 /// and the memory is freed using Box::from_raw with the correct size.
-#[allow(non_snake_case)]
 pub fn release(name: &str, version: i32) -> PF_Err {
 	let key = (name.to_string(), version);
 	let registry = SUITE_REGISTRY.get_or_init(|| RwLock::new(HashMap::new()));

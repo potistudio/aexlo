@@ -34,6 +34,8 @@ pub fn init() {
 
 /// Adds a parameter definition for the given effect_ref.
 pub fn add_param(effect_ref: PF_ProgPtr, param: PF_ParamDef) {
+	let param = normalize_param_value_to_default(param);
+
 	let mut guard = PARAMS.lock().unwrap();
 	let storage = guard.get_or_insert_with(|| ParamStorage {
 		params: HashMap::new(),
@@ -59,6 +61,47 @@ pub fn add_param(effect_ref: PF_ProgPtr, param: PF_ParamDef) {
 		param.param_type,
 		param_details(&param)
 	);
+}
+
+fn normalize_param_value_to_default(mut param: PF_ParamDef) -> PF_ParamDef {
+	unsafe {
+		#[allow(non_upper_case_globals)]
+		match param.param_type {
+			PF_Param_SLIDER => {
+				param.u.sd.value = param.u.sd.dephault;
+			}
+			PF_Param_FIX_SLIDER => {
+				param.u.fd.value = param.u.fd.dephault;
+			}
+			PF_Param_FLOAT_SLIDER => {
+				param.u.fs_d.value = param.u.fs_d.dephault as _;
+			}
+			PF_Param_ANGLE => {
+				param.u.ad.value = param.u.ad.dephault;
+			}
+			PF_Param_CHECKBOX => {
+				param.u.bd.value = param.u.bd.dephault as _;
+			}
+			PF_Param_POPUP => {
+				param.u.pd.value = param.u.pd.dephault as _;
+			}
+			PF_Param_COLOR => {
+				param.u.cd.value = param.u.cd.dephault;
+			}
+			PF_Param_POINT => {
+				param.u.td.x_value = param.u.td.x_dephault;
+				param.u.td.y_value = param.u.td.y_dephault;
+			}
+			PF_Param_POINT_3D => {
+				param.u.point3d_d.x_value = param.u.point3d_d.x_dephault;
+				param.u.point3d_d.y_value = param.u.point3d_d.y_dephault;
+				param.u.point3d_d.z_value = param.u.point3d_d.z_dephault;
+			}
+			_ => {}
+		}
+	}
+
+	param
 }
 
 /// Returns the name of `param` as a UTF-8 string.

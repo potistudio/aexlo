@@ -50,8 +50,22 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 	// Output: Pointer to 0x...10
 	// Total allocation size = 16 (header) + size
 
+	let requested_size = match usize::try_from(size) {
+		Ok(value) => value,
+		Err(_) => {
+			log::error!("host_new_handle: invalid negative size {}", size);
+			return ptr::null_mut();
+		}
+	};
+
 	let header_size = HANDLE_ALIGNMENT; // Space for usize size + padding
-	let total_size = header_size + size as usize;
+	let total_size = match header_size.checked_add(requested_size) {
+		Some(value) => value,
+		None => {
+			log::error!("host_new_handle: size overflow for {}", requested_size);
+			return ptr::null_mut();
+		}
+	};
 
 	let layout = match Layout::from_size_align(total_size, HANDLE_ALIGNMENT) {
 		Ok(l) => l,
@@ -68,7 +82,7 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 	}
 
 	// Store size at the beginning of allocation
-	*(ptr as *mut usize) = size as usize;
+	*(ptr as *mut usize) = requested_size;
 
 	// User data starts at offset 16 (HANDLE_ALIGNMENT)
 	let user_ptr = ptr.add(header_size);
@@ -142,7 +156,13 @@ pub(crate) unsafe extern "C" fn host_dispose_handle_impl(pf_handle: PF_Handle) {
 
 		// Read size
 		let size = *(base_ptr as *mut usize);
-		let total_size = header_size + size;
+		let total_size = match header_size.checked_add(size) {
+			Some(value) => value,
+			None => {
+				log::error!("host_dispose_handle: size overflow during free");
+				return;
+			}
+		};
 
 		// Reconstruct layout
 		if let Ok(layout) = Layout::from_size_align(total_size, HANDLE_ALIGNMENT) {
@@ -175,7 +195,14 @@ pub(crate) unsafe extern "C" fn host_get_handle_size_impl(pf_handle: PF_Handle) 
 	// Back up to read size
 	let header_size = HANDLE_ALIGNMENT;
 	let base_ptr = user_ptr.sub(header_size);
-	*(base_ptr as *mut usize) as A_HandleSize
+	let size = *(base_ptr as *mut usize);
+	match A_HandleSize::try_from(size) {
+		Ok(value) => value,
+		Err(_) => {
+			log::error!("host_get_handle_size: size does not fit A_HandleSize");
+			0
+		}
+	}
 }
 
 /// Resizes the handle to the new size.
@@ -208,9 +235,31 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 	let header_size = HANDLE_ALIGNMENT;
 	let base_ptr = user_ptr.sub(header_size);
 	let old_size = *(base_ptr as *mut usize);
+	let new_size = match usize::try_from(new_sizeL) {
+		Ok(value) => value,
+		Err(_) => {
+			log::error!(
+				"host_resize_handle: invalid negative new_size {}",
+				new_sizeL
+			);
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+	};
 
-	let old_total = header_size + old_size;
-	let new_total = header_size + new_sizeL as usize;
+	let old_total = match header_size.checked_add(old_size) {
+		Some(value) => value,
+		None => {
+			log::error!("host_resize_handle: old size overflow");
+			return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err;
+		}
+	};
+	let new_total = match header_size.checked_add(new_size) {
+		Some(value) => value,
+		None => {
+			log::error!("host_resize_handle: new size overflow");
+			return PF_Err_OUT_OF_MEMORY as PF_Err;
+		}
+	};
 
 	// Realloc
 	// We trusted layout was created with HANDLE_ALIGNMENT
@@ -223,7 +272,7 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 		}
 
 		// Update size in prefix
-		*(new_ptr as *mut usize) = new_sizeL as usize;
+		*(new_ptr as *mut usize) = new_size;
 
 		// Update handle to point to new user data
 		let new_user_ptr = new_ptr.add(header_size);

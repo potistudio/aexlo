@@ -124,7 +124,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 				Err(err) => err,
 			}
 		},
-		("PF Utility Suite", 5..=9) => unsafe {
+		("PF Utility Suite", 1..=18) => unsafe {
 			match acquire(suite_name, version, || utility::create_utility_suite()) {
 				Ok(ptr) => {
 					*suite = ptr as *const c_void;
@@ -157,7 +157,7 @@ pub unsafe extern "C" fn rusty_release_suite(
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	let suite_name = match CStr::from_ptr(name).to_str() {
+	let suite_name = match unsafe { CStr::from_ptr(name) }.to_str() {
 		Ok(s) => s,
 		Err(_) => return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err,
 	};
