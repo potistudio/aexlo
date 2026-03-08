@@ -2,6 +2,8 @@
 
 use crate::suites::macros::stub_log;
 use after_effects_sys::*;
+use std::os::raw::c_void;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 stub_log!(get_filter_instance_id_stub,
 	_effect_ref: PF_ProgPtr,
@@ -356,4 +358,97 @@ pub fn create_utility_suite() -> Box<PF_UtilitySuite> {
 		IsTrackItemEffectAppliedToSynthetic: Some(is_track_item_effect_applied_to_synthetic_stub),
 	});
 	suite
+}
+
+// ============================================================================
+// AEGP Utility Suite (minimal emulation)
+// ============================================================================
+
+static NEXT_AEGP_PLUGIN_ID: AtomicI32 = AtomicI32::new(1);
+
+#[repr(C)]
+pub struct AEGPUtilitySuiteCompatV11 {
+	slots: [*const c_void; 48],
+}
+
+unsafe extern "C" fn aegp_noop_ok_stub() -> A_Err {
+	PF_Err_NONE as A_Err
+}
+
+unsafe extern "C" fn aegp_register_with_aegp_stub(
+	_global_refcon: AEGP_GlobalRefcon,
+	plugin_nameZ: *const A_char,
+	plugin_id: *mut AEGP_PluginID,
+) -> A_Err {
+	if plugin_id.is_null() {
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	}
+
+	if !plugin_nameZ.is_null() {
+		#[cfg(feature = "diagnostics")]
+		if let Ok(name) = unsafe { std::ffi::CStr::from_ptr(plugin_nameZ) }.to_str() {
+			log::debug!("AEGP_RegisterWithAEGP: {}", name);
+		}
+	}
+
+	unsafe {
+		*plugin_id = NEXT_AEGP_PLUGIN_ID.fetch_add(1, Ordering::Relaxed);
+	}
+
+	PF_Err_NONE as A_Err
+}
+
+unsafe extern "C" fn aegp_is_scripting_available_stub(out_available_pb: *mut A_Boolean) -> A_Err {
+	if !out_available_pb.is_null() {
+		unsafe {
+			*out_available_pb = 1;
+		}
+	}
+	PF_Err_NONE as A_Err
+}
+
+unsafe extern "C" fn aegp_execute_script_stub(
+	_in_plugin_id: AEGP_PluginID,
+	_in_script_z: *const A_char,
+	_platform_encoding_b: A_Boolean,
+	out_result_ph0: *mut AEGP_MemHandle,
+	out_error_string_ph0: *mut AEGP_MemHandle,
+) -> A_Err {
+	if !out_result_ph0.is_null() {
+		unsafe {
+			*out_result_ph0 = std::ptr::null_mut();
+		}
+	}
+	if !out_error_string_ph0.is_null() {
+		unsafe {
+			*out_error_string_ph0 = std::ptr::null_mut();
+		}
+	}
+
+	#[cfg(feature = "diagnostics")]
+	if !_in_script_z.is_null() {
+		if let Ok(script) = unsafe { std::ffi::CStr::from_ptr(_in_script_z) }.to_str() {
+			log::debug!("AEGP_ExecuteScript(len={}): stubbed", script.len());
+		}
+	}
+
+	PF_Err_NONE as A_Err
+}
+
+/// Creates an offset-compatible `AEGP Utility Suite` object for newer suite versions.
+///
+/// The target plugin requests v11 and calls at least offsets `+0x38` and `+0xd8`.
+/// We keep all slots non-null to avoid indirect-call crashes from unimplemented entries.
+pub fn create_aegp_utility_suite_compat_v11() -> Box<AEGPUtilitySuiteCompatV11> {
+	let noop = aegp_noop_ok_stub as *const () as *const c_void;
+	let mut suite = AEGPUtilitySuiteCompatV11 { slots: [noop; 48] };
+
+	// +0x38 -> RegisterWithAEGP
+	suite.slots[7] = aegp_register_with_aegp_stub as *const () as *const c_void;
+	// +0xd0 -> IsScriptingAvailable (best effort)
+	suite.slots[26] = aegp_is_scripting_available_stub as *const () as *const c_void;
+	// +0xd8 -> ExecuteScript
+	suite.slots[27] = aegp_execute_script_stub as *const () as *const c_void;
+
+	Box::new(suite)
 }

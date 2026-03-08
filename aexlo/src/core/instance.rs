@@ -158,7 +158,7 @@ impl PluginInstance {
 			library: None,
 			entry_point: None,
 			entry_point_name: None,
-			entry_point_candidates: vec![DEFAULT_ENTRY_POINT_NAME.to_string()],
+			entry_point_candidates: vec!["EffectMain".to_string(), "EntryPointFunc".to_string()],
 			path: path.to_path_buf(),
 			cmd: after_effects::RawCommand::About,
 			global_setup_done: false,
@@ -168,7 +168,7 @@ impl PluginInstance {
 			in_data: crate::core::helpers::InDataBuilder::new()
 				.with_size(1280, 720)
 				.with_callbacks(interact_callbacks)
-				// .with_global_data(unsafe { crate::suites::handle::host_new_handle_impl(0) })
+				.with_global_data(unsafe { crate::suites::handle::host_new_handle_impl(0x498) })
 				.build(),
 			out_data: crate::core::helpers::OutDataBuilder::new().build(),
 			params: param_list,
@@ -360,7 +360,8 @@ impl PluginInstance {
 		);
 
 		//* ---- Check for errors ---------------------- *//
-		match result as u32 {
+		#[allow(non_upper_case_globals)]
+		match result {
 			PF_Err_NONE => {
 				log::info!("Plugin executed {}.", "successfully".green());
 			}

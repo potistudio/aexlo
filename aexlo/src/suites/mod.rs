@@ -134,6 +134,18 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 				Err(err) => err,
 			}
 		},
+		("AEGP Utility Suite", 1..=18) => unsafe {
+			match acquire(suite_name, version, || {
+				utility::create_aegp_utility_suite_compat_v11()
+			}) {
+				Ok(ptr) => {
+					*suite = ptr as *const c_void;
+					log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
+					PF_Err_NONE as PF_Err
+				}
+				Err(err) => err,
+			}
+		},
 		_ => return PF_Err_OUT_OF_MEMORY as PF_Err,
 	}
 }

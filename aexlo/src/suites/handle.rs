@@ -17,14 +17,21 @@ use std::ptr;
 /// Alignment for handle memory allocations.
 /// AE plugins often use SIMD, so we align to 16 bytes (max_align_t equivalent for x64/SIMD).
 const HANDLE_ALIGNMENT: usize = 16;
-// const SIZE_PREFIX: usize = std::mem::size_of::<usize>(); // Not strictly needed if we just cast
 
-/// Allocates a new handle with the given size.
+/// Magic number to identify valid handles created by us
+const HANDLE_MAGIC: u64 = 0x4145584C4F484E44; // "AEXLOHND" in ASCII
+
+// Handle header layout: [magic: u64][size: usize][pad to 16 bytes][user data...]
+
+/// Allocates anew handle with the given size.
 /// Returns a pointer to a pointer (handle indirection level).
 ///
 /// # Safety
 /// This function is unsafe because it deals with raw pointers and manual memory management.
 pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_Handle {
+	// Log immediately at function entry
+	log::info!("host_new_handle: ENTRY with size={} (0x{:x})", size, size);
+
 	#[cfg(feature = "diagnostics")]
 	{
 		DiagnosticBuilder::new()
@@ -34,46 +41,67 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 			.emit();
 	}
 
-	// Calculate layout: size prefix + padding to ensure next byte is aligned + user size
-	// We want the user data pointer (returned address) to be aligned to HANDLE_ALIGNMENT.
-	// Simple strategy:
-	// Allocation: [ Size(usize) | Padding | User Data ... ]
-	// To ensure User Data is 16-byte aligned, we can allocate (size + 16) and adjust,
-	// or validly calculating offset.
-	//
-	// Better approach for strict alignment:
-	// We need 8 bytes for size.
-	// If we align = *allocation* to 16 bytes:
-	// Addr: 0x...0  -> Size (8 bytes)
-	// Addr: 0x...8  -> Padding (8 bytes)
-	// Addr: 0x...10 -> User Data (Aligned 16)
-	// Output: Pointer to 0x...10
-	// Total allocation size = 16 (header) + size
+	// Sanity check BEFORE any conversion
+	// A_HandleSize is u64 on Windows, so check for unreasonably large values
+	const MAX_REASONABLE_SIZE: u64 = 1_000_000_000; // 1GB
+	if size > MAX_REASONABLE_SIZE {
+		log::error!(
+			"host_new_handle: UNREASONABLE SIZE at entry! size={} (0x{:x})",
+			size,
+			size
+		);
+		return ptr::null_mut();
+	}
 
 	let requested_size = match usize::try_from(size) {
 		Ok(value) => value,
 		Err(_) => {
-			log::error!("host_new_handle: invalid negative size {}", size);
+			log::error!("host_new_handle: try_from failed for size={}", size);
 			return ptr::null_mut();
 		}
 	};
+
+	log::debug!(
+		"host_new_handle: converted to requested_size={}",
+		requested_size
+	);
 
 	let header_size = HANDLE_ALIGNMENT; // Space for usize size + padding
 	let total_size = match header_size.checked_add(requested_size) {
 		Some(value) => value,
 		None => {
-			log::error!("host_new_handle: size overflow for {}", requested_size);
+			log::error!(
+				"host_new_handle: size overflow for requested_size={}",
+				requested_size
+			);
 			return ptr::null_mut();
 		}
 	};
 
+	log::debug!("host_new_handle: total_size={}", total_size);
+
+	// Double check total_size before creating layout
+	if total_size > MAX_REASONABLE_SIZE as usize {
+		log::error!(
+			"host_new_handle: total_size too large! total_size={} (0x{:x})",
+			total_size,
+			total_size
+		);
+		return ptr::null_mut();
+	}
+
 	let layout = match Layout::from_size_align(total_size, HANDLE_ALIGNMENT) {
 		Ok(l) => l,
 		Err(_) => {
-			log::error!("host_new_handle: layout error for size {}", size);
+			log::error!(
+				"host_new_handle: layout error for total_size={}",
+				total_size
+			);
 			return ptr::null_mut();
 		}
 	};
+
+	log::debug!("host_new_handle: layout created successfully");
 
 	let ptr = alloc(layout);
 	if ptr.is_null() {
@@ -81,8 +109,10 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 		return ptr::null_mut();
 	}
 
-	// Store size at the beginning of allocation
-	*(ptr as *mut usize) = requested_size;
+	// Store magic number and size at the beginning of allocation
+	// Layout: [magic: u64 @ +0][size: usize @ +8][user_data @ +16]
+	*(ptr as *mut u64) = HANDLE_MAGIC;
+	*((ptr as *mut u8).add(8) as *mut usize) = requested_size;
 
 	// User data starts at offset 16 (HANDLE_ALIGNMENT)
 	let user_ptr = ptr.add(header_size);
@@ -103,6 +133,13 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 	}
 
 	*handle_ptr = user_ptr as *mut c_void;
+
+	log::info!(
+		"host_new_handle: SUCCESS handle={:p}, user_ptr={:p}, size={}",
+		handle_ptr,
+		user_ptr,
+		requested_size
+	);
 
 	handle_ptr as PF_Handle
 }
@@ -154,8 +191,22 @@ pub(crate) unsafe extern "C" fn host_dispose_handle_impl(pf_handle: PF_Handle) {
 		// Unsafe sub
 		let base_ptr = user_ptr.sub(header_size);
 
+		// Verify magic number before freeing
+		let magic = *(base_ptr as *mut u64);
+		if magic != HANDLE_MAGIC {
+			log::error!(
+				"host_dispose_handle: INVALID HANDLE at dispose! magic=0x{:x} (expected 0x{:x}), pf_handle={:p}, user_ptr={:p}",
+				magic,
+				HANDLE_MAGIC,
+				pf_handle,
+				user_ptr
+			);
+			// Don't free corrupted memory
+			return;
+		}
+
 		// Read size
-		let size = *(base_ptr as *mut usize);
+		let size = *((base_ptr as *mut u8).add(8) as *mut usize);
 		let total_size = match header_size.checked_add(size) {
 			Some(value) => value,
 			None => {
@@ -184,20 +235,66 @@ pub(crate) unsafe extern "C" fn host_get_handle_size_impl(pf_handle: PF_Handle) 
 	log::trace!("host_get_handle_size called");
 
 	if pf_handle.is_null() {
+		log::warn!("host_get_handle_size: NULL handle passed");
 		return 0;
 	}
 
 	let user_ptr = *(pf_handle as *mut *mut u8);
+	log::debug!(
+		"host_get_handle_size: pf_handle={:p}, user_ptr={:p}",
+		pf_handle,
+		user_ptr
+	);
+
 	if user_ptr.is_null() {
+		log::warn!("host_get_handle_size: handle points to NULL user data");
 		return 0;
 	}
 
-	// Back up to read size
+	// Back up to read magic and size
 	let header_size = HANDLE_ALIGNMENT;
 	let base_ptr = user_ptr.sub(header_size);
-	let size = *(base_ptr as *mut usize);
+
+	// Verify magic number
+	let magic = *(base_ptr as *mut u64);
+	if magic != HANDLE_MAGIC {
+		log::error!(
+			"host_get_handle_size: INVALID HANDLE! magic=0x{:x} (expected 0x{:x}), pf_handle={:p}, user_ptr={:p}, base_ptr={:p}",
+			magic,
+			HANDLE_MAGIC,
+			pf_handle,
+			user_ptr,
+			base_ptr
+		);
+		return 0;
+	}
+
+	let size = *((base_ptr as *mut u8).add(8) as *mut usize);
+
+	log::debug!(
+		"host_get_handle_size: base_ptr={:p}, raw_size={}",
+		base_ptr,
+		size
+	);
+
+	// Sanity check: if size is unreasonably large, it's likely corrupted
+	const MAX_REASONABLE_SIZE: usize = 1_000_000_000; // 1GB
+	if size > MAX_REASONABLE_SIZE {
+		log::error!(
+			"host_get_handle_size: CORRUPTED SIZE DETECTED! handle={:p}, user_ptr={:p}, base_ptr={:p}, size={}",
+			pf_handle,
+			user_ptr,
+			base_ptr,
+			size
+		);
+		return 0;
+	}
+
 	match A_HandleSize::try_from(size) {
-		Ok(value) => value,
+		Ok(value) => {
+			log::debug!("host_get_handle_size: returning size={}", value);
+			value
+		}
 		Err(_) => {
 			log::error!("host_get_handle_size: size does not fit A_HandleSize");
 			0
@@ -210,16 +307,24 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 	new_sizeL: A_HandleSize,
 	handlePH: *mut PF_Handle,
 ) -> PF_Err {
+	log::debug!(
+		"host_resize_handle: new_size={}, handlePH={:p}",
+		new_sizeL,
+		handlePH
+	);
+
 	#[cfg(feature = "diagnostics")]
 	log::trace!("host_resize_handle called, new_size: {}", new_sizeL);
 
 	// Deref handlePH to check if it points to a handle
 	if handlePH.is_null() {
+		log::error!("host_resize_handle: handlePH is NULL");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 	let pf_handle = *handlePH;
 
 	if pf_handle.is_null() {
+		log::error!("host_resize_handle: pf_handle is NULL");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
@@ -229,12 +334,35 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 		// If the handle exists but points to NULL, treat as new alloc?
 		// Standard behavior usually implies a valid handle has valid data or strict rules.
 		// For safety, let's fail.
+		log::error!("host_resize_handle: user_ptr is NULL");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
 	let header_size = HANDLE_ALIGNMENT;
 	let base_ptr = user_ptr.sub(header_size);
-	let old_size = *(base_ptr as *mut usize);
+
+	// Verify magic number
+	let magic = *(base_ptr as *mut u64);
+	if magic != HANDLE_MAGIC {
+		log::error!(
+			"host_resize_handle: INVALID HANDLE! magic=0x{:x} (expected 0x{:x}), pf_handle={:p}, user_ptr={:p}",
+			magic,
+			HANDLE_MAGIC,
+			pf_handle,
+			user_ptr
+		);
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	let old_size = *((base_ptr as *mut u8).add(8) as *mut usize);
+
+	log::debug!(
+		"host_resize_handle: pf_handle={:p}, user_ptr={:p}, old_size={}",
+		pf_handle,
+		user_ptr,
+		old_size
+	);
+
 	let new_size = match usize::try_from(new_sizeL) {
 		Ok(value) => value,
 		Err(_) => {
@@ -245,6 +373,18 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
 	};
+
+	// Sanity check
+	const MAX_REASONABLE_SIZE: usize = 1_000_000_000; // 1GB
+	if new_size > MAX_REASONABLE_SIZE {
+		log::error!(
+			"host_resize_handle: UNREASONABLE SIZE REQUESTED! new_size={} (0x{:x}), old_size={}",
+			new_size,
+			new_size,
+			old_size
+		);
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
 
 	let old_total = match header_size.checked_add(old_size) {
 		Some(value) => value,
@@ -272,7 +412,8 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 		}
 
 		// Update size in prefix
-		*(new_ptr as *mut usize) = new_size;
+		*(new_ptr as *mut u64) = HANDLE_MAGIC;
+		*((new_ptr as *mut u8).add(8) as *mut usize) = new_size;
 
 		// Update handle to point to new user data
 		let new_user_ptr = new_ptr.add(header_size);

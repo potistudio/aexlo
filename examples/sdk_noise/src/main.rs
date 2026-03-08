@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	//* ---- Determine plugin path ---------------------- */
 	let exe_dir = std::env::current_exe().expect("Failed to get current executable path");
 	let plugin_path = std::path::PathBuf::from(
-		"/Users/poti/Projects/Develop/Rust/aexlo-rs/examples/sdk_noise/tests/mocks/macos/",
+		"D:/Projects/Develop/Rust/aexlo-rs/examples/sdk_noise/tests/mocks/windows/",
 	)
 	.join(MODULE_NAME);
 
