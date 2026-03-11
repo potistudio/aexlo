@@ -47,6 +47,26 @@ pub enum AexloError {
 
 	#[error("Unexpected error: {0}")]
 	Unexpected(String),
+
+	/// SmartRender setup failed during initialization.
+	#[error("SmartRender setup failed: {0}")]
+	SmartRenderSetupFailed(String),
+
+	/// Pre-render data is missing between render phases.
+	#[error("Pre-render data missing for effect_ref={:#x}", effect_ref)]
+	PreRenderDataMissing { effect_ref: usize },
+
+	/// Layer checkout failed during SmartRender operation.
+	#[error(
+		"Layer checkout failed for effect_ref={:#x}, layer_index={}",
+		effect_ref,
+		layer_index
+	)]
+	LayerCheckoutFailed { effect_ref: usize, layer_index: i32 },
+
+	/// Output checkout failed during SmartRender operation.
+	#[error("Output checkout failed for effect_ref={:#x}", effect_ref)]
+	OutputCheckoutFailed { effect_ref: usize },
 }
 
 /// A specialized Result type for aexlo operations.

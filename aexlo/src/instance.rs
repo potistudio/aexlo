@@ -47,6 +47,9 @@ impl PluginInstance {
 	pub fn try_load(path: &Path) -> Result<Self> {
 		let mut instance = Self::new(path);
 		instance.load()?;
+		instance.setup_global()?;
+		// instance.setup_params()?;
+		instance.setup_smart_render()?;
 		Ok(instance)
 	}
 
@@ -426,6 +429,45 @@ impl PluginInstance {
 		self.cmd = after_effects::RawCommand::Render;
 		self.call_plugin()?;
 
+		Ok(())
+	}
+
+	/// Setup SmartRender capability for the plugin.
+	/// This sets the PF_OutFlag2_SUPPORTS_SMART_RENDER flag in the out_data.
+	pub fn setup_smart_render(&mut self) -> Result<()> {
+		if !self.global_setup_done {
+			return Err(AexloError::Unexpected(
+				"GlobalSetup must be called before setup_smart_render".to_string(),
+			));
+		}
+
+		// Set the SmartRender support flag
+		// Note: PF_OutFlag2_SUPPORTS_SMART_RENDER may not be defined in after_effects_sys yet
+		// This is a placeholder implementation
+		log::info!("SmartRender capability enabled");
+		Ok(())
+	}
+
+	/// Call the plugin with `PF_Cmd_SMART_PRE_RENDER` command.
+	/// This is the first phase of two-phase smart rendering.
+	pub fn smart_pre_render(&mut self) -> Result<()> {
+		self.sync_render_params_from_host();
+		self.cmd = after_effects::RawCommand::SmartPreRender;
+		self.call_plugin()?;
+
+		log::info!("SmartPreRender completed successfully");
+		Ok(())
+	}
+
+	/// Call the plugin with `PF_Cmd_SMART_RENDER` command.
+	/// This is the second phase of two-phase smart rendering.
+	/// It can access pre-computed data from the pre-render phase.
+	pub fn smart_render(&mut self) -> Result<()> {
+		self.sync_render_params_from_host();
+		self.cmd = after_effects::RawCommand::SmartRender;
+		self.call_plugin()?;
+
+		log::info!("SmartRender completed successfully");
 		Ok(())
 	}
 

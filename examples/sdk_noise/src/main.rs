@@ -75,6 +75,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 	// instance.setup_global()?;
 	// instance.setup_params()?;
 	instance.render()?;
+	instance.smart_pre_render()?;
+	instance.smart_render()?;
 
 	//* ---- Extract the output layer ------------------- */
 	log::info!("Extracting output layer...");

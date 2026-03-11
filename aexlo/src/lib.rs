@@ -20,7 +20,14 @@
 //! // Setup parameters
 //! instance.setup_params().expect("Params setup failed");
 //!
-//! // Render frame
+//! // Enable SmartRender capability
+//! instance.setup_smart_render().expect("SmartRender setup failed");
+//!
+//! // Render frame using SmartRender (two-phase rendering)
+//! instance.smart_pre_render().expect("SmartPreRender failed");
+//! instance.smart_render().expect("SmartRender failed");
+//!
+//! // Or render frame using regular render (fallback)
 //! instance.render().expect("Render failed");
 //! ```
 //!
