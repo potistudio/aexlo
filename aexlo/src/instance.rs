@@ -1,13 +1,130 @@
-use crate::core::error::{AexloError, Result};
+use crate::{
+	DiagnosticBuilder,
+	core::error::{AexloError, Result},
+};
 // use crate::suites::SuiteContainer; // Not needed
 
 use after_effects::ParamType;
-use after_effects_sys::{PF_Boolean, PF_Err_NONE, PF_ParamDef, PF_ParamType, PF_Pixel};
+use after_effects_sys::{
+	A_long, A_u_long, PF_Boolean, PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM,
+	PF_Err_INVALID_INDEX, PF_Err_NONE, PF_LRect, PF_LayerDef, PF_ParamDef, PF_ParamIndex,
+	PF_ParamType, PF_Pixel, PF_ProgPtr, PF_RenderRequest,
+};
 use colored::Colorize;
 use dlopen2::raw::Library;
-use std::path::{Path, PathBuf};
+use std::{
+	ffi::c_void,
+	path::{Path, PathBuf},
+	ptr::{null, null_mut},
+};
 
 const DEFAULT_ENTRY_POINT_NAME: &str = "EffectMain";
+
+unsafe extern "C" fn checkout_layer_stub(
+	effect_ref: PF_ProgPtr,
+	index: PF_ParamIndex,
+	checkout_idL: A_long,
+	req: *const after_effects_sys::PF_RenderRequest,
+	what_time: A_long,
+	time_step: A_long,
+	time_scale: A_u_long,
+	checkout_result: *mut after_effects_sys::PF_CheckoutResult,
+) -> PF_Err {
+	if req.is_null() {
+		log::warn!("checkout_layer: request pointer is null");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	if checkout_result.is_null() {
+		log::warn!("checkout_layer: checkout_result pointer is null");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	let result = after_effects_sys::PF_CheckoutResult {
+		result_rect: after_effects_sys::PF_Rect {
+			left: 0,
+			top: 0,
+			right: 1920,
+			bottom: 1080,
+		},
+		max_result_rect: after_effects_sys::PF_Rect {
+			left: 0,
+			top: 0,
+			right: 1920,
+			bottom: 1080,
+		},
+		par: after_effects_sys::PF_RationalScale { num: 1, den: 1 },
+		solid: 1,
+		reservedB: [0; 3],
+		ref_width: 1920,
+		ref_height: 1080,
+		reserved: [0; 6],
+	};
+
+	DiagnosticBuilder::new()
+		.set_name("PF_PreRenderCallbacks/checkout_layer")
+		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
+		.add_arg("index", index)
+		.add_arg("checkout_idL", checkout_idL)
+		.add_arg("what_time", what_time)
+		.add_arg("time_step", time_step)
+		.add_arg("time_scale", time_scale)
+		.set_result(format!("{:?}", result))
+		.emit();
+
+	PF_Err_NONE as PF_Err
+}
+
+unsafe extern "C" fn checkout_layer_pixels_stub(
+	effect_ref: PF_ProgPtr,
+	checkout_idL: A_long,
+	pixels: *mut *mut PF_EffectWorld,
+) -> PF_Err {
+	if pixels.is_null() {
+		log::warn!("checkout_layer_pixels: pixels pointer is null");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	DiagnosticBuilder::new()
+		.set_name("PF_SmartRenderCallbacks/checkout_layer_pixels")
+		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
+		.add_arg("checkout_idL", checkout_idL)
+		.add_arg("pixels (out)", pixels as usize)
+		.emit();
+
+	PF_Err_NONE as PF_Err
+}
+
+unsafe extern "C" fn checkin_layer_pixels_stub(
+	effect_ref: PF_ProgPtr,
+	checkout_idL: A_long,
+) -> PF_Err {
+	DiagnosticBuilder::new()
+		.set_name("PF_SmartRenderCallbacks/checkin_layer_pixels")
+		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
+		.add_arg("checkout_idL", checkout_idL)
+		.emit();
+
+	PF_Err_NONE as PF_Err
+}
+
+unsafe extern "C" fn checkout_output_stub(
+	effect_ref: PF_ProgPtr,
+	output: *mut *mut PF_EffectWorld,
+) -> PF_Err {
+	if output.is_null() {
+		log::warn!("checkout_output: output pointer is null");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	DiagnosticBuilder::new()
+		.set_name("PF_SmartRenderCallbacks/checkout_output")
+		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
+		.add_arg("output (out)", output as usize)
+		.emit();
+
+	PF_Err_NONE as PF_Err
+}
 
 type PluginEntryPoint = unsafe extern "C" fn(
 	cmd: after_effects::RawCommand,
@@ -17,6 +134,12 @@ type PluginEntryPoint = unsafe extern "C" fn(
 	output: *mut after_effects_sys::PF_LayerDef,
 	extra: *mut ::std::os::raw::c_void,
 ) -> after_effects_sys::PF_Err;
+
+/// Represents the extra data pointer type for different render commands
+enum ExtraData {
+	PreRender(after_effects_sys::PF_PreRenderExtra),
+	Render(after_effects_sys::PF_SmartRenderExtra),
+}
 
 /// Represents a loaded After Effects plugin instance, managing its library, entry point, parameters, and execution state.
 pub struct PluginInstance {
@@ -41,12 +164,23 @@ pub struct PluginInstance {
 	params: Vec<after_effects_sys::PF_ParamDef>,
 	input_layer: wrapper::Layer<wrapper::Depth8>,
 	lllllayer: wrapper::Layer<wrapper::Depth8>,
+
+	smart_pre_render_extra_data: after_effects_sys::PF_PreRenderExtra,
+	smart_pre_render_extra_input: Box<after_effects_sys::PF_PreRenderInput>,
+	smart_pre_render_extra_output: Box<after_effects_sys::PF_PreRenderOutput>,
+	smart_pre_render_extra_callbacks: Box<after_effects_sys::PF_PreRenderCallbacks>,
+
+	smart_render_extra_data: after_effects_sys::PF_SmartRenderExtra,
+	smart_render_extra_input: Box<after_effects_sys::PF_SmartRenderInput>,
+	smart_render_extra_callbacks: Box<after_effects_sys::PF_SmartRenderCallbacks>,
 }
 
 impl PluginInstance {
 	pub fn try_load(path: &Path) -> Result<Self> {
 		let mut instance = Self::new(path);
 		instance.load()?;
+		instance.setup_global()?;
+		instance.setup_params()?;
 		Ok(instance)
 	}
 
@@ -188,6 +322,83 @@ impl PluginInstance {
 			world: crate::core::helpers::LayerDefBuilder::new()
 				.with_size(width as i32, height as i32)
 				.build(),
+			smart_pre_render_extra_data: after_effects_sys::PF_PreRenderExtra {
+				input: null_mut(),
+				output: null_mut(),
+				cb: null_mut(),
+			},
+			smart_pre_render_extra_input: Box::new(after_effects_sys::PF_PreRenderInput {
+				bitdepth: 8,
+				device_index: 4294967295,
+				output_request: after_effects_sys::PF_RenderRequest {
+					rect: after_effects_sys::PF_LRect {
+						left: 0,
+						top: 0,
+						right: 1920,
+						bottom: 1080,
+					},
+					field: 0,
+					channel_mask: 15,
+					preserve_rgb_of_zero_alpha: 0,
+					unused: [0; 3],
+					reserved: [0; 4],
+				},
+				what_gpu: 0,
+				gpu_data: null(),
+			}),
+			smart_pre_render_extra_output: Box::new(after_effects_sys::PF_PreRenderOutput {
+				result_rect: after_effects_sys::PF_Rect {
+					left: 0,
+					top: 0,
+					right: 0,
+					bottom: 0,
+				},
+				max_result_rect: after_effects_sys::PF_Rect {
+					left: -1,
+					top: -1,
+					right: -1,
+					bottom: -1,
+				},
+				solid: 0,
+				reserved: 0,
+				flags: 0,
+				pre_render_data: null_mut(),
+				delete_pre_render_data_func: None,
+			}),
+			smart_pre_render_extra_callbacks: Box::new(after_effects_sys::PF_PreRenderCallbacks {
+				checkout_layer: Some(checkout_layer_stub),
+				GuidMixInPtr: None,
+			}),
+
+			smart_render_extra_data: after_effects_sys::PF_SmartRenderExtra {
+				input: null_mut(),
+				cb: null_mut(),
+			},
+			smart_render_extra_input: Box::new(after_effects_sys::PF_SmartRenderInput {
+				output_request: PF_RenderRequest {
+					rect: PF_LRect {
+						left: 0,
+						top: 0,
+						right: 1920,
+						bottom: 1080,
+					},
+					field: 0,
+					channel_mask: 15,
+					preserve_rgb_of_zero_alpha: 0,
+					unused: [0; 3],
+					reserved: [0; 4],
+				},
+				bitdepth: 8,
+				pre_render_data: null_mut(),
+				gpu_data: null(),
+				what_gpu: 0,
+				device_index: 4294967295,
+			}),
+			smart_render_extra_callbacks: Box::new(after_effects_sys::PF_SmartRenderCallbacks {
+				checkout_layer_pixels: Some(checkout_layer_pixels_stub),
+				checkin_layer_pixels: Some(checkin_layer_pixels_stub),
+				checkout_output: Some(checkout_output_stub),
+			}),
 		};
 
 		// Now set the utils pointer to reference our owned utility_callbacks
@@ -196,6 +407,18 @@ impl PluginInstance {
 		instance.in_data.effect_ref = instance.in_data.global_data as _;
 		instance.in_data.num_params = instance.params.len() as i32;
 		instance.world.data = instance.lllllayer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
+
+		instance.smart_pre_render_extra_data.input =
+			instance.smart_pre_render_extra_input.as_mut() as *mut _;
+		instance.smart_pre_render_extra_data.output =
+			instance.smart_pre_render_extra_output.as_mut() as *mut _;
+		instance.smart_pre_render_extra_data.cb =
+			instance.smart_pre_render_extra_callbacks.as_mut() as *mut _;
+
+		instance.smart_render_extra_data.input =
+			instance.smart_render_extra_input.as_mut() as *mut _;
+		instance.smart_render_extra_data.cb =
+			instance.smart_render_extra_callbacks.as_mut() as *mut _;
 
 		instance
 	}
@@ -321,7 +544,7 @@ impl PluginInstance {
 	}
 
 	/// Call the plugin entry point
-	fn call_plugin(&mut self) -> Result<()> {
+	fn call_plugin(&mut self, extra: Option<ExtraData>) -> Result<()> {
 		let entry_point_name = self
 			.entry_point_name
 			.as_deref()
@@ -333,6 +556,14 @@ impl PluginInstance {
 			self.params.iter_mut().map(|p| p as *mut _).collect();
 
 		let entry_point = self.entry_point.ok_or(AexloError::ContainerNotLoaded)?;
+		let extra_data = if let Some(some_extra) = extra {
+			match some_extra {
+				ExtraData::PreRender(mut data) => &mut data as *mut _ as *mut _,
+				ExtraData::Render(mut data) => &mut data as *mut _ as *mut _,
+			}
+		} else {
+			null_mut()
+		};
 
 		let result = unsafe {
 			entry_point(
@@ -341,7 +572,7 @@ impl PluginInstance {
 				&mut self.out_data,
 				params_ptr.as_mut_ptr(),
 				&mut self.world,
-				std::ptr::null_mut(),
+				extra_data,
 			)
 		};
 
@@ -385,7 +616,7 @@ impl PluginInstance {
 	/// Call the plugin with `PF_Cmd_ABOUT` command
 	pub fn about(&mut self) -> Result<String> {
 		self.cmd = after_effects::RawCommand::About;
-		self.call_plugin()?;
+		self.call_plugin(None)?;
 
 		Ok(self.message())
 	}
@@ -393,7 +624,7 @@ impl PluginInstance {
 	/// Call the plugin with `PF_Cmd_GLOBAL_SETUP` command
 	pub fn setup_global(&mut self) -> Result<()> {
 		self.cmd = after_effects::RawCommand::GlobalSetup;
-		self.call_plugin()?;
+		self.call_plugin(None)?;
 		self.global_setup_done = true;
 		self.params_setup_done = false;
 
@@ -413,7 +644,7 @@ impl PluginInstance {
 		}
 
 		self.cmd = after_effects::RawCommand::ParamsSetup;
-		self.call_plugin()?;
+		self.call_plugin(None)?;
 		self.sync_render_params_from_host();
 		self.params_setup_done = true;
 
@@ -424,7 +655,26 @@ impl PluginInstance {
 	pub fn render(&mut self) -> Result<()> {
 		self.sync_render_params_from_host();
 		self.cmd = after_effects::RawCommand::Render;
-		self.call_plugin()?;
+		self.call_plugin(None)?;
+
+		Ok(())
+	}
+
+	pub fn render_pre(&mut self) -> Result<()> {
+		self.sync_render_params_from_host();
+		self.cmd = after_effects::RawCommand::SmartPreRender;
+		self.call_plugin(Some(ExtraData::PreRender(self.smart_pre_render_extra_data)))?;
+
+		self.smart_render_extra_input.pre_render_data =
+			self.smart_pre_render_extra_output.pre_render_data;
+
+		Ok(())
+	}
+
+	pub fn render_smart(&mut self) -> Result<()> {
+		self.sync_render_params_from_host();
+		self.cmd = after_effects::RawCommand::SmartRender;
+		self.call_plugin(Some(ExtraData::Render(self.smart_render_extra_data)))?;
 
 		Ok(())
 	}
@@ -516,5 +766,18 @@ impl PluginInstance {
 
 		let utf8: Vec<u8> = bytes[..cramped_length].iter().map(|&b| b as u8).collect();
 		String::from_utf8_lossy(&utf8).into_owned()
+	}
+
+	/// Get a PluginInstance from an effect reference pointer.
+	/// The effect_ref is stored as the global_data pointer during initialization.
+	pub fn get_instance(effect_ref: PF_ProgPtr) -> Option<&'static mut PluginInstance> {
+		if effect_ref.is_null() {
+			return None;
+		}
+
+		unsafe {
+			let ptr = effect_ref as *mut PluginInstance;
+			if ptr.is_null() { None } else { Some(&mut *ptr) }
+		}
 	}
 }

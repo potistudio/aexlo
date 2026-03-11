@@ -22,7 +22,7 @@ pub fn set_effect_ref(effect_ref: PF_ProgPtr) {
 
 unsafe extern "C" fn checkout_param_stub(
 	_effect_ref: PF_ProgPtr,
-	_index: PF_ParamIndex,
+	index: PF_ParamIndex,
 	_what_time: A_long,
 	_time_step: A_long,
 	_time_scale: A_u_long,
@@ -37,22 +37,23 @@ unsafe extern "C" fn checkout_param_stub(
 	let effect_ref = get_effect_ref();
 	let params = crate::host::params::get_params(effect_ref);
 
-	if (_index as usize) >= params.len() {
+	// +1 for input layer param
+	if (index as usize) > params.len() {
 		log::warn!(
 			"checkout_param: index {} out of bounds (total={})",
-			_index,
-			params.len()
+			index,
+			params.len() + 1
 		);
-		return 1 as PF_Err; // Return error code
+		return PF_Err_INVALID_INDEX as PF_Err;
 	}
 
 	// Copy param to output
-	let param = &params[_index as usize];
+	let param = &params[(index - 1) as usize];
 	unsafe {
 		std::ptr::copy_nonoverlapping(param, _param, 1);
 	}
 
-	log::debug!("checkout_param: returned param at index={}", _index);
+	log::debug!("checkout_param: returned param at index={}", index);
 	PF_Err_NONE as PF_Err
 }
 

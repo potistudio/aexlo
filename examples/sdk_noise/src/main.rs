@@ -11,7 +11,7 @@ use colored::Colorize;
 use aexlo::PluginInstance;
 
 //* Configuration constants */
-const MODULE_NAME: &str = "YY_Ramp+";
+const MODULE_NAME: &str = "SDK_Noise";
 
 fn write_png(data: &[u8], width: u32, height: u32) -> Result<(), Box<dyn Error>> {
 	log::info!("Writing output image...");
@@ -72,23 +72,32 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let message = instance.about()?;
 	println!("plugin information: {:?}", message);
 
-	// instance.setup_global()?;
-	// instance.setup_params()?;
 	instance.render()?;
+	// instance.render_pre()?;
 
-	//* ---- Extract the output layer ------------------- */
+	//==== Extract the output layer ========================
 	log::info!("Extracting output layer...");
+
+	// 1. Get the output layer's dimensions
 	let (width, height) = instance.output_size();
+
+	// 2. Allocate a buffer to hold the pixel data
 	let mut buffer = vec![0u8; (width * height * 4) as usize];
 
+	// 3. Write the output layer's pixel data into your buffer
 	instance.write_output_rgba(&mut buffer)?;
 	log::info!("Extracted output layer {}.", "successfully".green());
 
 	log::debug!("First 10 pixels (out of {}):", buffer.len() / 4);
-	for (i, pixel) in buffer.iter().enumerate().take(10) {
-		log::debug!("    Pixel {}: {:?}", i, pixel);
+	for (i, pixel) in buffer.chunks_exact(4).enumerate().take(10) {
+		let r = pixel[0];
+		let g = pixel[1];
+		let b = pixel[2];
+		let a = pixel[3];
+		log::debug!("    {}: {{{}, {}, {}, {}}}", i, r, g, b, a);
 	}
 
+	// 4. Output your buffer to any destination you want (e.g. write to a PNG file)
 	write_png(&buffer, width, height)?;
 
 	println!("======== Execution completed ========\n");
