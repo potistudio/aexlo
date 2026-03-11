@@ -5,6 +5,9 @@ pub struct Depth8;
 
 impl PixelDepth for Depth8 {
 	type Depth = u8;
+	fn max_value() -> Self::Depth {
+		u8::MAX
+	}
 }
 
 /// Create a `Pixel<Depth8>` from an `after_effects_sys::PF_Pixel8`.
@@ -44,15 +47,6 @@ impl From<Pixel<Depth8>> for after_effects_sys::PF_Pixel8 {
 }
 
 impl Pixel<Depth8> {
-	pub fn black() -> Self {
-		Pixel {
-			alpha: 255,
-			red: 0,
-			green: 0,
-			blue: 0,
-		}
-	}
-
 	pub fn blue() -> Self {
 		Pixel {
 			alpha: 255,

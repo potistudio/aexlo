@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 const DEFAULT_ENTRY_POINT_NAME: &str = "EffectMain";
 
-type EntryPointFunc = unsafe extern "C" fn(
+type PluginEntryPoint = unsafe extern "C" fn(
 	cmd: after_effects::RawCommand,
 	in_data: *mut after_effects_sys::PF_InData,
 	out_data: *mut after_effects_sys::PF_OutData,
@@ -18,10 +18,10 @@ type EntryPointFunc = unsafe extern "C" fn(
 	extra: *mut ::std::os::raw::c_void,
 ) -> after_effects_sys::PF_Err;
 
-/// Represents an instance of an After Effects plugin
+/// Represents a loaded After Effects plugin instance, managing its library, entry point, parameters, and execution state.
 pub struct PluginInstance {
 	library: Option<Library>,
-	entry_point: Option<EntryPointFunc>,
+	entry_point: Option<PluginEntryPoint>,
 	entry_point_name: Option<String>,
 	entry_point_candidates: Vec<String>,
 	path: PathBuf,
@@ -44,6 +44,12 @@ pub struct PluginInstance {
 }
 
 impl PluginInstance {
+	pub fn try_load(path: &Path) -> Result<Self> {
+		let mut instance = Self::new(path);
+		instance.load()?;
+		Ok(instance)
+	}
+
 	fn make_input_layer_param(&self) -> PF_ParamDef {
 		let layer = self.input_layer.as_sys();
 
@@ -80,7 +86,7 @@ impl PluginInstance {
 	}
 
 	/// Create a new PluginInstance with default values
-	pub fn new(path: &Path) -> Self {
+	fn new(path: &Path) -> Self {
 		let width = 1920;
 		let height = 1080;
 		// Initialize Interact Callbacks using factory
@@ -189,7 +195,7 @@ impl PluginInstance {
 		instance.in_data.pica_basicP = instance.pica.as_mut() as *mut _;
 		instance.in_data.effect_ref = instance.in_data.global_data as _;
 		instance.in_data.num_params = instance.params.len() as i32;
-		instance.world.data = instance.lllllayer.buffer_mut().as_mut_ptr() as *mut PF_Pixel;
+		instance.world.data = instance.lllllayer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
 
 		instance
 	}
@@ -228,11 +234,11 @@ impl PluginInstance {
 	fn resolve_entry_point(
 		lib: &Library,
 		candidates: &[String],
-	) -> Result<(EntryPointFunc, String)> {
+	) -> Result<(PluginEntryPoint, String)> {
 		let mut last_error = None;
 
 		for candidate in candidates {
-			match unsafe { lib.symbol::<EntryPointFunc>(candidate) } {
+			match unsafe { lib.symbol::<PluginEntryPoint>(candidate) } {
 				Ok(symbol) => return Ok((symbol, candidate.clone())),
 				Err(err) => {
 					log::debug!("Entry point symbol '{}' not resolved: {}", candidate, err);
@@ -250,7 +256,7 @@ impl PluginInstance {
 		}
 	}
 
-	pub fn load(&mut self) -> Result<()> {
+	fn load(&mut self) -> Result<()> {
 		let dir =
 			self.path
 				.parent()
@@ -304,7 +310,11 @@ impl PluginInstance {
 
 		log::info!("Resolved entry point symbol: {}.", resolved_name.blue());
 
-		log::info!("Loaded plugin {}.", "successfully".green());
+		log::info!(
+			"Loaded plugin '{}' {}.",
+			name.blue(),
+			"successfully".green()
+		);
 		//* -------------------------------------------- *//
 
 		Ok(())
@@ -317,11 +327,7 @@ impl PluginInstance {
 			.as_deref()
 			.unwrap_or(DEFAULT_ENTRY_POINT_NAME);
 
-		log::info!(
-			"Calling {} with command: {}...",
-			entry_point_name.blue(),
-			format!("{:?}", self.cmd).blue()
-		);
+		log::info!("Executing command: {}", format!("{:?}", self.cmd).blue());
 
 		let mut params_ptr: Vec<*mut PF_ParamDef> =
 			self.params.iter_mut().map(|p| p as *mut _).collect();
@@ -423,38 +429,18 @@ impl PluginInstance {
 		Ok(())
 	}
 
-	/// Get a reference to the internal output layer (zero-copy).
-	/// Use `write_output_rgba()` for best performance.
-	pub fn output_layer_ref(&self) -> &wrapper::Layer<wrapper::Depth8> {
-		&self.lllllayer
-	}
-
 	/// Write output pixels directly to an RGBA buffer (zero-allocation).
 	/// The buffer must have exactly `width * height * 4` bytes.
-	/// Returns `true` on success, `false` if buffer size mismatches.
-	pub fn write_output_rgba(&self, buffer: &mut [u8]) -> bool {
-		self.lllllayer.write_rgba_bytes(buffer)
+	pub fn write_output_rgba(&self, buffer: &mut [u8]) -> Result<()> {
+		self.lllllayer
+			.write_rgba_bytes(buffer)
+			.map_err(|e| AexloError::Unexpected("Failed to write RGBA bytes: ".to_string() + &e))
 	}
 
-	/// Get output dimensions (width, height).
+	//==== Getter ==========================================
+	/// Get output dimensions in pixel (width, height).
 	pub fn output_size(&self) -> (u32, u32) {
 		(self.lllllayer.width(), self.lllllayer.height())
-	}
-
-	/// [Deprecated] Creates a copy of the output layer.
-	/// Prefer `write_output_rgba()` for zero-copy performance.
-	#[deprecated(since = "0.1.0", note = "Use write_output_rgba() for zero-copy")]
-	pub fn output_layer(&self) -> wrapper::Layer<wrapper::Depth8> {
-		let width = self.world.width;
-		let height = self.world.height;
-		let pixels = self.lllllayer.buffer().to_vec();
-
-		wrapper::Layer::new(width as u32, height as u32, pixels).unwrap()
-	}
-
-	/// Add a parameter definition dynamically
-	pub(crate) fn add_param(&mut self, param: after_effects_sys::PF_ParamDef) {
-		self.params.push(param);
 	}
 
 	/// Get the number of parameters
@@ -462,6 +448,7 @@ impl PluginInstance {
 		self.params.len()
 	}
 
+	//==== Setter ==========================================
 	/// Set a float parameter value by index.
 	pub fn set_param_float(&mut self, index: usize, value: f64) -> Result<()> {
 		// Check index bounds

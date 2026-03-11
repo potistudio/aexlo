@@ -31,12 +31,12 @@ struct SuiteEntry {
 	// Raw pointer to Suite (owned by the registry, will be Box::from_raw on drop)
 	suite_ptr: SendablePtr,
 	// Size of the Suite type (needed for correct deallocation)
-	suite_size: usize,
+	_suite_size: usize,
 	ref_count: AtomicUsize,
 }
 
 /// Global Suite registry with lazy initialization
-pub static SUITE_REGISTRY: OnceLock<RwLock<HashMap<(String, i32), SuiteEntry>>> = OnceLock::new();
+static SUITE_REGISTRY: OnceLock<RwLock<HashMap<(String, i32), SuiteEntry>>> = OnceLock::new();
 
 /// Acquire a Suite, creating it if necessary (lazy initialization)
 ///
@@ -63,7 +63,7 @@ pub fn acquire<T>(name: &str, version: i32, creator: fn() -> Box<T>) -> Result<*
 
 	let entry = SuiteEntry {
 		suite_ptr: suite_ptr_sendable,
-		suite_size: mem::size_of::<T>(),
+		_suite_size: mem::size_of::<T>(),
 		ref_count: AtomicUsize::new(1),
 	};
 

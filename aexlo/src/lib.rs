@@ -37,6 +37,7 @@
 
 pub mod core;
 pub mod host;
+mod instance;
 
 pub(crate) mod suites;
 
@@ -54,8 +55,10 @@ pub use after_effects_sys::PF_Pixel;
 pub use core::error::{AexloError, Result};
 
 /// The core plugin loader and executor.
-pub use core::instance::PluginInstance;
+pub use instance::PluginInstance;
 
 /// Diagnostic utilities (feature-gated).
 #[cfg(feature = "diagnostics")]
 pub use core::diagnostics::{Diagnostic, DiagnosticBuilder};
+
+pub use wrapper::*;

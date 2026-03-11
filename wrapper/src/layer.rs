@@ -54,6 +54,35 @@ where
 		})
 	}
 
+	pub fn blank(width: u32, height: u32) -> Self
+	where
+		Pixel<D>: Default,
+	{
+		let pixel_count = (width * height) as usize;
+		let pixels = vec![<Pixel<D>>::blank(); pixel_count];
+
+		Self {
+			width,
+			height,
+			pixels,
+		}
+	}
+
+	pub fn black(width: u32, height: u32) -> Self
+	where
+		Pixel<D>: Default,
+	{
+		let pixel_count = (width * height) as usize;
+		let pixels = vec![<Pixel<D>>::black(); pixel_count];
+
+		Self {
+			width,
+			height,
+			pixels,
+		}
+	}
+
+	//==== Getter ==========================================
 	/// Return the width in pixels.
 	pub fn width(&self) -> u32 {
 		self.width
@@ -75,12 +104,12 @@ where
 	}
 
 	/// Get a reference to the underlying pixel buffer.
-	pub fn buffer(&self) -> &[Pixel<D>] {
+	pub fn pixels(&self) -> &[Pixel<D>] {
 		&self.pixels
 	}
 
 	/// Get a mutable reference to the underlying pixel buffer.
-	pub fn buffer_mut(&mut self) -> &mut [Pixel<D>] {
+	pub fn pixels_mut(&mut self) -> &mut [Pixel<D>] {
 		&mut self.pixels
 	}
 
@@ -89,27 +118,35 @@ where
 		self.pixels.get(index)
 	}
 
-	/// Mutable get by linear index.
+	/// Get a mutable reference to a pixel by linear index (row-major).
 	pub fn get_linear_mut(&mut self, index: usize) -> Option<&mut Pixel<D>> {
 		self.pixels.get_mut(index)
 	}
 
-	/// Fallible get by coordinates returning Option.
+	/// Get a reference to a pixel by coordinates (x, y).
+	/// None if the coordinates is out of bounds.
 	pub fn get(&self, x: u32, y: u32) -> Option<&Pixel<D>> {
 		if x >= self.width || y >= self.height {
 			return None;
 		}
+
 		let idx = (y * self.width + x) as usize;
-		self.pixels.get(idx)
+
+		// SAFETY: We have already checked that x and y are within bounds, so idx is guaranteed to be valid.
+		Some(unsafe { self.pixels.get_unchecked(idx) })
 	}
 
-	/// Mutable fallible get by coordinates.
+	/// Get a mutable reference to a pixel by coordinates (x, y).
+	/// None if the coordinates is out of bounds.
 	pub fn get_mut(&mut self, x: u32, y: u32) -> Option<&mut Pixel<D>> {
 		if x >= self.width || y >= self.height {
 			return None;
 		}
+
 		let idx = (y * self.width + x) as usize;
-		self.pixels.get_mut(idx)
+
+		// SAFETY: We have already checked that x and y are within bounds, so idx is guaranteed to be valid.
+		Some(unsafe { self.pixels.get_unchecked_mut(idx) })
 	}
 
 	/// Iterate over pixels by reference in row-major order.
@@ -120,11 +157,6 @@ where
 	/// Iterate mutably over pixels by reference in row-major order.
 	pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, Pixel<D>> {
 		self.pixels.iter_mut()
-	}
-
-	/// Consume the layer and return the inner pixel buffer.
-	pub fn into_vec(self) -> Vec<Pixel<D>> {
-		self.pixels
 	}
 
 	pub fn as_sys(&self) -> PF_LayerDef {
@@ -156,40 +188,17 @@ where
 }
 
 impl Layer<Depth8> {
-	/// Create a blank layer filled with black `Pixel<Depth8>`.
-	pub fn blank(width: u32, height: u32) -> Self {
-		let pixel_count = (width * height) as usize;
-		let pixels = vec![Pixel::<Depth8>::black(); pixel_count];
-
-		Self {
-			width,
-			height,
-			pixels,
-		}
-	}
-
-	/// Convert the layer to a raw RGBA byte buffer.
-	/// This is useful for displaying in egui or other graphics libraries.
-	/// The output format is RGBA (4 bytes per pixel).
-	pub fn to_rgba_bytes(&self) -> Vec<u8> {
-		let mut bytes = Vec::with_capacity(self.pixels.len() * 4);
-		for pixel in &self.pixels {
-			// Pixel<Depth8> has ARGB layout, egui expects RGBA
-			bytes.push(pixel.red);
-			bytes.push(pixel.green);
-			bytes.push(pixel.blue);
-			bytes.push(pixel.alpha);
-		}
-		bytes
-	}
-
 	/// Write RGBA bytes directly into an existing buffer (zero-allocation).
 	/// The buffer must have exactly `width * height * 4` bytes.
-	/// Returns `true` if successful, `false` if buffer size mismatches.
-	pub fn write_rgba_bytes(&self, buffer: &mut [u8]) -> bool {
+	pub fn write_rgba_bytes(&self, buffer: &mut [u8]) -> Result<(), String> {
 		let required = self.pixels.len() * 4;
+
 		if buffer.len() != required {
-			return false;
+			return Err(format!(
+				"Buffer length ({}) does not match required size ({}).",
+				buffer.len(),
+				required
+			));
 		}
 
 		for (i, pixel) in self.pixels.iter().enumerate() {
@@ -199,22 +208,8 @@ impl Layer<Depth8> {
 			buffer[offset + 2] = pixel.blue;
 			buffer[offset + 3] = pixel.alpha;
 		}
-		true
-	}
-}
 
-// Conditional implements so `Layer<D>` implements common traits when the inner pixel type does.
-impl<D> Clone for Layer<D>
-where
-	D: PixelDepth,
-	Pixel<D>: Clone,
-{
-	fn clone(&self) -> Self {
-		Self {
-			width: self.width,
-			height: self.height,
-			pixels: self.pixels.clone(),
-		}
+		Ok(())
 	}
 }
 
@@ -230,23 +225,6 @@ where
 			.field("pixels", &self.pixels)
 			.finish()
 	}
-}
-
-impl<D> PartialEq for Layer<D>
-where
-	D: PixelDepth,
-	Pixel<D>: PartialEq,
-{
-	fn eq(&self, other: &Self) -> bool {
-		self.width == other.width && self.height == other.height && self.pixels == other.pixels
-	}
-}
-
-impl<D> Eq for Layer<D>
-where
-	D: PixelDepth,
-	Pixel<D>: Eq,
-{
 }
 
 impl<D: PixelDepth> Index<(u32, u32)> for Layer<D> {

@@ -5,9 +5,9 @@ use std::os::raw::c_void;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 pub(super) unsafe extern "C" fn iterate_8_sys(
-	in_data: *mut PF_InData,
-	progress_base: A_long,
-	progress_final: A_long,
+	_in_data: *mut PF_InData,
+	_progress_base: A_long,
+	_progress_final: A_long,
 	src: *mut PF_EffectWorld,
 	area: *const PF_Rect,
 	refcon: *mut ::std::os::raw::c_void,
@@ -25,9 +25,9 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 	#[cfg(feature = "diagnostics")]
 	DiagnosticBuilder::new()
 		.set_name("Iterate8Suite/Iterate8")
-		.add_arg("in_data", format!("{:?}", in_data))
-		.add_arg("progress_base", progress_base)
-		.add_arg("progress_final", progress_final)
+		.add_arg("in_data", format!("{:?}", _in_data))
+		.add_arg("progress_base", _progress_base)
+		.add_arg("progress_final", _progress_final)
 		.add_arg("src", format!("{:?}", src))
 		.add_arg(
 			"area",
@@ -51,8 +51,8 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 	// SAFETY: We create shared references here.
 	// We specifically avoid creating `&mut *dst` to prevent aliasing UB when using Rayon.
 	// Mutation of the destination buffer will occur via raw pointers derived from `dst_world.data`.
-	let src_world = &*src;
-	let dst_world = &*dst;
+	let src_world = &unsafe { *src };
+	let dst_world = &unsafe { *dst };
 
 	if src_world.data.is_null() || dst_world.data.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
@@ -60,30 +60,30 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 
 	// 1. Determine iteration bounds from `area` or default to `dst` extent
 	let mut rect = if !area.is_null() {
-		*area
+		unsafe { *area }
 	} else {
 		PF_Rect {
 			left: 0,
 			top: 0,
-			right: dst_world.width as i32,
-			bottom: dst_world.height as i32,
+			right: dst_world.width,
+			bottom: dst_world.height,
 		}
 	};
 
 	// 2. Intersect with Source Bounds
 	rect.left = rect.left.max(0);
 	rect.top = rect.top.max(0);
-	rect.right = rect.right.min(src_world.width as i32);
-	rect.bottom = rect.bottom.min(src_world.height as i32);
+	rect.right = rect.right.min(src_world.width);
+	rect.bottom = rect.bottom.min(src_world.height);
 
 	// 3. Intersect with Destination Bounds
-	rect.right = rect.right.min(dst_world.width as i32);
-	rect.bottom = rect.bottom.min(dst_world.height as i32);
+	rect.right = rect.right.min(dst_world.width);
+	rect.bottom = rect.bottom.min(dst_world.height);
 
-	let start_x = rect.left as i32;
-	let start_y = rect.top as i32;
-	let end_x = rect.right as i32;
-	let end_y = rect.bottom as i32;
+	let start_x = rect.left;
+	let start_y = rect.top;
+	let end_x = rect.right;
+	let end_y = rect.bottom;
 
 	let width = (end_x - start_x).max(0);
 	let height = (end_y - start_y).max(0);
@@ -104,7 +104,7 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 	// We act as Iterate8, so we assume PF_Pixel8.
 	// This debug assertion helps catch if rowbytes doesn't match the width*size expectation (indicating stride or wrong depth).
 	debug_assert!(
-		src_world.rowbytes >= (src_world.width as i32 * pixel_size as i32),
+		src_world.rowbytes >= (src_world.width * pixel_size as i32),
 		"Source rowbytes smaller than width * pixel_size"
 	);
 
@@ -115,14 +115,14 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 	let refcon_addr = refcon as usize;
 
 	// Atomic for error propagation from threads
-	let error_capsule = AtomicI32::new(PF_Err_NONE as i32);
+	let error_capsule = AtomicI32::new(PF_Err_NONE);
 
 	// Parallel iteration using rayon
 	// Iterate over Y rows in parallel
 	if let Some(func) = pix_fn {
 		(0..height).into_par_iter().for_each(|y_offset| {
 			// Check for early exit on error (relaxed ordering is sufficient for "eventual" stop)
-			if error_capsule.load(Ordering::Relaxed) != PF_Err_NONE as i32 {
+			if error_capsule.load(Ordering::Relaxed) != PF_Err_NONE {
 				return;
 			}
 
@@ -155,8 +155,8 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 				//    as long as we respect exclusive access rules (guaranteed by partitioning).
 				// 3. `src_pixel` is only read.
 				// 4. `func` is an external C function. We trust it adheres to the `Iterate` contract.
-				let err = func(refcon_ptr, current_x, current_y, src_pixel, dst_pixel);
-				if err != PF_Err_NONE as i32 {
+				let err = unsafe { func(refcon_ptr, current_x, current_y, src_pixel, dst_pixel) };
+				if err != PF_Err_NONE {
 					// Attempt to store the first error. We don't care if we overwrite another error or lose one race.
 					error_capsule.store(err, Ordering::Relaxed);
 					return; // Stop processing this row

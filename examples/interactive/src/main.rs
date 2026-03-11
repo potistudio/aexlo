@@ -103,19 +103,14 @@ impl AexloApp {
 	}
 
 	fn update_texture(&mut self, ctx: &egui::Context) {
-		let image = egui::ColorImage::from_rgba_unmultiplied(
-			[self.width, self.height],
-			&self.pixels,
-		);
+		let image =
+			egui::ColorImage::from_rgba_unmultiplied([self.width, self.height], &self.pixels);
 
 		if let Some(texture) = &mut self.texture {
 			texture.set(image, egui::TextureOptions::NEAREST);
 		} else {
-			self.texture = Some(ctx.load_texture(
-				"rendered-output",
-				image,
-				egui::TextureOptions::NEAREST,
-			));
+			self.texture =
+				Some(ctx.load_texture("rendered-output", image, egui::TextureOptions::NEAREST));
 		}
 	}
 
@@ -133,8 +128,7 @@ impl AexloApp {
 }
 
 fn load_plugin(path: &std::path::Path) -> anyhow::Result<aexlo::PluginInstance> {
-	let mut instance = aexlo::PluginInstance::new(path);
-	instance.load()?;
+	let mut instance = aexlo::PluginInstance::try_load(path)?;
 	instance.about()?;
 	instance.setup_global()?;
 	instance.setup_params()?;

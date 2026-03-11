@@ -4,6 +4,9 @@ pub struct Depth32;
 
 impl PixelDepth for Depth32 {
 	type Depth = f32;
+	fn max_value() -> Self::Depth {
+		1.0
+	}
 }
 
 impl From<after_effects_sys::PF_Pixel32> for Pixel<Depth32> {
@@ -29,12 +32,12 @@ impl From<[f32; 4]> for Pixel<Depth32> {
 }
 
 impl Pixel<Depth32> {
-	pub fn black() -> Self {
+	pub fn white() -> Self {
 		Pixel {
 			alpha: 1.0,
-			red: 0.0,
-			green: 0.0,
-			blue: 0.0,
+			red: 1.0,
+			green: 1.0,
+			blue: 1.0,
 		}
 	}
 }

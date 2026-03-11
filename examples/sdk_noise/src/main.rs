@@ -4,7 +4,6 @@ extern crate env_logger as logger;
 extern crate log;
 
 use std::error::Error;
-use std::io::Write;
 
 use colored::Colorize;
 
@@ -12,7 +11,32 @@ use colored::Colorize;
 use aexlo::PluginInstance;
 
 //* Configuration constants */
-const MODULE_NAME: &str = "AnimatedNoise";
+const MODULE_NAME: &str = "YY_Ramp+";
+
+fn write_png(data: &[u8], width: u32, height: u32) -> Result<(), Box<dyn Error>> {
+	log::info!("Writing output image...");
+
+	let mut writer = Vec::<u8>::new();
+	let options = mtpng::encoder::Options::default();
+
+	let mut header = mtpng::Header::new();
+	header.set_size(width, height)?;
+	header.set_color(mtpng::ColorType::TruecolorAlpha, 8)?;
+
+	let mut encoder = mtpng::encoder::Encoder::new(&mut writer, &options);
+	encoder.write_header(&header)?;
+	encoder.write_image_rows(data)?;
+	encoder.finish()?;
+
+	std::fs::write("output.png", writer)?;
+	log::info!(
+		"Wrote output image to '{}' {}.",
+		"output.png".white(),
+		"successfully".green()
+	);
+
+	Ok(())
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
 	#[rustfmt::skip]
@@ -31,15 +55,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 	env_logger::init();
 
 	//* ---- Determine plugin path ---------------------- */
-	let exe_dir = std::env::current_exe().expect("Failed to get current executable path");
 	let plugin_path = std::path::PathBuf::from(
 		"D:/Projects/Develop/Rust/aexlo-rs/examples/sdk_noise/tests/mocks/windows/",
 	)
 	.join(MODULE_NAME);
 
 	//* ---- Execute the plugin ------------------------- */
-	let mut instance = PluginInstance::new(plugin_path.as_path());
-	instance.load()?;
+	let mut instance = PluginInstance::try_load(&plugin_path)?;
 
 	//* ------------------------------------------------- */
 	//* Call `about()`                                    */
@@ -50,42 +72,24 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let message = instance.about()?;
 	println!("plugin information: {:?}", message);
 
-	instance.setup_global()?;
-	instance.setup_params()?;
+	// instance.setup_global()?;
+	// instance.setup_params()?;
 	instance.render()?;
 
 	//* ---- Extract the output layer ------------------- */
 	log::info!("Extracting output layer...");
-	// let layer = instance.output_layer();
-	let layer = instance.output_layer_ref();
+	let (width, height) = instance.output_size();
+	let mut buffer = vec![0u8; (width * height * 4) as usize];
+
+	instance.write_output_rgba(&mut buffer)?;
 	log::info!("Extracted output layer {}.", "successfully".green());
 
-	log::debug!("First 10 pixels (out of {}):", layer.len());
-	for (i, pixel) in layer.iter().enumerate().take(10) {
+	log::debug!("First 10 pixels (out of {}):", buffer.len() / 4);
+	for (i, pixel) in buffer.iter().enumerate().take(10) {
 		log::debug!("    Pixel {}: {:?}", i, pixel);
 	}
 
-	//* ---- Write output image as PNG ------------------ */
-	log::info!("Writing output image to 'output.png'...");
-	let output_buffer: Vec<u8> = layer
-		.iter()
-		.flat_map(|p| vec![p.red, p.green, p.blue, p.alpha])
-		.collect();
-
-	let mut writer = Vec::<u8>::new();
-	let options = mtpng::encoder::Options::default();
-
-	let mut header = mtpng::Header::new();
-	header.set_size(layer.width(), layer.height())?;
-	header.set_color(mtpng::ColorType::TruecolorAlpha, 8)?;
-
-	let mut encoder = mtpng::encoder::Encoder::new(&mut writer, &options);
-	encoder.write_header(&header)?;
-	encoder.write_image_rows(&output_buffer)?;
-	encoder.finish()?;
-
-	std::fs::write("output.png", writer)?;
-	log::info!("Wrote output image {}.", "successfully".green());
+	write_png(&buffer, width, height)?;
 
 	println!("======== Execution completed ========\n");
 	Ok(())

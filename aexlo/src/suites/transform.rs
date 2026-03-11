@@ -1,4 +1,3 @@
-use crate::core::diagnostics::*;
 use after_effects_sys::*;
 use rayon::prelude::*;
 
@@ -23,8 +22,8 @@ pub unsafe extern "C" fn Copy_sys(
 		return PF_Err_NONE as PF_Err;
 	}
 
-	let src_world = &mut *src;
-	let dst_world = &mut *dst;
+	let src_world = &mut unsafe { *src };
+	let dst_world = &mut unsafe { *dst };
 
 	// Calculate buffer addresses for overlap detection
 	// Buffers overlap if: src_addr <= dst_addr + dst_size && dst_addr <= src_addr + src_size
@@ -38,26 +37,26 @@ pub unsafe extern "C" fn Copy_sys(
 
 	// Determine source rectangle
 	let src_rect = if !src_r.is_null() {
-		*src_r
+		unsafe { *src_r }
 	} else {
 		PF_Rect {
 			left: 0,
 			top: 0,
-			right: src_world.width as i32,
-			bottom: src_world.height as i32,
+			right: src_world.width,
+			bottom: src_world.height,
 		}
 	};
 
 	// Determine destination point (top-left)
 	let (dst_x, dst_y) = if !dst_r.is_null() {
-		((*dst_r).left as i32, (*dst_r).top as i32)
+		((unsafe { *dst_r }).left, (unsafe { *dst_r }).top)
 	} else {
-		(src_rect.left as i32, src_rect.top as i32)
+		(src_rect.left, src_rect.top)
 	};
 
 	// Calculate copy dimensions
-	let copy_width = (src_rect.right as i32 - src_rect.left as i32).max(0);
-	let copy_height = (src_rect.bottom as i32 - src_rect.top as i32).max(0);
+	let copy_width = (src_rect.right - src_rect.left).max(0);
+	let copy_height = (src_rect.bottom - src_rect.top).max(0);
 
 	if copy_width == 0 || copy_height == 0 {
 		return PF_Err_NONE as PF_Err; // Nothing to copy
@@ -65,18 +64,18 @@ pub unsafe extern "C" fn Copy_sys(
 
 	// Clipping: Ensure we don't read/write out of bounds
 	// Source clipping
-	let src_clamped_left = (src_rect.left as i32).max(0);
-	let src_clamped_top = (src_rect.top as i32).max(0);
+	let src_clamped_left = src_rect.left.max(0);
+	let src_clamped_top = src_rect.top.max(0);
 	// We also need to clip width/height based on src bounds
-	let src_avail_width = (src_world.width as i32) - (src_clamped_left as i32);
-	let src_avail_height = (src_world.height as i32) - (src_clamped_top as i32);
+	let src_avail_width = src_world.width - src_clamped_left;
+	let src_avail_height = src_world.height - src_clamped_top;
 
 	// Dest clipping
 	let dst_clamped_left = dst_x.max(0); // If negative dst, we must increment src start
 	let dst_clamped_top = dst_y.max(0);
 
-	let dst_avail_width = (dst_world.width as i32) - (dst_clamped_left as i32);
-	let dst_avail_height = (dst_world.height as i32) - (dst_clamped_top as i32);
+	let dst_avail_width = dst_world.width - dst_clamped_left;
+	let dst_avail_height = dst_world.height - dst_clamped_top;
 
 	// Adjust for negative destination offsets (if dst_x < 0, we skip pixels in src)
 	let skip_x = if dst_x < 0 { -dst_x } else { 0 };
@@ -95,10 +94,10 @@ pub unsafe extern "C" fn Copy_sys(
 	}
 
 	// Calculate starting offsets
-	let actual_src_left = src_clamped_left as i32 + skip_x;
-	let actual_src_top = src_clamped_top as i32 + skip_y;
-	let actual_dst_left = (dst_x + skip_x) as i32;
-	let actual_dst_top = (dst_y + skip_y) as i32;
+	let actual_src_left = src_clamped_left + skip_x;
+	let actual_src_top = src_clamped_top + skip_y;
+	let actual_dst_left = dst_x + skip_x;
+	let actual_dst_top = dst_y + skip_y;
 
 	// Prepare data for parallel execution
 	// We cast to usize to pass across threads safely (assuming buffers are accessible/pinned)
@@ -129,18 +128,22 @@ pub unsafe extern "C" fn Copy_sys(
 		let dst_pixel_ptr = dst_row_ptr.wrapping_add((actual_dst_left as usize) * pixel_size);
 
 		// Use std::ptr::copy if buffers overlap (safe for overlapping regions),
-	// otherwise use copy_nonoverlapping for better performance
-	unsafe {
-		if buffers_overlap {
-			std::ptr::copy(src_pixel_ptr, dst_pixel_ptr, (final_width as usize) * pixel_size);
-		} else {
-			std::ptr::copy_nonoverlapping(
-				src_pixel_ptr,
-				dst_pixel_ptr,
-				(final_width as usize) * pixel_size,
-			);
+		// otherwise use copy_nonoverlapping for better performance
+		unsafe {
+			if buffers_overlap {
+				std::ptr::copy(
+					src_pixel_ptr,
+					dst_pixel_ptr,
+					(final_width as usize) * pixel_size,
+				);
+			} else {
+				std::ptr::copy_nonoverlapping(
+					src_pixel_ptr,
+					dst_pixel_ptr,
+					(final_width as usize) * pixel_size,
+				);
+			}
 		}
-	}
 	});
 
 	PF_Err_NONE as PF_Err

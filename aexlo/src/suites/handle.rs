@@ -103,7 +103,7 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 
 	log::debug!("host_new_handle: layout created successfully");
 
-	let ptr = alloc(layout);
+	let ptr = unsafe { alloc(layout) };
 	if ptr.is_null() {
 		log::error!("host_new_handle: allocation failed for size {}", size);
 		return ptr::null_mut();
@@ -111,11 +111,11 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 
 	// Store magic number and size at the beginning of allocation
 	// Layout: [magic: u64 @ +0][size: usize @ +8][user_data @ +16]
-	*(ptr as *mut u64) = HANDLE_MAGIC;
-	*((ptr as *mut u8).add(8) as *mut usize) = requested_size;
+	unsafe { *(ptr as *mut u64) = HANDLE_MAGIC };
+	unsafe { *(ptr.add(8) as *mut usize) = requested_size };
 
 	// User data starts at offset 16 (HANDLE_ALIGNMENT)
-	let user_ptr = ptr.add(header_size);
+	let user_ptr = unsafe { ptr.add(header_size) };
 
 	// Alloc a handle (pointer to pointer)
 	// NOTE: We also use `alloc` for the handle itself to avoid panic on OOM from Box::new
@@ -123,16 +123,16 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 	let handle_layout = Layout::new::<*mut c_void>();
 
 	// Safe to use alloc for small layout, but still unsafe fn
-	let handle_ptr = alloc(handle_layout) as *mut *mut c_void;
+	let handle_ptr = unsafe { alloc(handle_layout) } as *mut *mut c_void;
 
 	if handle_ptr.is_null() {
 		log::error!("host_new_handle: handle storage allocation failed");
 		// Cleanup the data buffer we just allocated
-		dealloc(ptr, layout);
+		unsafe { dealloc(ptr, layout) };
 		return ptr::null_mut();
 	}
 
-	*handle_ptr = user_ptr as *mut c_void;
+	unsafe { *handle_ptr = user_ptr as *mut c_void };
 
 	log::info!(
 		"host_new_handle: SUCCESS handle={:p}, user_ptr={:p}, size={}",
@@ -160,7 +160,7 @@ pub(crate) unsafe extern "C" fn host_lock_handle_impl(pf_handle: PF_Handle) -> *
 	}
 
 	// Dereference handle to get user data pointer
-	*pf_handle as *mut c_void
+	(unsafe { *pf_handle }) as *mut c_void
 }
 
 /// Unlocks the handle. (No-op in this simple implementation)
@@ -181,7 +181,7 @@ pub(crate) unsafe extern "C" fn host_dispose_handle_impl(pf_handle: PF_Handle) {
 	}
 
 	// 1. Get the pointer to user data
-	let user_ptr = *(pf_handle as *mut *mut u8);
+	let user_ptr = unsafe { *(pf_handle as *mut *mut u8) };
 
 	// 2. Free the user data buffer if it exists
 	if !user_ptr.is_null() {
@@ -189,10 +189,10 @@ pub(crate) unsafe extern "C" fn host_dispose_handle_impl(pf_handle: PF_Handle) {
 		let header_size = HANDLE_ALIGNMENT;
 
 		// Unsafe sub
-		let base_ptr = user_ptr.sub(header_size);
+		let base_ptr = unsafe { user_ptr.sub(header_size) };
 
 		// Verify magic number before freeing
-		let magic = *(base_ptr as *mut u64);
+		let magic = unsafe { *(base_ptr as *mut u64) };
 		if magic != HANDLE_MAGIC {
 			log::error!(
 				"host_dispose_handle: INVALID HANDLE at dispose! magic=0x{:x} (expected 0x{:x}), pf_handle={:p}, user_ptr={:p}",
@@ -206,7 +206,7 @@ pub(crate) unsafe extern "C" fn host_dispose_handle_impl(pf_handle: PF_Handle) {
 		}
 
 		// Read size
-		let size = *((base_ptr as *mut u8).add(8) as *mut usize);
+		let size = unsafe { *((base_ptr as *mut u8).add(8) as *mut usize) };
 		let total_size = match header_size.checked_add(size) {
 			Some(value) => value,
 			None => {
@@ -217,7 +217,7 @@ pub(crate) unsafe extern "C" fn host_dispose_handle_impl(pf_handle: PF_Handle) {
 
 		// Reconstruct layout
 		if let Ok(layout) = Layout::from_size_align(total_size, HANDLE_ALIGNMENT) {
-			dealloc(base_ptr, layout);
+			unsafe { dealloc(base_ptr, layout) };
 		} else {
 			log::error!("host_dispose_handle: failed to recreate layout during free");
 		}
@@ -226,7 +226,7 @@ pub(crate) unsafe extern "C" fn host_dispose_handle_impl(pf_handle: PF_Handle) {
 	// 3. Free the handle storage itself
 	// We allocated this with `alloc(Layout::new::<*mut c_void>())`
 	let handle_layout = Layout::new::<*mut c_void>();
-	dealloc(pf_handle as *mut u8, handle_layout);
+	unsafe { dealloc(pf_handle as *mut u8, handle_layout) };
 }
 
 /// Returns the size of the allocated data.
@@ -239,7 +239,7 @@ pub(crate) unsafe extern "C" fn host_get_handle_size_impl(pf_handle: PF_Handle) 
 		return 0;
 	}
 
-	let user_ptr = *(pf_handle as *mut *mut u8);
+	let user_ptr = unsafe { *(pf_handle as *mut *mut u8) };
 	log::debug!(
 		"host_get_handle_size: pf_handle={:p}, user_ptr={:p}",
 		pf_handle,
@@ -253,10 +253,10 @@ pub(crate) unsafe extern "C" fn host_get_handle_size_impl(pf_handle: PF_Handle) 
 
 	// Back up to read magic and size
 	let header_size = HANDLE_ALIGNMENT;
-	let base_ptr = user_ptr.sub(header_size);
+	let base_ptr = unsafe { user_ptr.sub(header_size) };
 
 	// Verify magic number
-	let magic = *(base_ptr as *mut u64);
+	let magic = unsafe { *(base_ptr as *mut u64) };
 	if magic != HANDLE_MAGIC {
 		log::error!(
 			"host_get_handle_size: INVALID HANDLE! magic=0x{:x} (expected 0x{:x}), pf_handle={:p}, user_ptr={:p}, base_ptr={:p}",
@@ -269,7 +269,7 @@ pub(crate) unsafe extern "C" fn host_get_handle_size_impl(pf_handle: PF_Handle) 
 		return 0;
 	}
 
-	let size = *((base_ptr as *mut u8).add(8) as *mut usize);
+	let size = unsafe { *(base_ptr.add(8) as *mut usize) };
 
 	log::debug!(
 		"host_get_handle_size: base_ptr={:p}, raw_size={}",
@@ -321,14 +321,14 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 		log::error!("host_resize_handle: handlePH is NULL");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
-	let pf_handle = *handlePH;
+	let pf_handle = unsafe { *handlePH };
 
 	if pf_handle.is_null() {
 		log::error!("host_resize_handle: pf_handle is NULL");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	let user_ptr = *(pf_handle as *mut *mut u8);
+	let user_ptr = unsafe { *(pf_handle as *mut *mut u8) };
 
 	if user_ptr.is_null() {
 		// If the handle exists but points to NULL, treat as new alloc?
@@ -339,10 +339,10 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 	}
 
 	let header_size = HANDLE_ALIGNMENT;
-	let base_ptr = user_ptr.sub(header_size);
+	let base_ptr = unsafe { user_ptr.sub(header_size) };
 
 	// Verify magic number
-	let magic = *(base_ptr as *mut u64);
+	let magic = unsafe { *(base_ptr as *mut u64) };
 	if magic != HANDLE_MAGIC {
 		log::error!(
 			"host_resize_handle: INVALID HANDLE! magic=0x{:x} (expected 0x{:x}), pf_handle={:p}, user_ptr={:p}",
@@ -354,7 +354,7 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	let old_size = *((base_ptr as *mut u8).add(8) as *mut usize);
+	let old_size = unsafe { *(base_ptr.add(8) as *mut usize) };
 
 	log::debug!(
 		"host_resize_handle: pf_handle={:p}, user_ptr={:p}, old_size={}",
@@ -404,7 +404,7 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 	// Realloc
 	// We trusted layout was created with HANDLE_ALIGNMENT
 	if let Ok(old_layout) = Layout::from_size_align(old_total, HANDLE_ALIGNMENT) {
-		let new_ptr = realloc(base_ptr, old_layout, new_total);
+		let new_ptr = unsafe { realloc(base_ptr, old_layout, new_total) };
 
 		if new_ptr.is_null() {
 			log::error!("host_resize_handle: realloc failed");
@@ -412,14 +412,14 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 		}
 
 		// Update size in prefix
-		*(new_ptr as *mut u64) = HANDLE_MAGIC;
-		*((new_ptr as *mut u8).add(8) as *mut usize) = new_size;
+		unsafe { *(new_ptr as *mut u64) = HANDLE_MAGIC };
+		unsafe { *(new_ptr.add(8) as *mut usize) = new_size };
 
 		// Update handle to point to new user data
-		let new_user_ptr = new_ptr.add(header_size);
+		let new_user_ptr = unsafe { new_ptr.add(header_size) };
 
 		// Update handle to point to the new user pointer
-		*(pf_handle as *mut *mut u8) = new_user_ptr;
+		unsafe { *(pf_handle as *mut *mut u8) = new_user_ptr };
 
 		PF_Err_NONE as PF_Err
 	} else {

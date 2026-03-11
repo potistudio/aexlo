@@ -7,7 +7,7 @@
 use thiserror::Error;
 
 /// The main error type for aexlo operations.
-#[derive(Error, Debug)]
+#[derive(Debug, Error)]
 pub enum AexloError {
 	/// Error occurred while loading the plugin DLL/dylib.
 	#[error("Failed to load plugin: {0}")]
@@ -44,6 +44,9 @@ pub enum AexloError {
 		expected: &'static str,
 		actual: i32,
 	},
+
+	#[error("Unexpected error: {0}")]
+	Unexpected(String),
 }
 
 /// A specialized Result type for aexlo operations.
