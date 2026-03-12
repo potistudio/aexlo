@@ -6,6 +6,7 @@ pub mod registry;
 pub mod transform;
 pub mod ui;
 pub mod utility;
+pub mod world;
 
 use crate::core::diagnostics::*;
 use crate::suites::registry::{acquire, release};
@@ -106,6 +107,16 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 			match acquire(suite_name, version, || {
 				transform::create_world_transform_suite_1()
 			}) {
+				Ok(ptr) => {
+					*suite = ptr as *const c_void;
+					log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
+					PF_Err_NONE as PF_Err
+				}
+				Err(err) => err,
+			}
+		},
+		("PF World Suite", 2) => unsafe {
+			match acquire(suite_name, version, || world::create_world_suite_2()) {
 				Ok(ptr) => {
 					*suite = ptr as *const c_void;
 					log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
