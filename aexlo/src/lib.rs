@@ -5,7 +5,7 @@
 //!
 //! # Example
 //!
-//! ```no_run
+//! ```ignore
 //! use aexlo::PluginInstance;
 //!
 //! let mut instance = PluginInstance::new(std::path::Path::new("SDK_Noise"));
@@ -38,6 +38,7 @@
 pub mod core;
 pub mod host;
 mod instance;
+mod utils;
 
 pub(crate) mod suites;
 

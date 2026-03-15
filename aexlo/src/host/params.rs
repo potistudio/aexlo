@@ -1,69 +1,13 @@
 //! Parameter Manager
 //!
-//! Stores parameters registered by plugins via `add_param`.
-//! Emulates the C++ `ParamManager` class from aexlo.js.
+//! Provides helper functions for parameter management.
+//! Parameters are now stored in individual PluginInstance objects instead of global storage.
 
 use after_effects_sys::*;
-use std::collections::HashMap;
 use std::ffi::CStr;
-use std::sync::Mutex;
 
-/// Wrapper for parameter storage that implements Send/Sync.
-/// This is safe because we only access this from a controlled context.
-struct ParamStorage {
-	params: HashMap<usize, Vec<PF_ParamDef>>,
-}
-
-// SAFETY: We ensure exclusive access via Mutex, and the raw pointers within
-// PF_ParamDef are only accessed on the same thread that created them.
-unsafe impl Send for ParamStorage {}
-unsafe impl Sync for ParamStorage {}
-
-/// Global parameter storage, keyed by effect_ref (as usize for hashing).
-static PARAMS: Mutex<Option<ParamStorage>> = Mutex::new(None);
-
-/// Initializes the parameter manager (called once at startup).
-pub fn init() {
-	let mut params = PARAMS.lock().unwrap();
-	if params.is_none() {
-		*params = Some(ParamStorage {
-			params: HashMap::new(),
-		});
-	}
-}
-
-/// Adds a parameter definition for the given effect_ref.
-pub fn add_param(effect_ref: PF_ProgPtr, param: PF_ParamDef) {
-	let param = normalize_param_value_to_default(param);
-
-	let mut guard = PARAMS.lock().unwrap();
-	let storage = guard.get_or_insert_with(|| ParamStorage {
-		params: HashMap::new(),
-	});
-
-	let key = effect_ref as usize;
-	storage
-		.params
-		.entry(key)
-		.or_insert_with(Vec::new)
-		.push(param);
-
-	log::debug!(
-		"ParamManager: effect_ref={:#x}, index={}, name='{}', type={}(#{}), details={}",
-		key,
-		storage
-			.params
-			.get(&key)
-			.map(|params| params.len().saturating_sub(1))
-			.unwrap_or(0),
-		param_name(&param),
-		param_type_name(param.param_type),
-		param.param_type,
-		param_details(&param)
-	);
-}
-
-fn normalize_param_value_to_default(mut param: PF_ParamDef) -> PF_ParamDef {
+/// Normalizes a parameter value to its default value.
+pub(crate) fn normalize_param_value_to_default(mut param: PF_ParamDef) -> PF_ParamDef {
 	unsafe {
 		#[allow(non_upper_case_globals)]
 		match param.param_type {
@@ -108,7 +52,7 @@ fn normalize_param_value_to_default(mut param: PF_ParamDef) -> PF_ParamDef {
 ///
 /// The name field in `PF_ParamDef` is a null-terminated byte array,
 /// so this trims at the first null byte before decoding.
-fn param_name(param: &PF_ParamDef) -> String {
+pub(crate) fn param_name(param: &PF_ParamDef) -> String {
 	let raw_name = &param.name;
 	let end = raw_name
 		.iter()
@@ -120,7 +64,7 @@ fn param_name(param: &PF_ParamDef) -> String {
 }
 
 /// Returns a human-readable name for the given parameter type.
-fn param_type_name(param_type: PF_ParamType) -> &'static str {
+pub(crate) fn param_type_name(param_type: PF_ParamType) -> &'static str {
 	#[allow(non_upper_case_globals)]
 	match param_type {
 		PF_Param_RESERVED => "Reserved",
@@ -148,7 +92,7 @@ fn param_type_name(param_type: PF_ParamType) -> &'static str {
 }
 
 /// Returns a string with details about the parameter, based on its type and fields.
-fn param_details(param: &PF_ParamDef) -> String {
+pub(crate) fn param_details(param: &PF_ParamDef) -> String {
 	unsafe {
 		#[allow(non_upper_case_globals)]
 		match param.param_type {
@@ -249,46 +193,115 @@ fn fixed_to_f64(value: PF_Fixed) -> f64 {
 	(value as f64) / 65536.0
 }
 
-/// Gets all parameters for the given effect_ref.
-pub fn get_params(effect_ref: PF_ProgPtr) -> Vec<PF_ParamDef> {
-	let guard = PARAMS.lock().unwrap();
-	if let Some(storage) = guard.as_ref() {
-		storage
-			.params
-			.get(&(effect_ref as usize))
-			.cloned()
-			.unwrap_or_default()
+// ============================================================================
+// Instance Access Helpers
+// ============================================================================
+
+/// Add a parameter to a plugin instance
+pub fn add_param_to_instance(effect_ref: PF_ProgPtr, param: PF_ParamDef) -> Result<(), String> {
+	if effect_ref.is_null() {
+		return Err("effect_ref is null".to_string());
+	}
+
+	let instance = crate::instance::PluginInstance::get_instance(effect_ref);
+	if let Some(instance) = instance {
+		let normalized_param = normalize_param_value_to_default(param);
+		instance.add_instance_param(normalized_param);
+
+		// Log parameter details
+		let params = instance.get_instance_params();
+		let index = params.len().saturating_sub(1);
+
+		log::debug!(
+			"ParamManager: effect_ref={:#x}, index={}, name='{}', type={}(#{}), details={}",
+			effect_ref as usize,
+			index,
+			param_name(&normalized_param),
+			param_type_name(normalized_param.param_type),
+			normalized_param.param_type,
+			param_details(&normalized_param)
+		);
+
+		Ok(())
+	} else {
+		Err(format!("Failed to get instance for effect_ref={:#x}", effect_ref as usize))
+	}
+}
+
+/// Get all parameters from a plugin instance
+pub fn get_params_from_instance(effect_ref: PF_ProgPtr) -> Vec<PF_ParamDef> {
+	if effect_ref.is_null() {
+		return Vec::new();
+	}
+
+	let instance = crate::instance::PluginInstance::get_instance(effect_ref);
+	if let Some(instance) = instance {
+		instance.get_instance_params().to_vec()
 	} else {
 		Vec::new()
 	}
 }
 
-/// Gets the number of parameters for the given effect_ref.
-pub fn get_params_count(effect_ref: PF_ProgPtr) -> usize {
-	let guard = PARAMS.lock().unwrap();
-	if let Some(storage) = guard.as_ref() {
-		storage
-			.params
-			.get(&(effect_ref as usize))
-			.map(|v| v.len())
-			.unwrap_or(0)
+/// Get the number of parameters from a plugin instance
+pub fn get_params_count_from_instance(effect_ref: PF_ProgPtr) -> usize {
+	if effect_ref.is_null() {
+		return 0;
+	}
+
+	let instance = crate::instance::PluginInstance::get_instance(effect_ref);
+	if let Some(instance) = instance {
+		instance.get_instance_params().len()
 	} else {
 		0
 	}
 }
 
+// ============================================================================
+// Deprecated Global Functions (kept for backward compatibility during transition)
+// ============================================================================
+
+/// @deprecated Use `add_param_to_instance` instead
+/// Adds a parameter definition for the given effect_ref.
+#[deprecated(note = "Use add_param_to_instance instead")]
+pub fn add_param(effect_ref: PF_ProgPtr, param: PF_ParamDef) {
+	let _ = add_param_to_instance(effect_ref, param);
+}
+
+/// @deprecated Use `get_params_from_instance` instead
+/// Gets all parameters for the given effect_ref.
+#[deprecated(note = "Use get_params_from_instance instead")]
+pub fn get_params(effect_ref: PF_ProgPtr) -> Vec<PF_ParamDef> {
+	get_params_from_instance(effect_ref)
+}
+
+/// @deprecated Use `get_params_count_from_instance` instead
+/// Gets the number of parameters for the given effect_ref.
+#[deprecated(note = "Use get_params_count_from_instance instead")]
+pub fn get_params_count(effect_ref: PF_ProgPtr) -> usize {
+	get_params_count_from_instance(effect_ref)
+}
+
+/// @deprecated Use PluginInstance::clear_instance_params instead
 /// Clears all parameters for the given effect_ref.
+#[deprecated(note = "Use PluginInstance::clear_instance_params instead")]
 pub fn clear_params(effect_ref: PF_ProgPtr) {
-	let mut guard = PARAMS.lock().unwrap();
-	if let Some(storage) = guard.as_mut() {
-		storage.params.remove(&(effect_ref as usize));
+	if !effect_ref.is_null() {
+		if let Some(instance) = crate::instance::PluginInstance::get_instance(effect_ref) {
+			instance.clear_instance_params();
+		}
 	}
 }
 
+/// @deprecated No longer needed with instance-based storage
 /// Clears all parameters.
+#[deprecated(note = "No longer needed with instance-based storage")]
 pub fn clear_all() {
-	let mut guard = PARAMS.lock().unwrap();
-	if let Some(storage) = guard.as_mut() {
-		storage.params.clear();
-	}
+	// No-op with instance-based storage
+}
+
+/// @deprecated No longer needed with instance-based storage
+/// Initializes the parameter manager (called once at startup).
+#[deprecated(note = "No longer needed with instance-based storage")]
+pub fn init() {
+	// No-op with instance-based storage
 }

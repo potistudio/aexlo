@@ -4,22 +4,6 @@ use after_effects_sys::*;
 // Parameter Management
 // ============================================================================
 
-// Global effect_ref storage for parameter operations
-static mut GLOBAL_EFFECT_REF: PF_ProgPtr = std::ptr::null_mut();
-
-/// Get the current effect_ref (stored during GLOBAL_SETUP)
-fn get_effect_ref() -> PF_ProgPtr {
-	unsafe { GLOBAL_EFFECT_REF }
-}
-
-/// Set the current effect ref (called during GLOBAL_SETUP)
-pub fn set_effect_ref(effect_ref: PF_ProgPtr) {
-	unsafe {
-		GLOBAL_EFFECT_REF = effect_ref;
-	}
-	log::debug!("Set effect_ref to {:#x}", effect_ref as usize);
-}
-
 unsafe extern "C" fn checkout_param_stub(
 	_effect_ref: PF_ProgPtr,
 	index: PF_ParamIndex,
@@ -33,9 +17,8 @@ unsafe extern "C" fn checkout_param_stub(
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	// Get params from ParamManager using the stored effect_ref
-	let effect_ref = get_effect_ref();
-	let params = crate::host::params::get_params(effect_ref);
+	// Get params from instance using the effect_ref
+	let params = crate::host::params::get_params_from_instance(_effect_ref);
 
 	// +1 for input layer param
 	if (index as usize) > params.len() {
@@ -53,7 +36,11 @@ unsafe extern "C" fn checkout_param_stub(
 		std::ptr::copy_nonoverlapping(param, _param, 1);
 	}
 
-	log::debug!("checkout_param: returned param at index={}", index);
+	log::debug!(
+		"checkout_param: returned param at index={}, effect_ref={:#x}",
+		index,
+		_effect_ref as usize
+	);
 	PF_Err_NONE as PF_Err
 }
 
@@ -69,7 +56,7 @@ unsafe extern "C" fn checkin_param_stub(
 	// For now, just log - no-op for checkin
 	log::debug!(
 		"checkin_param called for effect_ref={:#x}",
-		get_effect_ref() as usize
+		_effect_ref as usize
 	);
 	PF_Err_NONE as PF_Err
 }
@@ -87,18 +74,16 @@ unsafe extern "C" fn add_param_impl(
 	// Copy the param definition and store it
 	let param = unsafe { *def };
 
-	// Store the param in ParamManager
-	crate::host::params::add_param(_effect_ref, param);
-
-	// Set the effect_ref if it's null (first call during GLOBAL_SETUP)
-	if get_effect_ref().is_null() && !_effect_ref.is_null() {
-		set_effect_ref(_effect_ref);
+	// Store the param in instance via ParamManager
+	if let Err(e) = crate::host::params::add_param_to_instance(_effect_ref, param) {
+		log::error!("add_param: failed to add param: {}", e);
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
 	log::info!(
 		"add_param: stored param, effect_ref={:#x}, total={}",
 		_effect_ref as usize,
-		crate::host::params::get_params_count(_effect_ref)
+		crate::host::params::get_params_count_from_instance(_effect_ref)
 	);
 
 	PF_Err_NONE as PF_Err

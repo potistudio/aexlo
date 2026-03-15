@@ -32,7 +32,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 		sqrt: None,
 		tan: None,
 		sprintf: Some(ansi::sprintf_sys),
-		strcpy: None,
+		strcpy: Some(ansi::strcpy_sys),
 		asin: None,
 		acos: None,
 		ansi_procs: [0; 1],

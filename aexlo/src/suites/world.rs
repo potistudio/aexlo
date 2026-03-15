@@ -3,7 +3,7 @@ use after_effects_sys::{
 	PF_ProgPtr, PF_WorldSuite2,
 };
 
-use crate::DiagnosticBuilder;
+use crate::core::diagnostics::DiagnosticBuilder;
 
 unsafe extern "C" fn dispose_world_stub(
 	effect_ref: PF_ProgPtr,

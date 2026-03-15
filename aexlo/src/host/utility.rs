@@ -1,5 +1,6 @@
 use crate::core::diagnostics::*;
 use crate::suites::macros::stub_log;
+use crate::suites::world;
 use after_effects_sys::*;
 use rayon::prelude::*;
 use std::os::raw::c_void;
@@ -479,11 +480,30 @@ stub_log!(iterate_origin_non_clip_src16_stub,
 	_dst: *mut PF_EffectWorld
 );
 
-stub_log!(get_pixel_data8_stub,
-	_worldP: *mut PF_EffectWorld,
-	_pixelsP0: PF_PixelPtr,
-	_pixPP: *mut *mut PF_Pixel8
-);
+/// # Safety
+///
+/// This function is unsafe because it handles raw pointers and performs unchecked operations.
+pub unsafe extern "C" fn get_pixel_data8_sys(
+	worldP: *mut PF_EffectWorld,
+	pixelsP0: PF_PixelPtr,
+	pixPP: *mut *mut PF_Pixel8,
+) -> PF_Err {
+	DiagnosticBuilder::new()
+		.set_name("Utility/get_pixel_data8")
+		.add_arg("worldP", format!("{:x}", worldP as usize))
+		.add_arg("pixelsP0", format!("{:x}", pixelsP0 as usize))
+		.add_arg("pixPP", format!("{:?}", pixPP))
+		.emit();
+
+	if !pixPP.is_null() && !worldP.is_null() {
+		// SAFETY: The caller guarantees valid pointers.
+		unsafe {
+			*pixPP = (*worldP).data as *mut PF_Pixel8;
+		}
+	}
+
+	PF_Err_NONE as PF_Err
+}
 
 stub_log!(get_pixel_data16_stub,
 	_worldP: *mut PF_EffectWorld,
@@ -602,7 +622,7 @@ pub fn create_utility_callbacks() -> Box<_PF_UtilCallbacks> {
 		iterate16: Some(iterate16_stub),
 		iterate_origin16: Some(iterate_origin16_stub),
 		iterate_origin_non_clip_src16: Some(iterate_origin_non_clip_src16_stub),
-		get_pixel_data8: Some(get_pixel_data8_stub),
+		get_pixel_data8: Some(get_pixel_data8_sys),
 		get_pixel_data16: Some(get_pixel_data16_stub),
 		reserved: [0; 1],
 	})

@@ -1,24 +1,24 @@
-use crate::{
-	DiagnosticBuilder,
-	core::error::{AexloError, Result},
-};
+use crate::core::diagnostics::DiagnosticBuilder;
+use crate::core::error::{AexloError, Result};
+use crate::utils;
 // use crate::suites::SuiteContainer; // Not needed
 
 use after_effects::ParamType;
+use after_effects::sys::PF_ParamType;
 use after_effects_sys::{
-	A_long, A_u_long, PF_Boolean, PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM,
-	PF_Err_INVALID_INDEX, PF_Err_NONE, PF_LRect, PF_LayerDef, PF_ParamDef, PF_ParamIndex,
-	PF_ParamType, PF_Pixel, PF_ProgPtr, PF_RenderRequest,
+	A_long, A_u_long, PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_LRect,
+	PF_ParamDef, PF_ParamDefUnion, PF_ParamIndex, PF_Pixel, PF_ProgPtr, PF_RenderRequest,
 };
 use colored::Colorize;
 use dlopen2::raw::Library;
 use std::{
-	ffi::c_void,
 	path::{Path, PathBuf},
 	ptr::{null, null_mut},
 };
 
 const DEFAULT_ENTRY_POINT_NAME: &str = "EffectMain";
+const WIDTH: u32 = 1920;
+const HEIGHT: u32 = 1080;
 
 unsafe extern "C" fn checkout_layer_stub(
 	effect_ref: PF_ProgPtr,
@@ -44,20 +44,20 @@ unsafe extern "C" fn checkout_layer_stub(
 		result_rect: after_effects_sys::PF_Rect {
 			left: 0,
 			top: 0,
-			right: 1920,
-			bottom: 1080,
+			right: WIDTH as i32,
+			bottom: HEIGHT as i32,
 		},
 		max_result_rect: after_effects_sys::PF_Rect {
 			left: 0,
 			top: 0,
-			right: 1920,
-			bottom: 1080,
+			right: WIDTH as i32,
+			bottom: HEIGHT as i32,
 		},
 		par: after_effects_sys::PF_RationalScale { num: 1, den: 1 },
 		solid: 1,
 		reservedB: [0; 3],
-		ref_width: 1920,
-		ref_height: 1080,
+		ref_width: WIDTH as i32,
+		ref_height: HEIGHT as i32,
 		reserved: [0; 6],
 	};
 
@@ -149,8 +149,6 @@ pub struct PluginInstance {
 	entry_point_candidates: Vec<String>,
 	path: PathBuf,
 	cmd: after_effects::RawCommand,
-	global_setup_done: bool,
-	params_setup_done: bool,
 	world: after_effects_sys::PF_LayerDef,
 
 	utility_callbacks: Box<after_effects_sys::_PF_UtilCallbacks>,
@@ -161,9 +159,15 @@ pub struct PluginInstance {
 	/// InData structure
 	pub in_data: after_effects_sys::PF_InData,
 	out_data: after_effects_sys::PF_OutData,
+
+	/// Instance-specific parameters from the host (non-global storage)
 	params: Vec<after_effects_sys::PF_ParamDef>,
+
+	/// Track if instance params need synchronization
+	params_dirty: bool,
+
 	input_layer: wrapper::Layer<wrapper::Depth8>,
-	lllllayer: wrapper::Layer<wrapper::Depth8>,
+	output_layer: wrapper::Layer<wrapper::Depth8>,
 
 	smart_pre_render_extra_data: after_effects_sys::PF_PreRenderExtra,
 	smart_pre_render_extra_input: Box<after_effects_sys::PF_PreRenderInput>,
@@ -184,45 +188,11 @@ impl PluginInstance {
 		Ok(instance)
 	}
 
-	fn make_input_layer_param(&self) -> PF_ParamDef {
-		let layer = self.input_layer.as_sys();
-
-		PF_ParamDef {
-			ui_flags: 0,
-			flags: 0,
-			param_type: ParamType::Layer as PF_ParamType,
-			name: [0; 32],
-			ui_height: 0,
-			ui_width: 0,
-			unused: 0,
-			u: after_effects_sys::PF_ParamDefUnion { ld: layer },
-			uu: after_effects_sys::PF_ParamDef__bindgen_ty_1 { id: 0 },
-		}
-	}
-
-	fn sync_render_params_from_host(&mut self) {
-		let effect_ref = self.in_data.effect_ref;
-		if effect_ref.is_null() {
-			return;
-		}
-
-		let host_params = crate::host::params::get_params(effect_ref);
-		if host_params.is_empty() {
-			return;
-		}
-
-		let mut params = Vec::with_capacity(host_params.len() + 1);
-		params.push(self.make_input_layer_param());
-		params.extend(host_params);
-
-		self.params = params;
-		self.in_data.num_params = self.params.len() as i32;
-	}
-
 	/// Create a new PluginInstance with default values
 	fn new(path: &Path) -> Self {
-		let width = 1920;
-		let height = 1080;
+		let width = WIDTH;
+		let height = HEIGHT;
+
 		// Initialize Interact Callbacks using factory
 		let interact_callbacks = crate::host::interact::create_interact_callbacks();
 
@@ -232,56 +202,9 @@ impl PluginInstance {
 		let input_layer = wrapper::Layer::<wrapper::Depth8>::new(
 			width,
 			height,
-			vec![wrapper::Pixel::<wrapper::Depth8>::black(); (width * height) as usize],
+			vec![wrapper::Pixel::<wrapper::Depth8>::green(); (width * height) as usize],
 		)
 		.unwrap();
-
-		let ld = input_layer.as_sys();
-
-		let fs_d = after_effects_sys::PF_FloatSliderDef {
-			//* Parameter Value */
-			value: 83.56,
-			phase: 0.0,
-			value_desc: [0; 32],
-
-			//* Parameter Description */
-			valid_min: 0.0,
-			valid_max: 1000.0,
-			slider_min: 0.0,
-			slider_max: 100.0,
-			dephault: 100.0,
-			precision: 2,
-			display_flags: 0,
-			fs_flags: 0,
-			curve_tolerance: 0.0,
-			useExponent: false as PF_Boolean,
-			exponent: 1.0,
-		};
-
-		let param_list = vec![
-			after_effects_sys::PF_ParamDef {
-				ui_flags: 0,
-				flags: 0,
-				param_type: 0 as after_effects_sys::PF_ParamType, // Layer
-				name: [0; 32],
-				ui_height: 0,
-				ui_width: 0,
-				unused: 0,
-				u: after_effects_sys::PF_ParamDefUnion { ld },
-				uu: after_effects_sys::PF_ParamDef__bindgen_ty_1 { id: 0 },
-			},
-			after_effects_sys::PF_ParamDef {
-				ui_flags: 0,
-				flags: 0,
-				param_type: 10 as after_effects_sys::PF_ParamType, // Float Slider,
-				name: [0; 32],
-				ui_height: 0,
-				ui_width: 0,
-				unused: 0,
-				u: after_effects_sys::PF_ParamDefUnion { fs_d },
-				uu: after_effects_sys::PF_ParamDef__bindgen_ty_1 { id: 0 },
-			},
-		];
 
 		let pica = Box::new(after_effects_sys::SPBasicSuite {
 			AcquireSuite: Some(crate::suites::rusty_acquire_suite),
@@ -298,11 +221,13 @@ impl PluginInstance {
 			library: None,
 			entry_point: None,
 			entry_point_name: None,
-			entry_point_candidates: vec!["EffectMain".to_string(), "EntryPointFunc".to_string()],
+			entry_point_candidates: vec![
+				"EffectMain".to_string(),
+				"EntryPointFunc".to_string(),
+				"entryPointFunc".to_string(),
+			],
 			path: path.to_path_buf(),
 			cmd: after_effects::RawCommand::About,
-			global_setup_done: false,
-			params_setup_done: false,
 			utility_callbacks,
 			pica,
 			in_data: crate::core::helpers::InDataBuilder::new()
@@ -311,9 +236,10 @@ impl PluginInstance {
 				.with_global_data(unsafe { crate::suites::handle::host_new_handle_impl(0x498) })
 				.build(),
 			out_data: crate::core::helpers::OutDataBuilder::new().build(),
-			params: param_list,
+			params: Vec::new(),
+			params_dirty: false,
 			input_layer,
-			lllllayer: wrapper::Layer::<wrapper::Depth8>::new(
+			output_layer: wrapper::Layer::<wrapper::Depth8>::new(
 				width,
 				height,
 				vec![wrapper::Pixel::<wrapper::Depth8>::black(); (width * height) as usize],
@@ -404,9 +330,12 @@ impl PluginInstance {
 		// Now set the utils pointer to reference our owned utility_callbacks
 		instance.in_data.utils = instance.utility_callbacks.as_mut() as *mut _;
 		instance.in_data.pica_basicP = instance.pica.as_mut() as *mut _;
-		instance.in_data.effect_ref = instance.in_data.global_data as _;
+
+		// effect_ref will be set dynamically before each plugin call
+		instance.in_data.effect_ref = std::ptr::null_mut();
+
 		instance.in_data.num_params = instance.params.len() as i32;
-		instance.world.data = instance.lllllayer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
+		instance.world.data = instance.output_layer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
 
 		instance.smart_pre_render_extra_data.input =
 			instance.smart_pre_render_extra_input.as_mut() as *mut _;
@@ -419,6 +348,20 @@ impl PluginInstance {
 			instance.smart_render_extra_input.as_mut() as *mut _;
 		instance.smart_render_extra_data.cb =
 			instance.smart_render_extra_callbacks.as_mut() as *mut _;
+
+		instance.params.push(PF_ParamDef {
+			uu: after_effects_sys::PF_ParamDef__bindgen_ty_1 { id: 0 },
+			ui_flags: 0,
+			ui_width: 0,
+			ui_height: 0,
+			param_type: 0 as PF_ParamType,
+			name: [0; 32],
+			flags: 0,
+			unused: 0,
+			u: PF_ParamDefUnion {
+				ld: instance.input_layer.as_sys(),
+			},
+		});
 
 		instance
 	}
@@ -548,9 +491,13 @@ impl PluginInstance {
 		let entry_point_name = self
 			.entry_point_name
 			.as_deref()
-			.unwrap_or(DEFAULT_ENTRY_POINT_NAME);
+			.unwrap_or(DEFAULT_ENTRY_POINT_NAME)
+			.to_string();
 
 		log::info!("Executing command: {}", format!("{:?}", self.cmd).blue());
+
+		// Update effect_ref to point to self before calling the plugin
+		self.in_data.effect_ref = self as *mut _ as PF_ProgPtr;
 
 		let mut params_ptr: Vec<*mut PF_ParamDef> =
 			self.params.iter_mut().map(|p| p as *mut _).collect();
@@ -578,7 +525,6 @@ impl PluginInstance {
 
 		if !self.out_data.global_data.is_null() {
 			self.in_data.global_data = self.out_data.global_data;
-			self.in_data.effect_ref = self.in_data.global_data as _;
 		}
 
 		if !self.out_data.sequence_data.is_null() {
@@ -586,8 +532,8 @@ impl PluginInstance {
 		}
 
 		log::info!(
-			"Called {} {}.",
-			entry_point_name.blue(),
+			"Executed command '{}' {}.",
+			format!("{:?}", self.cmd).blue(),
 			"successfully".green()
 		);
 		log::debug!(
@@ -625,35 +571,20 @@ impl PluginInstance {
 	pub fn setup_global(&mut self) -> Result<()> {
 		self.cmd = after_effects::RawCommand::GlobalSetup;
 		self.call_plugin(None)?;
-		self.global_setup_done = true;
-		self.params_setup_done = false;
 
 		Ok(())
 	}
 
 	/// Call the plugin with `PF_Cmd_PARAMS_SETUP` command
-	pub fn setup_params(&mut self) -> Result<()> {
-		if !self.global_setup_done {
-			log::debug!("GlobalSetup not executed yet; running it before ParamsSetup");
-			self.setup_global()?;
-		}
-
-		if self.params_setup_done {
-			log::debug!("Skipping duplicate ParamsSetup for plugin instance");
-			return Ok(());
-		}
-
+	fn setup_params(&mut self) -> Result<()> {
 		self.cmd = after_effects::RawCommand::ParamsSetup;
 		self.call_plugin(None)?;
-		self.sync_render_params_from_host();
-		self.params_setup_done = true;
 
 		Ok(())
 	}
 
 	/// Call the plugin with `PF_Cmd_RENDER` command
 	pub fn render(&mut self) -> Result<()> {
-		self.sync_render_params_from_host();
 		self.cmd = after_effects::RawCommand::Render;
 		self.call_plugin(None)?;
 
@@ -661,7 +592,6 @@ impl PluginInstance {
 	}
 
 	pub fn render_pre(&mut self) -> Result<()> {
-		self.sync_render_params_from_host();
 		self.cmd = after_effects::RawCommand::SmartPreRender;
 		self.call_plugin(Some(ExtraData::PreRender(self.smart_pre_render_extra_data)))?;
 
@@ -672,9 +602,15 @@ impl PluginInstance {
 	}
 
 	pub fn render_smart(&mut self) -> Result<()> {
-		self.sync_render_params_from_host();
 		self.cmd = after_effects::RawCommand::SmartRender;
 		self.call_plugin(Some(ExtraData::Render(self.smart_render_extra_data)))?;
+
+		Ok(())
+	}
+
+	pub fn set_input(&mut self, input: wrapper::Layer<wrapper::Depth8>) -> Result<()> {
+		self.input_layer = input;
+		self.world.data = self.input_layer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
 
 		Ok(())
 	}
@@ -682,7 +618,7 @@ impl PluginInstance {
 	/// Write output pixels directly to an RGBA buffer (zero-allocation).
 	/// The buffer must have exactly `width * height * 4` bytes.
 	pub fn write_output_rgba(&self, buffer: &mut [u8]) -> Result<()> {
-		self.lllllayer
+		self.output_layer
 			.write_rgba_bytes(buffer)
 			.map_err(|e| AexloError::Unexpected("Failed to write RGBA bytes: ".to_string() + &e))
 	}
@@ -690,26 +626,26 @@ impl PluginInstance {
 	//==== Getter ==========================================
 	/// Get output dimensions in pixel (width, height).
 	pub fn output_size(&self) -> (u32, u32) {
-		(self.lllllayer.width(), self.lllllayer.height())
+		(self.output_layer.width(), self.output_layer.height())
 	}
 
 	/// Get the number of parameters
-	pub fn param_count(&self) -> usize {
+	pub fn param_count(&mut self) -> usize {
 		self.params.len()
 	}
 
 	//==== Setter ==========================================
 	/// Set a float parameter value by index.
 	pub fn set_param_float(&mut self, index: usize, value: f64) -> Result<()> {
-		// Check index bounds
-		if index >= self.params.len() {
+		// Check index bounds for instance_params (offset by 1 for input layer param)
+		if index == 0 || index >= self.params.len() {
 			return Err(AexloError::ParamIndexOutOfBounds {
 				index,
 				max: self.params.len(),
 			});
 		}
 
-		// Check if this is a float slider type (param_type == 10)
+		// Check if this is a float slider type
 		let target_param = &mut self.params[index];
 		if target_param.param_type != ParamType::FloatSlider as PF_ParamType {
 			return Err(AexloError::ParamTypeMismatch {
@@ -719,19 +655,91 @@ impl PluginInstance {
 			});
 		}
 
-		// SAFETY: We verified param type, so fs_d is the active union variant
+		// SAFETY: We verified param type is float slider, so fs_d is the active union variant
 		target_param.u.fs_d.value = value;
+
+		Ok(())
+	}
+
+	pub fn set_param_fixed(&mut self, index: usize, value: f32) -> Result<()> {
+		// Check index bounds for instance_params (offset by 1 for input layer param)
+		if index == 0 || index >= self.params.len() {
+			return Err(AexloError::ParamIndexOutOfBounds {
+				index,
+				max: self.params.len(),
+			});
+		}
+
+		// Check if this is a fixed type
+		let target_param = &mut self.params[index];
+		if target_param.param_type != ParamType::FixSlider as PF_ParamType {
+			return Err(AexloError::ParamTypeMismatch {
+				index,
+				expected: "FixSlider",
+				actual: target_param.param_type,
+			});
+		}
+
+		target_param.u.fd.value = utils::f32_to_q31(value);
+		Ok(())
+	}
+
+	pub fn set_param_slider(&mut self, index: usize, value: i32) -> Result<()> {
+		// Check index bounds for instance_params (offset by 1 for input layer param)
+		if index == 0 || index >= self.params.len() {
+			return Err(AexloError::ParamIndexOutOfBounds {
+				index,
+				max: self.params.len(),
+			});
+		}
+
+		// Check if this is a slider type
+		let target_param = &mut self.params[index];
+		if target_param.param_type != ParamType::Slider as PF_ParamType {
+			return Err(AexloError::ParamTypeMismatch {
+				index,
+				expected: "Slider",
+				actual: target_param.param_type,
+			});
+		}
+
+		target_param.u.sd.value = value;
+		Ok(())
+	}
+
+	pub fn set_param_checkbox(&mut self, index: usize, value: bool) -> Result<()> {
+		// Check index bounds for instance_params (offset by 1 for input layer param)
+		if index == 0 || index >= self.params.len() {
+			return Err(AexloError::ParamIndexOutOfBounds {
+				index,
+				max: self.params.len(),
+			});
+		}
+
+		// Check if this is a checkbox type
+		let target_param = &mut self.params[index];
+		if target_param.param_type != ParamType::CheckBox as PF_ParamType {
+			return Err(AexloError::ParamTypeMismatch {
+				index,
+				expected: "Checkbox",
+				actual: target_param.param_type,
+			});
+		}
+
+		target_param.u.bd.value = if value { 1 } else { 0 };
 		Ok(())
 	}
 
 	/// Get a float parameter value by index.
 	/// Returns `None` if index out of bounds or not a float param.
 	pub fn get_param_float(&self, index: usize) -> Option<f64> {
-		if index >= self.params.len() {
+		// Check index bounds for instance_params (offset by 1 for input layer param)
+		if index == 0 || index >= self.params.len() {
 			return None;
 		}
 
 		let target_param = &self.params[index];
+
 		if target_param.param_type != ParamType::FloatSlider as PF_ParamType {
 			return None;
 		}
@@ -751,7 +759,7 @@ impl PluginInstance {
 	/// Unicode replacement character (�).
 	///
 	/// # Example
-	/// ```no_run
+	/// ```ignore
 	/// let mut instance = PluginInstance::new("SDK_Noise");
 	/// instance.load()?;
 	///
@@ -779,5 +787,45 @@ impl PluginInstance {
 			let ptr = effect_ref as *mut PluginInstance;
 			if ptr.is_null() { None } else { Some(&mut *ptr) }
 		}
+	}
+
+	//==== Instance Parameter Management ==========================================
+
+	/// Add a parameter to this instance's parameter storage
+	pub fn add_instance_param(&mut self, param: PF_ParamDef) {
+		self.params.push(param);
+		self.params_dirty = true;
+		log::debug!(
+			"PluginInstance: added param #{} (type: {:?})",
+			self.params.len(),
+			param.param_type
+		);
+	}
+
+	/// Get all instance parameters
+	pub fn get_instance_params(&self) -> &[PF_ParamDef] {
+		&self.params
+	}
+
+	/// Get a specific instance parameter by index
+	pub fn get_instance_param(&self, index: usize) -> Option<&PF_ParamDef> {
+		self.params.get(index)
+	}
+
+	/// Clear all instance parameters
+	pub fn clear_instance_params(&mut self) {
+		self.params.clear();
+		self.params_dirty = true;
+		log::debug!("PluginInstance: cleared all instance params");
+	}
+
+	/// Check if instance params need synchronization
+	pub fn is_params_dirty(&self) -> bool {
+		self.params_dirty
+	}
+
+	/// Mark params as synchronized (called after syncing to render params)
+	pub fn mark_params_synced(&mut self) {
+		self.params_dirty = false;
 	}
 }

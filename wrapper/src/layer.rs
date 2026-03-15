@@ -159,7 +159,7 @@ where
 		self.pixels.iter_mut()
 	}
 
-	pub fn as_sys(&self) -> PF_LayerDef {
+	pub fn as_sys(&mut self) -> PF_LayerDef {
 		PF_LayerDef {
 			reserved0: null_mut(),
 			reserved1: null_mut(),

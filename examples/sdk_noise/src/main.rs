@@ -11,7 +11,7 @@ use colored::Colorize;
 use aexlo::PluginInstance;
 
 //* Configuration constants */
-const MODULE_NAME: &str = "SDK_Noise";
+const MODULE_NAME: &str = "Chromabba";
 
 fn write_png(data: &[u8], width: u32, height: u32) -> Result<(), Box<dyn Error>> {
 	log::info!("Writing output image...");
@@ -69,11 +69,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 	//* `PF_Cmd_ABOUT` command, which is used to retrieve */
 	//* the plugin's information.                         */
 	//* ------------------------------------------------- */
-	let message = instance.about()?;
-	println!("plugin information: {:?}", message);
+	// let message = instance.about()?;
+	// println!("plugin information: {:?}", message);
 
+	println!("{}", instance.param_count());
+	// instance.set_param_float(1, 100.0)?;
 	instance.render()?;
 	// instance.render_pre()?;
+	// instance.render_smart()?;
 
 	//==== Extract the output layer ========================
 	log::info!("Extracting output layer...");

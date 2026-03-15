@@ -1,5 +1,7 @@
 use std::ffi::{CStr, CString};
 
+use after_effects_sys::A_char;
+
 use crate::core::diagnostics::DiagnosticBuilder;
 
 macro_rules! impl_math_sys {
@@ -154,4 +156,24 @@ pub unsafe extern "C" fn sprintf_sys(
 	d.set_result(format!("{:?}", c_result)).emit();
 
 	after_effects_sys::PF_Err_NONE as after_effects_sys::PF_Err
+}
+
+pub unsafe extern "C" fn strcpy_sys(arg1: *mut A_char, arg2: *const A_char) -> *mut A_char {
+	if arg1.is_null() || arg2.is_null() {
+		return std::ptr::null_mut();
+	}
+
+	let src = match CStr::from_ptr(arg2).to_str() {
+		Ok(s) => s,
+		Err(_) => return std::ptr::null_mut(),
+	};
+
+	let cstring = match CString::new(src) {
+		Ok(s) => s,
+		Err(_) => return std::ptr::null_mut(),
+	};
+	let bytes = cstring.as_bytes_with_nul();
+	unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), arg1 as *mut u8, bytes.len()) };
+
+	arg1
 }
