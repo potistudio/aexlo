@@ -1,59 +1,79 @@
-# After Effects Plugin (.aex) Adapter Project
+# aexlo — After Effects Plugin Runtime
 
-> Adapter for rendering AE Effects **without Adobe After Effects**.
+> Load, run, and render After Effects plugins (.aex) outside of After Effects.
+> No Adobe license required.
+
+## What
+
+**aexlo** is a Rust crate that emulates the After Effects plugin runtime.
+It loads and renders `.aex` plugins by re-implementing the AE Plugin SDK —
+the same interface After Effects itself exposes to plugins.
+
+By default, host-dependent features (such as UI and application callbacks)
+are left unimplemented, giving you full control over what to override
+and how to integrate plugins into your own application.
+
+## Why
+
+**Adobe After Effects** is the most widely used video editor in the world,  
+and there is a rich ecosystem of powerful plugins built for it.  
+However, all of these plugins are designed to run exclusively within After Effects.
+
+**aexlo** emulates the After Effects plugin runtime — like Wine does for Windows applications on Linux —
+allowing AE plugins to run outside of After Effects entirely.
+
+## Who This Is For
+
+- **Plugin developers** who want to test your plugins without spinning up a full After Effects instance.
+- **Software developers** who want to make your software compatible with After Effects plugins.
+- **Artists** who want to integrate After Effects plugins into your image processing workflows.
+
+## Capabilities
+
+- Load and render After Effects plugins outside of After Effects.
+- Selectively override or re-implement SDK commands, suites, and callbacks
+  to fit your specific workflow.
 
 ## Status
 
-Work in progress.\
-This library is a Rust implementation of my old Node.js library "[aexlo.js](https://github.com/potistudio/aexlo.js)".\
-If you want to see the result, [the old C++ implementation is here](https://github.com/potistudio/aexlo.js/releases/tag/v0.1a).\
-The latest progress of this library is can seen on [develop branch](https://github.com/potistudio/aexlo-rs/tree/develop).
+> [!WARNING]
+> This projects is **currently under heavy development**.
+> The latest progress of this project can be seen on the [develop branch](https://github.com/potistudio/aexlo-rs/tree/develop).
 
-## Warnings
+## Quick Start
 
-- is tested only on my environment (win_x64 & macOS_arm64).
-- has no GUI, no CLI, and no Tests.
+### Requirements
 
-## Behavior
+- Rust toolchain (managed by [rust-toolchain.toml](rust-toolchain.toml))
 
-By default, some features that require interaction with client software are not implemented.
-However, the minimum necessary implementation is required for core functions that provide functionality to plugins.
+> [!NOTE]
+> This crate requires **Rust Nightly** due to its use of variadic arguments feature.
 
-All functions, commands, & suites are redefinable.
-These behavior can be implemented by yourself.
+- Windows x64 or macOS arm64
 
-## Implemented Commands
+> [!NOTE]
+> After Effects plugins target Windows and macOS only, so Linux is not currently supported.  
+> Linux support via Winelib is under investigation.
 
-⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 0% (0/29)
+### Build
 
-| Core               | Extra                         | Audio           |
-| ------------------ | ----------------------------- | --------------- |
-| □ About            | □ Completely General          | □ Audio Render  |
-| □ Do Dialog        | □ Event                       | □ Audio Setdown |
-| □ Frame Setdown    | □ Get External Dependencies   | □ Audio Setup   |
-| □ Frame Setup      | □ Get Flattened Sequence Data |                 |
-| □ Global Setdown   | □ GPU Device Setup            |                 |
-| □ Global Setup     | □ GPU Device Setdown          |                 |
-| □ Params Setup     | □ Num Cmds                    |                 |
-| □ Render           | □ Query Dynamic Flags         |                 |
-| □ Sequence Flatten | □ Smart Pre Render            |                 |
-| □ Sequence Setdown | □ Smart Render                |                 |
-| □ Sequence Setup   | □ Smart Render GPU            |                 |
-| □ Sequence Resetup | □ Translate Params to Prefs   |                 |
-|                    | □ User Changed Param          |                 |
-|                    | □ Update Params UI            |                 |
+```bash
+cargo build
+```
 
-## Implemented Suites
+### Run Example (sdk_noise)
 
-⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 0% (0/93)
+```bash
+cargo run -p sdk_noise
+```
 
-### PF Suites
+## Implementation Progress
 
-⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 0% (0/35)
+⣆⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 3% (1/35)
 
 | CB Suite          | Effect Suite                     | Adv Effect Suite | Others            |
 | ----------------- | -------------------------------- | ---------------- | ----------------- |
-| □ ANSI            | □ AE App                         | □ AE Adv App     | □ Cache On Load   |
+| ✅ ANSI           | □ AE App                         | □ AE Adv App     | □ Cache On Load   |
 | □ Batch Sampling  | □ AngleParam                     | □ AE Adv Item    | □ Channel         |
 | □ Color           | □ ColorParam                     | □ AE Adv Time    | □ GPU Device      |
 | □ Color16         | □ Effect Custom UI Overlay Theme |                  | □ Plugin Helper   |
@@ -61,8 +81,8 @@ These behavior can be implemented by yourself.
 | □ Fill Matte      | □ Effect UI                      |                  |                   |
 | □ Handle          | □ Param Utils                    |                  |                   |
 | □ Iterate8        | □ Path Data                      |                  |                   |
-| □ iterate16       | □ Path Query                     |                  |                   |
-| □ iterateFloat    | □ PointParam                     |                  |                   |
+| □ Iterate16       | □ Path Query                     |                  |                   |
+| □ IterateFloat    | □ PointParam                     |                  |                   |
 | □ Pixel Data      |                                  |                  |                   |
 | □ Pixel Format    |                                  |                  |                   |
 | □ Sampling8       |                                  |                  |                   |
@@ -71,73 +91,6 @@ These behavior can be implemented by yourself.
 | □ World           |                                  |                  |                   |
 | □ World Transform |                                  |                  |                   |
 
-### AEGP Suites
-
-⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 0% (0/51)
-
-| General                | Others          |
-| ---------------------- | --------------- |
-| □ Artisan Util         | □ Compute Cache |
-| □ Canvas               | □ Duck          |
-| □ Camera               | □ Hash          |
-| □ Collection           | □ Mask          |
-| □ Color Settings       |                 |
-| □ Command              |                 |
-| □ Comp                 |                 |
-| □ Composite            |                 |
-| □ Dynamic Stream       |                 |
-| □ Effect               |                 |
-| □ Effect Sequence Data |                 |
-| □ File Import Manager  |                 |
-| □ Footage              |                 |
-| □ Layer                |                 |
-| □ Layer Mask           |                 |
-| □ Layer Render Options |                 |
-| □ Light                |                 |
-| □ IO In                |                 |
-| □ IO Out               |                 |
-| □ Item                 |                 |
-| □ Item View            |                 |
-| □ Iterate              |                 |
-| □ Keyframe             |                 |
-| □ Marker               |                 |
-| □ Mask Outline         |                 |
-| □ Math                 |                 |
-| □ Memory               |                 |
-| □ Output Module        |                 |
-| □ Persistent Data      |                 |
-| □ PF Interface         |                 |
-| □ Proj                 |                 |
-| □ QueryXform           |                 |
-| □ Register             |                 |
-| □ Render               |                 |
-| □ Render Async Manager |                 |
-| □ Render Options       |                 |
-| □ Render Queue         |                 |
-| □ Render Queue Item    |                 |
-| □ RenderQueue Monitor  |                 |
-| □ Sound Data           |                 |
-| □ Stream               |                 |
-| □ Text Document        |                 |
-| □ Text Layer           |                 |
-| □ Tracker              |                 |
-| □ Tracker Utility      |                 |
-| □ Utility              |                 |
-| □ World                |                 |
-
-### Drawbot
-
-⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 0% (0/7)
-
-| Drawbot    |
-| ---------- |
-| □ Draw     |
-| □ Image    |
-| □ Path     |
-| □ Pen      |
-| □ Supplier |
-| □ Surface  |
-
 ## License
 
-[MIT License](LICENSE)
+This project is licensed under the [MIT License](LICENSE).
