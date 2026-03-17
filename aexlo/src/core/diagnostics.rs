@@ -6,7 +6,6 @@
 use std::borrow::Cow;
 
 /// Colorize a value string based on its detected type.
-#[cfg(feature = "diagnostics")]
 fn colorize_value(value: &str) -> colored::ColoredString {
 	use colored::Colorize;
 

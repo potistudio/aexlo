@@ -59,7 +59,6 @@ pub use core::error::{AexloError, Result};
 pub use instance::PluginInstance;
 
 /// Diagnostic utilities (feature-gated).
-#[cfg(feature = "diagnostics")]
 pub use core::diagnostics::{Diagnostic, DiagnosticBuilder};
 
 pub use wrapper::*;
