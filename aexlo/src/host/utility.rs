@@ -1,6 +1,5 @@
 use crate::core::diagnostics::*;
 use crate::suites::macros::stub_log;
-use crate::suites::world;
 use after_effects_sys::*;
 use rayon::prelude::*;
 use std::os::raw::c_void;
@@ -102,13 +101,47 @@ stub_log!(convolve_stub,
 	_dst: *mut PF_EffectWorld
 );
 
-stub_log!(copy_stub,
+pub(crate) unsafe extern "C" fn copy_sys(
 	_effect_ref: PF_ProgPtr,
-	_src: *mut PF_EffectWorld,
-	_dst: *mut PF_EffectWorld,
+	src: *mut PF_EffectWorld,
+	dst: *mut PF_EffectWorld,
 	_src_rect: *mut PF_Rect,
-	_dst_rect: *mut PF_Rect
-);
+	_dst_rect: *mut PF_Rect,
+) -> PF_Err {
+	if src.is_null() || dst.is_null() {
+		log::warn!("copy: invalid parameters (null pointers)");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	// Copy src memory into dst
+	let src_ref = &unsafe { *src };
+	let dst_ref = &mut unsafe { *dst };
+
+	if !src_ref.data.is_null() && !dst_ref.data.is_null() {
+		let row_bytes = src_ref.rowbytes;
+		let height = src_ref.height;
+
+		// Copy each row from src to dst
+		for row in 0..height {
+			let src_ptr =
+				unsafe { (src_ref.data as *mut u8).add((row as usize) * (row_bytes as usize)) };
+			let dst_ptr =
+				unsafe { (dst_ref.data as *mut u8).add((row as usize) * (row_bytes as usize)) };
+			unsafe { std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, row_bytes as usize) };
+		}
+	}
+
+	DiagnosticBuilder::new()
+		.set_name("UtilityCallbacks/copy")
+		.add_arg("effect_ref", _effect_ref as usize)
+		.add_arg("src", format!("{:?}", src))
+		.add_arg("dst", format!("{:?}", dst))
+		.add_arg("src_rect", format!("{:?}", _src_rect))
+		.add_arg("dst_rect", format!("{:?}", _dst_rect))
+		.emit();
+
+	PF_Err_NONE as PF_Err
+}
 
 stub_log!(fill_stub,
 	_effect_ref: PF_ProgPtr,
@@ -581,7 +614,7 @@ pub fn create_utility_callbacks() -> Box<_PF_UtilCallbacks> {
 		composite_rect: Some(composite_rect_stub),
 		blend: Some(blend_stub),
 		convolve: Some(convolve_stub),
-		copy: Some(copy_stub),
+		copy: Some(copy_sys),
 		fill: Some(fill_stub),
 		gaussian_kernel: Some(gaussian_kernel_stub),
 		iterate: Some(iterate_stub),
