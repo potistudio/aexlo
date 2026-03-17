@@ -285,6 +285,8 @@ impl PluginInstance {
 
 	/// Call the plugin entry point
 	fn call_plugin(&mut self, extra: Option<ExtraData>) -> Result<()> {
+		self.sync_input_layer_param();
+
 		let entry_point_name = self
 			.entry_point_name
 			.as_deref()
@@ -356,6 +358,15 @@ impl PluginInstance {
 		Ok(())
 	}
 
+	/// Keep params[0] (`PF_Param_LAYER`) synchronized with the current input layer.
+	fn sync_input_layer_param(&mut self) {
+		if let Some(input_param) = self.params.get_mut(0) {
+			input_param.u = PF_ParamDefUnion {
+				ld: self.input_layer.as_sys(),
+			};
+		}
+	}
+
 	/// Call the plugin with `PF_Cmd_ABOUT` command
 	pub fn about(&mut self) -> Result<String> {
 		self.cmd = after_effects::RawCommand::About;
@@ -410,11 +421,9 @@ impl PluginInstance {
 		Ok(())
 	}
 
-	pub fn set_input(&mut self, input: wrapper::Layer<wrapper::Depth8>) -> Result<()> {
+	pub fn set_input(&mut self, input: wrapper::Layer<wrapper::Depth8>) {
 		self.input_layer = input;
-		self.world.data = self.input_layer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
-
-		Ok(())
+		self.sync_input_layer_param();
 	}
 
 	/// Write output pixels directly to an RGBA buffer (zero-allocation).

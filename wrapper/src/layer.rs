@@ -54,6 +54,28 @@ where
 		})
 	}
 
+	pub fn from_raw(pixels: Vec<u8>, width: u32, height: u32) -> Result<Layer<Depth8>, LayerError> {
+		let expected = (width * height * 4) as usize;
+		if pixels.len() != expected {
+			return Err(LayerError::DimensionMismatch {
+				expected,
+				actual: pixels.len(),
+			});
+		}
+
+		let converted = pixels
+			.chunks_exact(4)
+			.map(|chunk| Pixel::<Depth8> {
+				red: chunk[0],
+				green: chunk[1],
+				blue: chunk[2],
+				alpha: chunk[3],
+			})
+			.collect();
+
+		Layer::<Depth8>::new(width, height, converted)
+	}
+
 	pub fn blank(width: u32, height: u32) -> Self
 	where
 		Pixel<D>: Default,

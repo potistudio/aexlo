@@ -9,10 +9,11 @@ use std::path::PathBuf;
 use colored::{ColoredString, Colorize};
 
 // pub use aex::plugin_instance::PluginInstance;
-use aexlo::PluginInstance;
+use aexlo::{Depth8, PluginInstance};
 
 // Configuration constants
-const PLUGIN_NAME: &str = "SDK_Noise";
+const PLUGIN_NAME: &str = "HEISEI_DEMO";
+const INPUT_IMAGE_PATH: &str = "input.png";
 const OUTPUT_FILE_NAME: &str = "output.png";
 
 fn successfully() -> ColoredString {
@@ -112,10 +113,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let message = instance.about()?;
 	println!("plugin information: {}", message);
 
+	let img = image::open(INPUT_IMAGE_PATH).unwrap();
+	let input_buffer = img.to_rgba8().into_raw();
+	let input_layer = aexlo::Layer::<Depth8>::from_raw(input_buffer, 1920, 1080)?;
+
+	instance.set_input(input_layer);
+
 	log::info!("Rendering...");
 	instance.render()?;
-	instance.render_pre()?;
-	instance.render_smart()?;
+	// instance.render_pre()?;
+	// instance.render_smart()?;
 	log::info!("Rendering completed {}.", successfully());
 
 	let (buffer, width, height) = extract_output_rgba(&mut instance)?;
