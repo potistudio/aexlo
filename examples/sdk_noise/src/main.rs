@@ -111,7 +111,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	// Call `about()` if you want plugin information from `PF_Cmd_ABOUT`.
 	let message = instance.about()?;
-	println!("plugin information: {}", message);
+	println!("plugin information: {:?}", message);
 
 	let img = image::open(INPUT_IMAGE_PATH).unwrap();
 	let input_buffer = img.to_rgba8().into_raw();
