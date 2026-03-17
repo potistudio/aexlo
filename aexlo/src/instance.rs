@@ -10,6 +10,7 @@ use colored::Colorize;
 use dlopen2::raw::Library;
 use std::{
 	path::{Path, PathBuf},
+	ptr::NonNull,
 	ptr::null_mut,
 };
 
@@ -25,12 +26,6 @@ type PluginEntryPoint = unsafe extern "C" fn(
 	output: *mut after_effects_sys::PF_LayerDef,
 	extra: *mut ::std::os::raw::c_void,
 ) -> after_effects_sys::PF_Err;
-
-/// Represents the extra data pointer type for different render commands
-enum ExtraData {
-	PreRender(after_effects_sys::PF_PreRenderExtra),
-	Render(after_effects_sys::PF_SmartRenderExtra),
-}
 
 /// Represents a loaded After Effects plugin instance, managing its library, entry point, parameters, and execution state.
 pub struct PluginInstance {
@@ -284,7 +279,7 @@ impl PluginInstance {
 	}
 
 	/// Call the plugin entry point
-	fn call_plugin(&mut self, extra: Option<ExtraData>) -> Result<()> {
+	fn call_plugin(&mut self, extra_data: *mut ::std::os::raw::c_void) -> Result<()> {
 		self.sync_input_layer_param();
 
 		let entry_point_name = self
@@ -302,14 +297,6 @@ impl PluginInstance {
 			self.params.iter_mut().map(|p| p as *mut _).collect();
 
 		let entry_point = self.entry_point.ok_or(AexloError::ContainerNotLoaded)?;
-		let extra_data = if let Some(some_extra) = extra {
-			match some_extra {
-				ExtraData::PreRender(mut data) => &mut data as *mut _ as *mut _,
-				ExtraData::Render(mut data) => &mut data as *mut _ as *mut _,
-			}
-		} else {
-			null_mut()
-		};
 
 		let result = unsafe {
 			entry_point(
@@ -349,7 +336,7 @@ impl PluginInstance {
 			}
 			code => {
 				return Err(AexloError::PluginExecutionFailed {
-					code: code.try_into().unwrap(),
+					code,
 				});
 			}
 		}
@@ -370,7 +357,7 @@ impl PluginInstance {
 	/// Call the plugin with `PF_Cmd_ABOUT` command
 	pub fn about(&mut self) -> Result<String> {
 		self.cmd = after_effects::RawCommand::About;
-		self.call_plugin(None)?;
+		self.call_plugin(null_mut())?;
 
 		Ok(self.message())
 	}
@@ -378,7 +365,7 @@ impl PluginInstance {
 	/// Call the plugin with `PF_Cmd_GLOBAL_SETUP` command
 	pub fn setup_global(&mut self) -> Result<()> {
 		self.cmd = after_effects::RawCommand::GlobalSetup;
-		self.call_plugin(None)?;
+		self.call_plugin(null_mut())?;
 
 		Ok(())
 	}
@@ -386,7 +373,7 @@ impl PluginInstance {
 	/// Call the plugin with `PF_Cmd_PARAMS_SETUP` command
 	fn setup_params(&mut self) -> Result<()> {
 		self.cmd = after_effects::RawCommand::ParamsSetup;
-		self.call_plugin(None)?;
+		self.call_plugin(null_mut())?;
 
 		Ok(())
 	}
@@ -394,16 +381,16 @@ impl PluginInstance {
 	/// Call the plugin with `PF_Cmd_RENDER` command
 	pub fn render(&mut self) -> Result<()> {
 		self.cmd = after_effects::RawCommand::Render;
-		self.call_plugin(None)?;
+		self.call_plugin(null_mut())?;
 
 		Ok(())
 	}
 
 	pub fn render_pre(&mut self) -> Result<()> {
-		let extra = self.smart_render_data.pre_render_extra();
+		let mut extra = self.smart_render_data.pre_render_extra();
 
 		self.cmd = after_effects::RawCommand::SmartPreRender;
-		self.call_plugin(Some(ExtraData::PreRender(extra)))?;
+		self.call_plugin((&mut extra as *mut after_effects_sys::PF_PreRenderExtra).cast())?;
 
 		self.smart_render_data.sync();
 
@@ -411,10 +398,10 @@ impl PluginInstance {
 	}
 
 	pub fn render_smart(&mut self) -> Result<()> {
-		let extra = self.smart_render_data.smart_render_extra();
+		let mut extra = self.smart_render_data.smart_render_extra();
 
 		self.cmd = after_effects::RawCommand::SmartRender;
-		self.call_plugin(Some(ExtraData::Render(extra)))?;
+		self.call_plugin((&mut extra as *mut after_effects_sys::PF_SmartRenderExtra).cast())?;
 
 		self.smart_render_data.sync();
 
@@ -587,17 +574,16 @@ impl PluginInstance {
 		String::from_utf8_lossy(&utf8).into_owned()
 	}
 
-	/// Get a PluginInstance from an effect reference pointer.
-	/// The effect_ref is stored as the global_data pointer during initialization.
-	pub fn get_instance(effect_ref: PF_ProgPtr) -> Option<&'static mut PluginInstance> {
+	/// Get a PluginInstance pointer from an effect reference pointer.
+	///
+	/// The returned pointer does not imply unique mutable access.
+	/// Callers must uphold aliasing rules before dereferencing.
+	pub fn get_instance_ptr(effect_ref: PF_ProgPtr) -> Option<NonNull<PluginInstance>> {
 		if effect_ref.is_null() {
 			return None;
 		}
 
-		unsafe {
-			let ptr = effect_ref as *mut PluginInstance;
-			if ptr.is_null() { None } else { Some(&mut *ptr) }
-		}
+		NonNull::new(effect_ref as *mut PluginInstance)
 	}
 
 	//==== Instance Parameter Management ==========================================

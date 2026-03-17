@@ -203,8 +203,9 @@ pub fn add_param_to_instance(effect_ref: PF_ProgPtr, param: PF_ParamDef) -> Resu
 		return Err("effect_ref is null".to_string());
 	}
 
-	let instance = crate::instance::PluginInstance::get_instance(effect_ref);
-	if let Some(instance) = instance {
+	let instance = crate::instance::PluginInstance::get_instance_ptr(effect_ref);
+	if let Some(mut instance_ptr) = instance {
+		let instance = unsafe { instance_ptr.as_mut() };
 		let normalized_param = normalize_param_value_to_default(param);
 		instance.add_instance_param(normalized_param);
 
@@ -234,8 +235,9 @@ pub fn get_params_from_instance(effect_ref: PF_ProgPtr) -> Vec<PF_ParamDef> {
 		return Vec::new();
 	}
 
-	let instance = crate::instance::PluginInstance::get_instance(effect_ref);
-	if let Some(instance) = instance {
+	let instance = crate::instance::PluginInstance::get_instance_ptr(effect_ref);
+	if let Some(instance_ptr) = instance {
+		let instance = unsafe { instance_ptr.as_ref() };
 		instance.get_instance_params().to_vec()
 	} else {
 		Vec::new()
@@ -248,8 +250,9 @@ pub fn get_params_count_from_instance(effect_ref: PF_ProgPtr) -> usize {
 		return 0;
 	}
 
-	let instance = crate::instance::PluginInstance::get_instance(effect_ref);
-	if let Some(instance) = instance {
+	let instance = crate::instance::PluginInstance::get_instance_ptr(effect_ref);
+	if let Some(instance_ptr) = instance {
+		let instance = unsafe { instance_ptr.as_ref() };
 		instance.get_instance_params().len()
 	} else {
 		0
@@ -285,10 +288,11 @@ pub fn get_params_count(effect_ref: PF_ProgPtr) -> usize {
 /// Clears all parameters for the given effect_ref.
 #[deprecated(note = "Use PluginInstance::clear_instance_params instead")]
 pub fn clear_params(effect_ref: PF_ProgPtr) {
-	if !effect_ref.is_null() {
-		if let Some(instance) = crate::instance::PluginInstance::get_instance(effect_ref) {
-			instance.clear_instance_params();
-		}
+	if !effect_ref.is_null()
+		&& let Some(mut instance_ptr) = crate::instance::PluginInstance::get_instance_ptr(effect_ref)
+	{
+		let instance = unsafe { instance_ptr.as_mut() };
+		instance.clear_instance_params();
 	}
 }
 

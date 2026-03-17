@@ -2,7 +2,6 @@
 
 use after_effects_sys::*;
 use std::collections::HashMap;
-use std::mem;
 use std::sync::OnceLock;
 use std::sync::{
 	RwLock,
@@ -30,13 +29,17 @@ impl SendablePtr {
 struct SuiteEntry {
 	// Raw pointer to Suite (owned by the registry, will be Box::from_raw on drop)
 	suite_ptr: SendablePtr,
-	// Size of the Suite type (needed for correct deallocation)
-	_suite_size: usize,
+	drop_fn: unsafe fn(SendablePtr),
 	ref_count: AtomicUsize,
 }
 
 /// Global Suite registry with lazy initialization
 static SUITE_REGISTRY: OnceLock<RwLock<HashMap<(String, i32), SuiteEntry>>> = OnceLock::new();
+
+unsafe fn drop_suite<T>(suite_ptr: SendablePtr) {
+	let typed = unsafe { suite_ptr.as_ptr::<T>() as *mut T };
+	let _ = unsafe { Box::from_raw(typed) };
+}
 
 /// Acquire a Suite, creating it if necessary (lazy initialization)
 ///
@@ -63,7 +66,7 @@ pub fn acquire<T>(name: &str, version: i32, creator: fn() -> Box<T>) -> Result<*
 
 	let entry = SuiteEntry {
 		suite_ptr: suite_ptr_sendable,
-		_suite_size: mem::size_of::<T>(),
+		drop_fn: drop_suite::<T>,
 		ref_count: AtomicUsize::new(1),
 	};
 
@@ -82,6 +85,7 @@ pub fn release(name: &str, version: i32) -> PF_Err {
 	let registry = SUITE_REGISTRY.get_or_init(|| RwLock::new(HashMap::new()));
 
 	let mut guard = registry.write().expect("SuiteRegistry lock poisoned");
+	let mut should_remove = false;
 	if let Some(entry) = guard.get_mut(&key) {
 		// Atomically decrement ref_count only if it's greater than 0
 		let result = entry
@@ -99,13 +103,7 @@ pub fn release(name: &str, version: i32) -> PF_Err {
 				// fetch_update returns the value BEFORE the update
 				// If previous was 1, after decrement it becomes 0
 				if previous == 1 {
-					// Reference count reached 0, remove from registry
-					// Convert the raw pointer back to Box and drop it to free memory
-					// SAFETY: We own this pointer from when it was created with Box::into_raw
-					// and we're the only one who will call drop on it
-					let suite_ptr = unsafe { entry.suite_ptr.as_ptr::<u8>() };
-					guard.remove(&key);
-					let _ = unsafe { Box::from_raw(suite_ptr as *mut u8) };
+					should_remove = true;
 				}
 			}
 			Err(_) => {
@@ -119,5 +117,10 @@ pub fn release(name: &str, version: i32) -> PF_Err {
 			}
 		}
 	}
+
+	if should_remove && let Some(entry) = guard.remove(&key) {
+		unsafe { (entry.drop_fn)(entry.suite_ptr) };
+	}
+
 	PF_Err_NONE as PF_Err
 }
