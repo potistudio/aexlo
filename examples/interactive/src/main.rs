@@ -12,11 +12,7 @@ fn main() -> eframe::Result<()> {
 
 	log::info!("Starting aexlo interactive demo application");
 
-	eframe::run_native(
-		"aexlo-demo",
-		options,
-		Box::new(|_cc| Ok(Box::new(AexloApp::new()))),
-	)
+	eframe::run_native("aexlo-demo", options, Box::new(|_cc| Ok(Box::new(AexloApp::new()))))
 }
 
 struct AexloApp {
@@ -103,14 +99,12 @@ impl AexloApp {
 	}
 
 	fn update_texture(&mut self, ctx: &egui::Context) {
-		let image =
-			egui::ColorImage::from_rgba_unmultiplied([self.width, self.height], &self.pixels);
+		let image = egui::ColorImage::from_rgba_unmultiplied([self.width, self.height], &self.pixels);
 
 		if let Some(texture) = &mut self.texture {
 			texture.set(image, egui::TextureOptions::NEAREST);
 		} else {
-			self.texture =
-				Some(ctx.load_texture("rendered-output", image, egui::TextureOptions::NEAREST));
+			self.texture = Some(ctx.load_texture("rendered-output", image, egui::TextureOptions::NEAREST));
 		}
 	}
 

@@ -20,10 +20,7 @@ impl InData {
 		let mut inner = unsafe { std::mem::zeroed::<PF_InData>() };
 
 		// Version info
-		inner.version = PF_SpecVersion {
-			major: 13,
-			minor: 28,
-		};
+		inner.version = PF_SpecVersion { major: 13, minor: 28 };
 
 		// Application identifiers
 		inner.serial_num = -2147483648;

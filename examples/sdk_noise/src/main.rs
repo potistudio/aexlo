@@ -47,9 +47,7 @@ fn resolve_plugin_path(plugin_name: &str) -> PathBuf {
 		.join(plugin_name)
 }
 
-fn extract_output_rgba(
-	instance: &mut PluginInstance,
-) -> Result<(Vec<u8>, u32, u32), Box<dyn Error>> {
+fn extract_output_rgba(instance: &mut PluginInstance) -> Result<(Vec<u8>, u32, u32), Box<dyn Error>> {
 	log::info!("Extracting output layer...");
 
 	let (width, height) = instance.output_size();

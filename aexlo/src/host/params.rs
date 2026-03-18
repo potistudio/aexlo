@@ -54,10 +54,7 @@ pub(crate) fn normalize_param_value_to_default(mut param: PF_ParamDef) -> PF_Par
 /// so this trims at the first null byte before decoding.
 pub(crate) fn param_name(param: &PF_ParamDef) -> String {
 	let raw_name = &param.name;
-	let end = raw_name
-		.iter()
-		.position(|&c| c == 0)
-		.unwrap_or(param.name.len());
+	let end = raw_name.iter().position(|&c| c == 0).unwrap_or(param.name.len());
 
 	let bytes: Vec<u8> = param.name[..end].iter().map(|c| *c as u8).collect();
 	String::from_utf8_lossy(&bytes).trim().to_string()
@@ -134,9 +131,7 @@ pub(crate) fn param_details(param: &PF_ParamDef) -> String {
 				let label = if checkbox.u.nameptr.is_null() {
 					String::new()
 				} else {
-					CStr::from_ptr(checkbox.u.nameptr)
-						.to_string_lossy()
-						.to_string()
+					CStr::from_ptr(checkbox.u.nameptr).to_string_lossy().to_string()
 				};
 				format!(
 					"value={}, default={}, label='{}'",
@@ -225,7 +220,10 @@ pub fn add_param_to_instance(effect_ref: PF_ProgPtr, param: PF_ParamDef) -> Resu
 
 		Ok(())
 	} else {
-		Err(format!("Failed to get instance for effect_ref={:#x}", effect_ref as usize))
+		Err(format!(
+			"Failed to get instance for effect_ref={:#x}",
+			effect_ref as usize
+		))
 	}
 }
 

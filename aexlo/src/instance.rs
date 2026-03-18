@@ -3,9 +3,7 @@ use crate::host::smart_render::SmartRenderData;
 use crate::utils;
 
 use after_effects::ParamType;
-use after_effects_sys::{
-	PF_Err_NONE, PF_ParamDef, PF_ParamDefUnion, PF_ParamType, PF_Pixel, PF_ProgPtr,
-};
+use after_effects_sys::{PF_Err_NONE, PF_ParamDef, PF_ParamDefUnion, PF_ParamType, PF_Pixel, PF_ProgPtr};
 use colored::Colorize;
 use dlopen2::raw::Library;
 use std::{
@@ -53,7 +51,7 @@ pub struct PluginInstance {
 	params_dirty: bool,
 
 	input_layer: wrapper::Layer<wrapper::Depth8>,
-	output_layer: wrapper::Layer<wrapper::Depth8>,
+	pub(crate) output_layer: wrapper::Layer<wrapper::Depth8>,
 
 	smart_render_data: SmartRenderData,
 }
@@ -189,10 +187,7 @@ impl PluginInstance {
 		self.entry_point_name = None;
 	}
 
-	fn resolve_entry_point(
-		lib: &Library,
-		candidates: &[String],
-	) -> Result<(PluginEntryPoint, String)> {
+	fn resolve_entry_point(lib: &Library, candidates: &[String]) -> Result<(PluginEntryPoint, String)> {
 		let mut last_error = None;
 
 		for candidate in candidates {
@@ -215,13 +210,13 @@ impl PluginInstance {
 	}
 
 	fn load(&mut self) -> Result<()> {
-		let dir =
-			self.path
-				.parent()
-				.and_then(|s| s.to_str())
-				.ok_or_else(|| AexloError::InvalidPath {
-					message: "Invalid module directory".to_string(),
-				})?;
+		let dir = self
+			.path
+			.parent()
+			.and_then(|s| s.to_str())
+			.ok_or_else(|| AexloError::InvalidPath {
+				message: "Invalid module directory".to_string(),
+			})?;
 		let name = self
 			.path
 			.file_name()
@@ -244,11 +239,7 @@ impl PluginInstance {
 		log::info!("Detected OS: {}.", os.blue());
 		//* --------------------------------------------- */
 		//* ---- Load Plugin --------------------------- *//
-		log::info!(
-			"Loading plugin: {} from {}.",
-			name.blue(),
-			module_path.blue()
-		);
+		log::info!("Loading plugin: {} from {}.", name.blue(), module_path.blue());
 
 		// Check if the plugin file exists
 		if !std::path::Path::new(&module_path).exists() {
@@ -256,8 +247,7 @@ impl PluginInstance {
 		}
 
 		let lib = Library::open(&module_path)?;
-		let (entry_point, resolved_name) =
-			Self::resolve_entry_point(&lib, &self.entry_point_candidates)?;
+		let (entry_point, resolved_name) = Self::resolve_entry_point(&lib, &self.entry_point_candidates)?;
 
 		self.entry_point = Some(entry_point);
 		self.entry_point_name = Some(resolved_name.clone());
@@ -268,11 +258,7 @@ impl PluginInstance {
 
 		log::info!("Resolved entry point symbol: {}.", resolved_name.blue());
 
-		log::info!(
-			"Loaded plugin '{}' {}.",
-			name.blue(),
-			"successfully".green()
-		);
+		log::info!("Loaded plugin '{}' {}.", name.blue(), "successfully".green());
 		//* -------------------------------------------- *//
 
 		Ok(())
@@ -293,8 +279,7 @@ impl PluginInstance {
 		// Update effect_ref to point to self before calling the plugin
 		self.in_data.effect_ref = self as *mut _ as PF_ProgPtr;
 
-		let mut params_ptr: Vec<*mut PF_ParamDef> =
-			self.params.iter_mut().map(|p| p as *mut _).collect();
+		let mut params_ptr: Vec<*mut PF_ParamDef> = self.params.iter_mut().map(|p| p as *mut _).collect();
 
 		let entry_point = self.entry_point.ok_or(AexloError::ContainerNotLoaded)?;
 
@@ -335,9 +320,7 @@ impl PluginInstance {
 				log::info!("Plugin executed {}.", "successfully".green());
 			}
 			code => {
-				return Err(AexloError::PluginExecutionFailed {
-					code,
-				});
+				return Err(AexloError::PluginExecutionFailed { code });
 			}
 		}
 		//* -------------------------------------------- *//

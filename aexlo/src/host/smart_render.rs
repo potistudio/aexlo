@@ -2,7 +2,7 @@ use std::ptr::{null, null_mut};
 
 use after_effects_sys::*;
 
-use crate::DiagnosticBuilder;
+use crate::{DiagnosticBuilder, PluginInstance};
 
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
@@ -77,16 +77,13 @@ pub(crate) unsafe extern "C" fn checkout_layer_pixels_stub(
 		.set_name("PF_SmartRenderCallbacks/checkout_layer_pixels")
 		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
 		.add_arg("checkout_idL", checkout_idL)
-		.add_arg("pixels (out)", pixels as usize)
+		.add_arg("pixels (out)", format!("{:#x}", pixels as usize))
 		.emit();
 
 	PF_Err_NONE as PF_Err
 }
 
-pub(crate) unsafe extern "C" fn checkin_layer_pixels_stub(
-	effect_ref: PF_ProgPtr,
-	checkout_idL: A_long,
-) -> PF_Err {
+pub(crate) unsafe extern "C" fn checkin_layer_pixels_stub(effect_ref: PF_ProgPtr, checkout_idL: A_long) -> PF_Err {
 	DiagnosticBuilder::new()
 		.set_name("PF_SmartRenderCallbacks/checkin_layer_pixels")
 		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
@@ -96,19 +93,37 @@ pub(crate) unsafe extern "C" fn checkin_layer_pixels_stub(
 	PF_Err_NONE as PF_Err
 }
 
-pub(crate) unsafe extern "C" fn checkout_output_stub(
-	effect_ref: PF_ProgPtr,
-	output: *mut *mut PF_EffectWorld,
-) -> PF_Err {
-	if output.is_null() {
-		log::warn!("checkout_output: output pointer is null");
+unsafe extern "C" fn checkout_output_sys(effect_ref: PF_ProgPtr, output: *mut *mut PF_EffectWorld) -> PF_Err {
+	//== Validation ==//
+	if effect_ref.is_null() {
+		log::error!("checkout_output: effect_ref is null");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
+	if output.is_null() {
+		log::error!("checkout_output: output pointer is null");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	//== Implementation ==//
+	if let Some(mut instance) = PluginInstance::get_instance_ptr(effect_ref) {
+		unsafe { *output = &mut instance.as_mut().output_layer.as_sys() as *mut _ };
+	} else {
+		log::error!(
+			"checkout_output: No plugin instance found for effect_ref {:#x}",
+			effect_ref as usize
+		);
+	}
+
+	//== Diagnostics ==//
 	DiagnosticBuilder::new()
 		.set_name("PF_SmartRenderCallbacks/checkout_output")
 		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
-		.add_arg("output (out)", output as usize)
+		.add_arg("output (out)", format!("{:#x}", unsafe { *output } as usize))
+		.set_result(format!(
+			"`output` is set to internal output layer {:#x}",
+			output as usize
+		))
 		.emit();
 
 	PF_Err_NONE as PF_Err
@@ -194,7 +209,7 @@ impl SmartRenderData {
 			callbacks: Box::new(after_effects_sys::PF_SmartRenderCallbacks {
 				checkout_layer_pixels: Some(checkout_layer_pixels_stub),
 				checkin_layer_pixels: Some(checkin_layer_pixels_stub),
-				checkout_output: Some(checkout_output_stub),
+				checkout_output: Some(checkout_output_sys),
 			}),
 		}
 	}

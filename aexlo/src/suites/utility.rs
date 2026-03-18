@@ -347,9 +347,7 @@ pub fn create_utility_suite() -> Box<PF_UtilitySuite> {
 		GetSoundRollString: Some(get_sound_roll_string_stub),
 		GetSequenceTime: Some(get_sequence_time_stub),
 		GetSoundTimecode: Some(get_sound_timecode_stub),
-		GetOriginalClipFrameRateForSourceTrack: Some(
-			get_original_clip_frame_rate_for_source_track_stub,
-		),
+		GetOriginalClipFrameRateForSourceTrack: Some(get_original_clip_frame_rate_for_source_track_stub),
 		GetMediaFrameRateForSourceTrack: Some(get_media_frame_rate_for_source_track_stub),
 		GetSourceTrackMediaActualStartTime: Some(get_source_track_media_actual_start_time_stub),
 		IsSourceTrackMediaTrimmed: Some(is_source_track_media_trimmed_stub),

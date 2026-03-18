@@ -61,19 +61,13 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 		}
 	};
 
-	log::debug!(
-		"host_new_handle: converted to requested_size={}",
-		requested_size
-	);
+	log::debug!("host_new_handle: converted to requested_size={}", requested_size);
 
 	let header_size = HANDLE_ALIGNMENT; // Space for usize size + padding
 	let total_size = match header_size.checked_add(requested_size) {
 		Some(value) => value,
 		None => {
-			log::error!(
-				"host_new_handle: size overflow for requested_size={}",
-				requested_size
-			);
+			log::error!("host_new_handle: size overflow for requested_size={}", requested_size);
 			return ptr::null_mut();
 		}
 	};
@@ -93,10 +87,7 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 	let layout = match Layout::from_size_align(total_size, HANDLE_ALIGNMENT) {
 		Ok(l) => l,
 		Err(_) => {
-			log::error!(
-				"host_new_handle: layout error for total_size={}",
-				total_size
-			);
+			log::error!("host_new_handle: layout error for total_size={}", total_size);
 			return ptr::null_mut();
 		}
 	};
@@ -271,11 +262,7 @@ pub(crate) unsafe extern "C" fn host_get_handle_size_impl(pf_handle: PF_Handle) 
 
 	let size = unsafe { *(base_ptr.add(8) as *mut usize) };
 
-	log::debug!(
-		"host_get_handle_size: base_ptr={:p}, raw_size={}",
-		base_ptr,
-		size
-	);
+	log::debug!("host_get_handle_size: base_ptr={:p}, raw_size={}", base_ptr, size);
 
 	// Sanity check: if size is unreasonably large, it's likely corrupted
 	const MAX_REASONABLE_SIZE: usize = 1_000_000_000; // 1GB
@@ -303,15 +290,8 @@ pub(crate) unsafe extern "C" fn host_get_handle_size_impl(pf_handle: PF_Handle) 
 }
 
 /// Resizes the handle to the new size.
-pub(crate) unsafe extern "C" fn host_resize_handle_impl(
-	new_sizeL: A_HandleSize,
-	handlePH: *mut PF_Handle,
-) -> PF_Err {
-	log::debug!(
-		"host_resize_handle: new_size={}, handlePH={:p}",
-		new_sizeL,
-		handlePH
-	);
+pub(crate) unsafe extern "C" fn host_resize_handle_impl(new_sizeL: A_HandleSize, handlePH: *mut PF_Handle) -> PF_Err {
+	log::debug!("host_resize_handle: new_size={}, handlePH={:p}", new_sizeL, handlePH);
 
 	#[cfg(feature = "diagnostics")]
 	log::trace!("host_resize_handle called, new_size: {}", new_sizeL);
@@ -366,10 +346,7 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(
 	let new_size = match usize::try_from(new_sizeL) {
 		Ok(value) => value,
 		Err(_) => {
-			log::error!(
-				"host_resize_handle: invalid negative new_size {}",
-				new_sizeL
-			);
+			log::error!("host_resize_handle: invalid negative new_size {}", new_sizeL);
 			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
 	};

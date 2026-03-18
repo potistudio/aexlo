@@ -16,10 +16,7 @@ pub fn set_plugin_path(path: &std::path::Path) {
 		#[cfg(windows)]
 		{
 			use std::os::windows::ffi::OsStrExt;
-			path.as_os_str()
-				.encode_wide()
-				.chain(std::iter::once(0))
-				.collect()
+			path.as_os_str().encode_wide().chain(std::iter::once(0)).collect()
 		}
 		#[cfg(not(windows))]
 		{
@@ -123,10 +120,8 @@ pub(crate) unsafe extern "C" fn copy_sys(
 
 		// Copy each row from src to dst
 		for row in 0..height {
-			let src_ptr =
-				unsafe { (src_ref.data as *mut u8).add((row as usize) * (row_bytes as usize)) };
-			let dst_ptr =
-				unsafe { (dst_ref.data as *mut u8).add((row as usize) * (row_bytes as usize)) };
+			let src_ptr = unsafe { (src_ref.data as *mut u8).add((row as usize) * (row_bytes as usize)) };
+			let dst_ptr = unsafe { (dst_ref.data as *mut u8).add((row as usize) * (row_bytes as usize)) };
 			unsafe { std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, row_bytes as usize) };
 		}
 	}
@@ -263,18 +258,14 @@ unsafe extern "C" fn iterate_stub(
 			}
 
 			let current_y = start_y + y_offset;
-			let src_row_ptr =
-				(src_base_addr as *const u8).wrapping_offset((current_y as isize) * src_rowbytes);
-			let dst_row_ptr =
-				(dst_base_addr as *mut u8).wrapping_offset((current_y as isize) * dst_rowbytes);
+			let src_row_ptr = (src_base_addr as *const u8).wrapping_offset((current_y as isize) * src_rowbytes);
+			let dst_row_ptr = (dst_base_addr as *mut u8).wrapping_offset((current_y as isize) * dst_rowbytes);
 			let refcon_ptr = refcon_addr as *mut c_void;
 
 			for x_offset in 0..width {
 				let current_x = start_x + x_offset;
-				let src_pixel =
-					src_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel;
-				let dst_pixel =
-					dst_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel;
+				let src_pixel = src_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel;
+				let dst_pixel = dst_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel;
 
 				let err = unsafe { func(refcon_ptr, current_x, current_y, src_pixel, dst_pixel) };
 				if err != PF_Err_NONE as i32 {

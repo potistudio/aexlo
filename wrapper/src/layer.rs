@@ -47,11 +47,7 @@ where
 			});
 		}
 
-		Ok(Self {
-			width,
-			height,
-			pixels,
-		})
+		Ok(Self { width, height, pixels })
 	}
 
 	pub fn from_raw(pixels: Vec<u8>, width: u32, height: u32) -> Result<Layer<Depth8>, LayerError> {
@@ -83,11 +79,7 @@ where
 		let pixel_count = (width * height) as usize;
 		let pixels = vec![<Pixel<D>>::blank(); pixel_count];
 
-		Self {
-			width,
-			height,
-			pixels,
-		}
+		Self { width, height, pixels }
 	}
 
 	pub fn black(width: u32, height: u32) -> Self
@@ -97,11 +89,7 @@ where
 		let pixel_count = (width * height) as usize;
 		let pixels = vec![<Pixel<D>>::black(); pixel_count];
 
-		Self {
-			width,
-			height,
-			pixels,
-		}
+		Self { width, height, pixels }
 	}
 
 	//==== Getter ==========================================

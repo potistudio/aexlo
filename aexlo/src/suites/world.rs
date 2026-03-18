@@ -1,14 +1,11 @@
 use after_effects_sys::{
-	A_long, PF_Boolean, PF_EffectWorld, PF_Err, PF_Err_NONE, PF_PixelFormat, PF_PixelFormat_ARGB32,
-	PF_ProgPtr, PF_WorldSuite2,
+	A_long, PF_Boolean, PF_EffectWorld, PF_Err, PF_Err_NONE, PF_PixelFormat, PF_PixelFormat_ARGB32, PF_ProgPtr,
+	PF_WorldSuite2,
 };
 
 use crate::core::diagnostics::DiagnosticBuilder;
 
-unsafe extern "C" fn dispose_world_stub(
-	effect_ref: PF_ProgPtr,
-	worldP: *mut PF_EffectWorld,
-) -> PF_Err {
+unsafe extern "C" fn dispose_world_stub(effect_ref: PF_ProgPtr, worldP: *mut PF_EffectWorld) -> PF_Err {
 	if worldP.is_null() {
 		log::warn!("dispose_world: worldP is null");
 		return PF_Err_NONE as PF_Err;

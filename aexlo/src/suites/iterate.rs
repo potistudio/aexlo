@@ -130,10 +130,8 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 			let current_x_start = start_x;
 
 			// Calculate row start (byte offset)
-			let src_row_ptr =
-				(src_base_addr as *const u8).wrapping_offset((current_y as isize) * src_rowbytes);
-			let dst_row_ptr =
-				(dst_base_addr as *mut u8).wrapping_offset((current_y as isize) * dst_rowbytes);
+			let src_row_ptr = (src_base_addr as *const u8).wrapping_offset((current_y as isize) * src_rowbytes);
+			let dst_row_ptr = (dst_base_addr as *mut u8).wrapping_offset((current_y as isize) * dst_rowbytes);
 
 			let refcon_ptr = refcon_addr as *mut c_void;
 
@@ -142,10 +140,8 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 				let current_x = current_x_start + x_offset;
 
 				// Calculate pixel pointers
-				let src_pixel =
-					src_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel8;
-				let dst_pixel =
-					dst_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel8;
+				let src_pixel = src_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel8;
+				let dst_pixel = dst_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel8;
 
 				// SAFETY:
 				// 1. `dst_pixel` points to a unique memory location for this (x, y) coordinate.
@@ -238,12 +234,7 @@ unsafe extern "C" fn iterate_generic_stub(
 	_iterationsL: A_long,
 	_refconPV: *mut c_void,
 	_fn_func: ::std::option::Option<
-		unsafe extern "C" fn(
-			refconPV: *mut c_void,
-			thread_indexL: A_long,
-			i: A_long,
-			iterationsL: A_long,
-		) -> PF_Err,
+		unsafe extern "C" fn(refconPV: *mut c_void, thread_indexL: A_long, i: A_long, iterationsL: A_long) -> PF_Err,
 	>,
 ) -> PF_Err {
 	log::warn!("STUB: iterate_generic called");
@@ -258,12 +249,11 @@ unsafe extern "C" fn iterate_generic_stub(
 /// All function pointers are populated with either real implementations or logging stubs.
 /// Returns a Box<> that will be converted to Arc by the registry.
 pub fn create_iterate_8_suite_2() -> Box<PF_Iterate8Suite2> {
-	let suite = Box::new(PF_Iterate8Suite2 {
+	Box::new(PF_Iterate8Suite2 {
 		iterate: Some(iterate_8_sys),
 		iterate_origin: Some(iterate_origin_stub),
 		iterate_lut: Some(iterate_lut_stub),
 		iterate_origin_non_clip_src: Some(iterate_origin_non_clip_src_stub),
 		iterate_generic: Some(iterate_generic_stub),
-	});
-	suite
+	})
 }

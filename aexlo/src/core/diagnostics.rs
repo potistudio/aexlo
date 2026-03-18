@@ -35,9 +35,7 @@ fn colorize_value(value: &str) -> colored::ColoredString {
 	}
 
 	// String literal (quoted)
-	if (value.starts_with('"') && value.ends_with('"'))
-		|| (value.starts_with('\'') && value.ends_with('\''))
-	{
+	if (value.starts_with('"') && value.ends_with('"')) || (value.starts_with('\'') && value.ends_with('\'')) {
 		return value.green();
 	}
 
@@ -87,11 +85,7 @@ impl<'a> Diagnostic<'a> {
 	/// Emit via the `log` crate (no colors, structured).
 	#[cfg(feature = "diagnostics")]
 	pub fn log(&self) {
-		let args_str: Vec<String> = self
-			.args
-			.iter()
-			.map(|(k, v)| format!("{}={}", k, v))
-			.collect();
+		let args_str: Vec<String> = self.args.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
 
 		if let Some(ref result) = self.result {
 			log::debug!("{}({}) -> {}", self.name, args_str.join(", "), result);

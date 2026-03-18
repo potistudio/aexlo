@@ -82,12 +82,8 @@ pub unsafe extern "C" fn Copy_sys(
 	let skip_y = if dst_y < 0 { -dst_y } else { 0 };
 
 	// Final dimensions to copy
-	let final_width = (copy_width - skip_x)
-		.min(src_avail_width)
-		.min(dst_avail_width);
-	let final_height = (copy_height - skip_y)
-		.min(src_avail_height)
-		.min(dst_avail_height);
+	let final_width = (copy_width - skip_x).min(src_avail_width).min(dst_avail_width);
+	let final_height = (copy_height - skip_y).min(src_avail_height).min(dst_avail_height);
 
 	if final_width <= 0 || final_height <= 0 {
 		return PF_Err_NONE as PF_Err;
@@ -118,10 +114,8 @@ pub unsafe extern "C" fn Copy_sys(
 
 		// Calculate row start addresses
 		// Note: data is *mut c_void, treating as *mut u8 for offset
-		let src_row_ptr =
-			(src_buffer_addr as *const u8).wrapping_offset((current_src_y as isize) * src_rowbytes);
-		let dst_row_ptr =
-			(dst_buffer_addr as *mut u8).wrapping_offset((current_dst_y as isize) * dst_rowbytes);
+		let src_row_ptr = (src_buffer_addr as *const u8).wrapping_offset((current_src_y as isize) * src_rowbytes);
+		let dst_row_ptr = (dst_buffer_addr as *mut u8).wrapping_offset((current_dst_y as isize) * dst_rowbytes);
 
 		// Calculate signal offsets within the row
 		let src_pixel_ptr = src_row_ptr.wrapping_add((actual_src_left as usize) * pixel_size);
@@ -131,17 +125,9 @@ pub unsafe extern "C" fn Copy_sys(
 		// otherwise use copy_nonoverlapping for better performance
 		unsafe {
 			if buffers_overlap {
-				std::ptr::copy(
-					src_pixel_ptr,
-					dst_pixel_ptr,
-					(final_width as usize) * pixel_size,
-				);
+				std::ptr::copy(src_pixel_ptr, dst_pixel_ptr, (final_width as usize) * pixel_size);
 			} else {
-				std::ptr::copy_nonoverlapping(
-					src_pixel_ptr,
-					dst_pixel_ptr,
-					(final_width as usize) * pixel_size,
-				);
+				std::ptr::copy_nonoverlapping(src_pixel_ptr, dst_pixel_ptr, (final_width as usize) * pixel_size);
 			}
 		}
 	});

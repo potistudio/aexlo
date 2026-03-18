@@ -1,8 +1,6 @@
 use std::ffi::{CStr, CString};
 
-use after_effects_sys::{
-	A_char, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_INTERNAL_STRUCT_DAMAGED, PF_Err_NONE,
-};
+use after_effects_sys::{A_char, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_INTERNAL_STRUCT_DAMAGED, PF_Err_NONE};
 
 use crate::core::diagnostics::DiagnosticBuilder;
 
@@ -71,11 +69,7 @@ impl_math_sys!(acos_sys, acos, "x", "InData/utils/ansi/acos");
 /// 4. Variadic arguments must correspond exactly to the format specifiers in `arg2`.
 ///    Mismatching arguments (e.g. passing a float for `%d`) leads to undefined behavior.
 /// 5. Only `%d` and `%s` format specifiers are actively supported.
-pub(crate) unsafe extern "C" fn sprintf_sys(
-	arg1: *mut A_char,
-	arg2: *const A_char,
-	mut args: ...
-) -> PF_Err {
+pub(crate) unsafe extern "C" fn sprintf_sys(arg1: *mut A_char, arg2: *const A_char, mut args: ...) -> PF_Err {
 	const SPRINTF_BUFFER_SIZE: usize = 256;
 
 	if arg1.is_null() || arg2.is_null() {
@@ -390,10 +384,7 @@ mod tests {
 
 		let result_ptr = unsafe { strcpy_sys(buffer.as_mut_ptr(), src.as_ptr() as *const i8) };
 
-		assert!(
-			!result_ptr.is_null(),
-			"Expected strcpy to return a non-null pointer"
-		);
+		assert!(!result_ptr.is_null(), "Expected strcpy to return a non-null pointer");
 
 		let result_str = unsafe { CStr::from_ptr(result_ptr).to_str().unwrap() };
 

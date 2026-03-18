@@ -44,28 +44,18 @@ unsafe extern "C" fn checkout_param_stub(
 	PF_Err_NONE as PF_Err
 }
 
-unsafe extern "C" fn checkin_param_stub(
-	_effect_ref: PF_ProgPtr,
-	_param: *mut PF_ParamDef,
-) -> PF_Err {
+unsafe extern "C" fn checkin_param_stub(_effect_ref: PF_ProgPtr, _param: *mut PF_ParamDef) -> PF_Err {
 	if _param.is_null() {
 		log::warn!("checkin_param: param pointer is null");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
 	// For now, just log - no-op for checkin
-	log::debug!(
-		"checkin_param called for effect_ref={:#x}",
-		_effect_ref as usize
-	);
+	log::debug!("checkin_param called for effect_ref={:#x}", _effect_ref as usize);
 	PF_Err_NONE as PF_Err
 }
 
-unsafe extern "C" fn add_param_impl(
-	_effect_ref: PF_ProgPtr,
-	_index: PF_ParamIndex,
-	def: PF_ParamDefPtr,
-) -> PF_Err {
+unsafe extern "C" fn add_param_impl(_effect_ref: PF_ProgPtr, _index: PF_ParamIndex, def: PF_ParamDefPtr) -> PF_Err {
 	if def.is_null() {
 		log::warn!("add_param: def is null");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
@@ -94,19 +84,12 @@ unsafe extern "C" fn abort_stub(_effect_ref: PF_ProgPtr) -> PF_Err {
 	0
 }
 
-unsafe extern "C" fn progress_stub(
-	_effect_ref: PF_ProgPtr,
-	_current: A_long,
-	_total: A_long,
-) -> PF_Err {
+unsafe extern "C" fn progress_stub(_effect_ref: PF_ProgPtr, _current: A_long, _total: A_long) -> PF_Err {
 	log::warn!("STUB: progress called");
 	0
 }
 
-unsafe extern "C" fn register_ui_stub(
-	_effect_ref: PF_ProgPtr,
-	_custom_info: *mut PF_CustomUIInfo,
-) -> PF_Err {
+unsafe extern "C" fn register_ui_stub(_effect_ref: PF_ProgPtr, _custom_info: *mut PF_CustomUIInfo) -> PF_Err {
 	log::warn!("STUB: register_ui called");
 	PF_Err_NONE as PF_Err
 }
@@ -127,10 +110,7 @@ unsafe extern "C" fn checkout_layer_audio_stub(
 	PF_Err_NONE as PF_Err
 }
 
-unsafe extern "C" fn checkin_layer_audio_stub(
-	_effect_ref: PF_ProgPtr,
-	_audio: PF_LayerAudio,
-) -> PF_Err {
+unsafe extern "C" fn checkin_layer_audio_stub(_effect_ref: PF_ProgPtr, _audio: PF_LayerAudio) -> PF_Err {
 	log::warn!("STUB: checkin_layer_audio called");
 	PF_Err_NONE as PF_Err
 }

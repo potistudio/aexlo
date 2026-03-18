@@ -5,10 +5,7 @@ use after_effects_sys::{
 
 use crate::DiagnosticBuilder;
 
-unsafe extern "C" fn get_effect_layer_sys(
-	effect_pp_ref: PF_ProgPtr,
-	layerPH: *mut AEGP_LayerH,
-) -> A_Err {
+unsafe extern "C" fn get_effect_layer_sys(effect_pp_ref: PF_ProgPtr, layerPH: *mut AEGP_LayerH) -> A_Err {
 	DiagnosticBuilder::new()
 		.set_name("AEGP_PFInterfaceSuite1/AEGP_GetEffectLayer")
 		.add_arg("effect_pp_ref", effect_pp_ref as usize)

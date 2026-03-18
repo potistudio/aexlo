@@ -14,9 +14,7 @@ fn main() {
 	let out_dir = var("OUT_DIR").expect("OUT_DIR env var is not set."); // path to target/debug/build/<>/out
 	let dest = PathBuf::from(&out_dir).join("../../../"); // target/debug or target/release
 
-	for entry in
-		std::fs::read_dir(mock_dir).expect("mock_dir does not exist or is not a directory.")
-	{
+	for entry in std::fs::read_dir(mock_dir).expect("mock_dir does not exist or is not a directory.") {
 		let entry = entry.unwrap();
 		let src = entry.path();
 

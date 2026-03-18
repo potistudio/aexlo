@@ -11,10 +11,7 @@ impl InDataBuilder {
 		let mut builder = Self { in_data };
 
 		// Set sensible defaults
-		builder.in_data.version = PF_SpecVersion {
-			major: 13,
-			minor: 28,
-		};
+		builder.in_data.version = PF_SpecVersion { major: 13, minor: 28 };
 		builder.in_data.serial_num = -2147483648;
 		builder.in_data.appl_id = 1180193859;
 		builder.in_data.what_cpu = 3;

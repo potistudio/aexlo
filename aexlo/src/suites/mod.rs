@@ -52,11 +52,7 @@ pub struct SuiteContainer {
 /// # Safety
 /// This function is unsafe because it handles raw pointers.
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn rusty_acquire_suite(
-	name: *const i8,
-	version: i32,
-	suite: *mut *const c_void,
-) -> i32 {
+pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suite: *mut *const c_void) -> i32 {
 	if suite.is_null() || name.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
@@ -105,9 +101,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 			}
 		},
 		("PF World Transform Suite", 1) => unsafe {
-			match acquire(suite_name, version, || {
-				transform::create_world_transform_suite_1()
-			}) {
+			match acquire(suite_name, version, || transform::create_world_transform_suite_1()) {
 				Ok(ptr) => {
 					*suite = ptr as *const c_void;
 					log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
@@ -147,9 +141,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 			}
 		},
 		("AEGP Utility Suite", 1..=18) => unsafe {
-			match acquire(suite_name, version, || {
-				utility::create_aegp_utility_suite_compat_v11()
-			}) {
+			match acquire(suite_name, version, || utility::create_aegp_utility_suite_compat_v11()) {
 				Ok(ptr) => {
 					*suite = ptr as *const c_void;
 					log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
@@ -178,10 +170,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 /// # Safety
 /// This function is unsafe because it handles raw pointers.
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn rusty_release_suite(
-	name: *const ::std::os::raw::c_char,
-	version: i32,
-) -> PF_Err {
+pub unsafe extern "C" fn rusty_release_suite(name: *const ::std::os::raw::c_char, version: i32) -> PF_Err {
 	#[cfg(feature = "diagnostics")]
 	DiagnosticBuilder::new()
 		.set_name("SPBasicSuite/ReleaseSuite")
