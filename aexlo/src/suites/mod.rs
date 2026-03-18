@@ -1,5 +1,6 @@
 pub mod ansi;
 pub mod handle;
+pub mod interface;
 pub mod iterate;
 pub mod macros;
 pub mod registry;
@@ -157,7 +158,19 @@ pub unsafe extern "C" fn rusty_acquire_suite(
 				Err(err) => err,
 			}
 		},
-		_ => return PF_Err_OUT_OF_MEMORY as PF_Err,
+		("AEGP PF Interface Suite", 1) => {
+			match acquire(suite_name, version, || interface::create_aegp_pf_interface_suite()) {
+				Ok(ptr) => {
+					unsafe {
+						*suite = ptr as *const c_void;
+					}
+					log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
+					PF_Err_NONE as PF_Err
+				}
+				Err(err) => err,
+			}
+		}
+		_ => PF_Err_OUT_OF_MEMORY as PF_Err,
 	}
 }
 
