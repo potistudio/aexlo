@@ -229,7 +229,7 @@ impl PluginInstance {
 		log::info!("Detecting OS...");
 		let os = std::env::consts::OS;
 		let module_path = match os {
-			"windows" => format!("{}/{}.aex", dir, name),
+			"windows" => format!("{}/{}", dir, name),
 			"macos" => format!("{}/{}.plugin/Contents/MacOS/{}", dir, name, name),
 			_ => {
 				return Err(AexloError::UnsupportedOS { os: os.to_string() });

@@ -8,8 +8,8 @@ use crate::DiagnosticBuilder;
 unsafe extern "C" fn get_effect_layer_sys(effect_pp_ref: PF_ProgPtr, layerPH: *mut AEGP_LayerH) -> A_Err {
 	DiagnosticBuilder::new()
 		.set_name("AEGP_PFInterfaceSuite1/AEGP_GetEffectLayer")
-		.add_arg("effect_pp_ref", effect_pp_ref as usize)
-		.add_arg("layerPH", layerPH as usize)
+		.add_arg("effect_pp_ref", format!("{:#x}", effect_pp_ref as usize))
+		.add_arg("layerPH", format!("{:#x}", layerPH as usize))
 		.emit();
 
 	PF_Err_NONE as A_Err
@@ -23,8 +23,8 @@ unsafe extern "C" fn get_new_effect_for_effect_sys(
 	DiagnosticBuilder::new()
 		.set_name("AEGP_PFInterfaceSuite1/AEGP_GetNewEffectForEffect")
 		.add_arg("aegp_plugin_id", aegp_plugin_id as usize)
-		.add_arg("effect_pp_ref", effect_pp_ref as usize)
-		.add_arg("effect_refPH", effect_refPH as usize)
+		.add_arg("effect_pp_ref", format!("{:#x}", effect_pp_ref as usize))
+		.add_arg("effect_refPH", format!("{:#x}", effect_refPH as usize))
 		.emit();
 
 	PF_Err_NONE as A_Err
@@ -38,10 +38,10 @@ unsafe extern "C" fn convert_effect_to_comp_time_sys(
 ) -> A_Err {
 	DiagnosticBuilder::new()
 		.set_name("AEGP_PFInterfaceSuite1/AEGP_ConvertEffectToCompTime")
-		.add_arg("effect_pp_ref", effect_pp_ref as usize)
+		.add_arg("effect_pp_ref", format!("{:#x}", effect_pp_ref as usize))
 		.add_arg("what_timeL", what_timeL as usize)
 		.add_arg("time_scaleLu", time_scaleLu as usize)
-		.add_arg("comp_timePT", comp_timePT as usize)
+		.add_arg("comp_timePT", format!("{:#x}", comp_timePT as usize))
 		.emit();
 
 	PF_Err_NONE as A_Err
@@ -54,9 +54,9 @@ unsafe extern "C" fn get_effect_camera_sys(
 ) -> A_Err {
 	DiagnosticBuilder::new()
 		.set_name("AEGP_PFInterfaceSuite1/AEGP_GetEffectCamera")
-		.add_arg("effect_pp_ref", effect_pp_ref as usize)
-		.add_arg("comp_timePT", comp_timePT as usize)
-		.add_arg("camera_layerPH", camera_layerPH as usize)
+		.add_arg("effect_pp_ref", format!("{:#x}", effect_pp_ref as usize))
+		.add_arg("comp_timePT", format!("{:#x}", comp_timePT as usize))
+		.add_arg("camera_layerPH", format!("{:#x}", camera_layerPH as usize))
 		.emit();
 
 	PF_Err_NONE as A_Err
@@ -72,12 +72,15 @@ unsafe extern "C" fn get_effect_camera_matrix(
 ) -> A_Err {
 	DiagnosticBuilder::new()
 		.set_name("AEGP_PFInterfaceSuite1/AEGP_GetEffectCameraMatrix")
-		.add_arg("effect_pp_ref", effect_pp_ref as usize)
-		.add_arg("comp_timePT", comp_timePT as usize)
-		.add_arg("camera_matrixP", camera_matrixP as usize)
-		.add_arg("dist_to_image_planePF", dist_to_image_planePF as usize)
-		.add_arg("image_plane_widthPL", image_plane_widthPL as usize)
-		.add_arg("image_plane_heightPL", image_plane_heightPL as usize)
+		.add_arg("effect_pp_ref", format!("{:#x}", effect_pp_ref as usize))
+		.add_arg("comp_timePT", format!("{:#x}", comp_timePT as usize))
+		.add_arg("camera_matrixP", format!("{:#x}", camera_matrixP as usize))
+		.add_arg(
+			"dist_to_image_planePF",
+			format!("{:#x}", dist_to_image_planePF as usize),
+		)
+		.add_arg("image_plane_widthPL", format!("{:#x}", image_plane_widthPL as usize))
+		.add_arg("image_plane_heightPL", format!("{:#x}", image_plane_heightPL as usize))
 		.emit();
 
 	PF_Err_NONE as A_Err

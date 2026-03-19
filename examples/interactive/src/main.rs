@@ -124,8 +124,6 @@ impl AexloApp {
 fn load_plugin(path: &std::path::Path) -> anyhow::Result<aexlo::PluginInstance> {
 	let mut instance = aexlo::PluginInstance::try_load(path)?;
 	instance.about()?;
-	instance.setup_global()?;
-	instance.setup_params()?;
 	Ok(instance)
 }
 

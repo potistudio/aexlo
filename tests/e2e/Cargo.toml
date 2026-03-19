@@ -1,0 +1,13 @@
+[package]
+name = "test_e2e"
+version = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+publish = false
+
+[dependencies]
+aexlo = { workspace = true }
+
+[build-dependencies]
+cmake = "0.1.57"

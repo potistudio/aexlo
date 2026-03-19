@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["aexlo", "wrapper", "examples/*"]
+members = ["aexlo", "wrapper", "examples/*", "tests/e2e"]
 default-members = ["aexlo"]
 
 [workspace.package]
@@ -12,3 +12,6 @@ edition = "2024"
 [profile.release]
 lto = true
 codegen-units = 1
+
+[workspace.dependencies]
+aexlo = { path = "aexlo" }
