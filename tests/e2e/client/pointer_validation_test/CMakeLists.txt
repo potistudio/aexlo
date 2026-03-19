@@ -1,0 +1,1 @@
+add_e2e_client(pointer_validation_test_client main.cc)

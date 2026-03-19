@@ -1,0 +1,1 @@
+add_e2e_client(about_message_test_client about_message.cc)
