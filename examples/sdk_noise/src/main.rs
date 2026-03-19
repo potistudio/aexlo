@@ -12,7 +12,7 @@ use colored::{ColoredString, Colorize};
 use aexlo::{Depth8, PluginInstance};
 
 // Configuration constants
-const PLUGIN_NAME: &str = "HEISEI_DEMO";
+const PLUGIN_NAME: &str = "HEISEI_DEMO.aex";
 const INPUT_IMAGE_PATH: &str = "input.png";
 const OUTPUT_FILE_NAME: &str = "output.png";
 

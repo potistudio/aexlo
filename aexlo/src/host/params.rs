@@ -205,7 +205,7 @@ pub fn add_param_to_instance(effect_ref: PF_ProgPtr, param: PF_ParamDef) -> Resu
 		instance.add_instance_param(normalized_param);
 
 		// Log parameter details
-		let params = instance.get_instance_params();
+		let params = instance.params();
 		let index = params.len().saturating_sub(1);
 
 		log::debug!(
@@ -236,7 +236,7 @@ pub fn get_params_from_instance(effect_ref: PF_ProgPtr) -> Vec<PF_ParamDef> {
 	let instance = crate::instance::PluginInstance::get_instance_ptr(effect_ref);
 	if let Some(instance_ptr) = instance {
 		let instance = unsafe { instance_ptr.as_ref() };
-		instance.get_instance_params().to_vec()
+		instance.params().to_vec()
 	} else {
 		Vec::new()
 	}
@@ -251,7 +251,7 @@ pub fn get_params_count_from_instance(effect_ref: PF_ProgPtr) -> usize {
 	let instance = crate::instance::PluginInstance::get_instance_ptr(effect_ref);
 	if let Some(instance_ptr) = instance {
 		let instance = unsafe { instance_ptr.as_ref() };
-		instance.get_instance_params().len()
+		instance.params().len()
 	} else {
 		0
 	}

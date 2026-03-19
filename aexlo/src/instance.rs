@@ -50,7 +50,7 @@ pub struct PluginInstance {
 	/// Track if instance params need synchronization
 	params_dirty: bool,
 
-	input_layer: wrapper::Layer<wrapper::Depth8>,
+	pub(crate) input_layer: wrapper::Layer<wrapper::Depth8>,
 	pub(crate) output_layer: wrapper::Layer<wrapper::Depth8>,
 
 	smart_render_data: SmartRenderData,
@@ -411,7 +411,7 @@ impl PluginInstance {
 	}
 
 	/// Get the number of parameters
-	pub fn param_count(&mut self) -> usize {
+	pub fn param_count(&self) -> usize {
 		self.params.len()
 	}
 
@@ -583,12 +583,12 @@ impl PluginInstance {
 	}
 
 	/// Get all instance parameters
-	pub fn get_instance_params(&self) -> &[PF_ParamDef] {
+	pub fn params(&self) -> &[PF_ParamDef] {
 		&self.params
 	}
 
 	/// Get a specific instance parameter by index
-	pub fn get_instance_param(&self, index: usize) -> Option<&PF_ParamDef> {
+	pub fn param_by_index(&self, index: usize) -> Option<&PF_ParamDef> {
 		self.params.get(index)
 	}
 
@@ -597,15 +597,5 @@ impl PluginInstance {
 		self.params.clear();
 		self.params_dirty = true;
 		log::debug!("PluginInstance: cleared all instance params");
-	}
-
-	/// Check if instance params need synchronization
-	pub fn is_params_dirty(&self) -> bool {
-		self.params_dirty
-	}
-
-	/// Mark params as synchronized (called after syncing to render params)
-	pub fn mark_params_synced(&mut self) {
-		self.params_dirty = false;
 	}
 }

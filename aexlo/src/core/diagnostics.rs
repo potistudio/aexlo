@@ -102,6 +102,7 @@ pub struct DiagnosticBuilder<'a> {
 	name: Cow<'a, str>,
 	args: Vec<(Cow<'a, str>, String)>,
 	result: Option<String>,
+	emitted: bool,
 }
 
 impl<'a> DiagnosticBuilder<'a> {
@@ -111,6 +112,7 @@ impl<'a> DiagnosticBuilder<'a> {
 			name: Cow::Borrowed(""),
 			args: Vec::new(),
 			result: None,
+			emitted: false,
 		}
 	}
 
@@ -156,5 +158,13 @@ impl<'a> DiagnosticBuilder<'a> {
 impl Default for DiagnosticBuilder<'_> {
 	fn default() -> Self {
 		Self::new()
+	}
+}
+
+impl Drop for DiagnosticBuilder<'_> {
+	fn drop(&mut self) {
+		if !self.emitted {
+			self.emit();
+		}
 	}
 }

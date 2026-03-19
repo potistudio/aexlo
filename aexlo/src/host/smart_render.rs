@@ -2,13 +2,13 @@ use std::ptr::{null, null_mut};
 
 use after_effects_sys::*;
 
-use crate::{DiagnosticBuilder, PluginInstance};
+use crate::{DiagnosticBuilder, PluginInstance, core::diagnostics};
 
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
 
 //==== Stub implementations ================================
-pub(crate) unsafe extern "C" fn checkout_layer_stub(
+unsafe extern "C" fn checkout_layer_stub(
 	effect_ref: PF_ProgPtr,
 	index: PF_ParamIndex,
 	checkout_idL: A_long,
@@ -18,16 +18,23 @@ pub(crate) unsafe extern "C" fn checkout_layer_stub(
 	time_scale: A_u_long,
 	checkout_result: *mut after_effects_sys::PF_CheckoutResult,
 ) -> PF_Err {
+	//== Validation ==//
+	if effect_ref.is_null() {
+		log::error!("checkout_layer: effect_ref is null");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
 	if req.is_null() {
-		log::warn!("checkout_layer: request pointer is null");
+		log::error!("checkout_layer: request pointer is null");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
 	if checkout_result.is_null() {
-		log::warn!("checkout_layer: checkout_result pointer is null");
+		log::error!("checkout_layer: checkout_result pointer is null");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
+	//== Implementation ==//
 	let result = after_effects_sys::PF_CheckoutResult {
 		result_rect: after_effects_sys::PF_Rect {
 			left: 0,
@@ -49,6 +56,7 @@ pub(crate) unsafe extern "C" fn checkout_layer_stub(
 		reserved: [0; 6],
 	};
 
+	//== Diagnostics ==//
 	DiagnosticBuilder::new()
 		.set_name("PF_PreRenderCallbacks/checkout_layer")
 		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
@@ -63,27 +71,47 @@ pub(crate) unsafe extern "C" fn checkout_layer_stub(
 	PF_Err_NONE as PF_Err
 }
 
-pub(crate) unsafe extern "C" fn checkout_layer_pixels_stub(
+unsafe extern "C" fn checkout_layer_pixels_stub(
 	effect_ref: PF_ProgPtr,
 	checkout_idL: A_long,
 	pixels: *mut *mut PF_EffectWorld,
 ) -> PF_Err {
+	//== Diagnostics ==//
+	let mut diagnostics = DiagnosticBuilder::new();
+	diagnostics
+		.set_name("PF_SmartRenderCallbacks/checkout_layer_pixels")
+		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
+		.add_arg("checkout_idL", checkout_idL)
+		.add_arg("pixels (out)", format!("{:#x}", pixels as usize));
+
+	//== Validation ==//
+	if effect_ref.is_null() {
+		log::error!("checkout_layer_pixels: effect_ref is null");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
 	if pixels.is_null() {
 		log::warn!("checkout_layer_pixels: pixels pointer is null");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	DiagnosticBuilder::new()
-		.set_name("PF_SmartRenderCallbacks/checkout_layer_pixels")
-		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
-		.add_arg("checkout_idL", checkout_idL)
-		.add_arg("pixels (out)", format!("{:#x}", pixels as usize))
-		.emit();
+	//== Implementation ==//
+	let instance = unsafe {
+		PluginInstance::get_instance_ptr(effect_ref)
+			.expect("checkout_layer_pixels: No plugin instance found for effect_ref")
+			.as_mut()
+	};
+
+	let layer = instance.input_layer.as_sys();
+	let client_world = unsafe { &mut **pixels };
+	client_world.data = layer.data;
+
+	diagnostics.set_result(client_world.data as usize).emit();
 
 	PF_Err_NONE as PF_Err
 }
 
-pub(crate) unsafe extern "C" fn checkin_layer_pixels_stub(effect_ref: PF_ProgPtr, checkout_idL: A_long) -> PF_Err {
+unsafe extern "C" fn checkin_layer_pixels_stub(effect_ref: PF_ProgPtr, checkout_idL: A_long) -> PF_Err {
 	DiagnosticBuilder::new()
 		.set_name("PF_SmartRenderCallbacks/checkin_layer_pixels")
 		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))

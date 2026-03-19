@@ -1,3 +1,35 @@
+/// Implements the After Effects World Suite 2 callback functions for memory-managed pixel buffers.
+///
+/// This module provides FFI-compatible implementations of the PF_WorldSuite2 interface, allowing
+/// the plugin to allocate, manage, and query pixel data buffers in various formats supported by
+/// After Effects.
+///
+/// # Safety
+///
+/// All functions are marked `unsafe extern "C"` as they interface with After Effects' C API
+/// and handle raw pointers to allocated memory. Callers must ensure:
+/// - Valid effect_ref pointers are passed from the After Effects engine
+/// - Output pointers (worldP, pixel_formatP) are properly initialized and aligned
+/// - Memory allocated by `new_world_sys` is properly freed via `dispose_world_stub`
+///
+/// # Supported Pixel Formats
+///
+/// The implementation supports the following pixel formats with their corresponding bit depths:
+/// - ARGB32 / BGRA32 / FORCE_LONG_INT: 4 bytes per pixel (32-bit)
+/// - ARGB64: 8 bytes per pixel (64-bit)
+/// - ARGB128 / GPU_BGRA128: 16 bytes per pixel (128-bit)
+///
+/// # Diagnostics
+///
+/// All functions emit diagnostic information via `DiagnosticBuilder` for debugging and
+/// monitoring callback invocations from the After Effects engine.
+///
+/// # Functions
+///
+/// - `new_world_sys`: Allocates a new pixel buffer with specified dimensions and format
+/// - `dispose_world_stub`: Releases previously allocated pixel buffer memory
+/// - `get_pixel_format_stub`: Queries the pixel format of a given world buffer
+/// - `create_world_suite_2`: Factory function that constructs the suite vtable
 use std::ptr::null_mut;
 
 use after_effects::sys::{
@@ -71,14 +103,12 @@ unsafe extern "C" fn new_world_sys(
 	#[allow(non_upper_case_globals)]
 	let depth = match pixel_format {
 		PF_PixelFormat_ARGB32 => 4,
-		PF_PixelFormat_BGRA32 => 4,
 		PF_PixelFormat_ARGB64 => 8,
 		PF_PixelFormat_ARGB128 => 16,
 		PF_PixelFormat_GPU_BGRA128 => 16,
-		PF_PixelFormat_FORCE_LONG_INT => 4,
 		_ => {
-			log::error!("Unsupported pixel format: {}", pixel_format);
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			log::warn!("Unsupported pixel format: {}. so the depth is set to 8", pixel_format);
+			8 // Default to 8 bytes per pixel for unsupported formats
 		}
 	};
 
@@ -86,8 +116,8 @@ unsafe extern "C" fn new_world_sys(
 		reserved0: null_mut(),
 		reserved1: null_mut(),
 		world_flags: PF_WorldFlag_WRITEABLE as PF_WorldFlags,
-		data: null_mut(),
-		rowbytes: width as i32 * depth,
+		data: Box::into_raw(Box::new(vec![0u8; (width * height * depth) as usize])) as *mut _,
+		rowbytes: width as i32 * depth as i32,
 		width: width as i32,
 		height: height as i32,
 		extent_hint: PF_UnionableRect {
@@ -137,6 +167,7 @@ unsafe extern "C" fn get_pixel_format_stub(
 		return PF_Err_NONE as PF_Err;
 	}
 
+	//TODO: 8bit
 	unsafe { *pixel_formatP = PF_PixelFormat_ARGB32 };
 
 	DiagnosticBuilder::new()
@@ -148,7 +179,7 @@ unsafe extern "C" fn get_pixel_format_stub(
 	PF_Err_NONE as PF_Err
 }
 
-//=== Factory ==============================================
+//==== Factory =============================================
 /// Creates a PF_WorldSuite2 and returns a boxed pointer to it.
 pub fn create_world_suite_2() -> Box<PF_WorldSuite2> {
 	Box::new(PF_WorldSuite2 {

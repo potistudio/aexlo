@@ -1,46 +1,73 @@
 use after_effects_sys::*;
 
+use crate::{DiagnosticBuilder, PluginInstance};
+
 // ============================================================================
 // Parameter Management
 // ============================================================================
 
 unsafe extern "C" fn checkout_param_stub(
-	_effect_ref: PF_ProgPtr,
+	effect_ref: PF_ProgPtr,
 	index: PF_ParamIndex,
 	_what_time: A_long,
 	_time_step: A_long,
 	_time_scale: A_u_long,
-	_param: *mut PF_ParamDef,
+	param: *mut PF_ParamDef,
 ) -> PF_Err {
-	if _param.is_null() {
+	let index = index as usize;
+
+	let mut diagnostics = DiagnosticBuilder::new();
+	diagnostics
+		.set_name("InteractCallbacks/checkout_param")
+		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
+		.add_arg("index", index)
+		.add_arg("what_time", _what_time)
+		.add_arg("time_step", _time_step)
+		.add_arg("time_scale", _time_scale)
+		.add_arg("param (out)", format!("{:#x}", param as usize));
+
+	//== Validation ==//
+	if effect_ref.is_null() {
+		log::error!("checkout_param: effect_ref is null");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	if param.is_null() {
 		log::warn!("checkout_param: param pointer is null");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	// Get params from instance using the effect_ref
-	let params = crate::host::params::get_params_from_instance(_effect_ref);
+	if index == 0 {
+		log::warn!("checkout_param: index 0 is reserved for input layer");
+		return PF_Err_INVALID_INDEX as PF_Err;
+	}
 
-	// +1 for input layer param
-	if (index as usize) > params.len() {
-		log::warn!(
+	//== Implementation ==//
+	// Get params from instance using the effect_ref
+	let instance = unsafe {
+		PluginInstance::get_instance_ptr(effect_ref)
+			.expect("checkout_param: No plugin instance found for effect_ref")
+			.as_ref()
+	};
+
+	if index >= instance.param_count() {
+		log::error!(
 			"checkout_param: index {} out of bounds (total={})",
 			index,
-			params.len() + 1
+			instance.param_count()
 		);
 		return PF_Err_INVALID_INDEX as PF_Err;
 	}
 
-	// Copy param to output
-	let param = &params[(index - 1) as usize];
-	unsafe {
-		std::ptr::copy_nonoverlapping(param, _param, 1);
-	}
+	// SAFETY: We have validated that the index is within bounds and the param pointer is not null.
+	let src_param = instance.param_by_index(index).unwrap();
+	unsafe { *param = *src_param };
 
-	log::debug!(
-		"checkout_param: returned param at index={}, effect_ref={:#x}",
-		index,
-		_effect_ref as usize
-	);
+	//== Diagnostics ==//
+	diagnostics
+		.set_result(format!("param is set to {:#x}", param as usize))
+		.emit();
+
 	PF_Err_NONE as PF_Err
 }
 

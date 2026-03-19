@@ -98,18 +98,25 @@ stub_log!(convolve_stub,
 	_dst: *mut PF_EffectWorld
 );
 
-pub(crate) unsafe extern "C" fn copy_sys(
+unsafe extern "C" fn copy_sys(
 	_effect_ref: PF_ProgPtr,
 	src: *mut PF_EffectWorld,
 	dst: *mut PF_EffectWorld,
 	_src_rect: *mut PF_Rect,
 	_dst_rect: *mut PF_Rect,
 ) -> PF_Err {
-	if src.is_null() || dst.is_null() {
-		log::warn!("copy: invalid parameters (null pointers)");
+	//== Validation ==//
+	if src.is_null() {
+		log::warn!("copy: src pointer is null");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
+	if dst.is_null() {
+		log::warn!("copy: dst pointer is null");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	//== Implementation ==//
 	// Copy src memory into dst
 	let src_ref = &unsafe { *src };
 	let dst_ref = &mut unsafe { *dst };
@@ -118,14 +125,15 @@ pub(crate) unsafe extern "C" fn copy_sys(
 		let row_bytes = src_ref.rowbytes;
 		let height = src_ref.height;
 
-		// Copy each row from src to dst
-		for row in 0..height {
-			let src_ptr = unsafe { (src_ref.data as *mut u8).add((row as usize) * (row_bytes as usize)) };
-			let dst_ptr = unsafe { (dst_ref.data as *mut u8).add((row as usize) * (row_bytes as usize)) };
+		for i in 0..(row_bytes * height) {
+			let src_ptr = unsafe { (src_ref.data as *mut u8).add(i as usize) };
+			let dst_ptr = unsafe { (dst_ref.data as *mut u8).add(i as usize) };
+
 			unsafe { std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, row_bytes as usize) };
 		}
 	}
 
+	//== Diagnostics ==//
 	DiagnosticBuilder::new()
 		.set_name("UtilityCallbacks/copy")
 		.add_arg("effect_ref", _effect_ref as usize)
@@ -650,4 +658,41 @@ pub fn create_utility_callbacks() -> Box<_PF_UtilCallbacks> {
 		get_pixel_data16: Some(get_pixel_data16_stub),
 		reserved: [0; 1],
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use wrapper::{Depth8, Layer};
+
+	use super::*;
+
+	#[test]
+	fn test_copy() {
+		//== Create dummy worlds ==//
+		let mut src_layer = Layer::<Depth8>::black(4, 4);
+		let mut dst_layer = Layer::<Depth8>::blank(4, 4);
+
+		let mut src_world = src_layer.as_sys();
+		let mut dst_world = dst_layer.as_sys();
+
+		//== Call ==//
+		let result = unsafe {
+			copy_sys(
+				std::ptr::null_mut(),
+				&mut src_world,
+				&mut dst_world,
+				std::ptr::null_mut(),
+				std::ptr::null_mut(),
+			)
+		};
+
+		assert_eq!(result, PF_Err_NONE as PF_Err);
+
+		// Verify that the destination world now contains the copied pixels
+		for x in 0..64 {
+			let src_pixel = unsafe { *(src_world.data as *const i8).add(x) };
+			let dst_pixel = unsafe { *(dst_world.data as *const i8).add(x) };
+			assert_eq!(src_pixel, dst_pixel, "Pixel mismatch at index {}", x);
+		}
+	}
 }

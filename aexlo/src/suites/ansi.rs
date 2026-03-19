@@ -164,6 +164,7 @@ pub(crate) unsafe extern "C" fn sprintf_sys(arg1: *mut A_char, arg2: *const A_ch
 }
 
 pub unsafe extern "C" fn strcpy_sys(arg1: *mut A_char, arg2: *const A_char) -> *mut A_char {
+	//== Validation ==//
 	if arg1.is_null() || arg2.is_null() {
 		return std::ptr::null_mut();
 	}
