@@ -8,13 +8,12 @@ use std::path::PathBuf;
 
 use colored::{ColoredString, Colorize};
 
-// pub use aex::plugin_instance::PluginInstance;
 use aexlo::{Depth8, PluginInstance};
 
 // Configuration constants
-const PLUGIN_NAME: &str = "HEISEI_DEMO.aex";
+const PLUGIN_NAME: &str = "Circle-Repeater";
 const INPUT_IMAGE_PATH: &str = "input.png";
-const OUTPUT_FILE_NAME: &str = "output.png";
+const OUTPUT_FILE_PATH: &str = "output.png";
 
 fn successfully() -> ColoredString {
 	"successfully".green()
@@ -43,7 +42,7 @@ fn resolve_plugin_path(plugin_name: &str) -> PathBuf {
 	PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 		.join("tests")
 		.join("mocks")
-		.join("windows")
+		.join("macos")
 		.join(plugin_name)
 }
 
@@ -84,10 +83,10 @@ fn write_png(data: &[u8], width: u32, height: u32) -> Result<(), Box<dyn Error>>
 	encoder.write_image_rows(data)?;
 	encoder.finish()?;
 
-	std::fs::write(OUTPUT_FILE_NAME, writer)?;
+	std::fs::write(OUTPUT_FILE_PATH, writer)?;
 	log::info!(
 		"Wrote output image to '{}' {}.",
-		OUTPUT_FILE_NAME.white(),
+		OUTPUT_FILE_PATH.white(),
 		"successfully".green()
 	);
 
@@ -118,9 +117,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 	instance.set_input(input_layer);
 
 	log::info!("Rendering...");
-	instance.render()?;
-	// instance.render_pre()?;
-	// instance.render_smart()?;
+	// instance.render()?;
+	instance.render_pre()?;
+	instance.render_smart()?;
 	log::info!("Rendering completed {}.", successfully());
 
 	let (buffer, width, height) = extract_output_rgba(&mut instance)?;
