@@ -21,6 +21,7 @@ impl InDataBuilder {
 		builder.in_data.height = 1080;
 		builder.in_data.local_time_step = 0;
 		builder.in_data.time_scale = 0;
+		builder.in_data.current_time = 10240;
 
 		// Rational scales should default to 1/1 to avoid division by zero
 		builder.in_data.downsample_x = PF_RationalScale { num: 1, den: 1 };
