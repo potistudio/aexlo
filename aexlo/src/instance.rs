@@ -294,6 +294,9 @@ impl PluginInstance {
 			)
 		};
 
+		#[cfg(target_os = "macos")]
+		let result = result as u32;
+
 		if !self.out_data.global_data.is_null() {
 			self.in_data.global_data = self.out_data.global_data;
 		}

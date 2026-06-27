@@ -101,7 +101,7 @@ unsafe extern "C" fn new_world_sys(
 	let (width, height) = instance.output_size();
 
 	#[allow(non_upper_case_globals)]
-	let depth = match pixel_format {
+	let depth = match pixel_format as u32 {
 		PF_PixelFormat_ARGB32 => 4,
 		PF_PixelFormat_ARGB64 => 8,
 		PF_PixelFormat_ARGB128 => 16,
@@ -111,6 +111,9 @@ unsafe extern "C" fn new_world_sys(
 			8 // Default to 8 bytes per pixel for unsupported formats
 		}
 	};
+
+	#[cfg(target_os = "macos")]
+	let depth = depth as u32;
 
 	let new_world = PF_EffectWorld {
 		reserved0: null_mut(),
@@ -168,7 +171,13 @@ unsafe extern "C" fn get_pixel_format_stub(
 	}
 
 	//TODO: 8bit
-	unsafe { *pixel_formatP = PF_PixelFormat_ARGB32 };
+	#[cfg(target_os = "macos")]
+	let format = PF_PixelFormat_ARGB32 as i32;
+
+	#[cfg(not(target_os = "macos"))]
+	let format = PF_PixelFormat_ARGB32 as u32;
+
+	unsafe { *pixel_formatP = format };
 
 	DiagnosticBuilder::new()
 		.set_name("PF_WorldSuite2/PF_GetPixelFormat")

@@ -2,6 +2,8 @@ use crate::core::diagnostics::*;
 use after_effects_sys::*;
 use rayon::prelude::*;
 use std::os::raw::c_void;
+#[cfg(target_os = "macos")]
+use std::sync::atomic::AtomicU32;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 pub(super) unsafe extern "C" fn iterate_8_sys(
@@ -115,6 +117,10 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 	let refcon_addr = refcon as usize;
 
 	// Atomic for error propagation from threads
+	#[cfg(target_os = "macos")]
+	let error_capsule = AtomicU32::new(PF_Err_NONE);
+
+	#[cfg(not(target_os = "macos"))]
 	let error_capsule = AtomicI32::new(PF_Err_NONE);
 
 	// Parallel iteration using rayon
@@ -152,9 +158,9 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 				// 3. `src_pixel` is only read.
 				// 4. `func` is an external C function. We trust it adheres to the `Iterate` contract.
 				let err = unsafe { func(refcon_ptr, current_x, current_y, src_pixel, dst_pixel) };
-				if err != PF_Err_NONE {
+				if err != PF_Err_NONE as PF_Err {
 					// Attempt to store the first error. We don't care if we overwrite another error or lose one race.
-					error_capsule.store(err, Ordering::Relaxed);
+					error_capsule.store(err as u32, Ordering::Relaxed);
 					return; // Stop processing this row
 				}
 			}

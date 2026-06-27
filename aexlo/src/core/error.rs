@@ -31,6 +31,11 @@ pub enum AexloError {
 
 	/// The plugin returned an error code during execution.
 	#[error("Plugin execution failed with error code: {code}")]
+	#[cfg(target_os = "macos")]
+	PluginExecutionFailed { code: u32 },
+
+	#[cfg(not(target_os = "macos"))]
+	#[error("Plugin execution failed with error code: {code}")]
 	PluginExecutionFailed { code: i32 },
 
 	/// Parameter index is out of bounds.
