@@ -17,7 +17,7 @@ set(
 
 function(add_e2e_client TARGET_NAME ENTRY_SOURCE)
 	add_library(${TARGET_NAME} SHARED ${ENTRY_SOURCE} ${SDK_SOURCES})
-	target_compile_definitions(${TARGET_NAME} PRIVATE _WINDOWS)
+	target_compile_definitions(${TARGET_NAME} PRIVATE)
 	target_include_directories(
 		${TARGET_NAME}
 		PRIVATE

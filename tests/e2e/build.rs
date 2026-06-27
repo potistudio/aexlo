@@ -1,3 +1,5 @@
+use std::env::consts::DLL_PREFIX;
+
 fn main() {
 	//== Rerun Triggers ==//
 	println!("cargo:rerun-if-changed=client/CMakeLists.txt");
@@ -19,12 +21,14 @@ fn main() {
 	//== Environment Variables ==//
 	println!(
 		"cargo:rustc-env=E2E_ABOUT_MESSAGE_TEST_CLIENT={}",
-		dst.join(format!("about_message_test_client.{dll_ext}")).display()
+		dst.join(format!("{DLL_PREFIX}about_message_test_client.{dll_ext}"))
+			.display()
 	);
 
 	println!(
 		"cargo:rustc-env=E2E_POINTER_VALIDATION_TEST_CLIENT={}",
-		dst.join(format!("pointer_validation_test_client.{dll_ext}")).display()
+		dst.join(format!("{DLL_PREFIX}pointer_validation_test_client.{dll_ext}"))
+			.display()
 	);
 
 	//== Linker Settings ==//

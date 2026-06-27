@@ -5,6 +5,12 @@
 #include "AE_EffectCB.h"
 #include "AE_Effect.h"
 
+#ifdef _WIN
+	#define DllExport __declspec( dllexport )
+#else
+	#define DllExport __attribute__ ((visibility ("default")))
+#endif
+
 PF_Err About(
 	PF_InData *in_data,
 	PF_OutData *out_data,
@@ -72,7 +78,7 @@ PF_Err About(
 }
 
 extern "C" {
-	__declspec(dllexport) PF_Err EffectMain(
+	DllExport PF_Err EffectMain(
 		PF_Cmd cmd,
 		PF_InData *in_data,
 		PF_OutData *out_data,
