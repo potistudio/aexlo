@@ -1,3 +1,5 @@
+mod ae_app;
+mod angle_param;
 pub mod ansi;
 pub mod handle;
 pub mod interface;
@@ -162,7 +164,30 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 				Err(err) => err,
 			}
 		}
-		_ => PF_Err_OUT_OF_MEMORY as PF_Err,
+		("PF AngleParamSuite", 1) => match acquire(suite_name, version, angle_param::create_angle_param_suite) {
+			Ok(ptr) => {
+				unsafe {
+					*suite = ptr as *const c_void;
+				}
+				log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
+				PF_Err_NONE as PF_Err
+			}
+			Err(err) => err,
+		},
+		("PF AE App Suite", 6) => match acquire(suite_name, version, ui::create_ae_app_suite_v6) {
+			Ok(ptr) => {
+				unsafe {
+					*suite = ptr as *const c_void;
+				}
+				log::info!("Acquired {} Suite v{} (Registry)", suite_name, version);
+				PF_Err_NONE as PF_Err
+			}
+			Err(err) => err,
+		},
+		_ => {
+			log::warn!("Suite '{}' v{} not found.", suite_name, version);
+			PF_Err_OUT_OF_MEMORY as PF_Err
+		}
 	}
 }
 
