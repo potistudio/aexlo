@@ -11,7 +11,7 @@ use colored::{ColoredString, Colorize};
 use aexlo::{Depth8, PluginInstance};
 
 // Configuration constants
-const PLUGIN_NAME: &str = "Circle-Repeater";
+const PLUGIN_NAME: &str = "circle_repeater_rust.dll";
 const INPUT_IMAGE_PATH: &str = "input.png";
 const OUTPUT_FILE_PATH: &str = "output.png";
 
@@ -118,8 +118,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	log::info!("Rendering...");
 	// instance.render()?;
-	instance.render_pre()?;
-	instance.render_smart()?;
+	// instance.render_pre()?;
+	// instance.render_smart()?;
 	log::info!("Rendering completed {}.", successfully());
 
 	let (buffer, width, height) = extract_output_rgba(&mut instance)?;

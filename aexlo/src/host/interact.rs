@@ -82,27 +82,29 @@ unsafe extern "C" fn checkin_param_stub(_effect_ref: PF_ProgPtr, _param: *mut PF
 	PF_Err_NONE as PF_Err
 }
 
-unsafe extern "C" fn add_param_impl(_effect_ref: PF_ProgPtr, _index: PF_ParamIndex, def: PF_ParamDefPtr) -> PF_Err {
+unsafe extern "C" fn add_param_sys(effect_ref: PF_ProgPtr, index: PF_ParamIndex, def: PF_ParamDefPtr) -> PF_Err {
 	if def.is_null() {
-		log::warn!("add_param: def is null");
+		log::error!("add_param: def is null");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	// Copy the param definition and store it
-	let param = unsafe { *def };
+	let mut diagnostics = DiagnosticBuilder::new();
+	diagnostics
+		.set_name("InteractCallbacks/add_param")
+		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
+		.add_arg("index", index)
+		.add_arg("def", format!("{:#x}", def as usize));
 
-	// Store the param in instance via ParamManager
-	if let Err(e) = crate::host::params::add_param_to_instance(_effect_ref, param) {
-		log::error!("add_param: failed to add param: {}", e);
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+	// // Copy the param definition and store it
+	// let param = unsafe { *def };
 
-	log::info!(
-		"add_param: stored param, effect_ref={:#x}, total={}",
-		_effect_ref as usize,
-		crate::host::params::get_params_count_from_instance(_effect_ref)
-	);
+	// // Store the param in instance via ParamManager
+	// if let Err(e) = crate::host::params::add_param_to_instance(effect_ref, param) {
+	// 	log::error!("add_param: failed to add param: {}", e);
+	// 	return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	// }
 
+	diagnostics.emit();
 	PF_Err_NONE as PF_Err
 }
 
@@ -165,7 +167,7 @@ pub fn create_interact_callbacks() -> PF_InteractCallbacks {
 	PF_InteractCallbacks {
 		checkout_param: Some(checkout_param_stub),
 		checkin_param: Some(checkin_param_stub),
-		add_param: Some(add_param_impl),
+		add_param: Some(add_param_sys),
 		abort: Some(abort_stub),
 		progress: Some(progress_stub),
 		register_ui: Some(register_ui_stub),

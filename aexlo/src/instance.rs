@@ -110,7 +110,7 @@ impl PluginInstance {
 			in_data: crate::core::helpers::InDataBuilder::new()
 				.with_size(1280, 720)
 				.with_callbacks(interact_callbacks)
-				.with_global_data(unsafe { crate::suites::handle::host_new_handle_impl(0x498) })
+				// .with_global_data(unsafe { crate::suites::handle::host_new_handle_impl(0x498) })
 				.build(),
 			out_data: crate::core::helpers::OutDataBuilder::new().build(),
 			params: Vec::new(),
