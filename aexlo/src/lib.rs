@@ -58,6 +58,9 @@ pub use core::error::{AexloError, Result};
 /// The core plugin loader and executor.
 pub use instance::PluginInstance;
 
+/// Parameter value type for reading and writing plugin parameters.
+pub use instance::ParamValue;
+
 /// Diagnostic utilities (feature-gated).
 pub use core::diagnostics::{Diagnostic, DiagnosticBuilder};
 

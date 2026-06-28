@@ -2,6 +2,15 @@ use crate::core::error::{AexloError, Result};
 use crate::host::smart_render::SmartRenderData;
 use crate::utils;
 
+/// A parameter value for an After Effects plugin.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParamValue {
+    Float(f64),
+    Fixed(f32),
+    Slider(i32),
+    Checkbox(bool),
+}
+
 use after_effects::ParamType;
 use after_effects_sys::{PF_Err_NONE, PF_ParamDef, PF_ParamDefUnion, PF_ParamType, PF_Pixel, PF_ProgPtr};
 use colored::Colorize;
@@ -418,10 +427,11 @@ impl PluginInstance {
 		self.params.len()
 	}
 
-	//==== Setter ==========================================
-	/// Set a float parameter value by index.
-	pub fn set_param_float(&mut self, index: usize, value: f64) -> Result<()> {
-		// Check index bounds for instance_params (offset by 1 for input layer param)
+	//==== Setter / Getter =================================
+
+	/// Set a parameter value by index.
+	/// `index` must be 1 or greater (index 0 is the input layer, not settable).
+	pub fn set_param(&mut self, index: usize, value: ParamValue) -> Result<()> {
 		if index == 0 || index >= self.params.len() {
 			return Err(AexloError::ParamIndexOutOfBounds {
 				index,
@@ -429,107 +439,69 @@ impl PluginInstance {
 			});
 		}
 
-		// Check if this is a float slider type
-		let target_param = &mut self.params[index];
-		if target_param.param_type != ParamType::FloatSlider as PF_ParamType {
+		let target = &mut self.params[index];
+
+		let expected = match &value {
+			ParamValue::Float(_) if target.param_type == ParamType::FloatSlider as PF_ParamType => None,
+			ParamValue::Fixed(_) if target.param_type == ParamType::FixSlider as PF_ParamType => None,
+			ParamValue::Slider(_) if target.param_type == ParamType::Slider as PF_ParamType => None,
+			ParamValue::Checkbox(_) if target.param_type == ParamType::CheckBox as PF_ParamType => None,
+			ParamValue::Float(_) => Some("FloatSlider"),
+			ParamValue::Fixed(_) => Some("FixSlider"),
+			ParamValue::Slider(_) => Some("Slider"),
+			ParamValue::Checkbox(_) => Some("Checkbox"),
+		};
+
+		if let Some(expected) = expected {
 			return Err(AexloError::ParamTypeMismatch {
 				index,
-				expected: "FloatSlider",
-				actual: target_param.param_type,
+				expected,
+				actual: target.param_type,
 			});
 		}
 
-		// SAFETY: We verified param type is float slider, so fs_d is the active union variant
-		target_param.u.fs_d.value = value;
+		// SAFETY: union variant was verified against param_type above
+		match value {
+			ParamValue::Float(v) => target.u.fs_d.value = v,
+			ParamValue::Fixed(v) => target.u.fd.value = utils::f32_to_q31(v),
+			ParamValue::Slider(v) => target.u.sd.value = v,
+			ParamValue::Checkbox(v) => target.u.bd.value = v as i32,
+		}
 
 		Ok(())
 	}
 
-	pub fn set_param_fixed(&mut self, index: usize, value: f32) -> Result<()> {
-		// Check index bounds for instance_params (offset by 1 for input layer param)
-		if index == 0 || index >= self.params.len() {
-			return Err(AexloError::ParamIndexOutOfBounds {
-				index,
-				max: self.params.len(),
-			});
-		}
-
-		// Check if this is a fixed type
-		let target_param = &mut self.params[index];
-		if target_param.param_type != ParamType::FixSlider as PF_ParamType {
-			return Err(AexloError::ParamTypeMismatch {
-				index,
-				expected: "FixSlider",
-				actual: target_param.param_type,
-			});
-		}
-
-		target_param.u.fd.value = utils::f32_to_q31(value);
-		Ok(())
+	/// Returns all parameter values as `(index, value)` pairs.
+	/// Index 0 (input layer) and parameters with unknown types are excluded.
+	pub fn param_values(&self) -> Vec<(usize, ParamValue)> {
+		(1..self.params.len())
+			.filter_map(|i| self.get_param(i).map(|v| (i, v)))
+			.collect()
 	}
 
-	pub fn set_param_slider(&mut self, index: usize, value: i32) -> Result<()> {
-		// Check index bounds for instance_params (offset by 1 for input layer param)
-		if index == 0 || index >= self.params.len() {
-			return Err(AexloError::ParamIndexOutOfBounds {
-				index,
-				max: self.params.len(),
-			});
-		}
-
-		// Check if this is a slider type
-		let target_param = &mut self.params[index];
-		if target_param.param_type != ParamType::Slider as PF_ParamType {
-			return Err(AexloError::ParamTypeMismatch {
-				index,
-				expected: "Slider",
-				actual: target_param.param_type,
-			});
-		}
-
-		target_param.u.sd.value = value;
-		Ok(())
-	}
-
-	pub fn set_param_checkbox(&mut self, index: usize, value: bool) -> Result<()> {
-		// Check index bounds for instance_params (offset by 1 for input layer param)
-		if index == 0 || index >= self.params.len() {
-			return Err(AexloError::ParamIndexOutOfBounds {
-				index,
-				max: self.params.len(),
-			});
-		}
-
-		// Check if this is a checkbox type
-		let target_param = &mut self.params[index];
-		if target_param.param_type != ParamType::CheckBox as PF_ParamType {
-			return Err(AexloError::ParamTypeMismatch {
-				index,
-				expected: "Checkbox",
-				actual: target_param.param_type,
-			});
-		}
-
-		target_param.u.bd.value = if value { 1 } else { 0 };
-		Ok(())
-	}
-
-	/// Get a float parameter value by index.
-	/// Returns `None` if index out of bounds or not a float param.
-	pub fn get_param_float(&self, index: usize) -> Option<f64> {
-		// Check index bounds for instance_params (offset by 1 for input layer param)
+	/// Get a parameter value by index.
+	/// Returns `None` if the index is out of bounds or the param type is unknown.
+	pub fn get_param(&self, index: usize) -> Option<ParamValue> {
 		if index == 0 || index >= self.params.len() {
 			return None;
 		}
 
-		let target_param = &self.params[index];
+		let param = &self.params[index];
 
-		if target_param.param_type != ParamType::FloatSlider as PF_ParamType {
-			return None;
+		// SAFETY: union variant is selected based on param_type
+		unsafe {
+			if param.param_type == ParamType::FloatSlider as PF_ParamType {
+				Some(ParamValue::Float(param.u.fs_d.value))
+			} else if param.param_type == ParamType::FixSlider as PF_ParamType {
+				Some(ParamValue::Fixed(utils::q31_to_f32(param.u.fd.value)))
+			} else if param.param_type == ParamType::Slider as PF_ParamType {
+				Some(ParamValue::Slider(param.u.sd.value))
+			} else if param.param_type == ParamType::CheckBox as PF_ParamType {
+				Some(ParamValue::Checkbox(param.u.bd.value != 0))
+			} else {
+				None
+			}
 		}
-
-		// SAFETY: We verified param type is float slider, so fs_d is the active union variant
-		unsafe { Some(target_param.u.fs_d.value) }
 	}
 
 	/// Get the output message from the plugin (set during About command).

@@ -165,7 +165,7 @@ impl eframe::App for AexloApp {
 					.clamp_to_range(true);
 				if ui.add(slider).changed() {
 					if let Some(instance) = &mut self.instance {
-						instance.set_param_float(1, self.float_param);
+						instance.set_param(1, aexlo::ParamValue::Float(self.float_param));
 					}
 				}
 			});
