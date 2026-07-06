@@ -5,17 +5,18 @@ use crate::utils;
 /// A parameter value for an After Effects plugin.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParamValue {
-    Float(f64),
-    Fixed(f32),
-    Slider(i32),
-    Checkbox(bool),
+	Float(f64),
+	Fixed(f32),
+	Slider(i32),
+	Checkbox(bool),
 }
 
 use after_effects::ParamType;
-use after_effects_sys::{PF_Err_NONE, PF_ParamDef, PF_ParamDefUnion, PF_ParamType, PF_Pixel, PF_ProgPtr};
+use after_effects_sys::{PF_Err_INVALID_CALLBACK, PF_Err_NONE, PF_ParamDef, PF_ParamDefUnion, PF_ParamType, PF_Pixel, PF_ProgPtr};
 use colored::Colorize;
 use dlopen2::raw::Library;
 use std::{
+	ffi::{CStr, CString},
 	path::{Path, PathBuf},
 	ptr::NonNull,
 	ptr::null_mut,
@@ -24,6 +25,13 @@ use std::{
 const DEFAULT_ENTRY_POINT_NAME: &str = "EffectMain";
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
+
+/// Entry point names to try if the plugin doesn't implement `PluginDataEntryFunction2`.
+const FALLBACK_ENTRY_POINT_CANDIDATES: &[&str] = &[DEFAULT_ENTRY_POINT_NAME, "EntryPointFunc"];
+/// Fixed symbol name of the AE SDK's self-describing plugin data entry function.
+const PLUGIN_DATA_ENTRY_SYMBOL: &str = "PluginDataEntryFunction2";
+const HOST_NAME: &str = "AfterEffects";
+const HOST_VERSION: &str = "25.2";
 
 type PluginEntryPoint = unsafe extern "C" fn(
 	cmd: after_effects::RawCommand,
@@ -34,12 +42,51 @@ type PluginEntryPoint = unsafe extern "C" fn(
 	extra: *mut ::std::os::raw::c_void,
 ) -> after_effects_sys::PF_Err;
 
+/// Signature of `PluginDataEntryFunction2`: the AE SDK's cross-platform replacement
+/// for a binary PiPL resource. Plugins export this under a fixed symbol name and,
+/// when called, report their real entry point name (and other PiPL metadata) back
+/// through the `PF_PluginDataCB2` callback instead of the host parsing a resource.
+type PluginDataEntryFn = unsafe extern "C" fn(
+	after_effects_sys::PF_PluginDataPtr,
+	after_effects_sys::PF_PluginDataCB2,
+	*const after_effects_sys::SPBasicSuite,
+	*const std::os::raw::c_char,
+	*const std::os::raw::c_char,
+) -> after_effects_sys::PF_Err;
+
+#[derive(Default)]
+struct PluginDataInfo {
+	entry_point_name: Option<String>,
+}
+
+unsafe extern "C" fn receive_plugin_data(
+	in_ptr: after_effects_sys::PF_PluginDataPtr,
+	_in_name: *const after_effects_sys::A_u_char,
+	_in_match_name: *const after_effects_sys::A_u_char,
+	_in_category: *const after_effects_sys::A_u_char,
+	in_entry_point_name: *const after_effects_sys::A_u_char,
+	_in_kind: after_effects_sys::A_long,
+	_in_api_version_major: after_effects_sys::A_long,
+	_in_api_version_minor: after_effects_sys::A_long,
+	_in_reserved_info: after_effects_sys::A_long,
+	_in_support_url: *const after_effects_sys::A_u_char,
+) -> after_effects_sys::A_Err {
+	if in_ptr.is_null() || in_entry_point_name.is_null() {
+		return PF_Err_INVALID_CALLBACK as after_effects_sys::A_Err;
+	}
+
+	let info = unsafe { &mut *(in_ptr as *mut PluginDataInfo) };
+	let name = unsafe { CStr::from_ptr(in_entry_point_name as *const std::os::raw::c_char) };
+	info.entry_point_name = Some(name.to_string_lossy().into_owned());
+
+	PF_Err_NONE as after_effects_sys::A_Err
+}
+
 /// Represents a loaded After Effects plugin instance, managing its library, entry point, parameters, and execution state.
 pub struct PluginInstance {
 	library: Option<Library>,
 	entry_point: Option<PluginEntryPoint>,
 	entry_point_name: Option<String>,
-	entry_point_candidates: Vec<String>,
 	path: PathBuf,
 	cmd: after_effects::RawCommand,
 	world: after_effects_sys::PF_LayerDef,
@@ -66,6 +113,13 @@ pub struct PluginInstance {
 }
 
 impl PluginInstance {
+	/// Load a plugin from `path` -- the plugin artifact exactly as it exists on disk.
+	///
+	/// This accepts whatever a user would point at to install the plugin: a bare
+	/// `.aex`/`.dll` file on Windows, or a `.plugin` bundle directory on macOS.
+	/// Callers never need to branch on platform -- if `path` is a directory it's
+	/// treated as a bundle and the actual binary under `Contents/MacOS/` is
+	/// resolved automatically; if it's a file, it's loaded as-is.
 	pub fn try_load(path: &Path) -> Result<Self> {
 		let mut instance = Self::new(path);
 		instance.load()?;
@@ -107,11 +161,6 @@ impl PluginInstance {
 			library: None,
 			entry_point: None,
 			entry_point_name: None,
-			entry_point_candidates: vec![
-				"EffectMain".to_string(),
-				"EntryPointFunc".to_string(),
-				"entryPointFunc".to_string(),
-			],
 			path: path.to_path_buf(),
 			cmd: after_effects::RawCommand::About,
 			utility_callbacks,
@@ -165,43 +214,50 @@ impl PluginInstance {
 		instance
 	}
 
-	pub fn with_entry_point_candidates<I, S>(mut self, names: I) -> Self
-	where
-		I: IntoIterator<Item = S>,
-		S: AsRef<str>,
-	{
-		self.set_entry_point_candidates(names);
-		self
+	/// Ask the plugin what its real entry point symbol is via the modern
+	/// `PluginDataEntryFunction2` protocol -- the same self-description mechanism
+	/// After Effects itself uses instead of parsing a binary PiPL resource.
+	fn query_declared_entry_point(lib: &Library, pica: &after_effects_sys::SPBasicSuite) -> Option<String> {
+		let entry_fn = unsafe { lib.symbol::<PluginDataEntryFn>(PLUGIN_DATA_ENTRY_SYMBOL) }.ok()?;
+
+		let mut info = PluginDataInfo::default();
+		let host_name = CString::new(HOST_NAME).ok()?;
+		let host_version = CString::new(HOST_VERSION).ok()?;
+
+		let result = unsafe {
+			entry_fn(
+				&mut info as *mut PluginDataInfo as after_effects_sys::PF_PluginDataPtr,
+				Some(receive_plugin_data),
+				pica as *const after_effects_sys::SPBasicSuite,
+				host_name.as_ptr(),
+				host_version.as_ptr(),
+			)
+		};
+
+		if result != PF_Err_NONE as after_effects_sys::PF_Err {
+			log::debug!("{} reported error code {}.", PLUGIN_DATA_ENTRY_SYMBOL, result);
+			return None;
+		}
+
+		info.entry_point_name
 	}
 
-	pub fn set_entry_point_candidates<I, S>(&mut self, names: I)
-	where
-		I: IntoIterator<Item = S>,
-		S: AsRef<str>,
-	{
-		let mut candidates = Vec::new();
-		for name in names {
-			let trimmed = name.as_ref().trim();
-			if !trimmed.is_empty() && !candidates.iter().any(|s: &String| s == trimmed) {
-				candidates.push(trimmed.to_string());
+	fn resolve_entry_point(lib: &Library, pica: &after_effects_sys::SPBasicSuite) -> Result<(PluginEntryPoint, String)> {
+		if let Some(name) = Self::query_declared_entry_point(lib, pica) {
+			match unsafe { lib.symbol::<PluginEntryPoint>(name.as_str()) } {
+				Ok(symbol) => {
+					log::info!("Resolved entry point '{}' via {}.", name.blue(), PLUGIN_DATA_ENTRY_SYMBOL);
+					return Ok((symbol, name));
+				}
+				Err(err) => log::debug!("Declared entry point '{}' not resolvable: {}", name, err),
 			}
 		}
 
-		if candidates.is_empty() {
-			candidates.push(DEFAULT_ENTRY_POINT_NAME.to_string());
-		}
-
-		self.entry_point_candidates = candidates;
-		self.entry_point = None;
-		self.entry_point_name = None;
-	}
-
-	fn resolve_entry_point(lib: &Library, candidates: &[String]) -> Result<(PluginEntryPoint, String)> {
 		let mut last_error = None;
 
-		for candidate in candidates {
-			match unsafe { lib.symbol::<PluginEntryPoint>(candidate) } {
-				Ok(symbol) => return Ok((symbol, candidate.clone())),
+		for candidate in FALLBACK_ENTRY_POINT_CANDIDATES {
+			match unsafe { lib.symbol::<PluginEntryPoint>(*candidate) } {
+				Ok(symbol) => return Ok((symbol, candidate.to_string())),
 				Err(err) => {
 					log::debug!("Entry point symbol '{}' not resolved: {}", candidate, err);
 					last_error = Some(err);
@@ -218,57 +274,76 @@ impl PluginInstance {
 		}
 	}
 
-	fn load(&mut self) -> Result<()> {
-		let dir = self
-			.path
-			.parent()
-			.and_then(|s| s.to_str())
-			.ok_or_else(|| AexloError::InvalidPath {
-				message: "Invalid module directory".to_string(),
-			})?;
-		let name = self
-			.path
-			.file_name()
-			.and_then(|s| s.to_str())
-			.ok_or_else(|| AexloError::InvalidPath {
-				message: "Invalid module name".to_string(),
-			})?;
-
-		//* ---- Detect OS ------------------------------ */
-		log::info!("Detecting OS...");
-		let os = std::env::consts::OS;
-		let module_path = match os {
-			"windows" => format!("{}/{}", dir, name),
-			"macos" => format!("{}/{}.plugin/Contents/MacOS/{}", dir, name, name),
-			_ => {
-				return Err(AexloError::UnsupportedOS { os: os.to_string() });
-			}
-		};
-
-		log::info!("Detected OS: {}.", os.blue());
-		//* --------------------------------------------- */
-		//* ---- Load Plugin --------------------------- *//
-		log::info!("Loading plugin: {} from {}.", name.blue(), module_path.blue());
-
-		// Check if the plugin file exists
-		if !std::path::Path::new(&module_path).exists() {
-			return Err(AexloError::PluginNotFound { path: module_path });
+	/// Resolve `artifact_path` -- the plugin as it exists on disk -- to the concrete
+	/// dynamic library that should be `dlopen`'d.
+	///
+	/// Callers hand us whatever they'd double-click to install the plugin: a bare
+	/// `.aex`/`.dll` file on Windows, or a `.plugin` bundle directory on macOS. Rather
+	/// than branching on the compiled/runtime OS (which breaks the moment a flat test
+	/// `.dylib` is loaded on macOS, or a bundle is inspected from another host), we
+	/// dispatch on the shape of `artifact_path` itself: a directory is a bundle to dig
+	/// into, a file is already the binary to load.
+	fn resolve_binary_path(artifact_path: &Path) -> Result<PathBuf> {
+		if artifact_path.is_dir() {
+			return Self::resolve_bundle_binary(artifact_path);
 		}
 
+		if artifact_path.is_file() {
+			return Ok(artifact_path.to_path_buf());
+		}
+
+		Err(AexloError::PluginNotFound {
+			path: artifact_path.display().to_string(),
+		})
+	}
+
+	/// Find the executable inside a macOS `.plugin` bundle's `Contents/MacOS/`.
+	///
+	/// AE plugin bundles are required to contain exactly one binary there, so we
+	/// use that instead of assuming the binary is named after the bundle.
+	fn resolve_bundle_binary(bundle_path: &Path) -> Result<PathBuf> {
+		let macos_dir = bundle_path.join("Contents").join("MacOS");
+
+		let mut binaries = std::fs::read_dir(&macos_dir)
+			.map_err(|_| AexloError::PluginNotFound {
+				path: macos_dir.display().to_string(),
+			})?
+			.filter_map(|entry| entry.ok())
+			.map(|entry| entry.path())
+			.filter(|path| path.is_file());
+
+		match (binaries.next(), binaries.next()) {
+			(Some(binary), None) => Ok(binary),
+			(None, _) => Err(AexloError::PluginNotFound {
+				path: macos_dir.display().to_string(),
+			}),
+			(Some(_), Some(_)) => Err(AexloError::InvalidPath {
+				message: format!(
+					"Ambiguous bundle '{}': expected exactly one executable in Contents/MacOS",
+					bundle_path.display()
+				),
+			}),
+		}
+	}
+
+	fn load(&mut self) -> Result<()> {
+		let module_path = Self::resolve_binary_path(&self.path)?;
+		let module_path_str = module_path.display().to_string();
+
+		log::info!("Loading plugin from '{}'.", module_path_str.blue());
+
 		let lib = Library::open(&module_path)?;
-		let (entry_point, resolved_name) = Self::resolve_entry_point(&lib, &self.entry_point_candidates)?;
+		let (entry_point, resolved_name) = Self::resolve_entry_point(&lib, self.pica.as_ref())?;
 
 		self.entry_point = Some(entry_point);
 		self.entry_point_name = Some(resolved_name.clone());
 		self.library = Some(lib);
 
 		// Set plugin path for get_platform_data callback
-		crate::host::utility::set_plugin_path(std::path::Path::new(&module_path));
+		crate::host::utility::set_plugin_path(&module_path);
 
 		log::info!("Resolved entry point symbol: {}.", resolved_name.blue());
-
-		log::info!("Loaded plugin '{}' {}.", name.blue(), "successfully".green());
-		//* -------------------------------------------- *//
+		log::info!("Loaded plugin '{}' {}.", module_path_str.blue(), "successfully".green());
 
 		Ok(())
 	}
@@ -332,7 +407,7 @@ impl PluginInstance {
 				log::info!("Plugin executed {}.", "successfully".green());
 			}
 			code => {
-				return Err(AexloError::PluginExecutionFailed { code });
+				return Err(AexloError::PluginExecutionFailed { code: code.into() });
 			}
 		}
 		//* -------------------------------------------- *//
@@ -420,6 +495,14 @@ impl PluginInstance {
 	/// Get output dimensions in pixel (width, height).
 	pub fn output_size(&self) -> (u32, u32) {
 		(self.output_layer.width(), self.output_layer.height())
+	}
+
+	/// Get a pointer to the instance's persistent output world (`PF_LayerDef`/`PF_EffectWorld`).
+	///
+	/// Used by smart-render callbacks to hand back a stable pointer instead of one
+	/// pointing at a temporary value that would dangle after the callback returns.
+	pub fn output_world_ptr(&mut self) -> *mut after_effects_sys::PF_EffectWorld {
+		&mut self.world as *mut after_effects_sys::PF_LayerDef as *mut after_effects_sys::PF_EffectWorld
 	}
 
 	/// Get the number of parameters

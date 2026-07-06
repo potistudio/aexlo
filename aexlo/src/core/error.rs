@@ -17,10 +17,6 @@ pub enum AexloError {
 	#[error("Plugin not found: {path}")]
 	PluginNotFound { path: String },
 
-	/// The operating system is not supported.
-	#[error("Unsupported OS: {os}. Supported platforms are Windows and macOS.")]
-	UnsupportedOS { os: String },
-
 	/// Invalid path configuration (missing directory or filename).
 	#[error("Invalid path: {message}")]
 	InvalidPath { message: String },
