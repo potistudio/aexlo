@@ -3428,6 +3428,8 @@ version = "0.0.1"
 dependencies = [
  "aexlo",
  "cmake",
+ "image",
+ "mtpng",
 ]
 
 [[package]]

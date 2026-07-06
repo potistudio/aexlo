@@ -8,6 +8,8 @@ publish = false
 
 [dependencies]
 aexlo = { workspace = true }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+mtpng = "0.4.1"
 
 [build-dependencies]
 cmake = "0.1.57"
