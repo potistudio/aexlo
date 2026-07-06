@@ -11,7 +11,7 @@ use colored::{ColoredString, Colorize};
 use aexlo::{Depth8, PluginInstance};
 
 // Configuration constants
-const PLUGIN_NAME: &str = "AnimatedNoise";
+const DEFAULT_PLUGIN_NAME: &str = "AnimatedNoise";
 const INPUT_IMAGE_PATH: &str = "input.png";
 const OUTPUT_FILE_PATH: &str = "output.png";
 
@@ -40,14 +40,14 @@ fn print_banner() {
 }
 
 /// Resolves the path to a prebuilt After Effects plugin bundle checked into
-/// `tests/mocks/`. These are real, compiled plugin binaries used as fixtures
-/// for this example and shared by `examples/interactive` — not mock objects
-/// in the unit-test sense.
-fn resolve_mock_plugin_path(plugin_name: &str) -> PathBuf {
+/// the workspace's shared `fixtures/plugins/` directory. These are real,
+/// compiled plugin binaries used across examples — not mock objects in the
+/// unit-test sense.
+fn resolve_plugin_fixture_path(plugin_name: &str) -> PathBuf {
 	let (platform_dir, extension) = if cfg!(target_os = "windows") { ("windows", "aex") } else { ("macos", "plugin") };
 
 	PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-		.join("tests/mocks")
+		.join("../../fixtures/plugins")
 		.join(platform_dir)
 		.join(format!("{plugin_name}.{extension}"))
 }
@@ -104,7 +104,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	env_logger::init();
 
-	let plugin_path = resolve_mock_plugin_path(PLUGIN_NAME);
+	let plugin_name = std::env::args().nth(1).unwrap_or_else(|| DEFAULT_PLUGIN_NAME.to_string());
+	let plugin_path = resolve_plugin_fixture_path(&plugin_name);
 
 	// 1. Load plugin with `PluginInstance::try_load()`
 	// `try_load()` will return an error if the plugin fails to load for any reason (e.g. file not found, invalid format, missing dependencies).

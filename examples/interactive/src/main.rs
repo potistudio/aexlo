@@ -2,20 +2,25 @@ use std::path::PathBuf;
 
 use eframe::egui;
 
+const DEFAULT_PLUGIN_NAME: &str = "SDK_Noise";
+
 /// Resolves the path to a prebuilt After Effects plugin bundle checked into
-/// `examples/sdk_noise/tests/mocks/`. These fixtures are real, compiled plugin
-/// binaries shared across examples — not mock objects in the unit-test sense.
-fn resolve_mock_plugin_path(plugin_name: &str) -> PathBuf {
+/// the workspace's shared `fixtures/plugins/` directory. These are real,
+/// compiled plugin binaries used across examples — not mock objects in the
+/// unit-test sense.
+fn resolve_plugin_fixture_path(plugin_name: &str) -> PathBuf {
 	let (platform_dir, extension) = if cfg!(target_os = "windows") { ("windows", "aex") } else { ("macos", "plugin") };
 
 	PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-		.join("../sdk_noise/tests/mocks")
+		.join("../../fixtures/plugins")
 		.join(platform_dir)
 		.join(format!("{plugin_name}.{extension}"))
 }
 
 fn main() -> eframe::Result<()> {
 	env_logger::init();
+
+	let plugin_name = std::env::args().nth(1).unwrap_or_else(|| DEFAULT_PLUGIN_NAME.to_string());
 
 	let options = eframe::NativeOptions {
 		viewport: egui::ViewportBuilder::default()
@@ -26,7 +31,11 @@ fn main() -> eframe::Result<()> {
 
 	log::info!("Starting aexlo interactive demo application");
 
-	eframe::run_native("aexlo-demo", options, Box::new(|_cc| Ok(Box::new(AexloApp::new()))))
+	eframe::run_native(
+		"aexlo-demo",
+		options,
+		Box::new(|_cc| Ok(Box::new(AexloApp::new(&plugin_name)))),
+	)
 }
 
 struct AexloApp {
@@ -55,12 +64,12 @@ struct AexloApp {
 }
 
 impl AexloApp {
-	fn new() -> Self {
+	fn new(plugin_name: &str) -> Self {
 		let width = 1920;
 		let height = 1080;
 
 		// Try to load the plugin
-		let plugin_path = resolve_mock_plugin_path("SDK_Noise");
+		let plugin_path = resolve_plugin_fixture_path(plugin_name);
 
 		log::info!("Loading plugin from: {:?}", plugin_path);
 
