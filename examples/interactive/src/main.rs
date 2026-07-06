@@ -1,4 +1,18 @@
+use std::path::PathBuf;
+
 use eframe::egui;
+
+/// Resolves the path to a prebuilt After Effects plugin bundle checked into
+/// `examples/sdk_noise/tests/mocks/`. These fixtures are real, compiled plugin
+/// binaries shared across examples — not mock objects in the unit-test sense.
+fn resolve_mock_plugin_path(plugin_name: &str) -> PathBuf {
+	let (platform_dir, extension) = if cfg!(target_os = "windows") { ("windows", "aex") } else { ("macos", "plugin") };
+
+	PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+		.join("../sdk_noise/tests/mocks")
+		.join(platform_dir)
+		.join(format!("{plugin_name}.{extension}"))
+}
 
 fn main() -> eframe::Result<()> {
 	env_logger::init();
@@ -46,9 +60,7 @@ impl AexloApp {
 		let height = 1080;
 
 		// Try to load the plugin
-		let exe_dir = std::env::current_exe().expect("Failed to get current executable path");
-		let plugin_name = if cfg!(target_os = "windows") { "SDK_Noise.aex" } else { "SDK_Noise.plugin" };
-		let plugin_path = exe_dir.parent().expect("Failed to get parent directory").join(plugin_name);
+		let plugin_path = resolve_mock_plugin_path("SDK_Noise");
 
 		log::info!("Loading plugin from: {:?}", plugin_path);
 

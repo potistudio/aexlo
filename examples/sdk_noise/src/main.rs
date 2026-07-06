@@ -39,14 +39,17 @@ fn print_banner() {
 	}
 }
 
-fn resolve_plugin_path(plugin_name: &str) -> PathBuf {
-	let mocks_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("mocks");
+/// Resolves the path to a prebuilt After Effects plugin bundle checked into
+/// `tests/mocks/`. These are real, compiled plugin binaries used as fixtures
+/// for this example and shared by `examples/interactive` — not mock objects
+/// in the unit-test sense.
+fn resolve_mock_plugin_path(plugin_name: &str) -> PathBuf {
+	let (platform_dir, extension) = if cfg!(target_os = "windows") { ("windows", "aex") } else { ("macos", "plugin") };
 
-	if cfg!(target_os = "windows") {
-		mocks_dir.join("windows").join(format!("{plugin_name}.aex"))
-	} else {
-		mocks_dir.join("macos").join(format!("{plugin_name}.plugin"))
-	}
+	PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+		.join("tests/mocks")
+		.join(platform_dir)
+		.join(format!("{plugin_name}.{extension}"))
 }
 
 fn extract_output_rgba(instance: &mut PluginInstance) -> Result<(Vec<u8>, u32, u32), Box<dyn Error>> {
@@ -101,7 +104,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	env_logger::init();
 
-	let plugin_path = resolve_plugin_path(PLUGIN_NAME);
+	let plugin_path = resolve_mock_plugin_path(PLUGIN_NAME);
 
 	// 1. Load plugin with `PluginInstance::try_load()`
 	// `try_load()` will return an error if the plugin fails to load for any reason (e.g. file not found, invalid format, missing dependencies).
