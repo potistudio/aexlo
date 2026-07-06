@@ -633,6 +633,7 @@ impl PluginInstance {
 	pub fn add_instance_param(&mut self, param: PF_ParamDef) {
 		self.params.push(param);
 		self.params_dirty = true;
+		self.in_data.num_params = self.params.len() as i32;
 		log::debug!(
 			"PluginInstance: added param #{} (type: {:?})",
 			self.params.len(),

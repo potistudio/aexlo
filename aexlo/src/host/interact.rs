@@ -95,14 +95,14 @@ unsafe extern "C" fn add_param_sys(effect_ref: PF_ProgPtr, index: PF_ParamIndex,
 		.add_arg("index", index)
 		.add_arg("def", format!("{:#x}", def as usize));
 
-	// // Copy the param definition and store it
-	// let param = unsafe { *def };
+	// Copy the param definition and store it
+	let param = unsafe { *def };
 
-	// // Store the param in instance via ParamManager
-	// if let Err(e) = crate::host::params::add_param_to_instance(effect_ref, param) {
-	// 	log::error!("add_param: failed to add param: {}", e);
-	// 	return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	// }
+	// Store the param in instance via ParamManager
+	if let Err(e) = crate::host::params::add_param_to_instance(effect_ref, param) {
+		log::error!("add_param: failed to add param: {}", e);
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
 
 	diagnostics.emit();
 	PF_Err_NONE as PF_Err
