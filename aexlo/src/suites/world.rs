@@ -32,13 +32,11 @@
 /// - `create_world_suite_2`: Factory function that constructs the suite vtable
 use std::ptr::null_mut;
 
-use after_effects::sys::{
-	PF_Pixel, PF_PixelFormat_ARGB64, PF_PixelFormat_ARGB128, PF_PixelFormat_BGRA32, PF_PixelFormat_GPU_BGRA128,
-};
+use after_effects::sys::{PF_PixelFormat_ARGB64, PF_PixelFormat_ARGB128, PF_PixelFormat_GPU_BGRA128};
 use after_effects_sys::{
 	A_long, PF_Boolean, PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_PixelFormat,
-	PF_PixelFormat_ARGB32, PF_PixelFormat_FORCE_LONG_INT, PF_ProgPtr, PF_RationalScale, PF_UnionableRect,
-	PF_WorldFlag_WRITEABLE, PF_WorldFlags, PF_WorldSuite2,
+	PF_PixelFormat_ARGB32, PF_ProgPtr, PF_RationalScale, PF_UnionableRect, PF_WorldFlag_WRITEABLE, PF_WorldFlags,
+	PF_WorldSuite2,
 };
 
 use crate::{PluginInstance, core::diagnostics::DiagnosticBuilder};

@@ -2,10 +2,8 @@ use std::ptr::{null, null_mut};
 
 use after_effects_sys::*;
 
-use crate::{DiagnosticBuilder, PluginInstance, core::diagnostics};
-
-const WIDTH: u32 = 1920;
-const HEIGHT: u32 = 1080;
+use crate::core::constants::{DEFAULT_HEIGHT as HEIGHT, DEFAULT_WIDTH as WIDTH};
+use crate::{DiagnosticBuilder, PluginInstance};
 
 //==== Stub implementations ================================
 unsafe extern "C" fn checkout_layer_stub(
@@ -135,10 +133,12 @@ unsafe extern "C" fn checkout_output_sys(effect_ref: PF_ProgPtr, output: *mut *m
 
 	//== Implementation ==//
 	if let Some(mut instance) = PluginInstance::get_instance_ptr(effect_ref) {
-		unsafe { *output = &mut instance.as_mut().output_layer.as_sys() as *mut _ };
+		// Hand back a pointer into the instance's persistent output world, not a
+		// pointer to a temporary `as_sys()` value (which would dangle immediately).
+		unsafe { *output = instance.as_mut().output_world_ptr() };
 	} else {
 		log::error!(
-			"checkout_output: No plugin instance found for effect_ref {:#x}",
+			"checkout_output: No instance found for effect_ref {:#x}",
 			effect_ref as usize
 		);
 	}
@@ -178,8 +178,8 @@ impl SmartRenderData {
 					rect: after_effects_sys::PF_LRect {
 						left: 0,
 						top: 0,
-						right: 1920,
-						bottom: 1080,
+						right: WIDTH as i32,
+						bottom: HEIGHT as i32,
 					},
 					field: 0,
 					channel_mask: 15,
@@ -219,8 +219,8 @@ impl SmartRenderData {
 					rect: PF_LRect {
 						left: 0,
 						top: 0,
-						right: 1920,
-						bottom: 1080,
+						right: WIDTH as i32,
+						bottom: HEIGHT as i32,
 					},
 					field: 0,
 					channel_mask: 15,

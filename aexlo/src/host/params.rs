@@ -227,21 +227,6 @@ pub fn add_param_to_instance(effect_ref: PF_ProgPtr, param: PF_ParamDef) -> Resu
 	}
 }
 
-/// Get all parameters from a plugin instance
-pub fn get_params_from_instance(effect_ref: PF_ProgPtr) -> Vec<PF_ParamDef> {
-	if effect_ref.is_null() {
-		return Vec::new();
-	}
-
-	let instance = crate::instance::PluginInstance::get_instance_ptr(effect_ref);
-	if let Some(instance_ptr) = instance {
-		let instance = unsafe { instance_ptr.as_ref() };
-		instance.params().to_vec()
-	} else {
-		Vec::new()
-	}
-}
-
 /// Get the number of parameters from a plugin instance
 pub fn get_params_count_from_instance(effect_ref: PF_ProgPtr) -> usize {
 	if effect_ref.is_null() {
@@ -255,55 +240,4 @@ pub fn get_params_count_from_instance(effect_ref: PF_ProgPtr) -> usize {
 	} else {
 		0
 	}
-}
-
-// ============================================================================
-// Deprecated Global Functions (kept for backward compatibility during transition)
-// ============================================================================
-
-/// @deprecated Use `add_param_to_instance` instead
-/// Adds a parameter definition for the given effect_ref.
-#[deprecated(note = "Use add_param_to_instance instead")]
-pub fn add_param(effect_ref: PF_ProgPtr, param: PF_ParamDef) {
-	let _ = add_param_to_instance(effect_ref, param);
-}
-
-/// @deprecated Use `get_params_from_instance` instead
-/// Gets all parameters for the given effect_ref.
-#[deprecated(note = "Use get_params_from_instance instead")]
-pub fn get_params(effect_ref: PF_ProgPtr) -> Vec<PF_ParamDef> {
-	get_params_from_instance(effect_ref)
-}
-
-/// @deprecated Use `get_params_count_from_instance` instead
-/// Gets the number of parameters for the given effect_ref.
-#[deprecated(note = "Use get_params_count_from_instance instead")]
-pub fn get_params_count(effect_ref: PF_ProgPtr) -> usize {
-	get_params_count_from_instance(effect_ref)
-}
-
-/// @deprecated Use PluginInstance::clear_instance_params instead
-/// Clears all parameters for the given effect_ref.
-#[deprecated(note = "Use PluginInstance::clear_instance_params instead")]
-pub fn clear_params(effect_ref: PF_ProgPtr) {
-	if !effect_ref.is_null()
-		&& let Some(mut instance_ptr) = crate::instance::PluginInstance::get_instance_ptr(effect_ref)
-	{
-		let instance = unsafe { instance_ptr.as_mut() };
-		instance.clear_instance_params();
-	}
-}
-
-/// @deprecated No longer needed with instance-based storage
-/// Clears all parameters.
-#[deprecated(note = "No longer needed with instance-based storage")]
-pub fn clear_all() {
-	// No-op with instance-based storage
-}
-
-/// @deprecated No longer needed with instance-based storage
-/// Initializes the parameter manager (called once at startup).
-#[deprecated(note = "No longer needed with instance-based storage")]
-pub fn init() {
-	// No-op with instance-based storage
 }

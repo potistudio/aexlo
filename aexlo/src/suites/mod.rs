@@ -11,7 +11,8 @@ pub mod ui;
 pub mod utility;
 pub mod world;
 
-use crate::core::diagnostics::*;
+#[cfg(feature = "diagnostics")]
+use crate::core::diagnostics::DiagnosticBuilder;
 use crate::suites::registry::{acquire, release};
 use after_effects_sys::*;
 use std::ffi::CStr;
@@ -174,7 +175,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			}
 			Err(err) => err,
 		},
-		("PF AE App Suite", 6) => match acquire(suite_name, version, ui::create_ae_app_suite_v6) {
+		("PF AE App Suite", 6) => match acquire(suite_name, version, ae_app::create_ae_app_suite_v6) {
 			Ok(ptr) => {
 				unsafe {
 					*suite = ptr as *const c_void;

@@ -6,6 +6,7 @@
 use std::borrow::Cow;
 
 /// Colorize a value string based on its detected type.
+#[cfg(feature = "diagnostics")]
 fn colorize_value(value: &str) -> colored::ColoredString {
 	use colored::Colorize;
 
@@ -144,15 +145,20 @@ impl<'a> DiagnosticBuilder<'a> {
 	}
 
 	/// Build and emit the diagnostic (convenience method).
+	///
+	/// Marks the builder as emitted so the `Drop` impl does not emit a second time.
 	#[cfg(feature = "diagnostics")]
-	pub fn emit(&self) {
+	pub fn emit(&mut self) {
+		self.emitted = true;
 		self.build().print_colored();
 	}
 
 	/// No-op when diagnostics feature is disabled.
 	#[cfg(not(feature = "diagnostics"))]
 	#[inline(always)]
-	pub fn emit(&self) {}
+	pub fn emit(&mut self) {
+		self.emitted = true;
+	}
 }
 
 impl Default for DiagnosticBuilder<'_> {

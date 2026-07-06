@@ -1,5 +1,7 @@
-use crate::core::diagnostics::*;
+#[cfg(feature = "diagnostics")]
+use crate::core::diagnostics::DiagnosticBuilder;
 use after_effects_sys::*;
+#[cfg(feature = "diagnostics")]
 use std::ffi::CStr;
 
 #[allow(non_snake_case)]

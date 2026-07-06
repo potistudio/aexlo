@@ -90,7 +90,7 @@ pub fn release(name: &str, version: i32) -> PF_Err {
 		// Atomically decrement ref_count only if it's greater than 0
 		let result = entry
 			.ref_count
-			.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
+			.try_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
 				if current > 0 {
 					Some(current - 1)
 				} else {

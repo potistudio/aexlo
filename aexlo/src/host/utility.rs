@@ -384,7 +384,7 @@ stub_log!(get_callback_addr_stub,
 	_fn_ptr: *mut PF_CallbackFunc
 );
 
-unsafe extern "C" fn app_stub(_effect_ref: PF_ProgPtr, _selector: A_long, ...) -> PF_Err {
+unsafe extern "C" fn app_stub(_effect_ref: PF_ProgPtr, _selector: A_long, _args: ...) -> PF_Err {
 	log::warn!("STUB: app called");
 	PF_Err_NONE as PF_Err
 }

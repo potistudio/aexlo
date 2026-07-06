@@ -1,3 +1,4 @@
+use crate::core::constants::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
 use after_effects_sys::*;
 use std::ptr::null_mut;
 
@@ -17,8 +18,8 @@ impl InDataBuilder {
 		builder.in_data.what_cpu = 3;
 		builder.in_data.time_step = 1024;
 		builder.in_data.field = PF_Field_UPPER as PF_Field;
-		builder.in_data.width = 1920;
-		builder.in_data.height = 1080;
+		builder.in_data.width = DEFAULT_WIDTH as i32;
+		builder.in_data.height = DEFAULT_HEIGHT as i32;
 		builder.in_data.local_time_step = 0;
 		builder.in_data.time_scale = 0;
 		builder.in_data.current_time = 10240;
@@ -45,16 +46,6 @@ impl InDataBuilder {
 
 	pub fn with_callbacks(mut self, interact: PF_InteractCallbacks) -> Self {
 		self.in_data.inter = interact;
-		self
-	}
-
-	pub fn with_utils(mut self, utils: *mut _PF_UtilCallbacks) -> Self {
-		self.in_data.utils = utils;
-		self
-	}
-
-	pub fn with_pica(mut self, pica: *mut SPBasicSuite) -> Self {
-		self.in_data.pica_basicP = pica;
 		self
 	}
 
@@ -111,11 +102,6 @@ impl LayerDefBuilder {
 		self.layer.width = width;
 		self.layer.height = height;
 		self.layer.rowbytes = width * 4; // Assuming 8-bit ARGB
-		self
-	}
-
-	pub fn with_buffer(mut self, buffer: *mut PF_Pixel) -> Self {
-		self.layer.data = buffer as *mut _;
 		self
 	}
 

@@ -98,14 +98,14 @@ pub(crate) unsafe extern "C" fn sprintf_sys(arg1: *mut A_char, arg2: *const A_ch
 				match next {
 					'd' => {
 						// Get an integer argument
-						let arg = unsafe { args.arg::<i32>() };
+						let arg = unsafe { args.next_arg::<i32>() };
 
 						diagnostics.add_arg("arg_int", format!("{:?}", arg));
 						result.push_str(&arg.to_string());
 					}
 					's' => {
 						// Get a string argument
-						let ptr = unsafe { args.arg::<*const i8>() };
+						let ptr = unsafe { args.next_arg::<*const i8>() };
 
 						if !ptr.is_null() {
 							match unsafe { CStr::from_ptr(ptr) }.to_str() {
@@ -185,6 +185,7 @@ pub unsafe extern "C" fn strcpy_sys(arg1: *mut A_char, arg2: *const A_char) -> *
 	arg1
 }
 
+#[cfg(test)]
 mod tests {
 	use super::*;
 	use std::ffi::CStr;
@@ -380,17 +381,17 @@ mod tests {
 
 	#[test]
 	fn strcpy_test() {
-		let src = "Hello, world!";
+		let src = std::ffi::CString::new("Hello, world!").unwrap();
 		let mut buffer = [0i8; 256];
 
-		let result_ptr = unsafe { strcpy_sys(buffer.as_mut_ptr(), src.as_ptr() as *const i8) };
+		let result_ptr = unsafe { strcpy_sys(buffer.as_mut_ptr(), src.as_ptr()) };
 
 		assert!(!result_ptr.is_null(), "Expected strcpy to return a non-null pointer");
 
 		let result_str = unsafe { CStr::from_ptr(result_ptr).to_str().unwrap() };
 
 		assert!(
-			result_str == src,
+			result_str == src.to_str().unwrap(),
 			"Expected strcpy to copy the string correctly, got {:?}",
 			result_str
 		);

@@ -7,6 +7,19 @@ pub trait PixelDepth {
 	fn max_value() -> Self::Depth;
 }
 
+/// A single ARGB pixel parameterized over its channel depth.
+///
+/// # Memory layout
+///
+/// The fields are laid out in `alpha, red, green, blue` order and the struct is
+/// `#[repr(C)]`, so a `Pixel<Depth8>` is bit-compatible with `PF_Pixel8` (and
+/// likewise for the 16-bit / 32-bit depths). This guarantee is relied upon when
+/// a `Layer`'s pixel buffer is handed to the host as a raw `*mut PF_Pixel`.
+///
+/// Note that this is the *native After Effects* channel order (ARGB). Conversion
+/// helpers such as `Layer::from_raw` / `Layer::write_rgba_bytes` deal in the
+/// `RGBA` byte order used by external image formats.
+#[repr(C)]
 #[derive(Debug, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Pixel<T: PixelDepth> {
 	pub alpha: T::Depth,

@@ -29,14 +29,13 @@ pub enum AexloError {
 	#[error("Plugin container is not loaded. Call load() before calling the plugin.")]
 	ContainerNotLoaded,
 
-	/// The plugin returned an error code during execution.
+	/// The plugin returned a non-zero `PF_Err` code during execution.
+	///
+	/// The raw code is widened to `i64` so this variant has the same shape on
+	/// every platform (the underlying `PF_Err` is `u32` on macOS and `i32`
+	/// elsewhere), keeping downstream `match` arms portable.
 	#[error("Plugin execution failed with error code: {code}")]
-	#[cfg(target_os = "macos")]
-	PluginExecutionFailed { code: u32 },
-
-	#[cfg(not(target_os = "macos"))]
-	#[error("Plugin execution failed with error code: {code}")]
-	PluginExecutionFailed { code: i32 },
+	PluginExecutionFailed { code: i64 },
 
 	/// Parameter index is out of bounds.
 	#[error("Parameter index {index} out of bounds (max {max})")]

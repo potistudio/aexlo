@@ -5,23 +5,21 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```no_run
 //! use aexlo::PluginInstance;
 //!
-//! let mut instance = PluginInstance::new(std::path::Path::new("SDK_Noise"));
-//! instance.load().expect("Failed to load plugin"); // Initialize plugin
+//! # fn main() -> aexlo::Result<()> {
+//! // `try_load` loads the library, runs GLOBAL_SETUP and PARAMS_SETUP.
+//! let mut instance = PluginInstance::try_load(std::path::Path::new("SDK_Noise"))?;
 //!
-//! // Get plugin info
-//! instance.about().expect("About command failed");
+//! // Query plugin info (PF_Cmd_ABOUT).
+//! let message = instance.about()?;
+//! println!("{message}");
 //!
-//! // Setup global state (flags, etc.)
-//! instance.setup_global().expect("Global setup failed");
-//!
-//! // Setup parameters
-//! instance.setup_params().expect("Params setup failed");
-//!
-//! // Render frame
-//! instance.render().expect("Render failed");
+//! // Render a frame.
+//! instance.render()?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Features
@@ -33,24 +31,22 @@
 #![feature(c_variadic)]
 // Enforce code quality
 #![warn(clippy::all)]
+// The crate mirrors the After Effects C SDK, whose suite struct fields and entry
+// points (`PF_GetAppName`, `EffectMain`, …) use non-snake-case names. Allowing it
+// crate-wide keeps the FFI surface readable without per-item annotations.
 #![allow(non_snake_case)]
 
-pub mod core;
-pub mod host;
+// Internal modules — not part of the public API.
+mod core;
+mod host;
 mod instance;
 mod utils;
 
 pub(crate) mod suites;
 
-pub use suites::macros;
-pub use suites::registry;
-
 // ============================================================================
 // Public API
 // ============================================================================
-
-/// Re-export `PF_Pixel` for working with pixel data.
-pub use after_effects_sys::PF_Pixel;
 
 /// Error types for aexlo operations.
 pub use core::error::{AexloError, Result};
@@ -64,4 +60,5 @@ pub use instance::ParamValue;
 /// Diagnostic utilities (feature-gated).
 pub use core::diagnostics::{Diagnostic, DiagnosticBuilder};
 
+/// Safe pixel/layer wrappers ([`Layer`], [`Pixel`], depth markers, …).
 pub use wrapper::*;

@@ -1,13 +1,4 @@
-pub fn hello() {
-	println!("Hello from the wrapper library!");
-}
-
-pub enum Command {
-	About,
-	GlobalSetup,
-	ParamSetup,
-	Render,
-}
+//! Safe newtype wrappers around After Effects low-level pixel/layer types.
 
 mod layer;
 mod pixel;
