@@ -47,10 +47,8 @@ impl AexloApp {
 
 		// Try to load the plugin
 		let exe_dir = std::env::current_exe().expect("Failed to get current executable path");
-		let plugin_path = exe_dir
-			.parent()
-			.expect("Failed to get parent directory")
-			.join("SDK_Noise");
+		let plugin_name = if cfg!(target_os = "windows") { "SDK_Noise.aex" } else { "SDK_Noise.plugin" };
+		let plugin_path = exe_dir.parent().expect("Failed to get parent directory").join(plugin_name);
 
 		log::info!("Loading plugin from: {:?}", plugin_path);
 

@@ -11,7 +11,7 @@ use colored::{ColoredString, Colorize};
 use aexlo::{Depth8, PluginInstance};
 
 // Configuration constants
-const PLUGIN_NAME: &str = "circle_repeater_rust.dll";
+const PLUGIN_NAME: &str = "AnimatedNoise";
 const INPUT_IMAGE_PATH: &str = "input.png";
 const OUTPUT_FILE_PATH: &str = "output.png";
 
@@ -26,24 +26,27 @@ fn failed() -> ColoredString {
 fn print_banner() {
 	#[rustfmt::skip]
 	{
-		println!("\n========  {} --- After Effects Plugin Loader  ========", "aexlo-rs".bold());
-		println!("________  _______      ___    ___ ___       ________                 ________  ________");
-		println!("|\\   __  \\|\\  ___ \\    |\\  \\  /  /|\\  \\     |\\   __  \\               |\\   __  \\|\\   ____\\");
-		println!("\\ \\  \\|\\  \\ \\   __/|   \\ \\  \\/  / | \\  \\    \\ \\  \\|\\  \\  ____________\\ \\  \\|\\  \\ \\  \\___|_");
-		println!(" \\ \\   __  \\ \\  \\_|/__  \\ \\    / / \\ \\  \\    \\ \\  \\\\\\  \\|\\____________\\ \\   _  _\\ \\_____  \\");
-		println!("  \\ \\  \\ \\  \\ \\  \\_|\\ \\  /     \\/   \\ \\  \\____\\ \\  \\\\\\  \\|____________|\\ \\  \\\\  \\\\|____|\\  \\");
-		println!("   \\ \\__\\ \\__\\ \\_______\\/  /\\   \\    \\ \\_______\\ \\_______\\              \\ \\__\\\\ _\\ ____\\_\\  \\");
-		println!("    \\|__|\\|__|\\|_______/__/ /\\ __\\    \\|_______|\\|_______|               \\|__|\\|__|\\_________\\");
-		println!("                       |__|/ \\|__|                                                \\|_________|\n");
+		println!("\n========  {} --- After Effects Plugin Loader  ========", "aexlo".bold());
+		println!("________  _______      ___    ___ ___       ________");
+		println!("|\\   __  \\|\\  ___ \\    |\\  \\  /  /|\\  \\     |\\   __  \\");
+		println!("\\ \\  \\|\\  \\ \\   __/|   \\ \\  \\/  / | \\  \\    \\ \\  \\|\\  \\");
+		println!(" \\ \\   __  \\ \\  \\_|/__  \\ \\    / / \\ \\  \\    \\ \\  \\\\\\  \\");
+		println!("  \\ \\  \\ \\  \\ \\  \\_|\\ \\  /     \\/   \\ \\  \\____\\ \\  \\\\\\  \\");
+		println!("   \\ \\__\\ \\__\\ \\_______\\/  /\\   \\    \\ \\_______\\ \\_______\\");
+		println!("    \\|__|\\|__|\\|_______/__/ /\\ __\\    \\|_______|\\|_______|");
+		println!("                       |__|/ \\|__|");
+		println!("=========================================================\n");
 	}
 }
 
 fn resolve_plugin_path(plugin_name: &str) -> PathBuf {
-	PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-		.join("tests")
-		.join("mocks")
-		.join("macos")
-		.join(plugin_name)
+	let mocks_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("mocks");
+
+	if cfg!(target_os = "windows") {
+		mocks_dir.join("windows").join(format!("{plugin_name}.aex"))
+	} else {
+		mocks_dir.join("macos").join(format!("{plugin_name}.plugin"))
+	}
 }
 
 fn extract_output_rgba(instance: &mut PluginInstance) -> Result<(Vec<u8>, u32, u32), Box<dyn Error>> {
@@ -117,7 +120,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	instance.set_input(input_layer);
 
 	log::info!("Rendering...");
-	// instance.render()?;
+	instance.render()?;
 	// instance.render_pre()?;
 	// instance.render_smart()?;
 	log::info!("Rendering completed {}.", successfully());
