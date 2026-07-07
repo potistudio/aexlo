@@ -596,34 +596,6 @@ impl PluginInstance {
 		}
 	}
 
-	/// Get the output message from the plugin (set during About command).
-	///
-	/// # Note
-	/// The message may contain line breaks and special characters (e.g. \r, \n).
-	///
-	/// # Returns
-	///
-	/// A `String` containing the message. Invalid UTF-8 sequences are replaced with the
-	/// Unicode replacement character (�).
-	///
-	/// # Example
-	/// ```ignore
-	/// let mut instance = PluginInstance::new("SDK_Noise");
-	/// instance.load()?;
-	///
-	/// instance.about()?;
-	/// println!("Plugin Message: {}", instance.message());
-	/// ```
-	fn message(&self) -> String {
-		let bytes = &self.out_data.return_msg;
-
-		// Cramp the buffer at the first null byte (if any) to avoid trailing garbage
-		let cramped_length = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
-
-		let utf8: Vec<u8> = bytes[..cramped_length].iter().map(|&b| b as u8).collect();
-		String::from_utf8_lossy(&utf8).into_owned()
-	}
-
 	/// Get a PluginInstance pointer from an effect reference pointer.
 	///
 	/// The returned pointer does not imply unique mutable access.
@@ -665,5 +637,24 @@ impl PluginInstance {
 		self.params.clear();
 		self.params_dirty = true;
 		log::debug!("PluginInstance: cleared all instance params");
+	}
+}
+
+//* ---- Internal Methods ------------------------------- */
+impl PluginInstance {
+	/// Get the output message from the instance (set during `PF_Cmd_ABOUT` command).
+	///
+	/// The message may contain line breaks and special characters (e.g. \r, \n).
+	/// Invalid UTF-8 sequences are replaced with the Unicode replacement character (�).
+	fn message(&self) -> String {
+		let bytes = &self.out_data.return_msg;
+
+		// Cramp the buffer at the first null byte (if any) to avoid trailing garbage
+		let cramped_length = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+
+		// SAFETY: `c_char` and `u8` share size and alignment; only the sign interpretation differs, which is irrelevant when reading raw bytes.
+		let utf8: &[u8] = unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const u8, cramped_length) };
+
+		String::from_utf8_lossy(utf8).into_owned()
 	}
 }
