@@ -12,7 +12,9 @@ pub enum ParamValue {
 }
 
 use after_effects::ParamType;
-use after_effects_sys::{PF_Err_INVALID_CALLBACK, PF_Err_NONE, PF_ParamDef, PF_ParamDefUnion, PF_ParamType, PF_Pixel, PF_ProgPtr};
+use after_effects_sys::{
+	PF_Err_INVALID_CALLBACK, PF_Err_NONE, PF_ParamDef, PF_ParamDefUnion, PF_ParamType, PF_Pixel, PF_ProgPtr,
+};
 use colored::Colorize;
 use dlopen2::raw::Library;
 use std::{
@@ -242,11 +244,18 @@ impl PluginInstance {
 		info.entry_point_name
 	}
 
-	fn resolve_entry_point(lib: &Library, pica: &after_effects_sys::SPBasicSuite) -> Result<(PluginEntryPoint, String)> {
+	fn resolve_entry_point(
+		lib: &Library,
+		pica: &after_effects_sys::SPBasicSuite,
+	) -> Result<(PluginEntryPoint, String)> {
 		if let Some(name) = Self::query_declared_entry_point(lib, pica) {
 			match unsafe { lib.symbol::<PluginEntryPoint>(name.as_str()) } {
 				Ok(symbol) => {
-					log::info!("Resolved entry point '{}' via {}.", name.blue(), PLUGIN_DATA_ENTRY_SYMBOL);
+					log::info!(
+						"Resolved entry point '{}' via {}.",
+						name.blue(),
+						PLUGIN_DATA_ENTRY_SYMBOL
+					);
 					return Ok((symbol, name));
 				}
 				Err(err) => log::debug!("Declared entry point '{}' not resolvable: {}", name, err),
