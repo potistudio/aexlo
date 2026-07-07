@@ -115,13 +115,18 @@ pub struct PluginInstance {
 }
 
 impl PluginInstance {
-	/// Load a plugin from `path` -- the plugin artifact exactly as it exists on disk.
+	/// Load a plugin from `path`, then run it through global and params setup.
 	///
-	/// This accepts whatever a user would point at to install the plugin: a bare
+	/// `path` is the plugin artifact exactly as it exists on disk: a bare
 	/// `.aex`/`.dll` file on Windows, or a `.plugin` bundle directory on macOS.
 	/// Callers never need to branch on platform -- if `path` is a directory it's
 	/// treated as a bundle and the actual binary under `Contents/MacOS/` is
 	/// resolved automatically; if it's a file, it's loaded as-is.
+	///
+	/// # Errors
+	/// Returns an error if the binary can't be located or opened, if no entry
+	/// point symbol can be resolved, or if the plugin rejects the
+	/// `PF_Cmd_GLOBAL_SETUP` or `PF_Cmd_PARAMS_SETUP` commands.
 	pub fn try_load(path: &Path) -> Result<Self> {
 		let mut instance = Self::new(path);
 		instance.load()?;
