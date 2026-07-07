@@ -128,14 +128,208 @@ impl PluginInstance {
 	/// point symbol can be resolved, or if the plugin rejects the
 	/// `PF_Cmd_GLOBAL_SETUP` or `PF_Cmd_PARAMS_SETUP` commands.
 	pub fn try_load(path: impl AsRef<Path>) -> Result<Self> {
-		let path = path.as_ref();
-		let mut instance = Self::new(path);
+		let mut instance = Self::new(path.as_ref());
+
 		instance.load()?;
 		instance.setup_global()?;
 		instance.setup_params()?;
+
 		Ok(instance)
 	}
 
+	/// Call the plugin with `PF_Cmd_ABOUT` command
+	pub fn about(&mut self) -> Result<String> {
+		self.cmd = after_effects::RawCommand::About;
+		self.call_plugin(null_mut())?;
+
+		Ok(self.message())
+	}
+
+	/// Call the plugin with `PF_Cmd_RENDER` command
+	pub fn render(&mut self) -> Result<()> {
+		self.cmd = after_effects::RawCommand::Render;
+		self.call_plugin(null_mut())?;
+
+		Ok(())
+	}
+
+	pub fn render_pre(&mut self) -> Result<()> {
+		let mut extra = self.smart_render_data.pre_render_extra();
+
+		self.cmd = after_effects::RawCommand::SmartPreRender;
+		self.call_plugin((&mut extra as *mut after_effects_sys::PF_PreRenderExtra).cast())?;
+
+		self.smart_render_data.sync();
+
+		Ok(())
+	}
+
+	pub fn render_smart(&mut self) -> Result<()> {
+		let mut extra = self.smart_render_data.smart_render_extra();
+
+		self.cmd = after_effects::RawCommand::SmartRender;
+		self.call_plugin((&mut extra as *mut after_effects_sys::PF_SmartRenderExtra).cast())?;
+
+		self.smart_render_data.sync();
+
+		Ok(())
+	}
+
+	pub fn set_input(&mut self, input: wrapper::Layer<wrapper::Depth8>) {
+		self.input_layer = input;
+		self.sync_input_layer_param();
+	}
+
+	/// Write output pixels directly to an RGBA buffer (zero-allocation).
+	/// The buffer must have exactly `width * height * 4` bytes.
+	pub fn write_output_rgba(&self, buffer: &mut [u8]) -> Result<()> {
+		self.output_layer
+			.write_rgba_bytes(buffer)
+			.map_err(|e| AexloError::Unexpected("Failed to write RGBA bytes: ".to_string() + &e))
+	}
+
+	//==== Getter ==========================================
+	/// Get output dimensions in pixel (width, height).
+	pub fn output_size(&self) -> (u32, u32) {
+		(self.output_layer.width(), self.output_layer.height())
+	}
+
+	/// Get a pointer to the instance's persistent output world (`PF_LayerDef`/`PF_EffectWorld`).
+	///
+	/// Used by smart-render callbacks to hand back a stable pointer instead of one
+	/// pointing at a temporary value that would dangle after the callback returns.
+	pub fn output_world_ptr(&mut self) -> *mut after_effects_sys::PF_EffectWorld {
+		&mut self.world as *mut after_effects_sys::PF_LayerDef as *mut after_effects_sys::PF_EffectWorld
+	}
+
+	/// Get the number of parameters
+	pub fn param_count(&self) -> usize {
+		self.params.len()
+	}
+
+	//==== Setter / Getter =================================
+
+	/// Set a parameter value by index.
+	/// `index` must be 1 or greater (index 0 is the input layer, not settable).
+	pub fn set_param(&mut self, index: usize, value: ParamValue) -> Result<()> {
+		if index == 0 || index >= self.params.len() {
+			return Err(AexloError::ParamIndexOutOfBounds {
+				index,
+				max: self.params.len(),
+			});
+		}
+
+		let target = &mut self.params[index];
+
+		let expected = match &value {
+			ParamValue::Float(_) if target.param_type == ParamType::FloatSlider as PF_ParamType => None,
+			ParamValue::Fixed(_) if target.param_type == ParamType::FixSlider as PF_ParamType => None,
+			ParamValue::Slider(_) if target.param_type == ParamType::Slider as PF_ParamType => None,
+			ParamValue::Checkbox(_) if target.param_type == ParamType::CheckBox as PF_ParamType => None,
+			ParamValue::Float(_) => Some("FloatSlider"),
+			ParamValue::Fixed(_) => Some("FixSlider"),
+			ParamValue::Slider(_) => Some("Slider"),
+			ParamValue::Checkbox(_) => Some("Checkbox"),
+		};
+
+		if let Some(expected) = expected {
+			return Err(AexloError::ParamTypeMismatch {
+				index,
+				expected,
+				actual: target.param_type,
+			});
+		}
+
+		// SAFETY: union variant was verified against param_type above
+		match value {
+			ParamValue::Float(v) => target.u.fs_d.value = v,
+			ParamValue::Fixed(v) => target.u.fd.value = utils::f32_to_q31(v),
+			ParamValue::Slider(v) => target.u.sd.value = v,
+			ParamValue::Checkbox(v) => target.u.bd.value = v as i32,
+		}
+
+		Ok(())
+	}
+
+	/// Returns all parameter values as `(index, value)` pairs.
+	/// Index 0 (input layer) and parameters with unknown types are excluded.
+	pub fn param_values(&self) -> Vec<(usize, ParamValue)> {
+		(1..self.params.len())
+			.filter_map(|i| self.get_param(i).map(|v| (i, v)))
+			.collect()
+	}
+
+	/// Get a parameter value by index.
+	/// Returns `None` if the index is out of bounds or the param type is unknown.
+	pub fn get_param(&self, index: usize) -> Option<ParamValue> {
+		if index == 0 || index >= self.params.len() {
+			return None;
+		}
+
+		let param = &self.params[index];
+
+		// SAFETY: union variant is selected based on param_type
+		unsafe {
+			if param.param_type == ParamType::FloatSlider as PF_ParamType {
+				Some(ParamValue::Float(param.u.fs_d.value))
+			} else if param.param_type == ParamType::FixSlider as PF_ParamType {
+				Some(ParamValue::Fixed(utils::q31_to_f32(param.u.fd.value)))
+			} else if param.param_type == ParamType::Slider as PF_ParamType {
+				Some(ParamValue::Slider(param.u.sd.value))
+			} else if param.param_type == ParamType::CheckBox as PF_ParamType {
+				Some(ParamValue::Checkbox(param.u.bd.value != 0))
+			} else {
+				None
+			}
+		}
+	}
+
+	/// Get a PluginInstance pointer from an effect reference pointer.
+	///
+	/// The returned pointer does not imply unique mutable access.
+	/// Callers must uphold aliasing rules before dereferencing.
+	pub fn get_instance_ptr(effect_ref: PF_ProgPtr) -> Option<NonNull<PluginInstance>> {
+		if effect_ref.is_null() {
+			return None;
+		}
+
+		NonNull::new(effect_ref as *mut PluginInstance)
+	}
+
+	//==== Instance Parameter Management ==========================================
+
+	/// Add a parameter to this instance's parameter storage
+	pub fn add_instance_param(&mut self, param: PF_ParamDef) {
+		self.params.push(param);
+		self.params_dirty = true;
+		self.in_data.num_params = self.params.len() as i32;
+		log::debug!(
+			"PluginInstance: added param #{} (type: {:?})",
+			self.params.len(),
+			param.param_type
+		);
+	}
+
+	/// Get all instance parameters
+	pub fn params(&self) -> &[PF_ParamDef] {
+		&self.params
+	}
+
+	/// Get a specific instance parameter by index
+	pub fn param_by_index(&self, index: usize) -> Option<&PF_ParamDef> {
+		self.params.get(index)
+	}
+
+	/// Clear all instance parameters
+	pub fn clear_instance_params(&mut self) {
+		self.params.clear();
+		self.params_dirty = true;
+		log::debug!("PluginInstance: cleared all instance params");
+	}
+}
+
+//* ---- Internal Methods ------------------------------- */
+impl PluginInstance {
 	/// Create a new PluginInstance with default values
 	fn new(path: &Path) -> Self {
 		let width = WIDTH;
@@ -220,6 +414,38 @@ impl PluginInstance {
 		});
 
 		instance
+	}
+
+	/// Get the output message from the instance (set during `PF_Cmd_ABOUT` command).
+	///
+	/// The message may contain line breaks and special characters (e.g. \r, \n).
+	/// Invalid UTF-8 sequences are replaced with the Unicode replacement character (�).
+	fn message(&self) -> String {
+		let bytes = &self.out_data.return_msg;
+
+		// Cramp the buffer at the first null byte (if any) to avoid trailing garbage
+		let cramped_length = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+
+		// SAFETY: `c_char` and `u8` share size and alignment; only the sign interpretation differs, which is irrelevant when reading raw bytes.
+		let utf8: &[u8] = unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const u8, cramped_length) };
+
+		String::from_utf8_lossy(utf8).into_owned()
+	}
+
+	/// Call the plugin with `PF_Cmd_GLOBAL_SETUP` command
+	fn setup_global(&mut self) -> Result<()> {
+		self.cmd = after_effects::RawCommand::GlobalSetup;
+		self.call_plugin(null_mut())?;
+
+		Ok(())
+	}
+
+	/// Call the plugin with `PF_Cmd_PARAMS_SETUP` command
+	fn setup_params(&mut self) -> Result<()> {
+		self.cmd = after_effects::RawCommand::ParamsSetup;
+		self.call_plugin(null_mut())?;
+
+		Ok(())
 	}
 
 	/// Ask the plugin what its real entry point symbol is via the modern
@@ -437,230 +663,5 @@ impl PluginInstance {
 				ld: self.input_layer.as_sys(),
 			};
 		}
-	}
-
-	/// Call the plugin with `PF_Cmd_ABOUT` command
-	pub fn about(&mut self) -> Result<String> {
-		self.cmd = after_effects::RawCommand::About;
-		self.call_plugin(null_mut())?;
-
-		Ok(self.message())
-	}
-
-	/// Call the plugin with `PF_Cmd_GLOBAL_SETUP` command
-	pub fn setup_global(&mut self) -> Result<()> {
-		self.cmd = after_effects::RawCommand::GlobalSetup;
-		self.call_plugin(null_mut())?;
-
-		Ok(())
-	}
-
-	/// Call the plugin with `PF_Cmd_PARAMS_SETUP` command
-	fn setup_params(&mut self) -> Result<()> {
-		self.cmd = after_effects::RawCommand::ParamsSetup;
-		self.call_plugin(null_mut())?;
-
-		Ok(())
-	}
-
-	/// Call the plugin with `PF_Cmd_RENDER` command
-	pub fn render(&mut self) -> Result<()> {
-		self.cmd = after_effects::RawCommand::Render;
-		self.call_plugin(null_mut())?;
-
-		Ok(())
-	}
-
-	pub fn render_pre(&mut self) -> Result<()> {
-		let mut extra = self.smart_render_data.pre_render_extra();
-
-		self.cmd = after_effects::RawCommand::SmartPreRender;
-		self.call_plugin((&mut extra as *mut after_effects_sys::PF_PreRenderExtra).cast())?;
-
-		self.smart_render_data.sync();
-
-		Ok(())
-	}
-
-	pub fn render_smart(&mut self) -> Result<()> {
-		let mut extra = self.smart_render_data.smart_render_extra();
-
-		self.cmd = after_effects::RawCommand::SmartRender;
-		self.call_plugin((&mut extra as *mut after_effects_sys::PF_SmartRenderExtra).cast())?;
-
-		self.smart_render_data.sync();
-
-		Ok(())
-	}
-
-	pub fn set_input(&mut self, input: wrapper::Layer<wrapper::Depth8>) {
-		self.input_layer = input;
-		self.sync_input_layer_param();
-	}
-
-	/// Write output pixels directly to an RGBA buffer (zero-allocation).
-	/// The buffer must have exactly `width * height * 4` bytes.
-	pub fn write_output_rgba(&self, buffer: &mut [u8]) -> Result<()> {
-		self.output_layer
-			.write_rgba_bytes(buffer)
-			.map_err(|e| AexloError::Unexpected("Failed to write RGBA bytes: ".to_string() + &e))
-	}
-
-	//==== Getter ==========================================
-	/// Get output dimensions in pixel (width, height).
-	pub fn output_size(&self) -> (u32, u32) {
-		(self.output_layer.width(), self.output_layer.height())
-	}
-
-	/// Get a pointer to the instance's persistent output world (`PF_LayerDef`/`PF_EffectWorld`).
-	///
-	/// Used by smart-render callbacks to hand back a stable pointer instead of one
-	/// pointing at a temporary value that would dangle after the callback returns.
-	pub fn output_world_ptr(&mut self) -> *mut after_effects_sys::PF_EffectWorld {
-		&mut self.world as *mut after_effects_sys::PF_LayerDef as *mut after_effects_sys::PF_EffectWorld
-	}
-
-	/// Get the number of parameters
-	pub fn param_count(&self) -> usize {
-		self.params.len()
-	}
-
-	//==== Setter / Getter =================================
-
-	/// Set a parameter value by index.
-	/// `index` must be 1 or greater (index 0 is the input layer, not settable).
-	pub fn set_param(&mut self, index: usize, value: ParamValue) -> Result<()> {
-		if index == 0 || index >= self.params.len() {
-			return Err(AexloError::ParamIndexOutOfBounds {
-				index,
-				max: self.params.len(),
-			});
-		}
-
-		let target = &mut self.params[index];
-
-		let expected = match &value {
-			ParamValue::Float(_) if target.param_type == ParamType::FloatSlider as PF_ParamType => None,
-			ParamValue::Fixed(_) if target.param_type == ParamType::FixSlider as PF_ParamType => None,
-			ParamValue::Slider(_) if target.param_type == ParamType::Slider as PF_ParamType => None,
-			ParamValue::Checkbox(_) if target.param_type == ParamType::CheckBox as PF_ParamType => None,
-			ParamValue::Float(_) => Some("FloatSlider"),
-			ParamValue::Fixed(_) => Some("FixSlider"),
-			ParamValue::Slider(_) => Some("Slider"),
-			ParamValue::Checkbox(_) => Some("Checkbox"),
-		};
-
-		if let Some(expected) = expected {
-			return Err(AexloError::ParamTypeMismatch {
-				index,
-				expected,
-				actual: target.param_type,
-			});
-		}
-
-		// SAFETY: union variant was verified against param_type above
-		match value {
-			ParamValue::Float(v) => target.u.fs_d.value = v,
-			ParamValue::Fixed(v) => target.u.fd.value = utils::f32_to_q31(v),
-			ParamValue::Slider(v) => target.u.sd.value = v,
-			ParamValue::Checkbox(v) => target.u.bd.value = v as i32,
-		}
-
-		Ok(())
-	}
-
-	/// Returns all parameter values as `(index, value)` pairs.
-	/// Index 0 (input layer) and parameters with unknown types are excluded.
-	pub fn param_values(&self) -> Vec<(usize, ParamValue)> {
-		(1..self.params.len())
-			.filter_map(|i| self.get_param(i).map(|v| (i, v)))
-			.collect()
-	}
-
-	/// Get a parameter value by index.
-	/// Returns `None` if the index is out of bounds or the param type is unknown.
-	pub fn get_param(&self, index: usize) -> Option<ParamValue> {
-		if index == 0 || index >= self.params.len() {
-			return None;
-		}
-
-		let param = &self.params[index];
-
-		// SAFETY: union variant is selected based on param_type
-		unsafe {
-			if param.param_type == ParamType::FloatSlider as PF_ParamType {
-				Some(ParamValue::Float(param.u.fs_d.value))
-			} else if param.param_type == ParamType::FixSlider as PF_ParamType {
-				Some(ParamValue::Fixed(utils::q31_to_f32(param.u.fd.value)))
-			} else if param.param_type == ParamType::Slider as PF_ParamType {
-				Some(ParamValue::Slider(param.u.sd.value))
-			} else if param.param_type == ParamType::CheckBox as PF_ParamType {
-				Some(ParamValue::Checkbox(param.u.bd.value != 0))
-			} else {
-				None
-			}
-		}
-	}
-
-	/// Get a PluginInstance pointer from an effect reference pointer.
-	///
-	/// The returned pointer does not imply unique mutable access.
-	/// Callers must uphold aliasing rules before dereferencing.
-	pub fn get_instance_ptr(effect_ref: PF_ProgPtr) -> Option<NonNull<PluginInstance>> {
-		if effect_ref.is_null() {
-			return None;
-		}
-
-		NonNull::new(effect_ref as *mut PluginInstance)
-	}
-
-	//==== Instance Parameter Management ==========================================
-
-	/// Add a parameter to this instance's parameter storage
-	pub fn add_instance_param(&mut self, param: PF_ParamDef) {
-		self.params.push(param);
-		self.params_dirty = true;
-		self.in_data.num_params = self.params.len() as i32;
-		log::debug!(
-			"PluginInstance: added param #{} (type: {:?})",
-			self.params.len(),
-			param.param_type
-		);
-	}
-
-	/// Get all instance parameters
-	pub fn params(&self) -> &[PF_ParamDef] {
-		&self.params
-	}
-
-	/// Get a specific instance parameter by index
-	pub fn param_by_index(&self, index: usize) -> Option<&PF_ParamDef> {
-		self.params.get(index)
-	}
-
-	/// Clear all instance parameters
-	pub fn clear_instance_params(&mut self) {
-		self.params.clear();
-		self.params_dirty = true;
-		log::debug!("PluginInstance: cleared all instance params");
-	}
-}
-
-//* ---- Internal Methods ------------------------------- */
-impl PluginInstance {
-	/// Get the output message from the instance (set during `PF_Cmd_ABOUT` command).
-	///
-	/// The message may contain line breaks and special characters (e.g. \r, \n).
-	/// Invalid UTF-8 sequences are replaced with the Unicode replacement character (�).
-	fn message(&self) -> String {
-		let bytes = &self.out_data.return_msg;
-
-		// Cramp the buffer at the first null byte (if any) to avoid trailing garbage
-		let cramped_length = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
-
-		// SAFETY: `c_char` and `u8` share size and alignment; only the sign interpretation differs, which is irrelevant when reading raw bytes.
-		let utf8: &[u8] = unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const u8, cramped_length) };
-
-		String::from_utf8_lossy(utf8).into_owned()
 	}
 }
