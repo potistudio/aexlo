@@ -108,6 +108,11 @@ pub struct PluginInstance {
 	/// Track if instance params need synchronization
 	params_dirty: bool,
 
+	/// Raw pointers into `params`, passed to the plugin entry point on each call.
+	/// Rebuilt lazily in `call_plugin` whenever `params_dirty` is set, since pushing
+	/// to `params` may reallocate its backing buffer and invalidate old pointers.
+	params_ptr_cache: Vec<*mut PF_ParamDef>,
+
 	pub(crate) input_layer: wrapper::Layer<wrapper::Depth8>,
 	pub(crate) output_layer: wrapper::Layer<wrapper::Depth8>,
 
@@ -177,7 +182,13 @@ impl PluginInstance {
 
 	pub fn set_input(&mut self, input: wrapper::Layer<wrapper::Depth8>) {
 		self.input_layer = input;
-		self.sync_input_layer_param();
+
+		// Keep params[0] (`PF_Param_LAYER`) synchronized with the new input layer.
+		if let Some(input_param) = self.params.get_mut(0) {
+			input_param.u = PF_ParamDefUnion {
+				ld: self.input_layer.as_sys(),
+			};
+		}
 	}
 
 	/// Write output pixels directly to an RGBA buffer (zero-allocation).
@@ -375,6 +386,7 @@ impl PluginInstance {
 			out_data: crate::core::helpers::OutDataBuilder::new().build(),
 			params: Vec::new(),
 			params_dirty: false,
+			params_ptr_cache: Vec::new(),
 			input_layer,
 			output_layer: wrapper::Layer::<wrapper::Depth8>::new(
 				width,
@@ -412,6 +424,9 @@ impl PluginInstance {
 				ld: instance.input_layer.as_sys(),
 			},
 		});
+		// The push above invalidates any (nonexistent yet) cached param pointers;
+		// mark dirty so `call_plugin` builds the cache on its first invocation.
+		instance.params_dirty = true;
 
 		instance
 	}
@@ -589,31 +604,45 @@ impl PluginInstance {
 		Ok(())
 	}
 
-	/// Call the plugin entry point
+	/// Invoke the resolved entry point with `self.cmd`, updating `self` before and
+	/// after the call so the next invocation sees a consistent state.
+	///
+	/// Before calling: points `in_data.effect_ref` at `self` (so suite callbacks
+	/// can recover the instance via [`Self::get_instance_ptr`]), and rebuilds the
+	/// cached param pointer list if `params` was mutated since the last call.
+	///
+	/// After calling: copies a non-null `out_data.global_data`/`sequence_data` back
+	/// into `in_data`, so plugin-allocated state persists across subsequent commands.
+	///
+	/// `extra_data` is the command-specific extra struct (e.g. `PF_PreRenderExtra`
+	/// for `SmartPreRender`), or null for commands that don't take one.
+	///
+	/// # Errors
+	/// Returns [`AexloError::ContainerNotLoaded`] if no entry point has been
+	/// resolved yet (see [`Self::load`]), before any other state is touched.
+	/// Returns [`AexloError::PluginExecutionFailed`] if the plugin returns a
+	/// non-`PF_Err_NONE` code.
 	fn call_plugin(&mut self, extra_data: *mut ::std::os::raw::c_void) -> Result<()> {
-		self.sync_input_layer_param();
-
-		let entry_point_name = self
-			.entry_point_name
-			.as_deref()
-			.unwrap_or(DEFAULT_ENTRY_POINT_NAME)
-			.to_string();
-
-		log::info!("Executing command: {}", format!("{:?}", self.cmd).blue());
+		let entry_point = self.entry_point.ok_or(AexloError::ContainerNotLoaded)?;
 
 		// Update effect_ref to point to self before calling the plugin
 		self.in_data.effect_ref = self as *mut _ as PF_ProgPtr;
 
-		let mut params_ptr: Vec<*mut PF_ParamDef> = self.params.iter_mut().map(|p| p as *mut _).collect();
+		let entry_point_name = self.entry_point_name.as_deref().unwrap_or(DEFAULT_ENTRY_POINT_NAME);
 
-		let entry_point = self.entry_point.ok_or(AexloError::ContainerNotLoaded)?;
+		log::info!("Executing command: {}", format!("{:?}", self.cmd).blue());
+
+		if self.params_dirty {
+			self.params_ptr_cache = self.params.iter_mut().map(|p| p as *mut _).collect();
+			self.params_dirty = false;
+		}
 
 		let result = unsafe {
 			entry_point(
 				self.cmd,
 				&mut self.in_data,
 				&mut self.out_data,
-				params_ptr.as_mut_ptr(),
+				self.params_ptr_cache.as_mut_ptr(),
 				&mut self.world,
 				extra_data,
 			)
@@ -654,14 +683,5 @@ impl PluginInstance {
 		//* -------------------------------------------- *//
 
 		Ok(())
-	}
-
-	/// Keep params[0] (`PF_Param_LAYER`) synchronized with the current input layer.
-	fn sync_input_layer_param(&mut self) {
-		if let Some(input_param) = self.params.get_mut(0) {
-			input_param.u = PF_ParamDefUnion {
-				ld: self.input_layer.as_sys(),
-			};
-		}
 	}
 }
