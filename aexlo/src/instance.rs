@@ -127,7 +127,8 @@ impl PluginInstance {
 	/// Returns an error if the binary can't be located or opened, if no entry
 	/// point symbol can be resolved, or if the plugin rejects the
 	/// `PF_Cmd_GLOBAL_SETUP` or `PF_Cmd_PARAMS_SETUP` commands.
-	pub fn try_load(path: &Path) -> Result<Self> {
+	pub fn try_load(path: impl AsRef<Path>) -> Result<Self> {
+		let path = path.as_ref();
 		let mut instance = Self::new(path);
 		instance.load()?;
 		instance.setup_global()?;
