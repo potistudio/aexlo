@@ -51,6 +51,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	utility: utility::create_utility_suite(),
 	aegp_interface: interface::create_aegp_pf_interface_suite(),
 	angle_param: angle_param::create_angle_param_suite(),
+	ae_app: ae_app::create_ae_app_suite_v6(),
 };
 
 /// Process-wide storage for the stateless suite vtables handed to plugins.
@@ -70,6 +71,7 @@ pub struct SuiteContainer {
 	pub utility: PF_UtilitySuite,
 	pub aegp_interface: AEGP_PFInterfaceSuite1,
 	pub angle_param: PF_AngleParamSuite1,
+	pub ae_app: PFAppSuite6,
 }
 
 /// Dispatch a registry-managed (dynamic) suite acquisition.
@@ -144,12 +146,10 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("PF Utility Suite", 1..=18) => dispatch_static!(suite, suite_name, version, utility),
 		("AEGP PF Interface Suite", 1) => dispatch_static!(suite, suite_name, version, aegp_interface),
 		("PF AngleParamSuite", 1) => dispatch_static!(suite, suite_name, version, angle_param),
-		// Dynamic suites still managed by the registry (converted in later steps).
+		("PF AE App Suite", 6) => dispatch_static!(suite, suite_name, version, ae_app),
+		// Dynamic suites still managed by the registry (converted in the next step).
 		("AEGP Utility Suite", 1..=18) => {
 			dispatch_dynamic!(suite, suite_name, version, utility::create_aegp_utility_suite_compat_v11)
-		}
-		("PF AE App Suite", 6) => {
-			dispatch_dynamic!(suite, suite_name, version, ae_app::create_ae_app_suite_v6)
 		}
 		_ => {
 			log::warn!("Suite '{}' v{} not found.", suite_name, version);
