@@ -201,12 +201,17 @@ unsafe extern "C" fn iterate_stub(
 		.add_arg("refcon", format!("{:?}", refcon))
 		.add_arg("pix_fn", if pix_fn.is_some() { "Some" } else { "None" })
 		.add_arg("dst", format!("{:?}", dst))
-		.set_result(0)
 		.emit();
 
-	if src.is_null() || dst.is_null() {
+	if dst.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
+
+	// A null `src` is legal: the SDK's `iterate` then walks `dst` only, which is
+	// how generator effects (no input layer) invoke it. Fall back to `dst` as the
+	// source so the bounds and the per-pixel `in`/`out` pointers coincide, matching
+	// AE's dst-only iteration -- rather than rejecting it as a bad parameter.
+	let src = if src.is_null() { dst } else { src };
 
 	let src_world = unsafe { &*src };
 	let dst_world = unsafe { &*dst };
