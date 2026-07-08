@@ -8,7 +8,11 @@ use std::path::PathBuf;
 /// inspection.
 #[test]
 fn all_fixtures_render_test() {
-	let (platform_dir, extension) = if cfg!(target_os = "windows") { ("windows", "aex") } else { ("macos", "plugin") };
+	let (platform_dir, extension) = if cfg!(target_os = "windows") {
+		("windows", "aex")
+	} else {
+		("macos", "plugin")
+	};
 
 	let workspace_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
 	let fixtures_dir = workspace_dir.join("fixtures/plugins").join(platform_dir);
@@ -24,7 +28,11 @@ fn all_fixtures_render_test() {
 		.filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some(extension))
 		.collect();
 	plugins.sort();
-	assert!(!plugins.is_empty(), "no plugin fixtures found in {}", fixtures_dir.display());
+	assert!(
+		!plugins.is_empty(),
+		"no plugin fixtures found in {}",
+		fixtures_dir.display()
+	);
 
 	let mut failures = Vec::new();
 

@@ -3,10 +3,10 @@ use crate::core::diagnostics::DiagnosticBuilder;
 use after_effects_sys::*;
 use rayon::prelude::*;
 use std::os::raw::c_void;
-#[cfg(target_os = "macos")]
-use std::sync::atomic::AtomicU32;
 #[cfg(not(target_os = "macos"))]
 use std::sync::atomic::AtomicI32;
+#[cfg(target_os = "macos")]
+use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 
 pub(super) unsafe extern "C" fn iterate_8_sys(

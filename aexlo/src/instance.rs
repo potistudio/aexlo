@@ -198,8 +198,7 @@ impl PluginInstance {
 	///
 	/// Only meaningful once global setup has run (i.e. after [`Self::try_load`]).
 	pub fn supports_smart_render(&self) -> bool {
-		let flag =
-			after_effects_sys::PF_OutFlag2_SUPPORTS_SMART_RENDER as after_effects_sys::PF_OutFlags2;
+		let flag = after_effects_sys::PF_OutFlag2_SUPPORTS_SMART_RENDER as after_effects_sys::PF_OutFlags2;
 		self.out_data.out_flags2 & flag != 0
 	}
 
@@ -572,7 +571,7 @@ impl PluginInstance {
 		let mut last_error = None;
 
 		for candidate in FALLBACK_ENTRY_POINT_CANDIDATES {
-			match unsafe { lib.symbol::<PluginEntryPoint>(*candidate) } {
+			match unsafe { lib.symbol::<PluginEntryPoint>(candidate) } {
 				Ok(symbol) => return Ok((symbol, candidate.to_string())),
 				Err(err) => {
 					log::debug!("Entry point symbol '{}' not resolved: {}", candidate, err);

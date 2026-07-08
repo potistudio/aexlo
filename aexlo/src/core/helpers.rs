@@ -49,11 +49,6 @@ impl InDataBuilder {
 		self
 	}
 
-	pub fn with_global_data(mut self, global_data: PF_Handle) -> Self {
-		self.in_data.global_data = global_data;
-		self
-	}
-
 	pub fn build(self) -> PF_InData {
 		self.in_data
 	}

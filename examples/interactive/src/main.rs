@@ -18,7 +18,11 @@ const DEFAULT_PLUGIN_NAME: &str = "SDK_Noise";
 /// These are real, compiled plugin binaries shared across the workspace's
 /// examples and tests -- not mock objects.
 fn fixtures_dir() -> PathBuf {
-	let platform_dir = if cfg!(target_os = "windows") { "windows" } else { "macos" };
+	let platform_dir = if cfg!(target_os = "windows") {
+		"windows"
+	} else {
+		"macos"
+	};
 	PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 		.join("../../fixtures/plugins")
 		.join(platform_dir)
@@ -57,7 +61,10 @@ fn load_input_image() -> Option<(Vec<u8>, u32, u32)> {
 			Some((img.into_raw(), w, h))
 		}
 		Err(e) => {
-			log::warn!("No input image at {:?} ({e}); effects will use the default layer.", path);
+			log::warn!(
+				"No input image at {:?} ({e}); effects will use the default layer.",
+				path
+			);
 			None
 		}
 	}
@@ -86,7 +93,9 @@ struct ParamControl {
 fn main() -> eframe::Result<()> {
 	env_logger::init();
 
-	let requested = std::env::args().nth(1).unwrap_or_else(|| DEFAULT_PLUGIN_NAME.to_string());
+	let requested = std::env::args()
+		.nth(1)
+		.unwrap_or_else(|| DEFAULT_PLUGIN_NAME.to_string());
 
 	let options = eframe::NativeOptions {
 		viewport: egui::ViewportBuilder::default()
@@ -182,10 +191,9 @@ impl AexloApp {
 		match PluginInstance::try_load(&path) {
 			Ok(mut instance) => {
 				if let Err(e) = instance.about() {
-					log::warn!("about() failed for '{name}': {e}");
+					log::warn!("about() failedor '{name}': {e}");
 				}
 				self.apply_input(&mut instance);
-
 				self.smart_render = instance.supports_smart_render();
 				self.total_params = instance.param_count();
 				self.instance = Some(instance);
@@ -324,7 +332,11 @@ impl AexloApp {
 				}
 				ui.label(format!(
 					"Path: {}",
-					if self.smart_render { "smart render" } else { "legacy render" }
+					if self.smart_render {
+						"smart render"
+					} else {
+						"legacy render"
+					}
 				));
 				ui.label(format!("FPS: {:.1}   ·   {}x{}", self.fps, self.width, self.height));
 
@@ -332,7 +344,10 @@ impl AexloApp {
 
 				// Render pacing.
 				ui.checkbox(&mut self.auto_render, "Auto-render (animate)");
-				if ui.add_enabled(!self.auto_render, egui::Button::new("Render once")).clicked() {
+				if ui
+					.add_enabled(!self.auto_render, egui::Button::new("Render once"))
+					.clicked()
+				{
 					actions.render_once = true;
 				}
 

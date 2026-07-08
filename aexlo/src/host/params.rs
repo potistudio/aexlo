@@ -226,18 +226,3 @@ pub fn add_param_to_instance(effect_ref: PF_ProgPtr, param: PF_ParamDef) -> Resu
 		))
 	}
 }
-
-/// Get the number of parameters from a plugin instance
-pub fn get_params_count_from_instance(effect_ref: PF_ProgPtr) -> usize {
-	if effect_ref.is_null() {
-		return 0;
-	}
-
-	let instance = crate::instance::PluginInstance::get_instance_ptr(effect_ref);
-	if let Some(instance_ptr) = instance {
-		let instance = unsafe { instance_ptr.as_ref() };
-		instance.params().len()
-	} else {
-		0
-	}
-}

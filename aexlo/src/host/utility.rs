@@ -226,22 +226,22 @@ unsafe extern "C" fn iterate_stub(
 		PF_Rect {
 			left: 0,
 			top: 0,
-			right: dst_world.width as i32,
-			bottom: dst_world.height as i32,
+			right: dst_world.width,
+			bottom: dst_world.height,
 		}
 	};
 
 	rect.left = rect.left.max(0);
 	rect.top = rect.top.max(0);
-	rect.right = rect.right.min(src_world.width as i32);
-	rect.bottom = rect.bottom.min(src_world.height as i32);
-	rect.right = rect.right.min(dst_world.width as i32);
-	rect.bottom = rect.bottom.min(dst_world.height as i32);
+	rect.right = rect.right.min(src_world.width);
+	rect.bottom = rect.bottom.min(src_world.height);
+	rect.right = rect.right.min(dst_world.width);
+	rect.bottom = rect.bottom.min(dst_world.height);
 
-	let start_x = rect.left as i32;
-	let start_y = rect.top as i32;
-	let end_x = rect.right as i32;
-	let end_y = rect.bottom as i32;
+	let start_x = rect.left;
+	let start_y = rect.top;
+	let end_x = rect.right;
+	let end_y = rect.bottom;
 
 	let width = (end_x - start_x).max(0);
 	let height = (end_y - start_y).max(0);
@@ -257,7 +257,7 @@ unsafe extern "C" fn iterate_stub(
 	let pixel_size = std::mem::size_of::<PF_Pixel>();
 
 	debug_assert!(
-		src_world.rowbytes >= (src_world.width as i32 * pixel_size as i32),
+		src_world.rowbytes >= (src_world.width * pixel_size as i32),
 		"Source rowbytes smaller than width * pixel_size"
 	);
 
@@ -564,7 +564,7 @@ unsafe extern "C" fn get_platform_data_impl(
 	#[cfg(feature = "diagnostics")]
 	DiagnosticBuilder::new()
 		.set_name("get_platform_data")
-		.add_arg("which", &which)
+		.add_arg("which", which)
 		.add_arg("data", format!("{:?}", data))
 		.emit();
 
@@ -576,22 +576,22 @@ unsafe extern "C" fn get_platform_data_impl(
 	match which {
 		PF_PLAT_DATA_EXE_FILE_PATH_W | PF_PLAT_DATA_RES_FILE_PATH_W => {
 			// Return plugin path as UTF-16
-			if let Ok(guard) = PLUGIN_PATH.read() {
-				if let Some(ref path) = *guard {
-					// Copy path to output buffer (max AEFX_MAX_PATH = 260)
-					let dst = data as *mut u16;
-					const AEFX_MAX_PATH: usize = 260;
-					let copy_len = path.len().min(AEFX_MAX_PATH);
-					unsafe {
-						std::ptr::copy_nonoverlapping(path.as_ptr(), dst, copy_len);
-						// Ensure null termination if truncated
-						if path.len() > AEFX_MAX_PATH {
-							*dst.add(AEFX_MAX_PATH - 1) = 0;
-						}
+			if let Ok(guard) = PLUGIN_PATH.read()
+				&& let Some(ref path) = *guard
+			{
+				// Copy path to output buffer (max AEFX_MAX_PATH = 260)
+				let dst = data as *mut u16;
+				const AEFX_MAX_PATH: usize = 260;
+				let copy_len = path.len().min(AEFX_MAX_PATH);
+				unsafe {
+					std::ptr::copy_nonoverlapping(path.as_ptr(), dst, copy_len);
+					// Ensure null termination if truncated
+					if path.len() > AEFX_MAX_PATH {
+						*dst.add(AEFX_MAX_PATH - 1) = 0;
 					}
-					log::info!("get_platform_data: returned plugin path (len={})", copy_len);
-					return PF_Err_NONE as PF_Err;
 				}
+				log::info!("get_platform_data: returned plugin path (len={})", copy_len);
+				return PF_Err_NONE as PF_Err;
 			}
 			log::warn!("get_platform_data: plugin path not set");
 			PF_Err_BAD_CALLBACK_PARAM as PF_Err

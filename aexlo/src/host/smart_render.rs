@@ -107,9 +107,7 @@ unsafe extern "C" fn checkout_layer_pixels_stub(
 	let input_world = instance.input_world_ptr();
 	unsafe { *pixels = input_world };
 
-	diagnostics
-		.set_result(unsafe { (*input_world).data } as usize)
-		.emit();
+	diagnostics.set_result(unsafe { (*input_world).data } as usize).emit();
 
 	PF_Err_NONE as PF_Err
 }

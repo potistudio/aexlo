@@ -386,8 +386,7 @@ unsafe impl Send for AEGPUtilitySuiteCompatV11 {}
 /// (crate::suites::SUITE_CONTAINER): its `slots` are `*const c_void`, and casting a
 /// function pointer to a raw pointer is not permitted in a `const` initializer.
 /// A [`LazyLock`] performs that cast once, on first acquire.
-pub static AEGP_UTILITY_SUITE: LazyLock<AEGPUtilitySuiteCompatV11> =
-	LazyLock::new(build_aegp_utility_suite_compat_v11);
+pub static AEGP_UTILITY_SUITE: LazyLock<AEGPUtilitySuiteCompatV11> = LazyLock::new(build_aegp_utility_suite_compat_v11);
 
 unsafe extern "C" fn aegp_noop_ok_stub() -> A_Err {
 	PF_Err_NONE as A_Err
@@ -444,10 +443,10 @@ unsafe extern "C" fn aegp_execute_script_stub(
 	}
 
 	#[cfg(feature = "diagnostics")]
-	if !_in_script_z.is_null() {
-		if let Ok(script) = unsafe { std::ffi::CStr::from_ptr(_in_script_z) }.to_str() {
-			log::debug!("AEGP_ExecuteScript(len={}): stubbed", script.len());
-		}
+	if !_in_script_z.is_null()
+		&& let Ok(script) = unsafe { std::ffi::CStr::from_ptr(_in_script_z) }.to_str()
+	{
+		log::debug!("AEGP_ExecuteScript(len={}): stubbed", script.len());
 	}
 
 	PF_Err_NONE as A_Err

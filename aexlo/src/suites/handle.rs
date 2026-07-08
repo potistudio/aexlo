@@ -197,7 +197,7 @@ pub(crate) unsafe extern "C" fn host_dispose_handle_impl(pf_handle: PF_Handle) {
 		}
 
 		// Read size
-		let size = unsafe { *((base_ptr as *mut u8).add(8) as *mut usize) };
+		let size = unsafe { *(base_ptr.add(8) as *mut usize) };
 		let total_size = match header_size.checked_add(size) {
 			Some(value) => value,
 			None => {

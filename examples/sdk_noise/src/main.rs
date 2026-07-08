@@ -19,10 +19,6 @@ fn successfully() -> ColoredString {
 	"successfully".green()
 }
 
-fn failed() -> ColoredString {
-	"failed".red()
-}
-
 fn print_banner() {
 	#[rustfmt::skip]
 	{
@@ -44,7 +40,11 @@ fn print_banner() {
 /// compiled plugin binaries used across examples — not mock objects in the
 /// unit-test sense.
 fn resolve_plugin_fixture_path(plugin_name: &str) -> PathBuf {
-	let (platform_dir, extension) = if cfg!(target_os = "windows") { ("windows", "aex") } else { ("macos", "plugin") };
+	let (platform_dir, extension) = if cfg!(target_os = "windows") {
+		("windows", "aex")
+	} else {
+		("macos", "plugin")
+	};
 
 	PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 		.join("../../fixtures/plugins")
@@ -63,7 +63,7 @@ fn extract_output_rgba(instance: &mut PluginInstance) -> Result<(Vec<u8>, u32, u
 
 	log::debug!("First 10 pixels (out of {}):", buffer.len() / 4);
 
-	for (i, pixel) in buffer.chunks_exact(4).enumerate().take(10) {
+	for (i, pixel) in buffer.as_chunks::<4>().0.iter().enumerate().take(10) {
 		let r = pixel[0];
 		let g = pixel[1];
 		let b = pixel[2];
@@ -104,7 +104,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	env_logger::init();
 
-	let plugin_name = std::env::args().nth(1).unwrap_or_else(|| DEFAULT_PLUGIN_NAME.to_string());
+	let plugin_name = std::env::args()
+		.nth(1)
+		.unwrap_or_else(|| DEFAULT_PLUGIN_NAME.to_string());
 	let plugin_path = resolve_plugin_fixture_path(&plugin_name);
 
 	// 1. Load plugin with `PluginInstance::try_load()`
