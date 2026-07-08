@@ -100,11 +100,16 @@ unsafe extern "C" fn checkout_layer_pixels_stub(
 			.as_mut()
 	};
 
-	let layer = instance.input_layer.as_sys();
-	let client_world = unsafe { &mut **pixels };
-	client_world.data = layer.data;
+	// The caller passes an *uninitialized* `PF_EffectWorld*` slot (see the SDK's
+	// `PF_CheckoutLayerPixels` contract) and expects us to write a pointer to the
+	// checked-out input world into it -- not to dereference the slot. Hand back the
+	// instance's persistent input world, mirroring `checkout_output`.
+	let input_world = instance.input_world_ptr();
+	unsafe { *pixels = input_world };
 
-	diagnostics.set_result(client_world.data as usize).emit();
+	diagnostics
+		.set_result(unsafe { (*input_world).data } as usize)
+		.emit();
 
 	PF_Err_NONE as PF_Err
 }

@@ -91,7 +91,12 @@ pub struct PluginInstance {
 	entry_point_name: Option<String>,
 	binary_file_path: PathBuf,
 
+	/// Persistent output world handed back by `checkout_output` during smart render.
 	world: after_effects_sys::PF_LayerDef,
+
+	/// Persistent input world handed back by `checkout_layer_pixels` during smart
+	/// render. Kept in sync with `input_layer` so the pointer stays valid across calls.
+	input_world: after_effects_sys::PF_LayerDef,
 
 	utility_callbacks: Box<after_effects_sys::_PF_UtilCallbacks>,
 
@@ -186,9 +191,46 @@ impl PluginInstance {
 		Ok(())
 	}
 
+	/// Whether the plugin declared `PF_OutFlag2_SUPPORTS_SMART_RENDER` during
+	/// `PF_Cmd_GLOBAL_SETUP`, i.e. it expects the smart pre-render/render command
+	/// pair ([`Self::render_pre`] + [`Self::render_smart`]) rather than the legacy
+	/// [`Self::render`] path.
+	///
+	/// Only meaningful once global setup has run (i.e. after [`Self::try_load`]).
+	pub fn supports_smart_render(&self) -> bool {
+		let flag =
+			after_effects_sys::PF_OutFlag2_SUPPORTS_SMART_RENDER as after_effects_sys::PF_OutFlags2;
+		self.out_data.out_flags2 & flag != 0
+	}
+
+	/// Render one frame, preferring the smart pre-render/render pair when the plugin
+	/// declared [`Self::supports_smart_render`] and falling back to the legacy
+	/// [`Self::render`] command if the smart path fails (or was never declared).
+	///
+	/// Prefer this over calling [`Self::render`] directly in a general-purpose host:
+	/// many modern effects implement `PF_Cmd_SMART_RENDER`, while others only handle
+	/// the legacy command -- and some declare smart support but still render correctly
+	/// through the legacy path when our smart emulation can't satisfy them.
+	pub fn render_frame(&mut self) -> Result<()> {
+		if self.supports_smart_render() {
+			match self.render_pre().and_then(|()| self.render_smart()) {
+				Ok(()) => return Ok(()),
+				Err(err) => {
+					log::warn!("Smart render failed ({err:?}); falling back to legacy render.");
+				}
+			}
+		}
+
+		self.render()
+	}
+
 	/// Replace the input layer, keeping the `PF_Param_LAYER` parameter (index 0) in sync.
 	pub fn set_input(&mut self, input: wrapper::Layer<wrapper::Depth8>) {
 		self.input_layer = input;
+
+		// Keep the persistent input world (used by smart-render `checkout_layer_pixels`)
+		// pointing at the new layer's pixels.
+		self.input_world = self.input_layer.as_sys();
 
 		// Keep params[0] (`PF_Param_LAYER`) synchronized with the new input layer.
 		if let Some(input_param) = self.params.get_mut(0) {
@@ -218,6 +260,14 @@ impl PluginInstance {
 	/// pointing at a temporary value that would dangle after the callback returns.
 	pub fn output_world_ptr(&mut self) -> *mut after_effects_sys::PF_EffectWorld {
 		&mut self.world as *mut after_effects_sys::PF_LayerDef as *mut after_effects_sys::PF_EffectWorld
+	}
+
+	/// Get a pointer to the instance's persistent input world (`PF_LayerDef`/`PF_EffectWorld`).
+	///
+	/// Used by smart-render `checkout_layer_pixels` to hand back a stable pointer to
+	/// the input layer, kept in sync with `input_layer` by [`Self::set_input`].
+	pub fn input_world_ptr(&mut self) -> *mut after_effects_sys::PF_EffectWorld {
+		&mut self.input_world as *mut after_effects_sys::PF_LayerDef as *mut after_effects_sys::PF_EffectWorld
 	}
 
 	/// Get the number of parameters.
@@ -379,6 +429,10 @@ impl PluginInstance {
 				world: crate::core::helpers::LayerDefBuilder::new()
 					.with_size(WIDTH as i32, HEIGHT as i32)
 					.build(),
+				// Placeholder; wired to `input_layer`'s pixels in `wire_self_pointers`.
+				input_world: crate::core::helpers::LayerDefBuilder::new()
+					.with_size(WIDTH as i32, HEIGHT as i32)
+					.build(),
 
 				smart_render_data: SmartRenderData::new(),
 			};
@@ -417,6 +471,7 @@ impl PluginInstance {
 		self.in_data.effect_ref = std::ptr::null_mut();
 		self.in_data.num_params = self.params.len() as i32;
 		self.world.data = self.output_layer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
+		self.input_world = self.input_layer.as_sys();
 	}
 
 	/// Register the implicit `PF_Param_LAYER` parameter at index 0, backed by `input_layer`.
