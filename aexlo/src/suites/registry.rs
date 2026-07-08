@@ -1,4 +1,23 @@
-//! Suite Registry for managing Suite lifecycle with reference counting
+//! Suite Registry for managing Suite lifecycle with reference counting.
+//!
+//! # Ownership model
+//!
+//! The registry is **process-global** ([`SUITE_REGISTRY`]): every
+//! [`PluginInstance`](crate::PluginInstance) in the process shares
+//! the same suite instances. This is sound because the suites we hand out are
+//! stateless vtables (tables of `extern "C"` function pointers) — any mutable
+//! state lives behind the plugin-provided pointers those callbacks receive, not
+//! in the suite struct itself — so sharing one instance across plugins and
+//! threads is safe.
+//!
+//! Lifetime is driven entirely by the plugin's own acquire/release calls: an
+//! entry is created on first [`acquire`] and freed only when its ref count
+//! returns to 0 via [`release`]. A plugin that acquires a suite but never
+//! releases it (common, and permitted by the SDK contract) simply keeps that
+//! suite's `Box` alive until the process exits. There is deliberately no
+//! per-instance teardown that force-releases suites — see the decision recorded
+//! in the git history if per-instance lifetimes ever become necessary (e.g. a
+//! long-lived host loading and unloading many distinct plugins).
 
 use after_effects_sys::*;
 use std::collections::HashMap;
