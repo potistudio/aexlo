@@ -139,7 +139,11 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("PF Utility Suite", 1..=18) => dispatch_static!(suite, suite_name, version, utility),
 		("AEGP PF Interface Suite", 1) => dispatch_static!(suite, suite_name, version, aegp_interface),
 		("PF AngleParamSuite", 1) => dispatch_static!(suite, suite_name, version, angle_param),
-		("PF AE App Suite", 6) => dispatch_static!(suite, suite_name, version, ae_app),
+		// AE suites are append-only across versions, so a v6 table safely satisfies
+		// older requests (v1..). Plugins that request v1 (e.g. via AEFX_AcquireSuite in
+		// their localization path) get a null-deref on a null out_data if we reject it,
+		// so accept the whole range rather than only v6.
+		("PF AE App Suite", 1..=6) => dispatch_static!(suite, suite_name, version, ae_app),
 		("AEGP Utility Suite", 1..=18) => {
 			// Lives in its own LazyLock rather than SUITE_CONTAINER (see AEGP_UTILITY_SUITE).
 			// SAFETY: `suite` was null-checked at the top of this function.
