@@ -13,6 +13,21 @@ pub fn q31_to_f32(x: i32) -> f32 {
 	x as f32 / 2147483648.0_f32
 }
 
+/// `PF_Fixed`（16.16 固定小数点, i32）を f32 に変換する。
+///
+/// ANGLE / POINT パラメーターの値はこの 16.16 形式で格納される（Q31 の
+/// [`q31_to_f32`] とは別物）。例: `0x0001_0000` → `1.0`。
+#[inline]
+pub fn fixed16_to_f32(x: i32) -> f32 {
+	x as f32 / 65536.0_f32
+}
+
+/// f32 を `PF_Fixed`（16.16 固定小数点, i32）に変換する。[`fixed16_to_f32`] の逆。
+#[inline]
+pub fn f32_to_fixed16(x: f32) -> i32 {
+	(x * 65536.0_f32).round() as i32
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

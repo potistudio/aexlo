@@ -23,6 +23,7 @@ pub mod handle;
 pub mod interface;
 pub mod iterate;
 pub mod macros;
+pub mod param_utils;
 pub mod transform;
 pub mod ui;
 pub mod utility;
@@ -69,6 +70,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	angle_param: angle_param::create_angle_param_suite(),
 	ae_app: ae_app::create_ae_app_suite_v6(),
 	gpu_device: gpu_device::create_gpu_device_suite_1(),
+	param_utils: param_utils::create_param_utils_suite_3(),
 };
 
 /// Process-wide storage for the stateless suite vtables handed to plugins.
@@ -90,6 +92,7 @@ pub struct SuiteContainer {
 	pub angle_param: PF_AngleParamSuite1,
 	pub ae_app: PFAppSuite6,
 	pub gpu_device: PF_GPUDeviceSuite1,
+	pub param_utils: PF_ParamUtilsSuite3,
 }
 
 /// Hand back a pointer to one of the shared [`SUITE_CONTAINER`] vtables.
@@ -148,6 +151,8 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		// so accept the whole range rather than only v6.
 		("PF AE App Suite", 1..=6) => dispatch_static!(suite, suite_name, version, ae_app),
 		("PF GPU Device Suite", 1) => dispatch_static!(suite, suite_name, version, gpu_device),
+		// ParamUtils suites are append-only, so the v3 table also satisfies v1/v2 requests.
+		("PF Param Utils Suite", 1..=3) => dispatch_static!(suite, suite_name, version, param_utils),
 		("AEGP Utility Suite", 1..=18) => {
 			// Lives in its own LazyLock rather than SUITE_CONTAINER (see AEGP_UTILITY_SUITE).
 			// SAFETY: `suite` was null-checked at the top of this function.

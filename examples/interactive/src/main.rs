@@ -233,13 +233,17 @@ impl AexloApp {
 		}
 	}
 
-	/// Push every edited parameter value back into the plugin.
+	/// Push every edited parameter value back into the plugin, then let it refresh
+	/// any dependent UI state (show/hide, collapse, …) via `PF_Cmd_UPDATE_PARAMS_UI`.
 	fn apply_params(&mut self) {
 		if let Some(instance) = self.instance.as_mut() {
 			for control in &self.params {
 				if let Err(e) = instance.set_param(control.index, control.value.clone()) {
 					log::warn!("set_param({}) failed: {e}", control.index);
 				}
+			}
+			if let Err(e) = instance.update_params_ui() {
+				log::debug!("update_params_ui failed: {e}");
 			}
 		}
 	}
@@ -395,6 +399,21 @@ fn param_widget(ui: &mut egui::Ui, control: &mut ParamControl) -> bool {
 			ParamValue::Fixed(v) => ui.add(egui::DragValue::new(v).speed(0.01)).changed(),
 			ParamValue::Slider(v) => ui.add(egui::DragValue::new(v)).changed(),
 			ParamValue::Checkbox(b) => ui.checkbox(b, "").changed(),
+			ParamValue::Popup(v) => ui.add(egui::DragValue::new(v).range(1..=i32::MAX)).changed(),
+			ParamValue::Angle(deg) => ui.add(egui::DragValue::new(deg).speed(1.0).suffix("°")).changed(),
+			ParamValue::Point { x, y } => {
+				let cx = ui.add(egui::DragValue::new(x).speed(1.0).prefix("x ")).changed();
+				let cy = ui.add(egui::DragValue::new(y).speed(1.0).prefix("y ")).changed();
+				cx || cy
+			}
+			ParamValue::Color { red, green, blue, alpha } => {
+				let mut rgba = [*red, *green, *blue, *alpha];
+				let changed = ui.color_edit_button_srgba_unmultiplied(&mut rgba).changed();
+				if changed {
+					[*red, *green, *blue, *alpha] = rgba;
+				}
+				changed
+			}
 		}
 	})
 	.inner

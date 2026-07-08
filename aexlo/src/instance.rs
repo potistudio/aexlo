@@ -5,10 +5,40 @@ use crate::utils;
 /// A parameter value for an After Effects plugin.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParamValue {
+	/// `PF_Param_FLOAT_SLIDER` — a floating-point slider value.
 	Float(f64),
+	/// `PF_Param_FIX_SLIDER` — a fixed-point slider value (surfaced as `f32`).
 	Fixed(f32),
+	/// `PF_Param_SLIDER` — an integer slider value.
 	Slider(i32),
+	/// `PF_Param_CHECKBOX` — a boolean toggle.
 	Checkbox(bool),
+	/// `PF_Param_POPUP` — the selected 1-based choice index.
+	Popup(i32),
+	/// `PF_Param_ANGLE` — an angle in degrees.
+	Angle(f32),
+	/// `PF_Param_POINT` — a 2D point, in pixels.
+	Point { x: f32, y: f32 },
+	/// `PF_Param_COLOR` — an 8-bit RGBA color.
+	Color { red: u8, green: u8, blue: u8, alpha: u8 },
+}
+
+impl ParamValue {
+	/// The `PF_ParamType` this value must be written to, plus a human-readable name
+	/// for error reporting. Used to guard union writes in
+	/// [`PluginInstance::set_param`].
+	fn expected_param_type(&self) -> (ParamType, &'static str) {
+		match self {
+			ParamValue::Float(_) => (ParamType::FloatSlider, "FloatSlider"),
+			ParamValue::Fixed(_) => (ParamType::FixSlider, "FixSlider"),
+			ParamValue::Slider(_) => (ParamType::Slider, "Slider"),
+			ParamValue::Checkbox(_) => (ParamType::CheckBox, "Checkbox"),
+			ParamValue::Popup(_) => (ParamType::PopUp, "Popup"),
+			ParamValue::Angle(_) => (ParamType::Angle, "Angle"),
+			ParamValue::Point { .. } => (ParamType::Point, "Point"),
+			ParamValue::Color { .. } => (ParamType::Color, "Color"),
+		}
+	}
 }
 
 use after_effects::{ParamType, RawCommand};
@@ -518,34 +548,64 @@ impl PluginInstance {
 
 		let target = &mut self.params[index];
 
-		let expected = match &value {
-			ParamValue::Float(_) if target.param_type == ParamType::FloatSlider as PF_ParamType => None,
-			ParamValue::Fixed(_) if target.param_type == ParamType::FixSlider as PF_ParamType => None,
-			ParamValue::Slider(_) if target.param_type == ParamType::Slider as PF_ParamType => None,
-			ParamValue::Checkbox(_) if target.param_type == ParamType::CheckBox as PF_ParamType => None,
-			ParamValue::Float(_) => Some("FloatSlider"),
-			ParamValue::Fixed(_) => Some("FixSlider"),
-			ParamValue::Slider(_) => Some("Slider"),
-			ParamValue::Checkbox(_) => Some("Checkbox"),
-		};
-
-		if let Some(expected) = expected {
+		// Reject a value whose variant doesn't match the parameter's declared type,
+		// so we never write the wrong union member.
+		let (expected_type, expected_name) = value.expected_param_type();
+		if target.param_type != expected_type as PF_ParamType {
 			return Err(AexloError::ParamTypeMismatch {
 				index,
-				expected,
+				expected: expected_name,
 				actual: target.param_type,
 			});
 		}
 
-		// SAFETY: union variant was verified against param_type above
+		// SAFETY: the union variant was verified against `param_type` above.
 		match value {
 			ParamValue::Float(v) => target.u.fs_d.value = v,
 			ParamValue::Fixed(v) => target.u.fd.value = utils::f32_to_q31(v),
 			ParamValue::Slider(v) => target.u.sd.value = v,
 			ParamValue::Checkbox(v) => target.u.bd.value = v as i32,
+			ParamValue::Popup(v) => target.u.pd.value = v,
+			ParamValue::Angle(deg) => target.u.ad.value = utils::f32_to_fixed16(deg),
+			ParamValue::Point { x, y } => {
+				target.u.td.x_value = utils::f32_to_fixed16(x);
+				target.u.td.y_value = utils::f32_to_fixed16(y);
+			}
+			ParamValue::Color { red, green, blue, alpha } => {
+				target.u.cd.value = after_effects_sys::PF_Pixel {
+					alpha,
+					red,
+					green,
+					blue,
+				};
+			}
 		}
 
 		Ok(())
+	}
+
+	/// Notify the plugin that the user changed the parameter at `index`
+	/// (`PF_Cmd_USER_CHANGED_PARAM`).
+	///
+	/// This is where an effect reacts to an edit — adjusting dependent parameters
+	/// or requesting a UI refresh (typically by raising `PF_OutFlag_SEND_UPDATE_PARAMS_UI`,
+	/// after which the host follows up with [`Self::update_params_ui`]).
+	pub fn user_changed_param(&mut self, index: usize) -> Result<()> {
+		let mut extra = after_effects_sys::PF_UserChangedParamExtra {
+			param_index: index as after_effects_sys::PF_ParamIndex,
+		};
+		self.call_plugin(
+			RawCommand::UserChangedParam,
+			(&mut extra as *mut after_effects_sys::PF_UserChangedParamExtra).cast(),
+		)
+	}
+
+	/// Ask the plugin to refresh its parameter UI state (`PF_Cmd_UPDATE_PARAMS_UI`):
+	/// showing, hiding, collapsing, or disabling controls via
+	/// [`PF_ParamUtilsSuite3::PF_UpdateParamUI`](crate::suites). Cosmetic only — the
+	/// plugin must not change parameter values in response to this command.
+	pub fn update_params_ui(&mut self) -> Result<()> {
+		self.call_plugin(RawCommand::UpdateParamsUi, null_mut())
 	}
 
 	/// Returns all parameter values as `(index, value)` pairs.
@@ -565,18 +625,33 @@ impl PluginInstance {
 
 		let param = &self.params[index];
 
-		// SAFETY: union variant is selected based on param_type
+		// SAFETY: the union variant is selected based on `param_type`.
 		unsafe {
-			if param.param_type == ParamType::FloatSlider as PF_ParamType {
-				Some(ParamValue::Float(param.u.fs_d.value))
-			} else if param.param_type == ParamType::FixSlider as PF_ParamType {
-				Some(ParamValue::Fixed(utils::q31_to_f32(param.u.fd.value)))
-			} else if param.param_type == ParamType::Slider as PF_ParamType {
-				Some(ParamValue::Slider(param.u.sd.value))
-			} else if param.param_type == ParamType::CheckBox as PF_ParamType {
-				Some(ParamValue::Checkbox(param.u.bd.value != 0))
-			} else {
-				None
+			match param.param_type {
+				t if t == ParamType::FloatSlider as PF_ParamType => Some(ParamValue::Float(param.u.fs_d.value)),
+				t if t == ParamType::FixSlider as PF_ParamType => {
+					Some(ParamValue::Fixed(utils::q31_to_f32(param.u.fd.value)))
+				}
+				t if t == ParamType::Slider as PF_ParamType => Some(ParamValue::Slider(param.u.sd.value)),
+				t if t == ParamType::CheckBox as PF_ParamType => Some(ParamValue::Checkbox(param.u.bd.value != 0)),
+				t if t == ParamType::PopUp as PF_ParamType => Some(ParamValue::Popup(param.u.pd.value)),
+				t if t == ParamType::Angle as PF_ParamType => {
+					Some(ParamValue::Angle(utils::fixed16_to_f32(param.u.ad.value)))
+				}
+				t if t == ParamType::Point as PF_ParamType => Some(ParamValue::Point {
+					x: utils::fixed16_to_f32(param.u.td.x_value),
+					y: utils::fixed16_to_f32(param.u.td.y_value),
+				}),
+				t if t == ParamType::Color as PF_ParamType => {
+					let px = param.u.cd.value;
+					Some(ParamValue::Color {
+						red: px.red,
+						green: px.green,
+						blue: px.blue,
+						alpha: px.alpha,
+					})
+				}
+				_ => None,
 			}
 		}
 	}
@@ -615,6 +690,22 @@ impl PluginInstance {
 	/// Get a specific instance parameter by index.
 	pub fn param_by_index(&self, index: usize) -> Option<&PF_ParamDef> {
 		self.params.get(index)
+	}
+
+	/// Apply a plugin's `PF_UpdateParamUI` request: copy the UI-only fields from
+	/// `def` into the stored parameter at `index`, leaving its value untouched.
+	///
+	/// Plugins call this (through [`PF_ParamUtilsSuite3`](crate::suites)) during
+	/// `PF_Cmd_UPDATE_PARAMS_UI`/`USER_CHANGED_PARAM` to toggle things like twirl
+	/// collapse or disabled state without changing the parameter's value.
+	pub(crate) fn update_param_ui(&mut self, index: usize, def: &PF_ParamDef) {
+		if let Some(target) = self.params.get_mut(index) {
+			target.flags = def.flags;
+			target.ui_flags = def.ui_flags;
+			target.ui_width = def.ui_width;
+			target.ui_height = def.ui_height;
+			target.name = def.name;
+		}
 	}
 
 	/// Clear all instance parameters.
