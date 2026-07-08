@@ -343,33 +343,13 @@ impl PluginInstance {
 impl PluginInstance {
 	/// Create a new PluginInstance with default values
 	fn new(path: &Path) -> Self {
-		let width = WIDTH;
-		let height = HEIGHT;
-
-		// Initialize Interact Callbacks using factory
 		let interact_callbacks = crate::host::interact::create_interact_callbacks();
-
-		// Initialize Utility Callbacks using factory
 		let utility_callbacks = crate::host::utility::create_utility_callbacks();
+		let pica = Self::build_pica_suite();
 
-		let input_layer = wrapper::Layer::<wrapper::Depth8>::new(
-			width,
-			height,
-			vec![wrapper::Pixel::<wrapper::Depth8>::green(); (width * height) as usize],
-		)
-		.unwrap();
+		let input_layer = Self::build_layer(wrapper::Pixel::<wrapper::Depth8>::green());
+		let output_layer = Self::build_layer(wrapper::Pixel::<wrapper::Depth8>::black());
 
-		let pica = Box::new(after_effects_sys::SPBasicSuite {
-			AcquireSuite: Some(crate::suites::rusty_acquire_suite),
-			ReleaseSuite: Some(crate::suites::rusty_release_suite),
-			IsEqual: None,
-			AllocateBlock: None,
-			FreeBlock: None,
-			ReallocateBlock: None,
-			Undefined: None,
-		});
-
-		// Initialize InData
 		let mut instance = PluginInstance {
 			library: None,
 			entry_point: None,
@@ -388,30 +368,52 @@ impl PluginInstance {
 			params_dirty: false,
 			params_ptr_cache: Vec::new(),
 			input_layer,
-			output_layer: wrapper::Layer::<wrapper::Depth8>::new(
-				width,
-				height,
-				vec![wrapper::Pixel::<wrapper::Depth8>::black(); (width * height) as usize],
-			)
-			.unwrap(),
+			output_layer,
 			world: crate::core::helpers::LayerDefBuilder::new()
-				.with_size(width as i32, height as i32)
+				.with_size(WIDTH as i32, HEIGHT as i32)
 				.build(),
 
 			smart_render_data: SmartRenderData::new(),
 		};
 
-		// Now set the utils pointer to reference our owned utility_callbacks
-		instance.in_data.utils = instance.utility_callbacks.as_mut() as *mut _;
-		instance.in_data.pica_basicP = instance.pica.as_mut() as *mut _;
+		instance.wire_self_pointers();
+		instance.push_input_layer_param();
 
+		instance
+	}
+
+	/// Build the `SPBasicSuite` vtable handed to the plugin for acquiring host suites.
+	fn build_pica_suite() -> Box<after_effects_sys::SPBasicSuite> {
+		Box::new(after_effects_sys::SPBasicSuite {
+			AcquireSuite: Some(crate::suites::rusty_acquire_suite),
+			ReleaseSuite: Some(crate::suites::rusty_release_suite),
+			IsEqual: None,
+			AllocateBlock: None,
+			FreeBlock: None,
+			ReallocateBlock: None,
+			Undefined: None,
+		})
+	}
+
+	/// Build a `WIDTH` x `HEIGHT` layer filled with `fill`.
+	fn build_layer(fill: wrapper::Pixel<wrapper::Depth8>) -> wrapper::Layer<wrapper::Depth8> {
+		wrapper::Layer::<wrapper::Depth8>::new(WIDTH, HEIGHT, vec![fill; (WIDTH * HEIGHT) as usize]).unwrap()
+	}
+
+	/// Point `in_data`/`world` raw pointers at this instance's own owned buffers, now
+	/// that `self` has a stable address to reference.
+	fn wire_self_pointers(&mut self) {
+		self.in_data.utils = self.utility_callbacks.as_mut() as *mut _;
+		self.in_data.pica_basicP = self.pica.as_mut() as *mut _;
 		// effect_ref will be set dynamically before each plugin call
-		instance.in_data.effect_ref = std::ptr::null_mut();
+		self.in_data.effect_ref = std::ptr::null_mut();
+		self.in_data.num_params = self.params.len() as i32;
+		self.world.data = self.output_layer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
+	}
 
-		instance.in_data.num_params = instance.params.len() as i32;
-		instance.world.data = instance.output_layer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
-
-		instance.params.push(PF_ParamDef {
+	/// Register the implicit `PF_Param_LAYER` parameter at index 0, backed by `input_layer`.
+	fn push_input_layer_param(&mut self) {
+		self.params.push(PF_ParamDef {
 			uu: after_effects_sys::PF_ParamDef__bindgen_ty_1 { id: 0 },
 			ui_flags: 0,
 			ui_width: 0,
@@ -421,14 +423,12 @@ impl PluginInstance {
 			flags: 0,
 			unused: 0,
 			u: PF_ParamDefUnion {
-				ld: instance.input_layer.as_sys(),
+				ld: self.input_layer.as_sys(),
 			},
 		});
 		// The push above invalidates any (nonexistent yet) cached param pointers;
 		// mark dirty so `call_plugin` builds the cache on its first invocation.
-		instance.params_dirty = true;
-
-		instance
+		self.params_dirty = true;
 	}
 
 	/// Get the output message from the instance (set during `PF_Cmd_ABOUT` command).
