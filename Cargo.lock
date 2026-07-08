@@ -1981,6 +1981,7 @@ dependencies = [
  "anyhow",
  "eframe",
  "env_logger",
+ "image",
  "log",
  "rand",
 ]
