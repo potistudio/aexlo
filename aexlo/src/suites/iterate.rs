@@ -256,7 +256,8 @@ unsafe extern "C" fn iterate_generic_stub(
 
 /// Creates a dynamically allocated `PF_Iterate8Suite2` instance.
 /// All function pointers are populated with either real implementations or logging stubs.
-/// Returns a Box<> that will be converted to Arc by the registry.
+/// Returns a `Box` that the registry takes ownership of (via `Box::into_raw`),
+/// freeing it with `Box::from_raw` once its reference count reaches 0.
 pub fn create_iterate_8_suite_2() -> Box<PF_Iterate8Suite2> {
 	Box::new(PF_Iterate8Suite2 {
 		iterate: Some(iterate_8_sys),

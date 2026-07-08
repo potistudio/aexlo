@@ -410,7 +410,8 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(new_sizeL: A_HandleSize,
 // ============================================================================
 
 /// Creates a dynamically allocated `PF_HandleSuite1` instance with working implementations.
-/// Returns a Box<> that will be converted to Arc by the registry.
+/// Returns a `Box` that the registry takes ownership of (via `Box::into_raw`),
+/// freeing it with `Box::from_raw` once its reference count reaches 0.
 pub fn create_handle_suite_1() -> Box<PF_HandleSuite1> {
 	let suite = Box::new(PF_HandleSuite1 {
 		host_new_handle: Some(host_new_handle_impl),

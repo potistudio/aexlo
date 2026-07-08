@@ -233,7 +233,8 @@ unsafe extern "C" fn transform_world_stub(
 
 /// Creates a dynamically allocated `PF_WorldTransformSuite1` instance.
 /// All function pointers are populated with either real implementations or logging stubs.
-/// Returns a Box<> that will be converted to Arc by the registry.
+/// Returns a `Box` that the registry takes ownership of (via `Box::into_raw`),
+/// freeing it with `Box::from_raw` once its reference count reaches 0.
 pub fn create_world_transform_suite_1() -> Box<PF_WorldTransformSuite1> {
 	let suite = Box::new(PF_WorldTransformSuite1 {
 		composite_rect: Some(composite_rect_stub),

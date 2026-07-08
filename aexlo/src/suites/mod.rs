@@ -218,6 +218,6 @@ pub unsafe extern "C" fn rusty_release_suite(name: *const ::std::os::raw::c_char
 		return PF_Err_NONE as PF_Err;
 	}
 
-	// Release from registry (decrements ref count, drops Arc when 0)
+	// Release from registry (decrements ref count, drops the Box when it hits 0)
 	release(suite_name, version)
 }

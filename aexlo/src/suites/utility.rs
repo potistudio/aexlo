@@ -302,7 +302,8 @@ stub_log!(is_track_item_effect_applied_to_synthetic_stub,
 // ============================================================================
 
 /// Creates a dynamically allocated `PF_UtilitySuite` instance.
-/// Returns a Box<> that will be converted to Arc by the registry.
+/// Returns a `Box` that the registry takes ownership of (via `Box::into_raw`),
+/// freeing it with `Box::from_raw` once its reference count reaches 0.
 pub fn create_utility_suite() -> Box<PF_UtilitySuite> {
 	let suite = Box::new(PF_UtilitySuite {
 		GetFilterInstanceID: Some(get_filter_instance_id_stub),
