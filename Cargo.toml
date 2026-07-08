@@ -5,13 +5,14 @@ default-members = ["aexlo"]
 
 [workspace.package]
 version = "0.0.1"
-license = "MIT"
-authors = ["potistudio <potistudio@proton.me>"]
 edition = "2024"
+authors = ["potistudio <potistudio@proton.me>"]
+license = "MIT"
 
 [profile.release]
-lto = true
 codegen-units = 1
+lto = true
 
 [workspace.dependencies]
 aexlo = { path = "./aexlo" }
+wrapper = { path = "./wrapper" }
