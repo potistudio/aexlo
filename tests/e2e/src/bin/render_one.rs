@@ -21,7 +21,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let (width, height) = img.dimensions();
 	instance.set_input(Layer::<Depth8>::from_raw(img.into_raw(), width, height)?);
 
-	instance.render()?;
+	// Most AE effects are smart-render only; driving them with the legacy
+	// PF_Cmd_RENDER makes them fail or emit garbage. Dispatch on what the plugin
+	// declared during global setup.
+	instance.render_frame()?;
 
 	let (out_width, out_height) = instance.output_size();
 	let mut buffer = vec![0u8; (out_width * out_height * 4) as usize];
