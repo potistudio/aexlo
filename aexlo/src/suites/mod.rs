@@ -1,3 +1,20 @@
+//! Host suites handed to plugins through `SPBasicSuite::AcquireSuite`.
+//!
+//! # Ownership model
+//!
+//! Every suite is a **stateless vtable** — a table of `extern "C"` function
+//! pointers with no per-instance state; any mutable state lives behind the
+//! plugin-provided pointers those callbacks receive, not in the suite struct.
+//! Because of that, a single **process-wide** instance is shared by every
+//! [`PluginInstance`](crate::PluginInstance), and across threads, soundly.
+//!
+//! Nearly all suites live in the `const` [`SUITE_CONTAINER`] static, so
+//! acquiring one just hands back a pointer into it and releasing it is a
+//! no-op; nothing is allocated or freed. The sole exception is the AEGP Utility
+//! compat suite, whose type-erased pointer slots can't be built in a `const`
+//! context — it lives in its own [`LazyLock`](utility::AEGP_UTILITY_SUITE)
+//! instead, but is otherwise the same shared-static model.
+
 mod ae_app;
 mod angle_param;
 pub mod ansi;
@@ -5,7 +22,6 @@ pub mod handle;
 pub mod interface;
 pub mod iterate;
 pub mod macros;
-pub mod registry;
 pub mod transform;
 pub mod ui;
 pub mod utility;
@@ -13,7 +29,6 @@ pub mod world;
 
 #[cfg(feature = "diagnostics")]
 use crate::core::diagnostics::DiagnosticBuilder;
-use crate::suites::registry::{acquire, release};
 use after_effects_sys::*;
 use std::ffi::CStr;
 use std::os::raw::c_void;
@@ -58,9 +73,9 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 ///
 /// Every field is a plain table of `extern "C"` function pointers with no
 /// per-instance state, so a single shared `static` instance serves every
-/// [`PluginInstance`](crate::PluginInstance) — see the registry ownership notes
-/// in [`registry`]. Suites live for the program's lifetime; there is nothing to
-/// allocate or free.
+/// [`PluginInstance`](crate::PluginInstance) — see the module-level ownership
+/// notes. Suites live for the program's lifetime; there is nothing to allocate
+/// or free.
 pub struct SuiteContainer {
 	pub ansi: PF_ANSICallbacks,
 	pub effect_ui: PF_EffectUISuite1,
@@ -72,28 +87,6 @@ pub struct SuiteContainer {
 	pub aegp_interface: AEGP_PFInterfaceSuite1,
 	pub angle_param: PF_AngleParamSuite1,
 	pub ae_app: PFAppSuite6,
-}
-
-/// Dispatch a registry-managed (dynamic) suite acquisition.
-///
-/// Acquires the suite via [`registry::acquire`], and on success writes the
-/// resulting pointer into the `*suite` out-param, logs it, and returns
-/// `PF_Err_NONE`; on failure it returns the registry's error code. Collapses
-/// the otherwise-identical boilerplate of every dynamic arm in
-/// [`rusty_acquire_suite`] into a single expression.
-macro_rules! dispatch_dynamic {
-	($suite:expr, $name:expr, $version:expr, $ctor:expr $(,)?) => {
-		match acquire($name, $version, $ctor) {
-			Ok(ptr) => {
-				// SAFETY: `rusty_acquire_suite` returns early when `suite` is null,
-				// so the out-param is a valid place to write here.
-				unsafe { *$suite = ptr as *const c_void };
-				log::info!("Acquired {} v{} (Registry)", $name, $version);
-				PF_Err_NONE as PF_Err
-			}
-			Err(err) => err,
-		}
-	};
 }
 
 /// Hand back a pointer to one of the shared [`SUITE_CONTAINER`] vtables.
@@ -147,9 +140,12 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("AEGP PF Interface Suite", 1) => dispatch_static!(suite, suite_name, version, aegp_interface),
 		("PF AngleParamSuite", 1) => dispatch_static!(suite, suite_name, version, angle_param),
 		("PF AE App Suite", 6) => dispatch_static!(suite, suite_name, version, ae_app),
-		// Dynamic suites still managed by the registry (converted in the next step).
 		("AEGP Utility Suite", 1..=18) => {
-			dispatch_dynamic!(suite, suite_name, version, utility::create_aegp_utility_suite_compat_v11)
+			// Lives in its own LazyLock rather than SUITE_CONTAINER (see AEGP_UTILITY_SUITE).
+			// SAFETY: `suite` was null-checked at the top of this function.
+			unsafe { *suite = &*utility::AEGP_UTILITY_SUITE as *const _ as *const c_void };
+			log::info!("Acquired {} v{}", suite_name, version);
+			PF_Err_NONE as PF_Err
 		}
 		_ => {
 			log::warn!("Suite '{}' v{} not found.", suite_name, version);
@@ -162,6 +158,8 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 /// # Safety
 /// This function is unsafe because it handles raw pointers.
 #[allow(non_snake_case)]
+// `version` is only read by the diagnostics build; suppress the unused warning otherwise.
+#[cfg_attr(not(feature = "diagnostics"), allow(unused_variables))]
 pub unsafe extern "C" fn rusty_release_suite(name: *const ::std::os::raw::c_char, version: i32) -> PF_Err {
 	#[cfg(feature = "diagnostics")]
 	DiagnosticBuilder::new()
@@ -174,16 +172,7 @@ pub unsafe extern "C" fn rusty_release_suite(name: *const ::std::os::raw::c_char
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	let suite_name = match unsafe { CStr::from_ptr(name) }.to_str() {
-		Ok(s) => s,
-		Err(_) => return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err,
-	};
-
-	// Static suites are not managed by registry
-	if suite_name == "PF ANSI Suite" || suite_name == "PF Effect UI Suite" {
-		return PF_Err_NONE as PF_Err;
-	}
-
-	// Release from registry (decrements ref count, drops the Box when it hits 0)
-	release(suite_name, version)
+	// Every suite is a process-wide shared static (see the module docs); nothing
+	// is allocated per acquire, so releasing one is a no-op.
+	PF_Err_NONE as PF_Err
 }

@@ -3,6 +3,7 @@
 use crate::suites::macros::stub_log;
 use after_effects_sys::*;
 use std::os::raw::c_void;
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 stub_log!(get_filter_instance_id_stub,
@@ -370,6 +371,24 @@ pub struct AEGPUtilitySuiteCompatV11 {
 	slots: [*const c_void; 48],
 }
 
+// SAFETY: the slots are all `'static` function pointers (stubs cast to
+// `*const c_void`); the table is populated once at init and only ever read
+// afterwards, so sharing a single instance across threads is sound.
+unsafe impl Sync for AEGPUtilitySuiteCompatV11 {}
+// SAFETY: same reasoning — the raw pointers are `'static` and immutable after
+// construction, so moving/initializing the table on another thread is sound.
+// (Required for `LazyLock<AEGPUtilitySuiteCompatV11>` to be `Sync`.)
+unsafe impl Send for AEGPUtilitySuiteCompatV11 {}
+
+/// Process-wide `AEGP Utility Suite` (compat v11) instance.
+///
+/// Unlike the other suites this one cannot live in the `const` [`SUITE_CONTAINER`]
+/// (crate::suites::SUITE_CONTAINER): its `slots` are `*const c_void`, and casting a
+/// function pointer to a raw pointer is not permitted in a `const` initializer.
+/// A [`LazyLock`] performs that cast once, on first acquire.
+pub static AEGP_UTILITY_SUITE: LazyLock<AEGPUtilitySuiteCompatV11> =
+	LazyLock::new(build_aegp_utility_suite_compat_v11);
+
 unsafe extern "C" fn aegp_noop_ok_stub() -> A_Err {
 	PF_Err_NONE as A_Err
 }
@@ -434,11 +453,13 @@ unsafe extern "C" fn aegp_execute_script_stub(
 	PF_Err_NONE as A_Err
 }
 
-/// Creates an offset-compatible `AEGP Utility Suite` object for newer suite versions.
+/// Builds the offset-compatible `AEGP Utility Suite` table for newer suite versions.
 ///
 /// The target plugin requests v11 and calls at least offsets `+0x38` and `+0xd8`.
 /// We keep all slots non-null to avoid indirect-call crashes from unimplemented entries.
-pub fn create_aegp_utility_suite_compat_v11() -> Box<AEGPUtilitySuiteCompatV11> {
+///
+/// Backs the [`AEGP_UTILITY_SUITE`] `LazyLock`; run once, on first acquire.
+fn build_aegp_utility_suite_compat_v11() -> AEGPUtilitySuiteCompatV11 {
 	let noop = aegp_noop_ok_stub as *const () as *const c_void;
 	let mut suite = AEGPUtilitySuiteCompatV11 { slots: [noop; 48] };
 
@@ -449,5 +470,5 @@ pub fn create_aegp_utility_suite_compat_v11() -> Box<AEGPUtilitySuiteCompatV11> 
 	// +0xd8 -> ExecuteScript
 	suite.slots[27] = aegp_execute_script_stub as *const () as *const c_void;
 
-	Box::new(suite)
+	suite
 }
