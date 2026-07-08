@@ -11,7 +11,7 @@ pub enum ParamValue {
 	Checkbox(bool),
 }
 
-use after_effects::ParamType;
+use after_effects::{ParamType, RawCommand};
 use after_effects_sys::{
 	PF_Err_INVALID_CALLBACK, PF_Err_NONE, PF_ParamDef, PF_ParamDefUnion, PF_ParamType, PF_Pixel, PF_ProgPtr,
 };
@@ -36,7 +36,7 @@ const HOST_NAME: &str = "AfterEffects";
 const HOST_VERSION: &str = "25.2";
 
 type PluginEntryPoint = unsafe extern "C" fn(
-	cmd: after_effects::RawCommand,
+	cmd: RawCommand,
 	in_data: *mut after_effects_sys::PF_InData,
 	out_data: *mut after_effects_sys::PF_OutData,
 	params: after_effects_sys::PF_ParamList,
@@ -86,11 +86,11 @@ unsafe extern "C" fn receive_plugin_data(
 
 /// Represents a loaded After Effects plugin instance, managing its library, entry point, parameters, and execution state.
 pub struct PluginInstance {
-	library: Option<Library>,
+	raw_library: Option<Library>,
 	entry_point: Option<PluginEntryPoint>,
 	entry_point_name: Option<String>,
-	path: PathBuf,
-	cmd: after_effects::RawCommand,
+	binary_file_path: PathBuf,
+
 	world: after_effects_sys::PF_LayerDef,
 
 	utility_callbacks: Box<after_effects_sys::_PF_UtilCallbacks>,
@@ -144,16 +144,14 @@ impl PluginInstance {
 
 	/// Call the plugin with `PF_Cmd_ABOUT` command.
 	pub fn about(&mut self) -> Result<String> {
-		self.cmd = after_effects::RawCommand::About;
-		self.call_plugin(null_mut())?;
+		self.call_plugin(RawCommand::About, null_mut())?;
 
 		Ok(self.message())
 	}
 
 	/// Call the plugin with `PF_Cmd_RENDER` command.
 	pub fn render(&mut self) -> Result<()> {
-		self.cmd = after_effects::RawCommand::Render;
-		self.call_plugin(null_mut())?;
+		self.call_plugin(RawCommand::Render, null_mut())?;
 
 		Ok(())
 	}
@@ -163,8 +161,10 @@ impl PluginInstance {
 	pub fn render_pre(&mut self) -> Result<()> {
 		let mut extra = self.smart_render_data.pre_render_extra();
 
-		self.cmd = after_effects::RawCommand::SmartPreRender;
-		self.call_plugin((&mut extra as *mut after_effects_sys::PF_PreRenderExtra).cast())?;
+		self.call_plugin(
+			RawCommand::SmartPreRender,
+			(&mut extra as *mut after_effects_sys::PF_PreRenderExtra).cast(),
+		)?;
 
 		self.smart_render_data.sync();
 
@@ -176,8 +176,10 @@ impl PluginInstance {
 	pub fn render_smart(&mut self) -> Result<()> {
 		let mut extra = self.smart_render_data.smart_render_extra();
 
-		self.cmd = after_effects::RawCommand::SmartRender;
-		self.call_plugin((&mut extra as *mut after_effects_sys::PF_SmartRenderExtra).cast())?;
+		self.call_plugin(
+			after_effects::RawCommand::SmartRender,
+			(&mut extra as *mut after_effects_sys::PF_SmartRenderExtra).cast(),
+		)?;
 
 		self.smart_render_data.sync();
 
@@ -355,36 +357,37 @@ impl PluginInstance {
 		let input_layer = Self::build_layer(wrapper::Pixel::<wrapper::Depth8>::green());
 		let output_layer = Self::build_layer(wrapper::Pixel::<wrapper::Depth8>::black());
 
-		let mut instance = PluginInstance {
-			library: None,
-			entry_point: None,
-			entry_point_name: None,
-			path: path.to_path_buf(),
-			cmd: after_effects::RawCommand::About,
-			utility_callbacks,
-			pica,
-			in_data: crate::core::helpers::InDataBuilder::new()
-				.with_size(1280, 720)
-				.with_callbacks(interact_callbacks)
-				// .with_global_data(unsafe { crate::suites::handle::host_new_handle_impl(0x498) })
-				.build(),
-			out_data: crate::core::helpers::OutDataBuilder::new().build(),
-			params: Vec::new(),
-			params_dirty: false,
-			params_ptr_cache: Vec::new(),
-			input_layer,
-			output_layer,
-			world: crate::core::helpers::LayerDefBuilder::new()
-				.with_size(WIDTH as i32, HEIGHT as i32)
-				.build(),
+		{
+			let mut instance_placeholder = PluginInstance {
+				raw_library: None,
+				entry_point: None,
+				entry_point_name: None,
+				binary_file_path: path.to_path_buf(),
+				utility_callbacks,
+				pica,
+				in_data: crate::core::helpers::InDataBuilder::new()
+					.with_size(1280, 720)
+					.with_callbacks(interact_callbacks)
+					// .with_global_data(unsafe { crate::suites::handle::host_new_handle_impl(0x498) })
+					.build(),
+				out_data: crate::core::helpers::OutDataBuilder::new().build(),
+				params: Vec::new(),
+				params_dirty: false,
+				params_ptr_cache: Vec::new(),
+				input_layer,
+				output_layer,
+				world: crate::core::helpers::LayerDefBuilder::new()
+					.with_size(WIDTH as i32, HEIGHT as i32)
+					.build(),
 
-			smart_render_data: SmartRenderData::new(),
-		};
+				smart_render_data: SmartRenderData::new(),
+			};
 
-		instance.wire_self_pointers();
-		instance.push_input_layer_param();
+			instance_placeholder.wire_self_pointers();
+			instance_placeholder.push_input_layer_param();
 
-		instance
+			instance_placeholder
+		}
 	}
 
 	/// Build the `SPBasicSuite` vtable handed to the plugin for acquiring host suites.
@@ -454,18 +457,12 @@ impl PluginInstance {
 
 	/// Call the plugin with `PF_Cmd_GLOBAL_SETUP` command.
 	fn setup_global(&mut self) -> Result<()> {
-		self.cmd = after_effects::RawCommand::GlobalSetup;
-		self.call_plugin(null_mut())?;
-
-		Ok(())
+		self.call_plugin(RawCommand::GlobalSetup, null_mut())
 	}
 
 	/// Call the plugin with `PF_Cmd_PARAMS_SETUP` command.
 	fn setup_params(&mut self) -> Result<()> {
-		self.cmd = after_effects::RawCommand::ParamsSetup;
-		self.call_plugin(null_mut())?;
-
-		Ok(())
+		self.call_plugin(RawCommand::ParamsSetup, null_mut())
 	}
 
 	/// Ask the plugin what its real entry point symbol is via the modern
@@ -593,7 +590,7 @@ impl PluginInstance {
 	/// Resolve `self.path` to a binary, `dlopen` it, and resolve its entry point,
 	/// storing the results on `self`.
 	fn load(&mut self) -> Result<()> {
-		let module_path = Self::resolve_binary_path(&self.path)?;
+		let module_path = Self::resolve_binary_path(&self.binary_file_path)?;
 		let module_path_str = module_path.display().to_string();
 
 		log::info!("Loading plugin from '{}'.", module_path_str.blue());
@@ -603,7 +600,7 @@ impl PluginInstance {
 
 		self.entry_point = Some(entry_point);
 		self.entry_point_name = Some(resolved_name.clone());
-		self.library = Some(lib);
+		self.raw_library = Some(lib);
 
 		// Set plugin path for get_platform_data callback
 		crate::host::utility::set_plugin_path(&module_path);
@@ -632,7 +629,7 @@ impl PluginInstance {
 	/// resolved yet (see [`Self::load`]), before any other state is touched.
 	/// Returns [`AexloError::PluginExecutionFailed`] if the plugin returns a
 	/// non-`PF_Err_NONE` code.
-	fn call_plugin(&mut self, extra_data: *mut ::std::os::raw::c_void) -> Result<()> {
+	fn call_plugin(&mut self, command: RawCommand, extra_data: *mut ::std::os::raw::c_void) -> Result<()> {
 		let entry_point = self.entry_point.ok_or(AexloError::ContainerNotLoaded)?;
 
 		// Update effect_ref to point to self before calling the plugin
@@ -640,7 +637,7 @@ impl PluginInstance {
 
 		let entry_point_name = self.entry_point_name.as_deref().unwrap_or(DEFAULT_ENTRY_POINT_NAME);
 
-		log::info!("Executing command: {}", format!("{:?}", self.cmd).blue());
+		log::info!("Executing command: {}", format!("{:?}", command).blue());
 
 		if self.params_dirty {
 			self.params_ptr_cache = self.params.iter_mut().map(|p| p as *mut _).collect();
@@ -649,7 +646,7 @@ impl PluginInstance {
 
 		let result = unsafe {
 			entry_point(
-				self.cmd,
+				command,
 				&mut self.in_data,
 				&mut self.out_data,
 				self.params_ptr_cache.as_mut_ptr(),
@@ -671,7 +668,7 @@ impl PluginInstance {
 
 		log::info!(
 			"Executed command '{}' {}.",
-			format!("{:?}", self.cmd).blue(),
+			format!("{:?}", command).blue(),
 			"successfully".green()
 		);
 		log::debug!(
