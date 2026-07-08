@@ -187,11 +187,14 @@ unsafe extern "C" fn get_pixel_format_stub(
 }
 
 //==== Factory =============================================
-/// Creates a PF_WorldSuite2 and returns a boxed pointer to it.
-pub fn create_world_suite_2() -> Box<PF_WorldSuite2> {
-	Box::new(PF_WorldSuite2 {
+/// Builds the `PF_WorldSuite2` vtable.
+///
+/// `const` so it can initialize the shared [`SUITE_CONTAINER`](crate::suites::SUITE_CONTAINER)
+/// static; the suite is a stateless table of function pointers.
+pub const fn create_world_suite_2() -> PF_WorldSuite2 {
+	PF_WorldSuite2 {
 		PF_NewWorld: Some(new_world_sys),
 		PF_DisposeWorld: Some(dispose_world_stub),
 		PF_GetPixelFormat: Some(get_pixel_format_stub),
-	})
+	}
 }

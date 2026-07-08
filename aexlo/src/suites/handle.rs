@@ -409,17 +409,18 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(new_sizeL: A_HandleSize,
 // Factory Function
 // ============================================================================
 
-/// Creates a dynamically allocated `PF_HandleSuite1` instance with working implementations.
-/// Returns a `Box` that the registry takes ownership of (via `Box::into_raw`),
-/// freeing it with `Box::from_raw` once its reference count reaches 0.
-pub fn create_handle_suite_1() -> Box<PF_HandleSuite1> {
-	let suite = Box::new(PF_HandleSuite1 {
+/// Builds the `PF_HandleSuite1` vtable of working implementations.
+///
+/// `const` so it can initialize the shared [`SUITE_CONTAINER`](crate::suites::SUITE_CONTAINER)
+/// static: the suite is a stateless table of function pointers, so a single
+/// process-wide instance is handed to every plugin.
+pub const fn create_handle_suite_1() -> PF_HandleSuite1 {
+	PF_HandleSuite1 {
 		host_new_handle: Some(host_new_handle_impl),
 		host_lock_handle: Some(host_lock_handle_impl),
 		host_unlock_handle: Some(host_unlock_handle_impl),
 		host_dispose_handle: Some(host_dispose_handle_impl),
 		host_get_handle_size: Some(host_get_handle_size_impl),
 		host_resize_handle: Some(host_resize_handle_impl),
-	});
-	suite
+	}
 }

@@ -231,12 +231,12 @@ unsafe extern "C" fn transform_world_stub(
 // Factory Function
 // ============================================================================
 
-/// Creates a dynamically allocated `PF_WorldTransformSuite1` instance.
-/// All function pointers are populated with either real implementations or logging stubs.
-/// Returns a `Box` that the registry takes ownership of (via `Box::into_raw`),
-/// freeing it with `Box::from_raw` once its reference count reaches 0.
-pub fn create_world_transform_suite_1() -> Box<PF_WorldTransformSuite1> {
-	let suite = Box::new(PF_WorldTransformSuite1 {
+/// Builds the `PF_WorldTransformSuite1` vtable of real implementations and logging stubs.
+///
+/// `const` so it can initialize the shared [`SUITE_CONTAINER`](crate::suites::SUITE_CONTAINER)
+/// static; the suite is a stateless table of function pointers.
+pub const fn create_world_transform_suite_1() -> PF_WorldTransformSuite1 {
+	PF_WorldTransformSuite1 {
 		composite_rect: Some(composite_rect_stub),
 		blend: Some(blend_stub),
 		convolve: Some(convolve_stub),
@@ -244,6 +244,5 @@ pub fn create_world_transform_suite_1() -> Box<PF_WorldTransformSuite1> {
 		copy_hq: Some(copy_hq_stub),
 		transfer_rect: Some(transfer_rect_stub),
 		transform_world: Some(transform_world_stub),
-	});
-	suite
+	}
 }

@@ -44,11 +44,32 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	effect_ui: PF_EffectUISuite1 {
 		PF_SetOptionsButtonName: Some(ui::SetOptionButtonName_sys),
 	},
+	handle: handle::create_handle_suite_1(),
+	world_transform: transform::create_world_transform_suite_1(),
+	world: world::create_world_suite_2(),
+	iterate8: iterate::create_iterate_8_suite_2(),
+	utility: utility::create_utility_suite(),
+	aegp_interface: interface::create_aegp_pf_interface_suite(),
+	angle_param: angle_param::create_angle_param_suite(),
 };
 
+/// Process-wide storage for the stateless suite vtables handed to plugins.
+///
+/// Every field is a plain table of `extern "C"` function pointers with no
+/// per-instance state, so a single shared `static` instance serves every
+/// [`PluginInstance`](crate::PluginInstance) — see the registry ownership notes
+/// in [`registry`]. Suites live for the program's lifetime; there is nothing to
+/// allocate or free.
 pub struct SuiteContainer {
 	pub ansi: PF_ANSICallbacks,
 	pub effect_ui: PF_EffectUISuite1,
+	pub handle: PF_HandleSuite1,
+	pub world_transform: PF_WorldTransformSuite1,
+	pub world: PF_WorldSuite2,
+	pub iterate8: PF_Iterate8Suite2,
+	pub utility: PF_UtilitySuite,
+	pub aegp_interface: AEGP_PFInterfaceSuite1,
+	pub angle_param: PF_AngleParamSuite1,
 }
 
 /// Dispatch a registry-managed (dynamic) suite acquisition.
@@ -71,6 +92,21 @@ macro_rules! dispatch_dynamic {
 			Err(err) => err,
 		}
 	};
+}
+
+/// Hand back a pointer to one of the shared [`SUITE_CONTAINER`] vtables.
+///
+/// Writes `&SUITE_CONTAINER.$field` into the `*suite` out-param, logs it, and
+/// returns `PF_Err_NONE`. The pointer is valid for the program's lifetime, so
+/// there is no matching release step.
+macro_rules! dispatch_static {
+	($suite:expr, $name:expr, $version:expr, $field:ident $(,)?) => {{
+		// SAFETY: `rusty_acquire_suite` returns early when `suite` is null,
+		// so the out-param is a valid place to write here.
+		unsafe { *$suite = &SUITE_CONTAINER.$field as *const _ as *const c_void };
+		log::info!("Acquired {} v{}", $name, $version);
+		PF_Err_NONE as PF_Err
+	}};
 }
 
 /// Emulates `SPBasicSuite::AcquireSuite` function
@@ -97,47 +133,20 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		.add_arg("suite", format!("{:?}", suite))
 		.emit();
 
-	// Select creator function (returns Box<Suite_type>)
 	match (suite_name, version) {
-		// Static suites (managed directly)
-		("PF ANSI Suite", 1) => {
-			unsafe {
-				*suite = &SUITE_CONTAINER.ansi as *const _ as *const c_void;
-			}
-			log::info!("Acquired PF ANSI Suite v1");
-			return PF_Err_NONE as PF_Err;
-		}
-		("PF Effect UI Suite", 1) => {
-			unsafe {
-				*suite = &SUITE_CONTAINER.effect_ui as *const _ as *const c_void;
-			}
-			log::info!("Acquired PF Effect UI Suite v1");
-			return PF_Err_NONE as PF_Err;
-		}
-		// Dynamic suites (managed by registry)
-		("PF Handle Suite", 2) => {
-			dispatch_dynamic!(suite, suite_name, version, handle::create_handle_suite_1)
-		}
-		("PF World Transform Suite", 1) => {
-			dispatch_dynamic!(suite, suite_name, version, transform::create_world_transform_suite_1)
-		}
-		("PF World Suite", 2) => {
-			dispatch_dynamic!(suite, suite_name, version, world::create_world_suite_2)
-		}
-		("PF Iterate8 Suite", 2) => {
-			dispatch_dynamic!(suite, suite_name, version, iterate::create_iterate_8_suite_2)
-		}
-		("PF Utility Suite", 1..=18) => {
-			dispatch_dynamic!(suite, suite_name, version, utility::create_utility_suite)
-		}
+		// Static suites: pointers into the shared SUITE_CONTAINER.
+		("PF ANSI Suite", 1) => dispatch_static!(suite, suite_name, version, ansi),
+		("PF Effect UI Suite", 1) => dispatch_static!(suite, suite_name, version, effect_ui),
+		("PF Handle Suite", 2) => dispatch_static!(suite, suite_name, version, handle),
+		("PF World Transform Suite", 1) => dispatch_static!(suite, suite_name, version, world_transform),
+		("PF World Suite", 2) => dispatch_static!(suite, suite_name, version, world),
+		("PF Iterate8 Suite", 2) => dispatch_static!(suite, suite_name, version, iterate8),
+		("PF Utility Suite", 1..=18) => dispatch_static!(suite, suite_name, version, utility),
+		("AEGP PF Interface Suite", 1) => dispatch_static!(suite, suite_name, version, aegp_interface),
+		("PF AngleParamSuite", 1) => dispatch_static!(suite, suite_name, version, angle_param),
+		// Dynamic suites still managed by the registry (converted in later steps).
 		("AEGP Utility Suite", 1..=18) => {
 			dispatch_dynamic!(suite, suite_name, version, utility::create_aegp_utility_suite_compat_v11)
-		}
-		("AEGP PF Interface Suite", 1) => {
-			dispatch_dynamic!(suite, suite_name, version, interface::create_aegp_pf_interface_suite)
-		}
-		("PF AngleParamSuite", 1) => {
-			dispatch_dynamic!(suite, suite_name, version, angle_param::create_angle_param_suite)
 		}
 		("PF AE App Suite", 6) => {
 			dispatch_dynamic!(suite, suite_name, version, ae_app::create_ae_app_suite_v6)

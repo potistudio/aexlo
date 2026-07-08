@@ -301,11 +301,12 @@ stub_log!(is_track_item_effect_applied_to_synthetic_stub,
 // Factory Function
 // ============================================================================
 
-/// Creates a dynamically allocated `PF_UtilitySuite` instance.
-/// Returns a `Box` that the registry takes ownership of (via `Box::into_raw`),
-/// freeing it with `Box::from_raw` once its reference count reaches 0.
-pub fn create_utility_suite() -> Box<PF_UtilitySuite> {
-	let suite = Box::new(PF_UtilitySuite {
+/// Builds the `PF_UtilitySuite` vtable of logging stubs.
+///
+/// `const` so it can initialize the shared [`SUITE_CONTAINER`](crate::suites::SUITE_CONTAINER)
+/// static; the suite is a stateless table of function pointers.
+pub const fn create_utility_suite() -> PF_UtilitySuite {
+	PF_UtilitySuite {
 		GetFilterInstanceID: Some(get_filter_instance_id_stub),
 		GetMediaTimecode: Some(get_media_timecode_stub),
 		GetClipSpeed: Some(get_clip_speed_stub),
@@ -355,8 +356,7 @@ pub fn create_utility_suite() -> Box<PF_UtilitySuite> {
 		IsMediaTrimmed: Some(is_media_trimmed_stub),
 		IsTrackEmpty: Some(is_track_empty_stub),
 		IsTrackItemEffectAppliedToSynthetic: Some(is_track_item_effect_applied_to_synthetic_stub),
-	});
-	suite
+	}
 }
 
 // ============================================================================

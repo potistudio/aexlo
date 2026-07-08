@@ -86,12 +86,16 @@ unsafe extern "C" fn get_effect_camera_matrix(
 	PF_Err_NONE as A_Err
 }
 
-pub(super) fn create_aegp_pf_interface_suite() -> Box<AEGP_PFInterfaceSuite1> {
-	Box::new(AEGP_PFInterfaceSuite1 {
+/// Builds the `AEGP_PFInterfaceSuite1` vtable.
+///
+/// `const` so it can initialize the shared [`SUITE_CONTAINER`](crate::suites::SUITE_CONTAINER)
+/// static; the suite is a stateless table of function pointers.
+pub(super) const fn create_aegp_pf_interface_suite() -> AEGP_PFInterfaceSuite1 {
+	AEGP_PFInterfaceSuite1 {
 		AEGP_GetEffectLayer: Some(get_effect_layer_sys),
 		AEGP_GetNewEffectForEffect: Some(get_new_effect_for_effect_sys),
 		AEGP_ConvertEffectToCompTime: Some(convert_effect_to_comp_time_sys),
 		AEGP_GetEffectCamera: Some(get_effect_camera_sys),
 		AEGP_GetEffectCameraMatrix: Some(get_effect_camera_matrix),
-	})
+	}
 }

@@ -39,8 +39,12 @@ unsafe extern "C" fn get_floating_point_value_from_angle_def_sys(
 	PF_Err_NONE as PF_Err
 }
 
-pub fn create_angle_param_suite() -> Box<PF_AngleParamSuite1> {
-	Box::new(PF_AngleParamSuite1 {
+/// Builds the `PF_AngleParamSuite1` vtable.
+///
+/// `const` so it can initialize the shared [`SUITE_CONTAINER`](crate::suites::SUITE_CONTAINER)
+/// static; the suite is a stateless table of function pointers.
+pub const fn create_angle_param_suite() -> PF_AngleParamSuite1 {
+	PF_AngleParamSuite1 {
 		PF_GetFloatingPointValueFromAngleDef: Some(get_floating_point_value_from_angle_def_sys),
-	})
+	}
 }

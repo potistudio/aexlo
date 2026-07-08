@@ -254,16 +254,16 @@ unsafe extern "C" fn iterate_generic_stub(
 // Factory Function
 // ============================================================================
 
-/// Creates a dynamically allocated `PF_Iterate8Suite2` instance.
-/// All function pointers are populated with either real implementations or logging stubs.
-/// Returns a `Box` that the registry takes ownership of (via `Box::into_raw`),
-/// freeing it with `Box::from_raw` once its reference count reaches 0.
-pub fn create_iterate_8_suite_2() -> Box<PF_Iterate8Suite2> {
-	Box::new(PF_Iterate8Suite2 {
+/// Builds the `PF_Iterate8Suite2` vtable of real implementations and logging stubs.
+///
+/// `const` so it can initialize the shared [`SUITE_CONTAINER`](crate::suites::SUITE_CONTAINER)
+/// static; the suite is a stateless table of function pointers.
+pub const fn create_iterate_8_suite_2() -> PF_Iterate8Suite2 {
+	PF_Iterate8Suite2 {
 		iterate: Some(iterate_8_sys),
 		iterate_origin: Some(iterate_origin_stub),
 		iterate_lut: Some(iterate_lut_stub),
 		iterate_origin_non_clip_src: Some(iterate_origin_non_clip_src_stub),
 		iterate_generic: Some(iterate_generic_stub),
-	})
+	}
 }
