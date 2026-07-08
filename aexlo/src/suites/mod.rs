@@ -141,7 +141,8 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("PF Handle Suite", 2) => dispatch_static!(suite, suite_name, version, handle),
 		("PF World Transform Suite", 1) => dispatch_static!(suite, suite_name, version, world_transform),
 		("PF World Suite", 2) => dispatch_static!(suite, suite_name, version, world),
-		("PF Iterate8 Suite", 2) => dispatch_static!(suite, suite_name, version, iterate8),
+		// Iterate8 suites are append-only, so the v2 table also satisfies v1 requests.
+		("PF Iterate8 Suite", 1..=2) => dispatch_static!(suite, suite_name, version, iterate8),
 		("PF Utility Suite", 1..=18) => dispatch_static!(suite, suite_name, version, utility),
 		("AEGP PF Interface Suite", 1) => dispatch_static!(suite, suite_name, version, aegp_interface),
 		("PF AngleParamSuite", 1) => dispatch_static!(suite, suite_name, version, angle_param),

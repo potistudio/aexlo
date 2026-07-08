@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use aexlo::{Depth8, Layer, PluginInstance};
 
 fn main() -> Result<(), Box<dyn Error>> {
+	env_logger::init();
+
 	let mut args = std::env::args().skip(1);
 	let usage = "usage: render_one <plugin_path> <input_png> <output_png>";
 

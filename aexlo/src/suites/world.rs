@@ -39,12 +39,23 @@ use after_effects_sys::{
 	PF_WorldSuite2,
 };
 
-use crate::{PluginInstance, core::diagnostics::DiagnosticBuilder};
+use crate::core::diagnostics::DiagnosticBuilder;
 
 unsafe extern "C" fn dispose_world_stub(effect_ref: PF_ProgPtr, worldP: *mut PF_EffectWorld) -> PF_Err {
 	if worldP.is_null() {
 		log::warn!("dispose_world: worldP is null");
 		return PF_Err_NONE as PF_Err;
+	}
+
+	// Reclaim the pixel buffer leaked by `new_world_sys`. Its byte length is exactly
+	// `rowbytes * height`, matching the `vec![0u8; ..]` we forgot there.
+	let world = unsafe { &mut *worldP };
+	if !world.data.is_null() {
+		let size = world.rowbytes.max(0) as usize * world.height.max(0) as usize;
+		if size > 0 {
+			drop(unsafe { Vec::from_raw_parts(world.data as *mut u8, size, size) });
+		}
+		world.data = null_mut();
 	}
 
 	DiagnosticBuilder::new()
@@ -91,12 +102,12 @@ unsafe extern "C" fn new_world_sys(
 	*/
 
 	//== Implementation ==//
-	let instance = unsafe {
-		PluginInstance::get_instance_ptr(effect_ref)
-			.expect("No plugin instance found for effect_ref")
-			.as_mut()
-	};
-	let (width, height) = instance.output_size();
+	// Honor the caller's requested dimensions. Plugins allocate intermediate worlds
+	// at sizes of their own choosing (e.g. downsampled or padded glow buffers), and
+	// handing back a world sized to the output frame instead makes the plugin read or
+	// write past the buffer it thinks it got -- a layout-dependent out-of-bounds crash.
+	let width = widthL.max(0);
+	let height = heightL.max(0);
 
 	#[allow(non_upper_case_globals)]
 	let depth = match pixel_format as u32 {
@@ -117,15 +128,25 @@ unsafe extern "C" fn new_world_sys(
 		reserved0: null_mut(),
 		reserved1: null_mut(),
 		world_flags: PF_WorldFlag_WRITEABLE as PF_WorldFlags,
-		data: Box::into_raw(Box::new(vec![0u8; (width * height * depth) as usize])) as *mut _,
-		rowbytes: width as i32 * depth as i32,
-		width: width as i32,
-		height: height as i32,
+		// `data` must point at the pixel bytes themselves. Leaking a `Box<Vec<u8>>`
+		// and handing back its address (as the old code did) instead points the plugin
+		// at the 24-byte `Vec` header, so any write past the first few pixels corrupts
+		// the heap. Take the buffer's own data pointer and leak the allocation; it is
+		// reclaimed in `dispose_world` from the world's own dimensions.
+		data: {
+			let mut buffer = vec![0u8; width as usize * height as usize * depth as usize];
+			let data = buffer.as_mut_ptr();
+			std::mem::forget(buffer);
+			data as *mut _
+		},
+		rowbytes: width * depth as i32,
+		width,
+		height,
 		extent_hint: PF_UnionableRect {
 			left: 0,
 			top: 0,
-			right: width as i32,
-			bottom: height as i32,
+			right: width,
+			bottom: height,
 		},
 		platform_ref: null_mut(),
 		reserved_long1: 0,

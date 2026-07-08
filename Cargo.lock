@@ -3447,6 +3447,7 @@ version = "0.0.1"
 dependencies = [
  "aexlo",
  "cmake",
+ "env_logger",
  "image",
  "mtpng",
 ]
