@@ -38,6 +38,7 @@
 
 // Internal modules — not part of the public API.
 mod core;
+mod gpu;
 mod host;
 mod instance;
 mod utils;

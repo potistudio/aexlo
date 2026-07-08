@@ -1,4 +1,4 @@
-use after_effects_sys::{A_char, PFAppSuite6, PF_Err, PF_Err_NONE};
+use after_effects_sys::{A_char, PF_Err, PF_Err_NONE, PFAppSuite6};
 
 /// Report the host UI language to the plugin.
 ///

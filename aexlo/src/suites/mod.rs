@@ -18,6 +18,7 @@
 mod ae_app;
 mod angle_param;
 pub mod ansi;
+pub mod gpu_device;
 pub mod handle;
 pub mod interface;
 pub mod iterate;
@@ -67,6 +68,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	aegp_interface: interface::create_aegp_pf_interface_suite(),
 	angle_param: angle_param::create_angle_param_suite(),
 	ae_app: ae_app::create_ae_app_suite_v6(),
+	gpu_device: gpu_device::create_gpu_device_suite_1(),
 };
 
 /// Process-wide storage for the stateless suite vtables handed to plugins.
@@ -87,6 +89,7 @@ pub struct SuiteContainer {
 	pub aegp_interface: AEGP_PFInterfaceSuite1,
 	pub angle_param: PF_AngleParamSuite1,
 	pub ae_app: PFAppSuite6,
+	pub gpu_device: PF_GPUDeviceSuite1,
 }
 
 /// Hand back a pointer to one of the shared [`SUITE_CONTAINER`] vtables.
@@ -144,6 +147,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		// their localization path) get a null-deref on a null out_data if we reject it,
 		// so accept the whole range rather than only v6.
 		("PF AE App Suite", 1..=6) => dispatch_static!(suite, suite_name, version, ae_app),
+		("PF GPU Device Suite", 1) => dispatch_static!(suite, suite_name, version, gpu_device),
 		("AEGP Utility Suite", 1..=18) => {
 			// Lives in its own LazyLock rather than SUITE_CONTAINER (see AEGP_UTILITY_SUITE).
 			// SAFETY: `suite` was null-checked at the top of this function.

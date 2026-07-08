@@ -13,8 +13,12 @@ pub enum ParamValue {
 
 use after_effects::{ParamType, RawCommand};
 use after_effects_sys::{
-	PF_Err_INVALID_CALLBACK, PF_Err_NONE, PF_ParamDef, PF_ParamDefUnion, PF_ParamType, PF_Pixel, PF_ProgPtr,
+	PF_Err_INVALID_CALLBACK, PF_Err_NONE, PF_GPUDeviceSetdownExtra, PF_GPUDeviceSetdownInput, PF_GPUDeviceSetupExtra,
+	PF_GPUDeviceSetupInput, PF_GPUDeviceSetupOutput, PF_GPU_Framework, PF_GPU_Framework_METAL,
+	PF_OutFlag2_SUPPORTS_GPU_RENDER_F32, PF_OutFlags2, PF_ParamDef, PF_ParamDefUnion, PF_ParamType, PF_Pixel,
+	PF_ProgPtr,
 };
+use crate::gpu::GPU_BYTES_PER_PIXEL;
 use colored::Colorize;
 use dlopen2::raw::Library;
 use std::{
@@ -122,6 +126,15 @@ pub struct PluginInstance {
 	pub(crate) output_layer: wrapper::Layer<wrapper::Depth8>,
 
 	smart_render_data: SmartRenderData,
+
+	/// Metal device/queue plus the `MTLBuffer`s backing this instance's GPU worlds,
+	/// created lazily when driving a plugin that declared GPU render support.
+	gpu_context: Option<crate::gpu::GpuContext>,
+
+	/// Opaque, plugin-owned GPU state returned by `PF_Cmd_GPU_DEVICE_SETUP`
+	/// (compiled pipelines, etc.), handed back to the plugin during GPU render and
+	/// released by `PF_Cmd_GPU_DEVICE_SETDOWN`.
+	gpu_data: *mut ::std::os::raw::c_void,
 }
 
 impl PluginInstance {
@@ -191,6 +204,200 @@ impl PluginInstance {
 		Ok(())
 	}
 
+	/// Whether the plugin declared `PF_OutFlag2_SUPPORTS_GPU_RENDER_F32` during
+	/// `PF_Cmd_GLOBAL_SETUP`, i.e. it can render on the GPU into 32-bit-float
+	/// `PF_PixelFormat_GPU_BGRA128` worlds via [`Self::render_gpu`].
+	///
+	/// Only meaningful once global setup has run (i.e. after [`Self::try_load`]).
+	pub fn supports_gpu(&self) -> bool {
+		// Escape hatch for benchmarking / debugging the CPU path even on GPU-capable
+		// effects: setting AEXLO_DISABLE_GPU forces the CPU render path.
+		if std::env::var_os("AEXLO_DISABLE_GPU").is_some() {
+			return false;
+		}
+		let flag = PF_OutFlag2_SUPPORTS_GPU_RENDER_F32 as PF_OutFlags2;
+		self.out_data.out_flags2 & flag != 0
+	}
+
+	/// Run `PF_Cmd_GPU_DEVICE_SETUP`, creating aexlo's Metal context on first use and
+	/// capturing the plugin-owned GPU data (compiled pipelines, etc.) it returns.
+	///
+	/// # Errors
+	/// Returns an error if no Metal device is available, or if the plugin's setup
+	/// command fails.
+	fn gpu_device_setup(&mut self) -> Result<()> {
+		if self.gpu_context.is_none() {
+			self.gpu_context = crate::gpu::GpuContext::new();
+		}
+		if self.gpu_context.is_none() {
+			return Err(AexloError::Unexpected("No Metal device available for GPU render".to_string()));
+		}
+
+		let mut input = PF_GPUDeviceSetupInput {
+			what_gpu: PF_GPU_Framework_METAL as PF_GPU_Framework,
+			device_index: 0,
+		};
+		let mut output = PF_GPUDeviceSetupOutput { gpu_data: null_mut() };
+		let mut extra = PF_GPUDeviceSetupExtra {
+			input: &mut input,
+			output: &mut output,
+		};
+
+		self.call_plugin(
+			RawCommand::GpuDeviceSetup,
+			(&mut extra as *mut PF_GPUDeviceSetupExtra).cast(),
+		)?;
+
+		self.gpu_data = output.gpu_data;
+		Ok(())
+	}
+
+	/// Run `PF_Cmd_GPU_DEVICE_SETDOWN` so the plugin releases its GPU data, then drop
+	/// this instance's GPU-world registrations. Safe to call when no device was set up.
+	pub fn gpu_device_setdown(&mut self) -> Result<()> {
+		if self.gpu_data.is_null() {
+			return Ok(());
+		}
+
+		let mut input = PF_GPUDeviceSetdownInput {
+			gpu_data: self.gpu_data,
+			what_gpu: PF_GPU_Framework_METAL as PF_GPU_Framework,
+			device_index: 0,
+		};
+		let mut extra = PF_GPUDeviceSetdownExtra { input: &mut input };
+
+		let result = self.call_plugin(
+			RawCommand::GpuDeviceSetdown,
+			(&mut extra as *mut PF_GPUDeviceSetdownExtra).cast(),
+		);
+
+		self.gpu_data = null_mut();
+		if let Some(ctx) = &self.gpu_context {
+			ctx.unregister_all_worlds();
+		}
+		result
+	}
+
+	/// Dispatch `PF_Cmd_SMART_RENDER_GPU` using the checkout regions declared during
+	/// the preceding [`Self::render_pre`] call.
+	fn render_smart_gpu(&mut self) -> Result<()> {
+		let mut extra = self.smart_render_data.smart_render_extra();
+
+		self.call_plugin(
+			RawCommand::SmartRenderGpu,
+			(&mut extra as *mut after_effects_sys::PF_SmartRenderExtra).cast(),
+		)?;
+
+		self.smart_render_data.sync();
+		Ok(())
+	}
+
+	/// Render one frame on the GPU: set up the Metal device (once), back the input and
+	/// output worlds with `MTLBuffer`s, upload the input as BGRA float, run the smart
+	/// pre-render/GPU-render pair, wait for the GPU, and read the result back.
+	///
+	/// # Errors
+	/// Propagates any failure from device setup or the render commands. On error the
+	/// caller should fall back to CPU rendering (see [`Self::render_frame`]).
+	pub fn render_gpu(&mut self) -> Result<()> {
+		if self.gpu_data.is_null() {
+			self.gpu_device_setup()?;
+		}
+
+		// Phase A: geometry, buffers, and input upload. All borrows are of distinct
+		// fields, so they coexist without borrowing `self` as a whole.
+		let output_key = &self.world as *const _ as usize;
+		{
+			let in_w = self.input_layer.width() as usize;
+			let in_h = self.input_layer.height() as usize;
+			let out_w = self.output_layer.width() as usize;
+			let out_h = self.output_layer.height() as usize;
+
+			// The plugin derives its GPU dispatch size from `in_data`; keep it aligned
+			// with the output frame so the whole image is rendered, not a stale
+			// sub-rectangle.
+			self.in_data.width = out_w as i32;
+			self.in_data.height = out_h as i32;
+
+			// Present both worlds as f32 BGRA (16 bytes/pixel, no row padding).
+			self.input_world.width = in_w as i32;
+			self.input_world.height = in_h as i32;
+			self.input_world.rowbytes = (in_w * GPU_BYTES_PER_PIXEL) as i32;
+			self.world.width = out_w as i32;
+			self.world.height = out_h as i32;
+			self.world.rowbytes = (out_w * GPU_BYTES_PER_PIXEL) as i32;
+
+			let input_key = &self.input_world as *const _ as usize;
+
+			let ctx = self
+				.gpu_context
+				.as_mut()
+				.ok_or_else(|| AexloError::Unexpected("GPU context missing".to_string()))?;
+			let in_contents = ctx.ensure_buffer(input_key, in_w * in_h * GPU_BYTES_PER_PIXEL);
+			ctx.ensure_buffer(output_key, out_w * out_h * GPU_BYTES_PER_PIXEL);
+
+			Self::upload_layer_to_bgra_f32(&self.input_layer, in_contents);
+		}
+
+		self.smart_render_data.configure_gpu(self.gpu_data, 0);
+
+		// Phase B: pre-render declares regions, then the GPU render runs.
+		self.render_pre()?;
+		self.render_smart_gpu()?;
+
+		// The plugin commits but does not wait; flush the queue before reading back.
+		if let Some(ctx) = &self.gpu_context {
+			ctx.wait_for_completion();
+		}
+
+		// Phase C: read the rendered BGRA float output back into the 8-bit layer.
+		if let Some(out_contents) = self.gpu_context.as_ref().and_then(|c| c.contents(output_key)) {
+			Self::download_bgra_f32_to_layer(out_contents, &mut self.output_layer);
+		}
+
+		Ok(())
+	}
+
+	/// Pack an 8-bit ARGB layer into a `PF_PixelFormat_GPU_BGRA128` buffer:
+	/// BGRA channel order, each channel normalised to `[0, 1]` float.
+	fn upload_layer_to_bgra_f32(layer: &wrapper::Layer<wrapper::Depth8>, contents: *mut ::std::os::raw::c_void) {
+		if contents.is_null() {
+			return;
+		}
+		let dst = contents as *mut f32;
+		for (i, pixel) in layer.pixels().iter().enumerate() {
+			let base = i * 4;
+			unsafe {
+				*dst.add(base) = pixel.blue as f32 / 255.0;
+				*dst.add(base + 1) = pixel.green as f32 / 255.0;
+				*dst.add(base + 2) = pixel.red as f32 / 255.0;
+				*dst.add(base + 3) = pixel.alpha as f32 / 255.0;
+			}
+		}
+	}
+
+	/// Unpack a `PF_PixelFormat_GPU_BGRA128` buffer (BGRA float) back into an 8-bit
+	/// ARGB layer, clamping and rounding each channel.
+	fn download_bgra_f32_to_layer(contents: *mut ::std::os::raw::c_void, layer: &mut wrapper::Layer<wrapper::Depth8>) {
+		if contents.is_null() {
+			return;
+		}
+		let src = contents as *const f32;
+		for (i, pixel) in layer.pixels_mut().iter_mut().enumerate() {
+			let base = i * 4;
+			unsafe {
+				let b = (*src.add(base)).clamp(0.0, 1.0);
+				let g = (*src.add(base + 1)).clamp(0.0, 1.0);
+				let r = (*src.add(base + 2)).clamp(0.0, 1.0);
+				let a = (*src.add(base + 3)).clamp(0.0, 1.0);
+				pixel.blue = (b * 255.0 + 0.5) as u8;
+				pixel.green = (g * 255.0 + 0.5) as u8;
+				pixel.red = (r * 255.0 + 0.5) as u8;
+				pixel.alpha = (a * 255.0 + 0.5) as u8;
+			}
+		}
+	}
+
 	/// Whether the plugin declared `PF_OutFlag2_SUPPORTS_SMART_RENDER` during
 	/// `PF_Cmd_GLOBAL_SETUP`, i.e. it expects the smart pre-render/render command
 	/// pair ([`Self::render_pre`] + [`Self::render_smart`]) rather than the legacy
@@ -211,6 +418,21 @@ impl PluginInstance {
 	/// the legacy command -- and some declare smart support but still render correctly
 	/// through the legacy path when our smart emulation can't satisfy them.
 	pub fn render_frame(&mut self) -> Result<()> {
+		if self.supports_gpu() {
+			match self.render_gpu() {
+				Ok(()) => return Ok(()),
+				Err(err) => {
+					log::warn!("GPU render failed ({err:?}); falling back to CPU render.");
+					// Undo GPU state so the CPU fallback doesn't leave the plugin
+					// expecting a GPU frame or reporting GPU worlds.
+					self.smart_render_data.configure_cpu();
+					if let Some(ctx) = &self.gpu_context {
+						ctx.unregister_all_worlds();
+					}
+				}
+			}
+		}
+
 		if self.supports_smart_render() {
 			match self.render_pre().and_then(|()| self.render_smart()) {
 				Ok(()) => return Ok(()),
@@ -272,6 +494,14 @@ impl PluginInstance {
 	/// Get the number of parameters.
 	pub fn param_count(&self) -> usize {
 		self.params.len()
+	}
+
+	/// Borrow the instance's Metal GPU context, if GPU rendering is active.
+	///
+	/// Used by [`PF_GPUDeviceSuite1`](crate::suites) callbacks (recovered via
+	/// `effect_ref`) to answer `GetDeviceInfo`/`GetGPUWorldData`.
+	pub(crate) fn gpu_context(&self) -> Option<&crate::gpu::GpuContext> {
+		self.gpu_context.as_ref()
 	}
 
 	//==== Setter / Getter =================================
@@ -415,7 +645,9 @@ impl PluginInstance {
 				utility_callbacks,
 				pica,
 				in_data: crate::core::helpers::InDataBuilder::new()
-					.with_size(1280, 720)
+					// Match the output world / default layers so the frame size the plugin
+					// sees is consistent across in_data, the checkout rects, and the worlds.
+					.with_size(WIDTH as i32, HEIGHT as i32)
 					.with_callbacks(interact_callbacks)
 					// .with_global_data(unsafe { crate::suites::handle::host_new_handle_impl(0x498) })
 					.build(),
@@ -434,6 +666,8 @@ impl PluginInstance {
 					.build(),
 
 				smart_render_data: SmartRenderData::new(),
+				gpu_context: None,
+				gpu_data: null_mut(),
 			};
 
 			instance_placeholder.wire_self_pointers();

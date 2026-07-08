@@ -168,12 +168,21 @@ unsafe extern "C" fn get_pixel_format_stub(
 		return PF_Err_NONE as PF_Err;
 	}
 
-	//TODO: 8bit
+	// GPU-rendered worlds are 32-bit float BGRA (`PF_PixelFormat_GPU_BGRA128`); a
+	// world registered as a GPU world (see `crate::gpu`) must report that so the
+	// plugin takes its GPU path. Everything else is the CPU 8-bit `ARGB32` world.
+	// This callback gets no `effect_ref`, so GPU-ness is looked up by world pointer.
+	let raw_format = if crate::gpu::is_gpu_world(worldP as usize) {
+		PF_PixelFormat_GPU_BGRA128
+	} else {
+		PF_PixelFormat_ARGB32
+	};
+
 	#[cfg(target_os = "macos")]
-	let format = PF_PixelFormat_ARGB32 as i32;
+	let format = raw_format as i32;
 
 	#[cfg(not(target_os = "macos"))]
-	let format = PF_PixelFormat_ARGB32 as u32;
+	let format = raw_format as u32;
 
 	unsafe { *pixel_formatP = format };
 
