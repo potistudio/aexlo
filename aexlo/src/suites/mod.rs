@@ -116,31 +116,31 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		// Dynamic suites (managed by registry)
 		("PF Handle Suite", 2) => {
-			dispatch_dynamic!(suite, suite_name, version, || handle::create_handle_suite_1())
+			dispatch_dynamic!(suite, suite_name, version, handle::create_handle_suite_1)
 		}
 		("PF World Transform Suite", 1) => {
-			dispatch_dynamic!(suite, suite_name, version, || transform::create_world_transform_suite_1())
+			dispatch_dynamic!(suite, suite_name, version, transform::create_world_transform_suite_1)
 		}
 		("PF World Suite", 2) => {
-			dispatch_dynamic!(suite, suite_name, version, || world::create_world_suite_2())
+			dispatch_dynamic!(suite, suite_name, version, world::create_world_suite_2)
 		}
 		("PF Iterate8 Suite", 2) => {
-			dispatch_dynamic!(suite, suite_name, version, || iterate::create_iterate_8_suite_2())
+			dispatch_dynamic!(suite, suite_name, version, iterate::create_iterate_8_suite_2)
 		}
 		("PF Utility Suite", 1..=18) => {
-			dispatch_dynamic!(suite, suite_name, version, || utility::create_utility_suite())
+			dispatch_dynamic!(suite, suite_name, version, utility::create_utility_suite)
 		}
 		("AEGP Utility Suite", 1..=18) => {
-			dispatch_dynamic!(suite, suite_name, version, || utility::create_aegp_utility_suite_compat_v11())
+			dispatch_dynamic!(suite, suite_name, version, utility::create_aegp_utility_suite_compat_v11)
 		}
 		("AEGP PF Interface Suite", 1) => {
-			dispatch_dynamic!(suite, suite_name, version, || interface::create_aegp_pf_interface_suite())
+			dispatch_dynamic!(suite, suite_name, version, interface::create_aegp_pf_interface_suite)
 		}
 		("PF AngleParamSuite", 1) => {
-			dispatch_dynamic!(suite, suite_name, version, || angle_param::create_angle_param_suite())
+			dispatch_dynamic!(suite, suite_name, version, angle_param::create_angle_param_suite)
 		}
 		("PF AE App Suite", 6) => {
-			dispatch_dynamic!(suite, suite_name, version, || ae_app::create_ae_app_suite_v6())
+			dispatch_dynamic!(suite, suite_name, version, ae_app::create_ae_app_suite_v6)
 		}
 		_ => {
 			log::warn!("Suite '{}' v{} not found.", suite_name, version);
