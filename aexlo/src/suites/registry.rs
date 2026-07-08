@@ -3,10 +3,7 @@
 use after_effects_sys::*;
 use std::collections::HashMap;
 use std::sync::OnceLock;
-use std::sync::{
-	RwLock,
-	atomic::{AtomicUsize, Ordering},
-};
+use std::sync::RwLock;
 
 /// Sendable wrapper for raw pointers (Suite pointers)
 #[derive(Debug)]
@@ -25,12 +22,16 @@ impl SendablePtr {
 	}
 }
 
-/// Suite registry entry with reference counting
+/// Suite registry entry with reference counting.
+///
+/// `ref_count` is a plain `usize` rather than an atomic: every access happens
+/// while holding the registry's `RwLock` write guard, which already provides
+/// mutual exclusion, so atomics would only add redundant fences.
 struct SuiteEntry {
 	// Raw pointer to Suite (owned by the registry, will be Box::from_raw on drop)
 	suite_ptr: SendablePtr,
 	drop_fn: unsafe fn(SendablePtr),
-	ref_count: AtomicUsize,
+	ref_count: usize,
 }
 
 /// Global Suite registry with lazy initialization
@@ -55,7 +56,7 @@ pub fn acquire<T>(name: &str, version: i32, creator: fn() -> Box<T>) -> Result<*
 	// Check if Suite already exists (while holding write lock to prevent TOCTOU race)
 	if let Some(entry) = guard.get_mut(&key) {
 		// Increment ref count for existing entry
-		entry.ref_count.fetch_add(1, Ordering::SeqCst);
+		entry.ref_count += 1;
 		return Ok(unsafe { entry.suite_ptr.as_ptr() });
 	}
 
@@ -67,7 +68,7 @@ pub fn acquire<T>(name: &str, version: i32, creator: fn() -> Box<T>) -> Result<*
 	let entry = SuiteEntry {
 		suite_ptr: suite_ptr_sendable,
 		drop_fn: drop_suite::<T>,
-		ref_count: AtomicUsize::new(1),
+		ref_count: 1,
 	};
 
 	// Insert new entry (still holding write lock, ensuring no duplicate)
@@ -87,34 +88,19 @@ pub fn release(name: &str, version: i32) -> PF_Err {
 	let mut guard = registry.write().expect("SuiteRegistry lock poisoned");
 	let mut should_remove = false;
 	if let Some(entry) = guard.get_mut(&key) {
-		// Atomically decrement ref_count only if it's greater than 0
-		let result = entry
-			.ref_count
-			.try_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
-				if current > 0 {
-					Some(current - 1)
-				} else {
-					None // Already 0, don't decrement (would underflow)
-				}
-			});
+		// Decrement ref_count, guarding against underflow on a stray release.
+		if entry.ref_count == 0 {
+			log::warn!(
+				"Attempted to release a suite with ref_count already 0: {} v{}",
+				name,
+				version
+			);
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-		match result {
-			Ok(previous) => {
-				// fetch_update returns the value BEFORE the update
-				// If previous was 1, after decrement it becomes 0
-				if previous == 1 {
-					should_remove = true;
-				}
-			}
-			Err(_) => {
-				// Ref count was already 0 - invalid operation
-				log::warn!(
-					"Attempted to release a suite with ref_count already 0: {} v{}",
-					name,
-					version
-				);
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-			}
+		entry.ref_count -= 1;
+		if entry.ref_count == 0 {
+			should_remove = true;
 		}
 	}
 
