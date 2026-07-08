@@ -95,17 +95,17 @@ pub struct PluginInstance {
 
 	utility_callbacks: Box<after_effects_sys::_PF_UtilCallbacks>,
 
-	/// Basic Suite pointer
+	/// Basic Suite pointer.
 	pub pica: Box<after_effects_sys::SPBasicSuite>,
 
-	/// InData structure
+	/// InData structure.
 	pub in_data: after_effects_sys::PF_InData,
 	out_data: after_effects_sys::PF_OutData,
 
-	/// Instance-specific parameters from the host (non-global storage)
+	/// Instance-specific parameters from the host (non-global storage).
 	params: Vec<after_effects_sys::PF_ParamDef>,
 
-	/// Track if instance params need synchronization
+	/// Track if instance params need synchronization.
 	params_dirty: bool,
 
 	/// Raw pointers into `params`, passed to the plugin entry point on each call.
@@ -142,7 +142,7 @@ impl PluginInstance {
 		Ok(instance)
 	}
 
-	/// Call the plugin with `PF_Cmd_ABOUT` command
+	/// Call the plugin with `PF_Cmd_ABOUT` command.
 	pub fn about(&mut self) -> Result<String> {
 		self.cmd = after_effects::RawCommand::About;
 		self.call_plugin(null_mut())?;
@@ -150,7 +150,7 @@ impl PluginInstance {
 		Ok(self.message())
 	}
 
-	/// Call the plugin with `PF_Cmd_RENDER` command
+	/// Call the plugin with `PF_Cmd_RENDER` command.
 	pub fn render(&mut self) -> Result<()> {
 		self.cmd = after_effects::RawCommand::Render;
 		self.call_plugin(null_mut())?;
@@ -158,6 +158,8 @@ impl PluginInstance {
 		Ok(())
 	}
 
+	/// Call the plugin with `PF_Cmd_SMART_PRE_RENDER` command, letting it declare the
+	/// input/output checkout regions it needs via [`Self::render_smart`].
 	pub fn render_pre(&mut self) -> Result<()> {
 		let mut extra = self.smart_render_data.pre_render_extra();
 
@@ -169,6 +171,8 @@ impl PluginInstance {
 		Ok(())
 	}
 
+	/// Call the plugin with `PF_Cmd_SMART_RENDER` command, using the checkout regions
+	/// declared during the preceding [`Self::render_pre`] call.
 	pub fn render_smart(&mut self) -> Result<()> {
 		let mut extra = self.smart_render_data.smart_render_extra();
 
@@ -180,6 +184,7 @@ impl PluginInstance {
 		Ok(())
 	}
 
+	/// Replace the input layer, keeping the `PF_Param_LAYER` parameter (index 0) in sync.
 	pub fn set_input(&mut self, input: wrapper::Layer<wrapper::Depth8>) {
 		self.input_layer = input;
 
@@ -213,7 +218,7 @@ impl PluginInstance {
 		&mut self.world as *mut after_effects_sys::PF_LayerDef as *mut after_effects_sys::PF_EffectWorld
 	}
 
-	/// Get the number of parameters
+	/// Get the number of parameters.
 	pub fn param_count(&self) -> usize {
 		self.params.len()
 	}
@@ -309,7 +314,7 @@ impl PluginInstance {
 
 	//==== Instance Parameter Management ==========================================
 
-	/// Add a parameter to this instance's parameter storage
+	/// Add a parameter to this instance's parameter storage.
 	pub fn add_instance_param(&mut self, param: PF_ParamDef) {
 		self.params.push(param);
 		self.params_dirty = true;
@@ -321,17 +326,17 @@ impl PluginInstance {
 		);
 	}
 
-	/// Get all instance parameters
+	/// Get all instance parameters.
 	pub fn params(&self) -> &[PF_ParamDef] {
 		&self.params
 	}
 
-	/// Get a specific instance parameter by index
+	/// Get a specific instance parameter by index.
 	pub fn param_by_index(&self, index: usize) -> Option<&PF_ParamDef> {
 		self.params.get(index)
 	}
 
-	/// Clear all instance parameters
+	/// Clear all instance parameters.
 	pub fn clear_instance_params(&mut self) {
 		self.params.clear();
 		self.params_dirty = true;
@@ -341,7 +346,7 @@ impl PluginInstance {
 
 //* ---- Internal Methods ------------------------------- */
 impl PluginInstance {
-	/// Create a new PluginInstance with default values
+	/// Create a new PluginInstance with default values.
 	fn new(path: &Path) -> Self {
 		let interact_callbacks = crate::host::interact::create_interact_callbacks();
 		let utility_callbacks = crate::host::utility::create_utility_callbacks();
@@ -447,7 +452,7 @@ impl PluginInstance {
 		String::from_utf8_lossy(utf8).into_owned()
 	}
 
-	/// Call the plugin with `PF_Cmd_GLOBAL_SETUP` command
+	/// Call the plugin with `PF_Cmd_GLOBAL_SETUP` command.
 	fn setup_global(&mut self) -> Result<()> {
 		self.cmd = after_effects::RawCommand::GlobalSetup;
 		self.call_plugin(null_mut())?;
@@ -455,7 +460,7 @@ impl PluginInstance {
 		Ok(())
 	}
 
-	/// Call the plugin with `PF_Cmd_PARAMS_SETUP` command
+	/// Call the plugin with `PF_Cmd_PARAMS_SETUP` command.
 	fn setup_params(&mut self) -> Result<()> {
 		self.cmd = after_effects::RawCommand::ParamsSetup;
 		self.call_plugin(null_mut())?;
@@ -491,6 +496,9 @@ impl PluginInstance {
 		info.entry_point_name
 	}
 
+	/// Resolve the plugin's entry point, preferring the name declared via
+	/// [`Self::query_declared_entry_point`] and falling back to
+	/// [`FALLBACK_ENTRY_POINT_CANDIDATES`] if that's unavailable or unresolvable.
 	fn resolve_entry_point(
 		lib: &Library,
 		pica: &after_effects_sys::SPBasicSuite,
@@ -582,6 +590,8 @@ impl PluginInstance {
 		}
 	}
 
+	/// Resolve `self.path` to a binary, `dlopen` it, and resolve its entry point,
+	/// storing the results on `self`.
 	fn load(&mut self) -> Result<()> {
 		let module_path = Self::resolve_binary_path(&self.path)?;
 		let module_path_str = module_path.display().to_string();
