@@ -136,6 +136,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "aexlo-bench"
+version = "0.0.1"
+dependencies = [
+ "aexlo",
+ "criterion",
+ "image",
+]
+
+[[package]]
 name = "after-effects"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

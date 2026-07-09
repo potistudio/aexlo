@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["aexlo", "wrapper", "examples/*", "tests/e2e"]
+members = ["aexlo", "wrapper", "examples/*", "tests/e2e", "benches"]
 default-members = ["aexlo"]
 
 [workspace.package]

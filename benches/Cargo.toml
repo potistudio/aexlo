@@ -1,0 +1,27 @@
+[package]
+name = "aexlo-bench"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+# Shared harness (plugin resolution, synthetic inputs, resolution matrix)
+# consumed by the individual bench targets below.
+bench = false
+
+[dependencies]
+aexlo = { workspace = true }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+
+[dev-dependencies]
+criterion = "0.7.0"
+
+[[bench]]
+name = "render_matrix"
+harness = false
+
+[[bench]]
+name = "load"
+harness = false
