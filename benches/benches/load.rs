@@ -7,7 +7,7 @@
 //! allocates lookup tables or compiles pipelines at setup time.
 
 use aexlo::PluginInstance;
-use aexlo_bench::bench_plugins;
+use aexlo_bench::{bench_plugins, print_params};
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
@@ -23,10 +23,13 @@ fn load(criterion: &mut Criterion) {
 
 	for (label, path) in &plugins {
 		// Validate once so a broken artifact is skipped instead of panicking
-		// inside the timed loop.
-		if let Err(err) = PluginInstance::try_load(path) {
-			eprintln!("aexlo-bench: {label}: load failed, skipping: {err:?}");
-			continue;
+		// inside the timed loop, and dump its parameter configuration.
+		match PluginInstance::try_load(path) {
+			Ok(instance) => print_params(label, &instance),
+			Err(err) => {
+				eprintln!("aexlo-bench: {label}: load failed, skipping: {err:?}");
+				continue;
+			}
 		}
 
 		group.bench_function(label, |bencher| {

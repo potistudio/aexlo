@@ -56,3 +56,6 @@ Resolutions: `512` (512×512), `720p`, `1080p`, `4k`. See
   warning**, never aborting the run — so `AEXLO_BENCH_PLUGINS=all` is safe even
   when some fixtures are finicky.
 - Input frames are a deterministic synthetic gradient so runs are comparable.
+- Both targets **dump the plugin's parameter settings** (name = value) once per
+  plugin before benchmarking, so every result is tied to the exact, reproducible
+  configuration that produced it. Plugins are driven with their default values.

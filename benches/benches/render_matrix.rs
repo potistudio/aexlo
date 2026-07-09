@@ -6,7 +6,7 @@
 //! regardless of frame size. See the crate docs for the `AEXLO_BENCH_*` knobs.
 
 use aexlo::PluginInstance;
-use aexlo_bench::{bench_plugins, bench_resolutions, synthetic_input};
+use aexlo_bench::{bench_plugins, bench_resolutions, print_params, synthetic_input};
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use std::hint::black_box;
 
@@ -21,6 +21,9 @@ fn render_matrix(criterion: &mut Criterion) {
 
 	for (label, path) in &plugins {
 		let mut group = criterion.benchmark_group(format!("render/{label}"));
+		// Dump the parameter configuration once per plugin, so the throughput
+		// numbers below are tied to a known, reproducible setup.
+		let mut params_dumped = false;
 
 		for resolution in &resolutions {
 			// Everything below the `bench_function` call is one-time setup, kept
@@ -35,6 +38,11 @@ fn render_matrix(criterion: &mut Criterion) {
 				}
 			};
 			let _ = instance.about();
+
+			if !params_dumped {
+				print_params(label, &instance);
+				params_dumped = true;
+			}
 
 			let input = synthetic_input(resolution.width, resolution.height);
 			if let Err(err) = instance.set_input_raw(input, resolution.width, resolution.height) {

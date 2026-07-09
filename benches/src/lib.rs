@@ -22,6 +22,7 @@
 //! AEXLO_BENCH_PLUGINS=all AEXLO_BENCH_RESOLUTIONS=1080p cargo bench -p aexlo-bench
 //! ```
 
+use aexlo::PluginInstance;
 use std::path::{Path, PathBuf};
 
 /// A named frame size to sweep the render benchmarks over.
@@ -149,6 +150,34 @@ fn list_all_fixtures() -> Vec<String> {
 		.collect();
 	names.sort();
 	names
+}
+
+/// Human-readable name of parameter `index`, read from the plugin's stored
+/// `PF_ParamDef`, falling back to a positional label when the plugin left it
+/// blank.
+pub fn param_name(instance: &PluginInstance, index: usize) -> String {
+	instance
+		.param_by_index(index)
+		.map(|def| {
+			let bytes: Vec<u8> = def.name.iter().take_while(|&&c| c != 0).map(|&c| c as u8).collect();
+			String::from_utf8_lossy(&bytes).trim().to_string()
+		})
+		.filter(|name| !name.is_empty())
+		.unwrap_or_else(|| format!("Param {index}"))
+}
+
+/// Print the plugin's current parameter settings to stdout so a benchmark
+/// number can be tied to the exact configuration that produced it.
+///
+/// The benches drive plugins with their default parameter values; dumping them
+/// once per plugin makes the run self-documenting and reproducible. Prints
+/// `name = value` for every non-input parameter (index 0 is the input layer).
+pub fn print_params(label: &str, instance: &PluginInstance) {
+	let params = instance.param_values();
+	println!("aexlo-bench: {label}: parameter settings ({} params)", params.len());
+	for (index, value) in params {
+		println!("  [{index}] {:<24} = {value:?}", param_name(instance, index));
+	}
 }
 
 /// Build a deterministic synthetic RGBA8 input frame of `width * height` pixels.
