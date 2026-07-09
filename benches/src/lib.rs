@@ -16,13 +16,19 @@
 //!   artifacts. The special value `all` benchmarks every bundled fixture.
 //! * `AEXLO_BENCH_RESOLUTIONS` -- comma-separated list of resolution names
 //!   (see [`ALL_RESOLUTIONS`]) to restrict the sweep, e.g. `1080p,4k`.
+//! * `AEXLO_BENCH_PARAMS` -- parameter sweep, `Name=v1,v2;Other=v3,v4`
+//!   (see [`param_sweeps`]). Each combination becomes a benchmark point.
+//! * `AEXLO_BENCH_INPUT` -- path to an image to feed as the input frame
+//!   (resized to each resolution); defaults to a synthetic gradient.
+//! * `AEXLO_DISABLE_GPU` -- from `aexlo`, forces the CPU render path.
 //!
 //! ```text
 //! AEXLO_BENCH_PLUGINS=/path/to/MyEffect.plugin cargo bench -p aexlo-bench
 //! AEXLO_BENCH_PLUGINS=all AEXLO_BENCH_RESOLUTIONS=1080p cargo bench -p aexlo-bench
+//! AEXLO_BENCH_PLUGINS=DeepGlow2 AEXLO_BENCH_PARAMS="Radius=100,500,1000" cargo bench -p aexlo-bench
 //! ```
 
-use aexlo::PluginInstance;
+use aexlo::{Depth8, Layer, ParamValue, PluginInstance, Result};
 use std::path::{Path, PathBuf};
 
 /// A named frame size to sweep the render benchmarks over.
@@ -46,10 +52,26 @@ impl Resolution {
 /// The full resolution matrix, ordered small to large. Restrict it at runtime
 /// with `AEXLO_BENCH_RESOLUTIONS`.
 pub const ALL_RESOLUTIONS: &[Resolution] = &[
-	Resolution { name: "512", width: 512, height: 512 },
-	Resolution { name: "720p", width: 1280, height: 720 },
-	Resolution { name: "1080p", width: 1920, height: 1080 },
-	Resolution { name: "4k", width: 3840, height: 2160 },
+	Resolution {
+		name: "512",
+		width: 512,
+		height: 512,
+	},
+	Resolution {
+		name: "720p",
+		width: 1280,
+		height: 720,
+	},
+	Resolution {
+		name: "1080p",
+		width: 1920,
+		height: 1080,
+	},
+	Resolution {
+		name: "4k",
+		width: 3840,
+		height: 2160,
+	},
 ];
 
 /// The curated default plugin set, used when `AEXLO_BENCH_PLUGINS` is unset:
@@ -64,7 +86,11 @@ pub fn plugin_extension() -> &'static str {
 
 /// Directory holding the prebuilt plugin fixtures for the current platform.
 pub fn fixtures_dir() -> PathBuf {
-	let platform_dir = if cfg!(target_os = "windows") { "windows" } else { "macos" };
+	let platform_dir = if cfg!(target_os = "windows") {
+		"windows"
+	} else {
+		"macos"
+	};
 	PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 		.join("../fixtures/plugins")
 		.join(platform_dir)
@@ -204,4 +230,240 @@ pub fn synthetic_input(width: u32, height: u32) -> Vec<u8> {
 		}
 	}
 	pixels
+}
+
+/// The input frame for a `width x height` render.
+///
+/// If `AEXLO_BENCH_INPUT` names a readable image, it is loaded and resized to
+/// the requested size (so the resolution sweep still applies to real footage);
+/// otherwise falls back to [`synthetic_input`]. A load/decode failure warns and
+/// falls back rather than aborting the run.
+pub fn bench_input(width: u32, height: u32) -> Vec<u8> {
+	if let Some(path) = std::env::var_os("AEXLO_BENCH_INPUT") {
+		match image::open(&path) {
+			Ok(img) => {
+				let resized = img.resize_exact(width, height, image::imageops::FilterType::Triangle);
+				return resized.to_rgba8().into_raw();
+			}
+			Err(err) => {
+				eprintln!(
+					"aexlo-bench: AEXLO_BENCH_INPUT {} failed to load ({err}); using synthetic input",
+					Path::new(&path).display()
+				);
+			}
+		}
+	}
+	synthetic_input(width, height)
+}
+
+/// Build the configured input frame (see [`bench_input`]) and install it on
+/// `instance` as an 8-bit input layer.
+pub fn set_bench_input(instance: &mut PluginInstance, width: u32, height: u32) -> std::result::Result<(), String> {
+	let pixels = bench_input(width, height);
+	let layer = Layer::<Depth8>::from_raw(pixels, width, height).map_err(|err| format!("{err}"))?;
+	instance.set_input(layer);
+	Ok(())
+}
+
+//==== Parameter sweep (AEXLO_BENCH_PARAMS) ============================
+
+/// One parameter's sweep: a name plus the numeric values to try for it.
+#[derive(Clone, Debug)]
+pub struct ParamSweep {
+	pub name: String,
+	pub values: Vec<f64>,
+}
+
+/// Parse `AEXLO_BENCH_PARAMS` into per-parameter sweeps.
+///
+/// Grammar: `Name=v1,v2,v3;Other=v4,v5`. Parameter names may contain spaces
+/// (they are matched case-insensitively against the plugin's declared names).
+/// Returns an empty vec when unset, meaning "use defaults".
+pub fn param_sweeps() -> Vec<ParamSweep> {
+	let raw = match std::env::var("AEXLO_BENCH_PARAMS") {
+		Ok(raw) => raw,
+		Err(_) => return Vec::new(),
+	};
+	raw.split(';')
+		.filter_map(|clause| {
+			let (name, values) = clause.split_once('=')?;
+			let name = name.trim();
+			if name.is_empty() {
+				return None;
+			}
+			let values: Vec<f64> = values.split(',').filter_map(|v| v.trim().parse::<f64>().ok()).collect();
+			if values.is_empty() {
+				eprintln!("aexlo-bench: AEXLO_BENCH_PARAMS: no numeric values for '{name}', ignoring");
+				return None;
+			}
+			Some(ParamSweep {
+				name: name.to_string(),
+				values,
+			})
+		})
+		.collect()
+}
+
+/// One concrete parameter configuration: `(name, value)` pairs to apply together.
+pub type ParamConfig = Vec<(String, f64)>;
+
+/// The cartesian product of all [`param_sweeps`], i.e. every parameter
+/// combination to benchmark. Always yields at least one config (the empty
+/// "defaults" config when nothing is swept).
+pub fn param_configs() -> Vec<ParamConfig> {
+	let sweeps = param_sweeps();
+	let mut configs: Vec<ParamConfig> = vec![Vec::new()];
+	for sweep in &sweeps {
+		let mut next = Vec::new();
+		for base in &configs {
+			for &value in &sweep.values {
+				let mut combo = base.clone();
+				combo.push((sweep.name.clone(), value));
+				next.push(combo);
+			}
+		}
+		configs = next;
+	}
+	configs
+}
+
+/// A compact, stable label for a parameter config, e.g. `Radius=500,Iterations=8`.
+/// Empty config yields `default`.
+pub fn param_config_label(config: &ParamConfig) -> String {
+	if config.is_empty() {
+		return "default".to_string();
+	}
+	config
+		.iter()
+		.map(|(name, value)| format!("{name}={value}"))
+		.collect::<Vec<_>>()
+		.join(",")
+}
+
+/// Resolve a parameter name to its 1-based index, matching declared names
+/// case-insensitively.
+pub fn resolve_param_index(instance: &PluginInstance, name: &str) -> Option<usize> {
+	let name = name.trim();
+	(1..instance.param_count()).find(|&i| param_name(instance, i).eq_ignore_ascii_case(name))
+}
+
+/// Set parameter `name` to numeric `value`, coercing to the parameter's declared
+/// type. Returns the value actually written for logging, or an error string when
+/// the name is unknown or the parameter type can't take a scalar.
+pub fn apply_param(instance: &mut PluginInstance, name: &str, value: f64) -> std::result::Result<ParamValue, String> {
+	let index = resolve_param_index(instance, name).ok_or_else(|| format!("no parameter named '{name}'"))?;
+	let current = instance
+		.get_param(index)
+		.ok_or_else(|| format!("parameter '{name}' has an unsupported type"))?;
+	let new = match current {
+		ParamValue::Float(_) => ParamValue::Float(value),
+		ParamValue::Fixed(_) => ParamValue::Fixed(value as f32),
+		ParamValue::Slider(_) => ParamValue::Slider(value as i32),
+		ParamValue::Popup(_) => ParamValue::Popup(value as i32),
+		ParamValue::Angle(_) => ParamValue::Angle(value as f32),
+		ParamValue::Checkbox(_) => ParamValue::Checkbox(value != 0.0),
+		other => return Err(format!("parameter '{name}' is {other:?}; scalar sweep unsupported")),
+	};
+	instance
+		.set_param(index, new.clone())
+		.map_err(|err| format!("{err:?}"))?;
+	Ok(new)
+}
+
+/// Apply every `(name, value)` in a config, warning (but not failing) on any
+/// parameter that can't be set. Returns `false` if any assignment failed, so the
+/// caller can decide whether the config is still worth benchmarking.
+pub fn apply_param_config(instance: &mut PluginInstance, config: &ParamConfig) -> bool {
+	let mut ok = true;
+	for (name, value) in config {
+		if let Err(err) = apply_param(instance, name, *value) {
+			eprintln!("aexlo-bench: param '{name}={value}': {err}");
+			ok = false;
+		}
+	}
+	ok
+}
+
+//==== Render modes (CPU vs GPU) =======================================
+
+/// Which render path to drive, so the CPU and GPU paths can be timed separately.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RenderMode {
+	/// Auto-dispatch (`render_frame`): GPU if available, else smart, else legacy.
+	Auto,
+	/// CPU only: the smart pre-render/render pair when declared, else legacy.
+	Cpu,
+	/// GPU only (`render_gpu`).
+	Gpu,
+}
+
+impl RenderMode {
+	/// Short label used in benchmark ids and summary rows.
+	pub fn label(self) -> &'static str {
+		match self {
+			RenderMode::Auto => "render",
+			RenderMode::Cpu => "cpu",
+			RenderMode::Gpu => "gpu",
+		}
+	}
+
+	/// Drive one frame through this path.
+	pub fn render(self, instance: &mut PluginInstance) -> Result<()> {
+		match self {
+			RenderMode::Auto => instance.render_frame(),
+			RenderMode::Cpu => render_cpu(instance),
+			RenderMode::Gpu => instance.render_gpu(),
+		}
+	}
+}
+
+/// Render one frame strictly on the CPU: the smart pre-render/render pair when
+/// the plugin declared smart-render support (falling back to legacy on failure),
+/// otherwise the legacy render command. Mirrors [`PluginInstance::render_frame`]
+/// minus the GPU attempt.
+pub fn render_cpu(instance: &mut PluginInstance) -> Result<()> {
+	if instance.supports_smart_render() && instance.render_pre().and_then(|()| instance.render_smart()).is_ok() {
+		return Ok(());
+	}
+	instance.render()
+}
+
+/// The render modes to benchmark for a plugin: `[Cpu, Gpu]` when it can render
+/// on the GPU (so the two can be compared), otherwise a single [`RenderMode::Auto`].
+pub fn bench_modes(instance: &PluginInstance) -> Vec<RenderMode> {
+	if instance.supports_gpu() {
+		vec![RenderMode::Cpu, RenderMode::Gpu]
+	} else {
+		vec![RenderMode::Auto]
+	}
+}
+
+//==== Capabilities (#8) ===============================================
+
+/// The capabilities a plugin declared during global setup, for annotating output.
+#[derive(Clone, Copy, Debug)]
+pub struct Caps {
+	pub smart_render: bool,
+	pub gpu: bool,
+	pub param_count: usize,
+}
+
+/// Read a plugin's declared capabilities. Note `gpu` honors `AEXLO_DISABLE_GPU`,
+/// i.e. it reflects whether the GPU path will actually be used, not just support.
+pub fn capabilities(instance: &PluginInstance) -> Caps {
+	Caps {
+		smart_render: instance.supports_smart_render(),
+		gpu: instance.supports_gpu(),
+		param_count: instance.param_count(),
+	}
+}
+
+impl std::fmt::Display for Caps {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(
+			f,
+			"smart_render={} gpu={} params={}",
+			self.smart_render, self.gpu, self.param_count
+		)
+	}
 }

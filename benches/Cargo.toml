@@ -25,3 +25,9 @@ harness = false
 [[bench]]
 name = "load"
 harness = false
+
+# Cross-plugin leaderboard + CSV/JSON export. Custom timing loop (not criterion),
+# so it owns its own `main`.
+[[bench]]
+name = "summary"
+harness = false
