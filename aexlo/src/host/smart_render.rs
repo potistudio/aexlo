@@ -267,18 +267,19 @@ impl SmartRenderData {
 		self.input.pre_render_data = self.pre_output.pre_render_data;
 	}
 
-	/// Configure the pre-render and render inputs for Metal GPU rendering: advertise
-	/// the framework, device, plugin-owned GPU data, and 32-bit-float depth so the
-	/// plugin dispatches its `PF_Cmd_SMART_RENDER_GPU` path.
+	/// Configure the pre-render and render inputs for GPU rendering: advertise
+	/// the framework (Metal or CUDA), device, plugin-owned GPU data, and
+	/// 32-bit-float depth so the plugin dispatches its `PF_Cmd_SMART_RENDER_GPU` path.
 	///
-	/// `gpu_data` is the handle the plugin returned from `PF_Cmd_GPU_DEVICE_SETUP`.
-	pub fn configure_gpu(&mut self, gpu_data: *const std::os::raw::c_void, device_index: A_u_long) {
-		self.pre_input.what_gpu = PF_GPU_Framework_METAL as PF_GPU_Framework;
+	/// `gpu_data` is the handle the plugin returned from `PF_Cmd_GPU_DEVICE_SETUP`;
+	/// `framework` is the active backend's `PF_GPU_Framework` constant.
+	pub fn configure_gpu(&mut self, gpu_data: *const std::os::raw::c_void, device_index: A_u_long, framework: PF_GPU_Framework) {
+		self.pre_input.what_gpu = framework;
 		self.pre_input.device_index = device_index;
 		self.pre_input.bitdepth = 32;
 		self.pre_input.gpu_data = gpu_data;
 
-		self.input.what_gpu = PF_GPU_Framework_METAL as PF_GPU_Framework;
+		self.input.what_gpu = framework;
 		self.input.device_index = device_index;
 		self.input.bitdepth = 32;
 		self.input.gpu_data = gpu_data;

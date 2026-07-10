@@ -44,7 +44,7 @@ impl ParamValue {
 use after_effects::{ParamType, RawCommand};
 use after_effects_sys::{
 	PF_Err_INVALID_CALLBACK, PF_Err_NONE, PF_GPUDeviceSetdownExtra, PF_GPUDeviceSetdownInput, PF_GPUDeviceSetupExtra,
-	PF_GPUDeviceSetupInput, PF_GPUDeviceSetupOutput, PF_GPU_Framework, PF_GPU_Framework_METAL,
+	PF_GPUDeviceSetupInput, PF_GPUDeviceSetupOutput, PF_GPU_Framework, PF_GPU_Framework_NONE,
 	PF_OutFlag2_SUPPORTS_GPU_RENDER_F32, PF_OutFlags2, PF_ParamDef, PF_ParamDefUnion, PF_ParamType, PF_Pixel,
 	PF_ProgPtr,
 };
@@ -249,24 +249,26 @@ impl PluginInstance {
 		self.out_data.out_flags2 & flag != 0
 	}
 
-	/// Run `PF_Cmd_GPU_DEVICE_SETUP`, creating aexlo's Metal context on first use and
-	/// capturing the plugin-owned GPU data (compiled pipelines, etc.) it returns.
+	/// Run `PF_Cmd_GPU_DEVICE_SETUP`, creating aexlo's GPU context (Metal or CUDA)
+	/// on first use and capturing the plugin-owned GPU data (compiled pipelines,
+	/// etc.) it returns.
 	///
 	/// # Errors
-	/// Returns an error if no Metal device is available, or if the plugin's setup
+	/// Returns an error if no GPU device is available, or if the plugin's setup
 	/// command fails.
 	fn gpu_device_setup(&mut self) -> Result<()> {
 		if self.gpu_context.is_none() {
 			self.gpu_context = crate::gpu::GpuContext::new();
 		}
-		if self.gpu_context.is_none() {
-			return Err(AexloError::Unexpected("No Metal device available for GPU render".to_string()));
-		}
-
-		let mut input = PF_GPUDeviceSetupInput {
-			what_gpu: PF_GPU_Framework_METAL as PF_GPU_Framework,
-			device_index: 0,
+		let Some(ctx) = self.gpu_context.as_ref() else {
+			return Err(AexloError::Unexpected("No GPU device available for GPU render".to_string()));
 		};
+		let what_gpu = ctx.framework();
+		// The plugin's own GPU-API calls during setup (e.g. cudaMalloc) resolve
+		// against the thread-current context.
+		ctx.make_current();
+
+		let mut input = PF_GPUDeviceSetupInput { what_gpu, device_index: 0 };
 		let mut output = PF_GPUDeviceSetupOutput { gpu_data: null_mut() };
 		let mut extra = PF_GPUDeviceSetupExtra {
 			input: &mut input,
@@ -289,9 +291,14 @@ impl PluginInstance {
 			return Ok(());
 		}
 
+		let what_gpu = self
+			.gpu_context
+			.as_ref()
+			.map(|ctx| ctx.framework())
+			.unwrap_or(PF_GPU_Framework_NONE as PF_GPU_Framework);
 		let mut input = PF_GPUDeviceSetdownInput {
 			gpu_data: self.gpu_data,
-			what_gpu: PF_GPU_Framework_METAL as PF_GPU_Framework,
+			what_gpu,
 			device_index: 0,
 		};
 		let mut extra = PF_GPUDeviceSetdownExtra { input: &mut input };
@@ -322,9 +329,9 @@ impl PluginInstance {
 		Ok(())
 	}
 
-	/// Render one frame on the GPU: set up the Metal device (once), back the input and
-	/// output worlds with `MTLBuffer`s, upload the input as BGRA float, run the smart
-	/// pre-render/GPU-render pair, wait for the GPU, and read the result back.
+	/// Render one frame on the GPU: set up the device (once), back the input and
+	/// output worlds with device buffers, upload the input as BGRA float, run the
+	/// smart pre-render/GPU-render pair, wait for the GPU, and read the result back.
 	///
 	/// # Errors
 	/// Propagates any failure from device setup or the render commands. On error the
@@ -337,11 +344,14 @@ impl PluginInstance {
 		// Phase A: geometry, buffers, and input upload. All borrows are of distinct
 		// fields, so they coexist without borrowing `self` as a whole.
 		let output_key = &self.world as *const _ as usize;
+		let framework;
+		let out_len;
 		{
 			let in_w = self.input_layer.width() as usize;
 			let in_h = self.input_layer.height() as usize;
 			let out_w = self.output_layer.width() as usize;
 			let out_h = self.output_layer.height() as usize;
+			out_len = out_w * out_h * GPU_BYTES_PER_PIXEL;
 
 			// The plugin derives its GPU dispatch size from `in_data`; keep it aligned
 			// with the output frame so the whole image is rendered, not a stale
@@ -363,68 +373,63 @@ impl PluginInstance {
 				.gpu_context
 				.as_mut()
 				.ok_or_else(|| AexloError::Unexpected("GPU context missing".to_string()))?;
-			let in_contents = ctx.ensure_buffer(input_key, in_w * in_h * GPU_BYTES_PER_PIXEL);
-			ctx.ensure_buffer(output_key, out_w * out_h * GPU_BYTES_PER_PIXEL);
+			framework = ctx.framework();
+			ctx.make_current();
 
-			Self::upload_layer_to_bgra_f32(&self.input_layer, in_contents);
+			if !ctx.ensure_buffer(input_key, in_w * in_h * GPU_BYTES_PER_PIXEL) || !ctx.ensure_buffer(output_key, out_len) {
+				return Err(AexloError::Unexpected("Failed to allocate GPU world buffers".to_string()));
+			}
+
+			let staging = Self::pack_layer_to_bgra_f32(&self.input_layer);
+			if !ctx.write_buffer(input_key, bytemuck::cast_slice(&staging)) {
+				return Err(AexloError::Unexpected("Failed to upload input pixels to the GPU".to_string()));
+			}
 		}
 
-		self.smart_render_data.configure_gpu(self.gpu_data, 0);
+		self.smart_render_data.configure_gpu(self.gpu_data, 0, framework);
 
 		// Phase B: pre-render declares regions, then the GPU render runs.
 		self.render_pre()?;
 		self.render_smart_gpu()?;
 
-		// The plugin commits but does not wait; flush the queue before reading back.
+		// The plugin queues its work but does not wait; flush before reading back.
 		if let Some(ctx) = &self.gpu_context {
 			ctx.wait_for_completion();
 		}
 
 		// Phase C: read the rendered BGRA float output back into the 8-bit layer.
-		if let Some(out_contents) = self.gpu_context.as_ref().and_then(|c| c.contents(output_key)) {
-			Self::download_bgra_f32_to_layer(out_contents, &mut self.output_layer);
+		if let Some(ctx) = self.gpu_context.as_ref() {
+			let mut staging = vec![0f32; out_len / std::mem::size_of::<f32>()];
+			if ctx.read_buffer(output_key, bytemuck::cast_slice_mut(&mut staging)) {
+				Self::unpack_bgra_f32_to_layer(&staging, &mut self.output_layer);
+			}
 		}
 
 		Ok(())
 	}
 
-	/// Pack an 8-bit ARGB layer into a `PF_PixelFormat_GPU_BGRA128` buffer:
+	/// Pack an 8-bit ARGB layer into `PF_PixelFormat_GPU_BGRA128` staging data:
 	/// BGRA channel order, each channel normalised to `[0, 1]` float.
-	fn upload_layer_to_bgra_f32(layer: &wrapper::Layer<wrapper::Depth8>, contents: *mut ::std::os::raw::c_void) {
-		if contents.is_null() {
-			return;
+	fn pack_layer_to_bgra_f32(layer: &wrapper::Layer<wrapper::Depth8>) -> Vec<f32> {
+		let pixels = layer.pixels();
+		let mut staging = Vec::with_capacity(pixels.len() * 4);
+		for pixel in pixels {
+			staging.push(pixel.blue as f32 / 255.0);
+			staging.push(pixel.green as f32 / 255.0);
+			staging.push(pixel.red as f32 / 255.0);
+			staging.push(pixel.alpha as f32 / 255.0);
 		}
-		let dst = contents as *mut f32;
-		for (i, pixel) in layer.pixels().iter().enumerate() {
-			let base = i * 4;
-			unsafe {
-				*dst.add(base) = pixel.blue as f32 / 255.0;
-				*dst.add(base + 1) = pixel.green as f32 / 255.0;
-				*dst.add(base + 2) = pixel.red as f32 / 255.0;
-				*dst.add(base + 3) = pixel.alpha as f32 / 255.0;
-			}
-		}
+		staging
 	}
 
-	/// Unpack a `PF_PixelFormat_GPU_BGRA128` buffer (BGRA float) back into an 8-bit
-	/// ARGB layer, clamping and rounding each channel.
-	fn download_bgra_f32_to_layer(contents: *mut ::std::os::raw::c_void, layer: &mut wrapper::Layer<wrapper::Depth8>) {
-		if contents.is_null() {
-			return;
-		}
-		let src = contents as *const f32;
-		for (i, pixel) in layer.pixels_mut().iter_mut().enumerate() {
-			let base = i * 4;
-			unsafe {
-				let b = (*src.add(base)).clamp(0.0, 1.0);
-				let g = (*src.add(base + 1)).clamp(0.0, 1.0);
-				let r = (*src.add(base + 2)).clamp(0.0, 1.0);
-				let a = (*src.add(base + 3)).clamp(0.0, 1.0);
-				pixel.blue = (b * 255.0 + 0.5) as u8;
-				pixel.green = (g * 255.0 + 0.5) as u8;
-				pixel.red = (r * 255.0 + 0.5) as u8;
-				pixel.alpha = (a * 255.0 + 0.5) as u8;
-			}
+	/// Unpack `PF_PixelFormat_GPU_BGRA128` staging data (BGRA float) back into an
+	/// 8-bit ARGB layer, clamping and rounding each channel.
+	fn unpack_bgra_f32_to_layer(staging: &[f32], layer: &mut wrapper::Layer<wrapper::Depth8>) {
+		for (pixel, bgra) in layer.pixels_mut().iter_mut().zip(staging.chunks_exact(4)) {
+			pixel.blue = (bgra[0].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+			pixel.green = (bgra[1].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+			pixel.red = (bgra[2].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+			pixel.alpha = (bgra[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
 		}
 	}
 
@@ -499,11 +504,7 @@ impl PluginInstance {
 			.map_err(|e| AexloError::Unexpected("Failed to write RGBA bytes: ".to_string() + &e))
 	}
 
-	//==== Getter ==========================================
-	/// Get output dimensions in pixel (width, height).
-	pub fn output_size(&self) -> (u32, u32) {
-		(self.output_layer.width(), self.output_layer.height())
-	}
+	//---- Setter / Getter =================================
 
 	/// Get a pointer to the instance's persistent output world (`PF_LayerDef`/`PF_EffectWorld`).
 	///
@@ -526,7 +527,7 @@ impl PluginInstance {
 		self.params.len()
 	}
 
-	/// Borrow the instance's Metal GPU context, if GPU rendering is active.
+	/// Borrow the instance's GPU context (Metal or CUDA), if GPU rendering is active.
 	///
 	/// Used by [`PF_GPUDeviceSuite1`](crate::suites) callbacks (recovered via
 	/// `effect_ref`) to answer `GetDeviceInfo`/`GetGPUWorldData`.
@@ -534,19 +535,28 @@ impl PluginInstance {
 		self.gpu_context.as_ref()
 	}
 
+	/// Mutably borrow the instance's GPU context, if GPU rendering is active.
+	///
+	/// Used by [`PF_GPUDeviceSuite1`](crate::suites) callbacks that allocate or
+	/// release device memory (`AllocateDeviceMemory`/`FreeDeviceMemory`).
+	pub(crate) fn gpu_context_mut(&mut self) -> Option<&mut crate::gpu::GpuContext> {
+		self.gpu_context.as_mut()
+	}
+
 	//==== Setter / Getter =================================
 
 	/// Set a parameter value by index.
 	/// `index` must be 1 or greater (index 0 is the input layer, not settable).
 	pub fn set_param(&mut self, index: usize, value: ParamValue) -> Result<()> {
-		if index == 0 || index >= self.params.len() {
+		let internal = index + 1;
+		if internal >= self.params.len() {
 			return Err(AexloError::ParamIndexOutOfBounds {
 				index,
-				max: self.params.len(),
+				max: self.param_count(),
 			});
 		}
 
-		let target = &mut self.params[index];
+		let target = &mut self.params[internal];
 
 		// Reject a value whose variant doesn't match the parameter's declared type,
 		// so we never write the wrong union member.
@@ -619,11 +629,13 @@ impl PluginInstance {
 	/// Get a parameter value by index.
 	/// Returns `None` if the index is out of bounds or the param type is unknown.
 	pub fn get_param(&self, index: usize) -> Option<ParamValue> {
-		if index == 0 || index >= self.params.len() {
+		let internal_index = index + 1; // Skip the index 0 because it is a input layer
+		if internal_index >= self.params.len() {
 			return None;
 		}
 
-		let param = &self.params[index];
+		let param = &self.params[internal_index];
+		let param_type = param.param_type;
 
 		// SAFETY: the union variant is selected based on `param_type`.
 		unsafe {
@@ -667,8 +679,16 @@ impl PluginInstance {
 
 		NonNull::new(effect_ref as *mut PluginInstance)
 	}
+}
 
-	//==== Instance Parameter Management ==========================================
+// ==== External Methods ===================================
+impl PluginInstance {
+	// ---- Getter ------------------------------------------
+	/// Get output dimensions in pixel (width, height).
+	pub fn output_size(&self) -> (u32, u32) {
+		(self.output_layer.width(), self.output_layer.height())
+	}
+	// -----------------------------------------------------
 
 	/// Add a parameter to this instance's parameter storage.
 	pub fn add_instance_param(&mut self, param: PF_ParamDef) {
@@ -714,6 +734,7 @@ impl PluginInstance {
 		self.params_dirty = true;
 		log::debug!("PluginInstance: cleared all instance params");
 	}
+	// -----------------------------------------------------
 }
 
 //* ---- Internal Methods ------------------------------- */

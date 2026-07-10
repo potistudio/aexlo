@@ -16,7 +16,7 @@ aexlo = { workspace = true }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 
 [dev-dependencies]
-criterion = "0.7.0"
+criterion = "0.8.2"
 
 [[bench]]
 name = "render_matrix"

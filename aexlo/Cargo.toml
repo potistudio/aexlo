@@ -34,3 +34,9 @@ bytemuck = "1.25.0"
 metal = "0.29"
 foreign-types = "0.5"
 objc = "0.2"
+
+# CUDA-backed GPU rendering on Windows/Linux. `dynamic-loading` dlopens the
+# NVIDIA driver at runtime, so building never requires the CUDA toolkit; the
+# `cuda-12040` pin selects a conservative driver-API binding set (R550+).
+[target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
+cudarc = { version = "0.19", default-features = false, features = ["std", "driver", "dynamic-loading", "cuda-12040"] }

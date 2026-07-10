@@ -110,7 +110,7 @@ unsafe extern "C" fn new_world_sys(
 	let height = heightL.max(0);
 
 	#[allow(non_upper_case_globals)]
-	let depth = match pixel_format as u32 {
+	let depth = match pixel_format {
 		PF_PixelFormat_ARGB32 => 4,
 		PF_PixelFormat_ARGB64 => 8,
 		PF_PixelFormat_ARGB128 => 16,
@@ -193,18 +193,11 @@ unsafe extern "C" fn get_pixel_format_stub(
 	// world registered as a GPU world (see `crate::gpu`) must report that so the
 	// plugin takes its GPU path. Everything else is the CPU 8-bit `ARGB32` world.
 	// This callback gets no `effect_ref`, so GPU-ness is looked up by world pointer.
-	let raw_format = if crate::gpu::is_gpu_world(worldP as usize) {
+	let format = if crate::gpu::is_gpu_world(worldP as usize) {
 		PF_PixelFormat_GPU_BGRA128
 	} else {
 		PF_PixelFormat_ARGB32
-	};
-
-	#[cfg(target_os = "macos")]
-	let format = raw_format as i32;
-
-	#[cfg(not(target_os = "macos"))]
-	let format = raw_format as u32;
-
+	} as i32;
 	unsafe { *pixel_formatP = format };
 
 	DiagnosticBuilder::new()

@@ -75,9 +75,9 @@ pub const ALL_RESOLUTIONS: &[Resolution] = &[
 ];
 
 /// The curated default plugin set, used when `AEXLO_BENCH_PLUGINS` is unset:
-/// a trivial effect, a noise generator, and a heavy GPU-capable glow, so a bare
-/// `cargo bench` still exercises a representative spread.
-const DEFAULT_PLUGINS: &[&str] = &["FillColor", "SDK_Noise", "DeepGlow2"];
+/// a trivial effect, a noise generator, a heavy GPU-capable glow, and a CUDA
+/// pixel sorter, so a bare `cargo bench` still exercises a representative spread.
+const DEFAULT_PLUGINS: &[&str] = &["FillColor", "SDK_Noise", "DeepGlow2", "BitonicPixelSorter"];
 
 /// Platform-specific plugin artifact extension.
 pub fn plugin_extension() -> &'static str {
