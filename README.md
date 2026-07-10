@@ -69,27 +69,29 @@ cargo run -p sdk_noise
 
 ## Implementation Progress
 
-⣆⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 3% (1/35)
+⣿⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 14% (5/35)
 
-| CB Suite          | Effect Suite                     | Adv Effect Suite | Others            |
-| ----------------- | -------------------------------- | ---------------- | ----------------- |
-| ✅ ANSI           | □ AE App                         | □ AE Adv App     | □ Cache On Load   |
-| □ Batch Sampling  | □ AngleParam                     | □ AE Adv Item    | □ Channel         |
-| □ Color           | □ ColorParam                     | □ AE Adv Time    | □ GPU Device      |
-| □ Color16         | □ Effect Custom UI Overlay Theme |                  | □ Plugin Helper   |
-| □ ColorFloat      | □ Effect Custom UI               |                  | □ Plugin Helper 2 |
-| □ Fill Matte      | □ Effect UI                      |                  |                   |
-| □ Handle          | □ Param Utils                    |                  |                   |
-| □ Iterate8        | □ Path Data                      |                  |                   |
-| □ Iterate16       | □ Path Query                     |                  |                   |
-| □ IterateFloat    | □ PointParam                     |                  |                   |
-| □ Pixel Data      |                                  |                  |                   |
-| □ Pixel Format    |                                  |                  |                   |
-| □ Sampling8       |                                  |                  |                   |
-| □ Sampling16      |                                  |                  |                   |
-| □ SamplingFloat   |                                  |                  |                   |
-| □ World           |                                  |                  |                   |
-| □ World Transform |                                  |                  |                   |
+> ✅ fully implemented &nbsp;·&nbsp; 🚧 acquirable but only partially implemented (some entry points are still stubs) &nbsp;·&nbsp; □ not started
+
+| CB Suite           | Effect Suite                     | Adv Effect Suite | Others            |
+| ------------------ | -------------------------------- | ---------------- | ----------------- |
+| ✅ ANSI            | 🚧 AE App                        | □ AE Adv App     | □ Cache On Load   |
+| □ Batch Sampling   | 🚧 AngleParam                    | □ AE Adv Item    | □ Channel         |
+| □ Color            | □ ColorParam                     | □ AE Adv Time    | 🚧 GPU Device     |
+| □ Color16          | □ Effect Custom UI Overlay Theme |                  | □ Plugin Helper   |
+| □ ColorFloat       | □ Effect Custom UI               |                  | □ Plugin Helper 2 |
+| □ Fill Matte       | □ Effect UI                      |                  |                   |
+| ✅ Handle          | ✅ Param Utils                   |                  |                   |
+| 🚧 Iterate8        | □ Path Data                      |                  |                   |
+| □ Iterate16        | □ Path Query                     |                  |                   |
+| □ IterateFloat     | □ PointParam                     |                  |                   |
+| □ Pixel Data       |                                  |                  |                   |
+| □ Pixel Format     |                                  |                  |                   |
+| □ Sampling8        |                                  |                  |                   |
+| □ Sampling16       |                                  |                  |                   |
+| □ SamplingFloat    |                                  |                  |                   |
+| ✅ World           |                                  |                  |                   |
+| ✅ World Transform |                                  |                  |                   |
 
 ## License
 
