@@ -1,0 +1,24 @@
+[package]
+name = "aexlo-cli"
+description = "Command-line front-end for the aexlo After Effects plugin loader."
+version = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+repository = "https://github.com/potistudio/aexlo-rs"
+edition = { workspace = true }
+
+# Installs as `aexlo` so `cargo install --path cli` gives an `aexlo` command.
+[[bin]]
+name = "aexlo"
+path = "src/main.rs"
+
+[dependencies]
+aexlo = { path = "../aexlo" }
+anyhow = "1.0"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+
+# `aexlo watch`: live preview window (minifb), source watching (notify), and
+# locating the freshly built cdylib artifact (cargo_metadata).
+minifb = "0.27"
+notify = "6.1"
+cargo_metadata = "0.18"
