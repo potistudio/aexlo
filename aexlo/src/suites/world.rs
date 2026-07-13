@@ -39,9 +39,9 @@ use after_effects_sys::{
 	PF_WorldSuite2,
 };
 
-use crate::core::diagnostics::DiagnosticBuilder;
+use crate::core::diagnostics::diag;
 
-unsafe extern "C" fn dispose_world_sys(effect_ref: PF_ProgPtr, worldP: *mut PF_EffectWorld) -> PF_Err {
+unsafe extern "C" fn dispose_world_sys(_effect_ref: PF_ProgPtr, worldP: *mut PF_EffectWorld) -> PF_Err {
 	if worldP.is_null() {
 		log::warn!("dispose_world: worldP is null");
 		return PF_Err_NONE as PF_Err;
@@ -58,11 +58,10 @@ unsafe extern "C" fn dispose_world_sys(effect_ref: PF_ProgPtr, worldP: *mut PF_E
 		world.data = null_mut();
 	}
 
-	DiagnosticBuilder::new()
-		.set_name("PF_WorldSuite2/PF_DisposeWorld")
-		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
-		.add_arg("worldP (out)", worldP as usize)
-		.emit();
+	diag!("PF_WorldSuite2/PF_DisposeWorld",
+		"effect_ref" => format!("{:#x}", _effect_ref as usize),
+		"worldP (out)" => worldP as usize,
+	);
 
 	PF_Err_NONE as PF_Err
 }
@@ -71,7 +70,7 @@ unsafe extern "C" fn new_world_sys(
 	effect_ref: PF_ProgPtr,
 	widthL: A_long,
 	heightL: A_long,
-	clear_pixB: PF_Boolean,
+	_clear_pixB: PF_Boolean,
 	pixel_format: PF_PixelFormat,
 	worldP: *mut PF_EffectWorld,
 ) -> PF_Err {
@@ -161,16 +160,14 @@ unsafe extern "C" fn new_world_sys(
 
 	unsafe { *worldP = new_world };
 
-	//== Diagnostics ==//
-	DiagnosticBuilder::new()
-		.set_name("PF_WorldSuite2/PF_NewWorld")
-		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
-		.add_arg("widthL", widthL)
-		.add_arg("heightL", heightL)
-		.add_arg("clear_pixB", clear_pixB)
-		.add_arg("pixel_format", pixel_format)
-		.add_arg("worldP (out)", format!("{:#x}", worldP as usize))
-		.emit();
+	diag!("PF_WorldSuite2/PF_NewWorld",
+		"effect_ref" => format!("{:#x}", effect_ref as usize),
+		"widthL" => widthL,
+		"heightL" => heightL,
+		"clear_pixB" => _clear_pixB,
+		"pixel_format" => pixel_format,
+		"worldP (out)" => format!("{:#x}", worldP as usize),
+	);
 
 	PF_Err_NONE as PF_Err
 }
@@ -197,11 +194,10 @@ unsafe extern "C" fn get_pixel_format_sys(worldP: *const PF_EffectWorld, pixel_f
 	} as i32;
 	unsafe { *pixel_formatP = format };
 
-	DiagnosticBuilder::new()
-		.set_name("PF_WorldSuite2/PF_GetPixelFormat")
-		.add_arg("worldP", format!("{:#x}", worldP as usize))
-		.add_arg("pixel_formatP (out)", pixel_formatP as usize)
-		.emit();
+	diag!("PF_WorldSuite2/PF_GetPixelFormat",
+		"worldP" => format!("{:#x}", worldP as usize),
+		"pixel_formatP (out)" => pixel_formatP as usize,
+	);
 
 	PF_Err_NONE as PF_Err
 }

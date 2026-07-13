@@ -2,6 +2,7 @@ use std::ffi::{CStr, CString};
 
 use after_effects_sys::{A_char, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_INTERNAL_STRUCT_DAMAGED, PF_Err_NONE};
 
+#[cfg(feature = "diagnostics")]
 use crate::core::diagnostics::DiagnosticBuilder;
 
 macro_rules! impl_math_sys {
@@ -87,7 +88,11 @@ pub(crate) unsafe extern "C" fn sprintf_sys(arg1: *mut A_char, arg2: *const A_ch
 	let mut result = String::new();
 	let mut chars = format_str.chars().peekable();
 
+	// Built incrementally as variadic args are pulled, so it can't be a single
+	// trailing `diag!`; the cfg-gated statements keep it zero-cost otherwise.
+	#[cfg(feature = "diagnostics")]
 	let mut diagnostics = DiagnosticBuilder::new();
+	#[cfg(feature = "diagnostics")]
 	diagnostics
 		.set_name("UtilityCallbacks/ansi/sprintf")
 		.add_arg("format", format!("{:?}", format_str));
@@ -100,6 +105,7 @@ pub(crate) unsafe extern "C" fn sprintf_sys(arg1: *mut A_char, arg2: *const A_ch
 						// Get an integer argument
 						let arg = unsafe { args.next_arg::<i32>() };
 
+						#[cfg(feature = "diagnostics")]
 						diagnostics.add_arg("arg_int", format!("{:?}", arg));
 						result.push_str(&arg.to_string());
 					}
@@ -111,6 +117,7 @@ pub(crate) unsafe extern "C" fn sprintf_sys(arg1: *mut A_char, arg2: *const A_ch
 							match unsafe { CStr::from_ptr(ptr) }.to_str() {
 								Ok(s) => {
 									result.push_str(s);
+									#[cfg(feature = "diagnostics")]
 									diagnostics.add_arg("arg_str", format!("{:?}", s));
 								}
 								Err(_) => result.push_str("(invalid)"),
@@ -158,6 +165,7 @@ pub(crate) unsafe extern "C" fn sprintf_sys(arg1: *mut A_char, arg2: *const A_ch
 		unsafe { *((arg1 as *mut u8).add(SPRINTF_BUFFER_SIZE - 1)) = 0 };
 	}
 
+	#[cfg(feature = "diagnostics")]
 	diagnostics.set_result(format!("{:?}", c_result)).emit();
 
 	PF_Err_NONE as PF_Err

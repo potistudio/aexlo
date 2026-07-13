@@ -1,6 +1,7 @@
 use after_effects_sys::*;
 
-use crate::{DiagnosticBuilder, PluginInstance};
+use crate::PluginInstance;
+use crate::core::diagnostics::diag;
 
 // ============================================================================
 // Parameter Management
@@ -15,16 +16,6 @@ unsafe extern "C" fn checkout_param_stub(
 	param: *mut PF_ParamDef,
 ) -> PF_Err {
 	let index = index as usize;
-
-	let mut diagnostics = DiagnosticBuilder::new();
-	diagnostics
-		.set_name("InteractCallbacks/checkout_param")
-		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
-		.add_arg("index", index)
-		.add_arg("what_time", _what_time)
-		.add_arg("time_step", _time_step)
-		.add_arg("time_scale", _time_scale)
-		.add_arg("param (out)", format!("{:#x}", param as usize));
 
 	//== Validation ==//
 	if effect_ref.is_null() {
@@ -43,12 +34,16 @@ unsafe extern "C" fn checkout_param_stub(
 	}
 
 	//== Implementation ==//
-	// Get params from instance using the effect_ref
-	let instance = unsafe {
-		PluginInstance::get_instance_ptr(effect_ref)
-			.expect("checkout_param: No plugin instance found for effect_ref")
-			.as_ref()
+	// Never panic here: unwinding across the plugin's C frames is UB, so an
+	// unknown effect_ref is reported as a callback error instead.
+	let Some(instance) = PluginInstance::get_instance_ptr(effect_ref) else {
+		log::error!(
+			"checkout_param: no instance found for effect_ref {:#x}",
+			effect_ref as usize
+		);
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	};
+	let instance = unsafe { instance.as_ref() };
 
 	if index >= instance.param_count() {
 		log::error!(
@@ -63,10 +58,15 @@ unsafe extern "C" fn checkout_param_stub(
 	let src_param = instance.param_by_index(index).unwrap();
 	unsafe { *param = *src_param };
 
-	//== Diagnostics ==//
-	diagnostics
-		.set_result(format!("param is set to {:#x}", param as usize))
-		.emit();
+	diag!("InteractCallbacks/checkout_param",
+		"effect_ref" => format!("{:#x}", effect_ref as usize),
+		"index" => index,
+		"what_time" => _what_time,
+		"time_step" => _time_step,
+		"time_scale" => _time_scale,
+		"param (out)" => format!("{:#x}", param as usize);
+		result: format!("param is set to {:#x}", param as usize),
+	);
 
 	PF_Err_NONE as PF_Err
 }
@@ -82,18 +82,11 @@ unsafe extern "C" fn checkin_param_stub(_effect_ref: PF_ProgPtr, _param: *mut PF
 	PF_Err_NONE as PF_Err
 }
 
-unsafe extern "C" fn add_param_sys(effect_ref: PF_ProgPtr, index: PF_ParamIndex, def: PF_ParamDefPtr) -> PF_Err {
+unsafe extern "C" fn add_param_sys(effect_ref: PF_ProgPtr, _index: PF_ParamIndex, def: PF_ParamDefPtr) -> PF_Err {
 	if def.is_null() {
 		log::error!("add_param: def is null");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
-
-	let mut diagnostics = DiagnosticBuilder::new();
-	diagnostics
-		.set_name("InteractCallbacks/add_param")
-		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
-		.add_arg("index", index)
-		.add_arg("def", format!("{:#x}", def as usize));
 
 	// Copy the param definition and store it
 	let param = unsafe { *def };
@@ -104,7 +97,12 @@ unsafe extern "C" fn add_param_sys(effect_ref: PF_ProgPtr, index: PF_ParamIndex,
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	diagnostics.emit();
+	diag!("InteractCallbacks/add_param",
+		"effect_ref" => format!("{:#x}", effect_ref as usize),
+		"index" => _index,
+		"def" => format!("{:#x}", def as usize),
+	);
+
 	PF_Err_NONE as PF_Err
 }
 

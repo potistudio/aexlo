@@ -174,3 +174,41 @@ impl Drop for DiagnosticBuilder<'_> {
 		}
 	}
 }
+
+/// Emit a [`Diagnostic`] record for a host callback.
+///
+/// Expands to nothing when the `diagnostics` feature is off, so the argument
+/// expressions (typically `format!` calls) are never evaluated — callbacks like
+/// `checkout_output` or `PF_GetPixelFormat` run per frame, and eagerly building
+/// their argument strings costs real time in release builds.
+///
+/// ```ignore
+/// diag!("PF_WorldSuite2/PF_NewWorld",
+///     "widthL" => widthL,
+///     "heightL" => heightL;
+///     result: format!("{:#x}", data as usize),
+/// );
+/// ```
+macro_rules! diag {
+	($name:expr $(, $arg_name:expr => $arg_value:expr)* $(,)?) => {
+		#[cfg(feature = "diagnostics")]
+		{
+			let mut builder = $crate::core::diagnostics::DiagnosticBuilder::new();
+			builder.set_name($name);
+			$(builder.add_arg($arg_name, $arg_value);)*
+			builder.emit();
+		}
+	};
+	($name:expr $(, $arg_name:expr => $arg_value:expr)*; result: $result:expr $(,)?) => {
+		#[cfg(feature = "diagnostics")]
+		{
+			let mut builder = $crate::core::diagnostics::DiagnosticBuilder::new();
+			builder.set_name($name);
+			$(builder.add_arg($arg_name, $arg_value);)*
+			builder.set_result($result);
+			builder.emit();
+		}
+	};
+}
+
+pub(crate) use diag;

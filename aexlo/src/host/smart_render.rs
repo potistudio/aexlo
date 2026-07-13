@@ -3,17 +3,18 @@ use std::ptr::{null, null_mut};
 use after_effects_sys::*;
 
 use crate::core::constants::{DEFAULT_HEIGHT as HEIGHT, DEFAULT_WIDTH as WIDTH};
-use crate::{DiagnosticBuilder, PluginInstance};
+use crate::core::diagnostics::diag;
+use crate::PluginInstance;
 
 //==== Stub implementations ================================
 unsafe extern "C" fn checkout_layer_stub(
 	effect_ref: PF_ProgPtr,
-	index: PF_ParamIndex,
-	checkout_idL: A_long,
+	_index: PF_ParamIndex,
+	_checkout_idL: A_long,
 	req: *const after_effects_sys::PF_RenderRequest,
-	what_time: A_long,
-	time_step: A_long,
-	time_scale: A_u_long,
+	_what_time: A_long,
+	_time_step: A_long,
+	_time_scale: A_u_long,
 	checkout_result: *mut after_effects_sys::PF_CheckoutResult,
 ) -> PF_Err {
 	//== Validation ==//
@@ -54,34 +55,28 @@ unsafe extern "C" fn checkout_layer_stub(
 		reserved: [0; 6],
 	};
 
-	//== Diagnostics ==//
-	DiagnosticBuilder::new()
-		.set_name("PF_PreRenderCallbacks/checkout_layer")
-		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
-		.add_arg("index", index)
-		.add_arg("checkout_idL", checkout_idL)
-		.add_arg("what_time", what_time)
-		.add_arg("time_step", time_step)
-		.add_arg("time_scale", time_scale)
-		.set_result(format!("{:?}", result))
-		.emit();
+	// The plugin passes an uninitialized `PF_CheckoutResult` and reads the layer
+	// bounds back out of it; leaving it unwritten hands the plugin stack garbage.
+	unsafe { *checkout_result = result };
+
+	diag!("PF_PreRenderCallbacks/checkout_layer",
+		"effect_ref" => format!("{:#x}", effect_ref as usize),
+		"index" => _index,
+		"checkout_idL" => _checkout_idL,
+		"what_time" => _what_time,
+		"time_step" => _time_step,
+		"time_scale" => _time_scale;
+		result: format!("{:?}", result),
+	);
 
 	PF_Err_NONE as PF_Err
 }
 
 unsafe extern "C" fn checkout_layer_pixels_stub(
 	effect_ref: PF_ProgPtr,
-	checkout_idL: A_long,
+	_checkout_idL: A_long,
 	pixels: *mut *mut PF_EffectWorld,
 ) -> PF_Err {
-	//== Diagnostics ==//
-	let mut diagnostics = DiagnosticBuilder::new();
-	diagnostics
-		.set_name("PF_SmartRenderCallbacks/checkout_layer_pixels")
-		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
-		.add_arg("checkout_idL", checkout_idL)
-		.add_arg("pixels (out)", format!("{:#x}", pixels as usize));
-
 	//== Validation ==//
 	if effect_ref.is_null() {
 		log::error!("checkout_layer_pixels: effect_ref is null");
@@ -94,30 +89,38 @@ unsafe extern "C" fn checkout_layer_pixels_stub(
 	}
 
 	//== Implementation ==//
-	let instance = unsafe {
-		PluginInstance::get_instance_ptr(effect_ref)
-			.expect("checkout_layer_pixels: No plugin instance found for effect_ref")
-			.as_mut()
+	// Never panic here: unwinding across the plugin's C frames is UB, so an
+	// unknown effect_ref is reported as a callback error instead.
+	let Some(mut instance) = PluginInstance::get_instance_ptr(effect_ref) else {
+		log::error!(
+			"checkout_layer_pixels: no instance found for effect_ref {:#x}",
+			effect_ref as usize
+		);
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	};
 
 	// The caller passes an *uninitialized* `PF_EffectWorld*` slot (see the SDK's
 	// `PF_CheckoutLayerPixels` contract) and expects us to write a pointer to the
 	// checked-out input world into it -- not to dereference the slot. Hand back the
 	// instance's persistent input world, mirroring `checkout_output`.
-	let input_world = instance.input_world_ptr();
+	let input_world = unsafe { instance.as_mut() }.input_world_ptr();
 	unsafe { *pixels = input_world };
 
-	diagnostics.set_result(unsafe { (*input_world).data } as usize).emit();
+	diag!("PF_SmartRenderCallbacks/checkout_layer_pixels",
+		"effect_ref" => format!("{:#x}", effect_ref as usize),
+		"checkout_idL" => _checkout_idL,
+		"pixels (out)" => format!("{:#x}", pixels as usize);
+		result: unsafe { (*input_world).data } as usize,
+	);
 
 	PF_Err_NONE as PF_Err
 }
 
-unsafe extern "C" fn checkin_layer_pixels_stub(effect_ref: PF_ProgPtr, checkout_idL: A_long) -> PF_Err {
-	DiagnosticBuilder::new()
-		.set_name("PF_SmartRenderCallbacks/checkin_layer_pixels")
-		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
-		.add_arg("checkout_idL", checkout_idL)
-		.emit();
+unsafe extern "C" fn checkin_layer_pixels_stub(_effect_ref: PF_ProgPtr, _checkout_idL: A_long) -> PF_Err {
+	diag!("PF_SmartRenderCallbacks/checkin_layer_pixels",
+		"effect_ref" => format!("{:#x}", _effect_ref as usize),
+		"checkout_idL" => _checkout_idL,
+	);
 
 	PF_Err_NONE as PF_Err
 }
@@ -135,27 +138,23 @@ unsafe extern "C" fn checkout_output_sys(effect_ref: PF_ProgPtr, output: *mut *m
 	}
 
 	//== Implementation ==//
-	if let Some(mut instance) = PluginInstance::get_instance_ptr(effect_ref) {
-		// Hand back a pointer into the instance's persistent output world, not a
-		// pointer to a temporary `as_sys()` value (which would dangle immediately).
-		unsafe { *output = instance.as_mut().output_world_ptr() };
-	} else {
+	let Some(mut instance) = PluginInstance::get_instance_ptr(effect_ref) else {
 		log::error!(
 			"checkout_output: No instance found for effect_ref {:#x}",
 			effect_ref as usize
 		);
-	}
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	};
 
-	//== Diagnostics ==//
-	DiagnosticBuilder::new()
-		.set_name("PF_SmartRenderCallbacks/checkout_output")
-		.add_arg("effect_ref", format!("{:#x}", effect_ref as usize))
-		.add_arg("output (out)", format!("{:#x}", unsafe { *output } as usize))
-		.set_result(format!(
-			"`output` is set to internal output layer {:#x}",
-			output as usize
-		))
-		.emit();
+	// Hand back a pointer into the instance's persistent output world, not a
+	// pointer to a temporary `as_sys()` value (which would dangle immediately).
+	unsafe { *output = instance.as_mut().output_world_ptr() };
+
+	diag!("PF_SmartRenderCallbacks/checkout_output",
+		"effect_ref" => format!("{:#x}", effect_ref as usize),
+		"output (out)" => format!("{:#x}", unsafe { *output } as usize);
+		result: format!("`output` is set to internal output layer {:#x}", output as usize),
+	);
 
 	PF_Err_NONE as PF_Err
 }

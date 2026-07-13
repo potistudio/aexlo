@@ -117,31 +117,33 @@ unsafe extern "C" fn copy_sys(
 	}
 
 	//== Implementation ==//
-	// Copy src memory into dst
+	// Copy src into dst row by row: the worlds may have different strides, and
+	// each row only owns `rowbytes` bytes, so copying more (or advancing by
+	// anything but the stride) reads/writes out of bounds.
 	let src_ref = &unsafe { *src };
 	let dst_ref = &mut unsafe { *dst };
 
 	if !src_ref.data.is_null() && !dst_ref.data.is_null() {
-		let row_bytes = src_ref.rowbytes;
-		let height = src_ref.height;
+		let rows = src_ref.height.min(dst_ref.height).max(0) as usize;
+		let src_stride = src_ref.rowbytes.max(0) as usize;
+		let dst_stride = dst_ref.rowbytes.max(0) as usize;
+		let bytes_per_row = src_stride.min(dst_stride);
 
-		for i in 0..(row_bytes * height) {
-			let src_ptr = unsafe { (src_ref.data as *mut u8).add(i as usize) };
-			let dst_ptr = unsafe { (dst_ref.data as *mut u8).add(i as usize) };
+		for row in 0..rows {
+			let src_ptr = unsafe { (src_ref.data as *const u8).add(row * src_stride) };
+			let dst_ptr = unsafe { (dst_ref.data as *mut u8).add(row * dst_stride) };
 
-			unsafe { std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, row_bytes as usize) };
+			unsafe { std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, bytes_per_row) };
 		}
 	}
 
-	//== Diagnostics ==//
-	DiagnosticBuilder::new()
-		.set_name("UtilityCallbacks/copy")
-		.add_arg("effect_ref", _effect_ref as usize)
-		.add_arg("src", format!("{:?}", src))
-		.add_arg("dst", format!("{:?}", dst))
-		.add_arg("src_rect", format!("{:?}", _src_rect))
-		.add_arg("dst_rect", format!("{:?}", _dst_rect))
-		.emit();
+	diag!("UtilityCallbacks/copy",
+		"effect_ref" => _effect_ref as usize,
+		"src" => format!("{:?}", src),
+		"dst" => format!("{:?}", dst),
+		"src_rect" => format!("{:?}", _src_rect),
+		"dst_rect" => format!("{:?}", _dst_rect),
+	);
 
 	PF_Err_NONE as PF_Err
 }
@@ -522,15 +524,14 @@ stub_log!(iterate_origin_non_clip_src16_stub,
 /// This function is unsafe because it handles raw pointers and performs unchecked operations.
 pub unsafe extern "C" fn get_pixel_data8_sys(
 	worldP: *mut PF_EffectWorld,
-	pixelsP0: PF_PixelPtr,
+	_pixelsP0: PF_PixelPtr,
 	pixPP: *mut *mut PF_Pixel8,
 ) -> PF_Err {
-	DiagnosticBuilder::new()
-		.set_name("Utility/get_pixel_data8")
-		.add_arg("worldP", format!("{:x}", worldP as usize))
-		.add_arg("pixelsP0", format!("{:x}", pixelsP0 as usize))
-		.add_arg("pixPP", format!("{:?}", pixPP))
-		.emit();
+	diag!("Utility/get_pixel_data8",
+		"worldP" => format!("{:x}", worldP as usize),
+		"pixelsP0" => format!("{:x}", _pixelsP0 as usize),
+		"pixPP" => format!("{:?}", pixPP),
+	);
 
 	if !pixPP.is_null() && !worldP.is_null() {
 		// SAFETY: The caller guarantees valid pointers.

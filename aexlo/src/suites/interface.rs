@@ -3,85 +3,77 @@ use after_effects_sys::{
 	AEGP_PFInterfaceSuite1, AEGP_PluginID, PF_Err_NONE, PF_ProgPtr,
 };
 
-use crate::DiagnosticBuilder;
+use crate::core::diagnostics::diag;
 
-unsafe extern "C" fn get_effect_layer_sys(effect_pp_ref: PF_ProgPtr, layerPH: *mut AEGP_LayerH) -> A_Err {
-	DiagnosticBuilder::new()
-		.set_name("AEGP_PFInterfaceSuite1/AEGP_GetEffectLayer")
-		.add_arg("effect_pp_ref", format!("{:#x}", effect_pp_ref as usize))
-		.add_arg("layerPH", format!("{:#x}", layerPH as usize))
-		.emit();
+unsafe extern "C" fn get_effect_layer_sys(_effect_pp_ref: PF_ProgPtr, _layerPH: *mut AEGP_LayerH) -> A_Err {
+	diag!("AEGP_PFInterfaceSuite1/AEGP_GetEffectLayer",
+		"effect_pp_ref" => format!("{:#x}", _effect_pp_ref as usize),
+		"layerPH" => format!("{:#x}", _layerPH as usize),
+	);
 
 	PF_Err_NONE as A_Err
 }
 
 unsafe extern "C" fn get_new_effect_for_effect_sys(
-	aegp_plugin_id: AEGP_PluginID,
-	effect_pp_ref: PF_ProgPtr,
-	effect_refPH: *mut AEGP_EffectRefH,
+	_aegp_plugin_id: AEGP_PluginID,
+	_effect_pp_ref: PF_ProgPtr,
+	_effect_refPH: *mut AEGP_EffectRefH,
 ) -> A_Err {
-	DiagnosticBuilder::new()
-		.set_name("AEGP_PFInterfaceSuite1/AEGP_GetNewEffectForEffect")
-		.add_arg("aegp_plugin_id", aegp_plugin_id as usize)
-		.add_arg("effect_pp_ref", format!("{:#x}", effect_pp_ref as usize))
-		.add_arg("effect_refPH", format!("{:#x}", effect_refPH as usize))
-		.emit();
+	diag!("AEGP_PFInterfaceSuite1/AEGP_GetNewEffectForEffect",
+		"aegp_plugin_id" => _aegp_plugin_id as usize,
+		"effect_pp_ref" => format!("{:#x}", _effect_pp_ref as usize),
+		"effect_refPH" => format!("{:#x}", _effect_refPH as usize),
+	);
 
 	PF_Err_NONE as A_Err
 }
 
 unsafe extern "C" fn convert_effect_to_comp_time_sys(
-	effect_pp_ref: PF_ProgPtr,
-	what_timeL: A_long,
-	time_scaleLu: A_u_long,
-	comp_timePT: *mut A_Time,
+	_effect_pp_ref: PF_ProgPtr,
+	_what_timeL: A_long,
+	_time_scaleLu: A_u_long,
+	_comp_timePT: *mut A_Time,
 ) -> A_Err {
-	DiagnosticBuilder::new()
-		.set_name("AEGP_PFInterfaceSuite1/AEGP_ConvertEffectToCompTime")
-		.add_arg("effect_pp_ref", format!("{:#x}", effect_pp_ref as usize))
-		.add_arg("what_timeL", what_timeL as usize)
-		.add_arg("time_scaleLu", time_scaleLu as usize)
-		.add_arg("comp_timePT", format!("{:#x}", comp_timePT as usize))
-		.emit();
+	diag!("AEGP_PFInterfaceSuite1/AEGP_ConvertEffectToCompTime",
+		"effect_pp_ref" => format!("{:#x}", _effect_pp_ref as usize),
+		"what_timeL" => _what_timeL as usize,
+		"time_scaleLu" => _time_scaleLu as usize,
+		"comp_timePT" => format!("{:#x}", _comp_timePT as usize),
+	);
 
 	PF_Err_NONE as A_Err
 }
 
 unsafe extern "C" fn get_effect_camera_sys(
-	effect_pp_ref: PF_ProgPtr,
-	comp_timePT: *const A_Time,
-	camera_layerPH: *mut AEGP_LayerH,
+	_effect_pp_ref: PF_ProgPtr,
+	_comp_timePT: *const A_Time,
+	_camera_layerPH: *mut AEGP_LayerH,
 ) -> A_Err {
-	DiagnosticBuilder::new()
-		.set_name("AEGP_PFInterfaceSuite1/AEGP_GetEffectCamera")
-		.add_arg("effect_pp_ref", format!("{:#x}", effect_pp_ref as usize))
-		.add_arg("comp_timePT", format!("{:#x}", comp_timePT as usize))
-		.add_arg("camera_layerPH", format!("{:#x}", camera_layerPH as usize))
-		.emit();
+	diag!("AEGP_PFInterfaceSuite1/AEGP_GetEffectCamera",
+		"effect_pp_ref" => format!("{:#x}", _effect_pp_ref as usize),
+		"comp_timePT" => format!("{:#x}", _comp_timePT as usize),
+		"camera_layerPH" => format!("{:#x}", _camera_layerPH as usize),
+	);
 
 	PF_Err_NONE as A_Err
 }
 
 unsafe extern "C" fn get_effect_camera_matrix(
-	effect_pp_ref: PF_ProgPtr,
-	comp_timePT: *const A_Time,
-	camera_matrixP: *mut A_Matrix4,
-	dist_to_image_planePF: *mut A_FpLong,
-	image_plane_widthPL: *mut A_short,
-	image_plane_heightPL: *mut A_short,
+	_effect_pp_ref: PF_ProgPtr,
+	_comp_timePT: *const A_Time,
+	_camera_matrixP: *mut A_Matrix4,
+	_dist_to_image_planePF: *mut A_FpLong,
+	_image_plane_widthPL: *mut A_short,
+	_image_plane_heightPL: *mut A_short,
 ) -> A_Err {
-	DiagnosticBuilder::new()
-		.set_name("AEGP_PFInterfaceSuite1/AEGP_GetEffectCameraMatrix")
-		.add_arg("effect_pp_ref", format!("{:#x}", effect_pp_ref as usize))
-		.add_arg("comp_timePT", format!("{:#x}", comp_timePT as usize))
-		.add_arg("camera_matrixP", format!("{:#x}", camera_matrixP as usize))
-		.add_arg(
-			"dist_to_image_planePF",
-			format!("{:#x}", dist_to_image_planePF as usize),
-		)
-		.add_arg("image_plane_widthPL", format!("{:#x}", image_plane_widthPL as usize))
-		.add_arg("image_plane_heightPL", format!("{:#x}", image_plane_heightPL as usize))
-		.emit();
+	diag!("AEGP_PFInterfaceSuite1/AEGP_GetEffectCameraMatrix",
+		"effect_pp_ref" => format!("{:#x}", _effect_pp_ref as usize),
+		"comp_timePT" => format!("{:#x}", _comp_timePT as usize),
+		"camera_matrixP" => format!("{:#x}", _camera_matrixP as usize),
+		"dist_to_image_planePF" => format!("{:#x}", _dist_to_image_planePF as usize),
+		"image_plane_widthPL" => format!("{:#x}", _image_plane_widthPL as usize),
+		"image_plane_heightPL" => format!("{:#x}", _image_plane_heightPL as usize),
+	);
 
 	PF_Err_NONE as A_Err
 }
