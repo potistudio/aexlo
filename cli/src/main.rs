@@ -34,7 +34,6 @@ COMMANDS:
         --bin                 Skip the test harness: rebuild the crate's cdylib and
                               dlopen + render it directly on save (faster, but no
                               println!/dbg!/debugger support — no filter, either)
-        --once                With --bin: a single headless render to PNG, then exit
     view   <png>       Live image window: reload a PNG whenever it changes
                        (spawned automatically by a `dev`-driven #[aexlo::preview];
                        pair manually with your own re-runner otherwise)
@@ -46,8 +45,10 @@ RENDER OPTIONS:
         --smart            Force the smart-render path
         --legacy           Force the legacy render path
 
-<plugin> is a path to the plugin artifact. A bare name (no separator) is also
-tried with the platform's extension, e.g. `SDK_Noise` -> `SDK_Noise.plugin`.
+<plugin> is a path to the plugin artifact, or a crate directory (with a
+Cargo.toml) to build its cdylib and render that — a one-shot alternative to
+`dev --bin`. A bare artifact name (no separator) is also tried with the
+platform's extension, e.g. `SDK_Noise` -> `SDK_Noise.plugin`.
 ";
 
 fn main() -> ExitCode {
@@ -104,8 +105,19 @@ fn resolve_plugin(arg: &str) -> PathBuf {
 	direct
 }
 
+/// Load a plugin artifact, or — if `plugin_arg` is a crate directory — build
+/// its cdylib first. This is what lets `render`/`about`/`params` take either
+/// a prebuilt `.plugin`/`.aex`/`.dll` or a crate's source directory directly.
 fn load(plugin_arg: &str) -> Result<PluginInstance> {
 	let path = resolve_plugin(plugin_arg);
+	if path.is_dir() {
+		let manifest = path.join("Cargo.toml");
+		if manifest.exists() {
+			let artifact = watch::build_cdylib(&manifest)?;
+			return PluginInstance::try_load(&artifact)
+				.with_context(|| format!("loading built plugin {}", artifact.display()));
+		}
+	}
 	PluginInstance::try_load(&path).with_context(|| format!("loading plugin {}", path.display()))
 }
 
@@ -206,11 +218,9 @@ fn cmd_dev(args: impl Iterator<Item = String>) -> Result<()> {
 	let mut dir: Option<String> = None;
 	let mut filter: Option<String> = None;
 	let mut bin = false;
-	let mut once = false;
 	for arg in args {
 		match arg.as_str() {
 			"--bin" => bin = true,
-			"--once" => once = true,
 			other if other.starts_with('-') => bail!("unknown option '{other}'"),
 			_ if dir.is_none() => dir = Some(arg),
 			_ if filter.is_none() => filter = Some(arg),
@@ -223,15 +233,8 @@ fn cmd_dev(args: impl Iterator<Item = String>) -> Result<()> {
 		if filter.is_some() {
 			bail!("dev --bin: no test filter — it doesn't run the test harness");
 		}
-		if once {
-			watch::render_once(Path::new(&dir))
-		} else {
-			watch::run(Path::new(&dir))
-		}
+		watch::run(Path::new(&dir))
 	} else {
-		if once {
-			bail!("dev: --once only applies with --bin");
-		}
 		dev::run(Path::new(&dir), filter.as_deref())
 	}
 }

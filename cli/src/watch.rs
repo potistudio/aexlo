@@ -103,27 +103,6 @@ pub fn run(crate_dir: &Path) -> Result<()> {
 	Ok(())
 }
 
-/// Headless single shot: build the crate, render one frame, write a PNG, exit.
-/// The window-less counterpart to [`run`], handy for CI or a quick check.
-pub fn render_once(crate_dir: &Path) -> Result<()> {
-	let manifest = crate_dir.join("Cargo.toml");
-	if !manifest.exists() {
-		bail!("no Cargo.toml at {} — pass a crate directory", crate_dir.display());
-	}
-
-	let (rgba, w, h) = build_and_render(&manifest, 1)?;
-
-	let out = crate_dir.join("target").join("aexlo-preview").join("watch-once.png");
-	if let Some(parent) = out.parent() {
-		std::fs::create_dir_all(parent).ok();
-	}
-	image::save_buffer(&out, &rgba, w, h, image::ColorType::Rgba8)
-		.with_context(|| format!("writing {}", out.display()))?;
-
-	println!("aexlo dev --bin --once: rendered {w}×{h} → {}", out.display());
-	Ok(())
-}
-
 /// Build the crate's cdylib, load it, render one frame, and hand back RGBA8.
 fn build_and_render(manifest: &Path, generation: u64) -> Result<(Vec<u8>, u32, u32)> {
 	let artifact = build_cdylib(manifest)?;
@@ -148,7 +127,7 @@ fn build_and_render(manifest: &Path, generation: u64) -> Result<(Vec<u8>, u32, u
 }
 
 /// Run `cargo build` for `manifest` and return the path to its cdylib artifact.
-fn build_cdylib(manifest: &Path) -> Result<PathBuf> {
+pub(crate) fn build_cdylib(manifest: &Path) -> Result<PathBuf> {
 	use std::process::{Command, Stdio};
 
 	let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
