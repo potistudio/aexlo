@@ -817,17 +817,20 @@ impl PluginInstance {
 	//==== Setter / Getter =================================
 
 	/// Set a parameter value by index.
-	/// `index` must be 1 or greater (index 0 is the input layer, not settable).
+	///
+	/// Indices follow the plugin's own parameter order — the same space used by
+	/// [`Self::get_param`], [`Self::param_values`], and [`Self::param_by_index`]:
+	/// index 0 is the implicit input layer (not settable), real parameters start
+	/// at 1.
 	pub fn set_param(&mut self, index: usize, value: ParamValue) -> Result<()> {
-		let internal = index + 1;
-		if internal >= self.params.len() {
+		if index == 0 || index >= self.params.len() {
 			return Err(AexloError::ParamIndexOutOfBounds {
 				index,
-				max: self.param_count(),
+				max: self.params.len().saturating_sub(1),
 			});
 		}
 
-		let target = &mut self.params[internal];
+		let target = &mut self.params[index];
 
 		// Reject a value whose variant doesn't match the parameter's declared type,
 		// so we never write the wrong union member.
@@ -843,7 +846,9 @@ impl PluginInstance {
 		// SAFETY: the union variant was verified against `param_type` above.
 		match value {
 			ParamValue::Float(v) => target.u.fs_d.value = v,
-			ParamValue::Fixed(v) => target.u.fd.value = utils::f32_to_q31(v),
+			// `PF_FixedSliderDef::value` is a `PF_Fixed` (16.16 fixed point), the
+			// same encoding as ANGLE/POINT — not Q31.
+			ParamValue::Fixed(v) => target.u.fd.value = utils::f32_to_fixed16(v),
 			ParamValue::Slider(v) => target.u.sd.value = v,
 			ParamValue::Checkbox(v) => target.u.bd.value = v as i32,
 			ParamValue::Popup(v) => target.u.pd.value = v,
@@ -894,31 +899,28 @@ impl PluginInstance {
 		self.call_plugin(RawCommand::UpdateParamsUi, null_mut())
 	}
 
-	/// Returns all parameter values as `(index, value)` pairs.
-	/// Index 0 (input layer) and parameters with unknown types are excluded.
+	/// Returns all parameter values as `(index, value)` pairs, using the same
+	/// index space as [`Self::set_param`] / [`Self::get_param`].
+	/// Index 0 (the input layer) and parameters with unknown types are excluded.
 	pub fn param_values(&self) -> Vec<(usize, ParamValue)> {
 		(1..self.params.len())
 			.filter_map(|i| self.get_param(i).map(|v| (i, v)))
 			.collect()
 	}
 
-	/// Get a parameter value by index.
-	/// Returns `None` if the index is out of bounds or the param type is unknown.
+	/// Get a parameter value by index (same index space as [`Self::set_param`]:
+	/// index 0 is the input layer, real parameters start at 1).
+	/// Returns `None` if the index is out of bounds or the param type is unknown
+	/// (which includes index 0, the input layer).
 	pub fn get_param(&self, index: usize) -> Option<ParamValue> {
-		let internal_index = index + 1; // Skip the index 0 because it is a input layer
-		if internal_index >= self.params.len() {
-			return None;
-		}
-
-		let param = &self.params[internal_index];
-		let param_type = param.param_type;
+		let param = self.params.get(index)?;
 
 		// SAFETY: the union variant is selected based on `param_type`.
 		unsafe {
 			match param.param_type {
 				t if t == ParamType::FloatSlider as PF_ParamType => Some(ParamValue::Float(param.u.fs_d.value)),
 				t if t == ParamType::FixSlider as PF_ParamType => {
-					Some(ParamValue::Fixed(utils::q31_to_f32(param.u.fd.value)))
+					Some(ParamValue::Fixed(utils::fixed16_to_f32(param.u.fd.value)))
 				}
 				t if t == ParamType::Slider as PF_ParamType => Some(ParamValue::Slider(param.u.sd.value)),
 				t if t == ParamType::CheckBox as PF_ParamType => Some(ParamValue::Checkbox(param.u.bd.value != 0)),
@@ -983,7 +985,8 @@ impl PluginInstance {
 		&self.params
 	}
 
-	/// Get a specific instance parameter by index.
+	/// Get a specific instance parameter by index (same index space as
+	/// [`Self::set_param`]: index 0 is the input layer, real parameters start at 1).
 	pub fn param_by_index(&self, index: usize) -> Option<&PF_ParamDef> {
 		self.params.get(index)
 	}
@@ -1385,5 +1388,63 @@ impl PluginInstance {
 		//* -------------------------------------------- *//
 
 		Ok(())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// A zeroed `PF_ParamDef` of the given type, bypassing `add_instance_param`'s
+	/// default-normalisation concerns (all defaults are zero anyway).
+	fn param_of_type(param_type: ParamType) -> PF_ParamDef {
+		let mut def: PF_ParamDef = unsafe { std::mem::zeroed() };
+		def.param_type = param_type as PF_ParamType;
+		def
+	}
+
+	/// An instance with no plugin loaded: params[0] is the implicit input layer.
+	fn bare_instance() -> PluginInstance {
+		PluginInstance::new(Path::new("<test>"))
+	}
+
+	#[test]
+	fn param_index_space_is_shared_across_accessors() {
+		let mut fx = bare_instance();
+		let mut float_def = param_of_type(ParamType::FloatSlider);
+		float_def.u.fs_d.value = 1.5;
+		fx.add_instance_param(float_def);
+
+		// Index 0 is the input layer: unreadable, unsettable.
+		assert!(fx.get_param(0).is_none());
+		assert!(fx.set_param(0, ParamValue::Float(0.0)).is_err());
+
+		// The first real parameter lives at index 1 in every accessor.
+		assert_eq!(fx.get_param(1), Some(ParamValue::Float(1.5)));
+		assert_eq!(fx.param_values(), vec![(1, ParamValue::Float(1.5))]);
+		assert_eq!(
+			fx.param_by_index(1).map(|def| def.param_type),
+			Some(ParamType::FloatSlider as PF_ParamType)
+		);
+
+		fx.set_param(1, ParamValue::Float(2.0)).unwrap();
+		assert_eq!(fx.get_param(1), Some(ParamValue::Float(2.0)));
+
+		// Out of bounds and type mismatches are rejected.
+		assert!(fx.set_param(2, ParamValue::Float(0.0)).is_err());
+		assert!(fx.set_param(1, ParamValue::Checkbox(true)).is_err());
+	}
+
+	#[test]
+	fn fixed_slider_uses_16_16_fixed_point() {
+		let mut fx = bare_instance();
+		fx.add_instance_param(param_of_type(ParamType::FixSlider));
+
+		fx.set_param(1, ParamValue::Fixed(2.5)).unwrap();
+
+		// The raw union value must be PF_Fixed (16.16), the encoding plugins read.
+		let raw = unsafe { fx.param_by_index(1).unwrap().u.fd.value };
+		assert_eq!(raw, 2 * 65536 + 32768);
+		assert_eq!(fx.get_param(1), Some(ParamValue::Fixed(2.5)));
 	}
 }
