@@ -29,12 +29,15 @@ COMMANDS:
     render <plugin>		Render a frame and write it to a PNG
     about  <plugin>		Print the plugin's ABOUT text
     params <plugin>    List the plugin's parameters (index, name, value)
-    watch  <crate>     Live-preview a plugin crate: rebuild + render on save
-                       (add --once for a single headless render to PNG)
+    dev    <crate> [filter]   Rerun a #[aexlo::preview] test on save + live viewer
+                              (built-in `bacon` replacement; add a name to filter tests)
+        --bin                 Skip the test harness: rebuild the crate's cdylib and
+                              dlopen + render it directly on save (faster, but no
+                              println!/dbg!/debugger support — no filter, either)
+        --once                With --bin: a single headless render to PNG, then exit
     view   <png>       Live image window: reload a PNG whenever it changes
-                       (pair with `bacon` re-running a #[aexlo::preview])
-    dev    <crate>     Rerun a #[aexlo::preview] test on save + live viewer
-                       (built-in `bacon` replacement; add a name to filter tests)
+                       (spawned automatically by a `dev`-driven #[aexlo::preview];
+                       pair manually with your own re-runner otherwise)
 
 RENDER OPTIONS:
     -i, --input  <png>     Feed a PNG as the effect's input layer
@@ -72,7 +75,6 @@ fn run() -> Result<()> {
 		"about" => cmd_about(args),
 		"params" => cmd_params(args),
 		"render" => cmd_render(args),
-		"watch" => cmd_watch(args),
 		"view" => cmd_view(args),
 		"dev" => cmd_dev(args),
 		other => {
@@ -195,40 +197,43 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 	Ok(())
 }
 
-fn cmd_watch(args: impl Iterator<Item = String>) -> Result<()> {
-	let mut dir: Option<String> = None;
-	let mut once = false;
-	for arg in args {
-		match arg.as_str() {
-			"--once" => once = true,
-			other if other.starts_with('-') => bail!("unknown option '{other}'"),
-			_ => {
-				if dir.replace(arg).is_some() {
-					bail!("watch: expected a single <crate> directory");
-				}
-			}
-		}
-	}
-	let dir = dir.context("watch: missing <crate> directory")?;
-	if once {
-		watch::render_once(Path::new(&dir))
-	} else {
-		watch::run(Path::new(&dir))
-	}
-}
-
 fn cmd_view(mut args: impl Iterator<Item = String>) -> Result<()> {
 	let path = args.next().context("view: missing <png> path")?;
 	view::run(Path::new(&path))
 }
 
-fn cmd_dev(mut args: impl Iterator<Item = String>) -> Result<()> {
-	let dir = args.next().context("dev: missing <crate> directory")?;
-	let filter = args.next();
-	if args.next().is_some() {
-		bail!("dev: expected <crate> [filter]");
+fn cmd_dev(args: impl Iterator<Item = String>) -> Result<()> {
+	let mut dir: Option<String> = None;
+	let mut filter: Option<String> = None;
+	let mut bin = false;
+	let mut once = false;
+	for arg in args {
+		match arg.as_str() {
+			"--bin" => bin = true,
+			"--once" => once = true,
+			other if other.starts_with('-') => bail!("unknown option '{other}'"),
+			_ if dir.is_none() => dir = Some(arg),
+			_ if filter.is_none() => filter = Some(arg),
+			_ => bail!("dev: expected <crate> [filter]"),
+		}
 	}
-	dev::run(Path::new(&dir), filter.as_deref())
+	let dir = dir.context("dev: missing <crate> directory")?;
+
+	if bin {
+		if filter.is_some() {
+			bail!("dev --bin: no test filter — it doesn't run the test harness");
+		}
+		if once {
+			watch::render_once(Path::new(&dir))
+		} else {
+			watch::run(Path::new(&dir))
+		}
+	} else {
+		if once {
+			bail!("dev: --once only applies with --bin");
+		}
+		dev::run(Path::new(&dir), filter.as_deref())
+	}
 }
 
 /// Pull the value that follows a flag like `--output`, erroring if it's missing.

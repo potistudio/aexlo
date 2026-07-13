@@ -1,4 +1,4 @@
-//! `aexlo watch <crate>` — a live preview window.
+//! `aexlo dev <crate> --bin` — a live preview window.
 //!
 //! Watches a plugin crate's sources; on every save it rebuilds the cdylib,
 //! `try_load`s the fresh artifact, renders a frame, and blits it into a single
@@ -28,7 +28,7 @@ pub fn run(crate_dir: &Path) -> Result<()> {
 
 	let (init_w, init_h) = (1280usize, 720usize);
 	let mut window = Window::new(
-		"aexlo watch — building…",
+		"aexlo dev --bin — building…",
 		init_w,
 		init_h,
 		// Float above the editor so the live preview stays visible while you work.
@@ -59,7 +59,7 @@ pub fn run(crate_dir: &Path) -> Result<()> {
 	let mut pending: Option<Instant> = Some(Instant::now()); // build once on startup
 
 	println!(
-		"aexlo watch: watching {} (Esc or close window to quit)",
+		"aexlo dev --bin: watching {} (Esc or close window to quit)",
 		src_dir.display()
 	);
 
@@ -78,17 +78,17 @@ pub fn run(crate_dir: &Path) -> Result<()> {
 		{
 			pending = None;
 			generation += 1;
-			window.set_title("aexlo watch — building…");
+			window.set_title("aexlo dev --bin — building…");
 
 			match build_and_render(&manifest, generation) {
 				Ok((rgba, w, h)) => {
 					framebuf = rgba_to_argb(&rgba);
 					frame_dims = (w as usize, h as usize);
-					window.set_title(&format!("aexlo watch — {w}×{h} — build #{generation}"));
-					println!("aexlo watch: build #{generation} → rendered {w}×{h}");
+					window.set_title(&format!("aexlo dev --bin — {w}×{h} — build #{generation}"));
+					println!("aexlo dev --bin: build #{generation} → rendered {w}×{h}");
 				}
 				Err(err) => {
-					window.set_title("aexlo watch — build failed (see terminal)");
+					window.set_title("aexlo dev --bin — build failed (see terminal)");
 					eprintln!("\n─── build/render failed ───\n{err:#}\n");
 				}
 			}
@@ -120,7 +120,7 @@ pub fn render_once(crate_dir: &Path) -> Result<()> {
 	image::save_buffer(&out, &rgba, w, h, image::ColorType::Rgba8)
 		.with_context(|| format!("writing {}", out.display()))?;
 
-	println!("aexlo watch --once: rendered {w}×{h} → {}", out.display());
+	println!("aexlo dev --bin --once: rendered {w}×{h} → {}", out.display());
 	Ok(())
 }
 
@@ -164,7 +164,11 @@ fn build_cdylib(manifest: &Path) -> Result<PathBuf> {
 	let mut cdylib: Option<PathBuf> = None;
 	for message in cargo_metadata::Message::parse_stream(reader) {
 		if let cargo_metadata::Message::CompilerArtifact(artifact) = message.context("parsing cargo output")?
-			&& artifact.target.kind.iter().any(|k| *k == cargo_metadata::TargetKind::CDyLib)
+			&& artifact
+				.target
+				.kind
+				.iter()
+				.any(|k| *k == cargo_metadata::TargetKind::CDyLib)
 		{
 			for file in artifact.filenames {
 				let path = file.into_std_path_buf();

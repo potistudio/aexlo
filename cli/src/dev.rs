@@ -5,8 +5,8 @@
 //! `AEXLO_PREVIEW=live` set so the test's own `ensure_live_viewer` call pops (or
 //! keeps updating) an `aexlo view` window. Each run is a fresh process driving
 //! the in-process `from_entry` render path — not a `dlopen`'d cdylib like
-//! `aexlo watch` — so `println!`, `dbg!`, and debugger attachment all work
-//! normally against a single run.
+//! `aexlo dev --bin` (see `watch.rs`) — so `println!`, `dbg!`, and debugger
+//! attachment all work normally against a single run.
 
 use std::path::Path;
 use std::process::{Child, Command};

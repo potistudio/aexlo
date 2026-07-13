@@ -17,7 +17,7 @@ aexlo = { path = "../aexlo" }
 anyhow = "1.0.103"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 
-# `aexlo watch`: live preview window (minifb), source watching (notify), and
+# `aexlo dev --bin`: live preview window (minifb), source watching (notify), and
 # locating the freshly built cdylib artifact (cargo_metadata).
 minifb = "0.28.0"
 notify = "8.2.0"
