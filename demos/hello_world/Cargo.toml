@@ -1,0 +1,22 @@
+[package]
+name = "aexlo_demo_hello_world"
+version = "1.0.0"
+edition = "2024"
+description = "Development demo using aexlo"
+authors = ["potistudio <potistudio@proton.me>"]
+publish = false
+
+[lib]
+name = "aexlo_demo_hello_world"
+crate-type = ["cdylib"]
+
+[dependencies]
+after-effects = "0.4.0"
+
+[build-dependencies]
+pipl = "0.1.1"
+
+[dev-dependencies]
+# In-process preview harness: drive the plugin via `PluginInstance::from_entry_raw`
+# in a `#[test]`, no cdylib/bundle/dlopen. See `src/lib.rs` `mod preview`.
+aexlo = { workspace = true }
