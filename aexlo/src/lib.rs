@@ -41,6 +41,7 @@ mod core;
 mod gpu;
 mod host;
 mod instance;
+mod preview;
 mod utils;
 
 pub(crate) mod suites;
@@ -62,7 +63,10 @@ pub use instance::PluginEntryPoint;
 /// Preview helpers used by the [`macro@preview`] attribute macro (and usable
 /// directly): where to write a preview PNG, whether one was requested, how to
 /// open it, and how to drive a live `aexlo view` window.
-pub use instance::{
+///
+/// These are dev-tooling, not plugin hosting; they live in their own module
+/// (see `src/preview.rs`) and are re-exported here for the macro's benefit.
+pub use preview::{
 	PreviewMode, ViewerLock, acquire_viewer_lock, ensure_live_viewer, open_in_viewer, preview_mode, preview_path,
 	preview_requested, viewer_is_running,
 };
