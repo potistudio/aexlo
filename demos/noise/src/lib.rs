@@ -62,9 +62,6 @@ fn hash(mut x: u32) -> u32 {
 	x
 }
 
-// In-process preview: drive this plugin through aexlo with no cdylib/bundle/dlopen.
-// Unlike the hello_world demo (which draws nothing), this one paints noise, so the
-// preview PNG is a real image — the point being to *see* the render result.
 #[cfg(test)]
 mod preview {
 	#[test]

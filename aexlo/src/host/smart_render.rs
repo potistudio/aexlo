@@ -2,9 +2,9 @@ use std::ptr::{null, null_mut};
 
 use after_effects_sys::*;
 
+use crate::PluginInstance;
 use crate::core::constants::{DEFAULT_HEIGHT as HEIGHT, DEFAULT_WIDTH as WIDTH};
 use crate::core::diagnostics::diag;
-use crate::PluginInstance;
 
 //==== Stub implementations ================================
 unsafe extern "C" fn checkout_layer_stub(
@@ -297,7 +297,12 @@ impl SmartRenderData {
 	///
 	/// `gpu_data` is the handle the plugin returned from `PF_Cmd_GPU_DEVICE_SETUP`;
 	/// `framework` is the active backend's `PF_GPU_Framework` constant.
-	pub fn configure_gpu(&mut self, gpu_data: *const std::os::raw::c_void, device_index: A_u_long, framework: PF_GPU_Framework) {
+	pub fn configure_gpu(
+		&mut self,
+		gpu_data: *const std::os::raw::c_void,
+		device_index: A_u_long,
+		framework: PF_GPU_Framework,
+	) {
 		self.pre_input.what_gpu = framework;
 		self.pre_input.device_index = device_index;
 		self.pre_input.bitdepth = 32;

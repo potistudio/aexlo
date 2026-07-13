@@ -29,12 +29,6 @@ impl AdobePluginGlobal for Plugin {
 	}
 }
 
-// In-process preview with no cdylib/bundle/dlopen and no `#[test]` boilerplate.
-// This plugin draws nothing, so the preview is a black frame -- which is exactly
-// the point: it shows the render result faithfully.
-//
-//   cargo test -p aexlo_demo_hello_world -- --nocapture
-//   AEXLO_PREVIEW=1 cargo test -p aexlo_demo_hello_world -- --nocapture  # + opens it
 #[cfg(test)]
 mod preview {
 	#[aexlo::preview]

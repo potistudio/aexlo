@@ -35,7 +35,10 @@ static GPU_WORLD_PTRS: LazyLock<Mutex<HashSet<usize>>> = LazyLock::new(|| Mutex:
 
 /// Whether `world_ptr` is currently a GPU (float) world.
 pub fn is_gpu_world(world_ptr: usize) -> bool {
-	GPU_WORLD_PTRS.lock().map(|set| set.contains(&world_ptr)).unwrap_or(false)
+	GPU_WORLD_PTRS
+		.lock()
+		.map(|set| set.contains(&world_ptr))
+		.unwrap_or(false)
 }
 
 fn register_gpu_world(world_ptr: usize) {
@@ -319,10 +322,7 @@ mod imp {
 		/// Ensure a device buffer of exactly `byte_len` bytes backs `world_ptr`,
 		/// (re)allocating when the size changed, and mark the world as a GPU world.
 		pub fn ensure_buffer(&mut self, world_ptr: usize, byte_len: usize) -> bool {
-			let needs_alloc = self
-				.buffers
-				.get(&world_ptr)
-				.is_none_or(|b| b.len() != byte_len);
+			let needs_alloc = self.buffers.get(&world_ptr).is_none_or(|b| b.len() != byte_len);
 
 			if needs_alloc {
 				match self.stream.alloc_zeros::<u8>(byte_len) {

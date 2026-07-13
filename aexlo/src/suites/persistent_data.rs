@@ -23,8 +23,8 @@ use std::ffi::CStr;
 use std::sync::{LazyLock, Mutex};
 
 use after_effects_sys::{
-	AEGP_MemHandle, AEGP_PersistentBlobH, AEGP_PersistentDataSuite3, AEGP_PluginID, A_Boolean,
-	A_FpLong, A_char, A_Err, A_long, A_u_long,
+	A_Boolean, A_Err, A_FpLong, A_char, A_long, A_u_long, AEGP_MemHandle, AEGP_PersistentBlobH,
+	AEGP_PersistentDataSuite3, AEGP_PluginID,
 };
 
 /// A single stored preference value, tagged by the setter that wrote it.
@@ -36,8 +36,7 @@ enum Value {
 }
 
 /// Process-wide preference store, keyed by `(section, value)`.
-static STORE: LazyLock<Mutex<HashMap<(String, String), Value>>> =
-	LazyLock::new(|| Mutex::new(HashMap::new()));
+static STORE: LazyLock<Mutex<HashMap<(String, String), Value>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Opaque, never-dereferenced token handed back as the "application blob".
 ///
@@ -111,11 +110,15 @@ unsafe extern "C" fn get_section_key_by_index(
 	let mut sections: Vec<String> = store.keys().map(|(s, _)| s.clone()).collect();
 	sections.sort();
 	sections.dedup();
-	let name = sections
-		.get(section_index as usize)
-		.cloned()
-		.unwrap_or_default();
-	unsafe { write_str(name.as_bytes(), section_keyZ, max_section_size.max(0) as A_u_long, std::ptr::null_mut()) };
+	let name = sections.get(section_index as usize).cloned().unwrap_or_default();
+	unsafe {
+		write_str(
+			name.as_bytes(),
+			section_keyZ,
+			max_section_size.max(0) as A_u_long,
+			std::ptr::null_mut(),
+		)
+	};
 	0
 }
 
@@ -165,7 +168,14 @@ unsafe extern "C" fn get_value_key_by_index(
 		.collect();
 	values.sort();
 	let name = values.get(key_index as usize).cloned().unwrap_or_default();
-	unsafe { write_str(name.as_bytes(), value_keyZ, max_key_size.max(0) as A_u_long, std::ptr::null_mut()) };
+	unsafe {
+		write_str(
+			name.as_bytes(),
+			value_keyZ,
+			max_key_size.max(0) as A_u_long,
+			std::ptr::null_mut(),
+		)
+	};
 	0
 }
 

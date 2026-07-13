@@ -25,8 +25,8 @@ USAGE:
     aexlo <COMMAND> <plugin> [OPTIONS]
 
 COMMANDS:
-    render <plugin>    Render a frame and write it to a PNG
-    about  <plugin>    Print the plugin's ABOUT text
+    render <plugin>		Render a frame and write it to a PNG
+    about  <plugin>		Print the plugin's ABOUT text
     params <plugin>    List the plugin's parameters (index, name, value)
     watch  <crate>     Live-preview a plugin crate: rebuild + render on save
                        (add --once for a single headless render to PNG)
@@ -158,8 +158,7 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 
 	if let Some(path) = &input {
 		let (bytes, w, h) = load_input(path)?;
-		let layer = Layer::<Depth8>::from_raw(bytes, w, h)
-			.map_err(|e| anyhow::anyhow!("building input layer: {e}"))?;
+		let layer = Layer::<Depth8>::from_raw(bytes, w, h).map_err(|e| anyhow::anyhow!("building input layer: {e}"))?;
 		instance.set_input(layer);
 	}
 
@@ -228,8 +227,13 @@ fn next_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<Str
 
 /// Split a `--set` argument of the form `<index>=<value>`.
 fn parse_set(raw: &str) -> Result<(usize, String)> {
-	let (idx, value) = raw.split_once('=').with_context(|| format!("--set expects <index>=<value>, got '{raw}'"))?;
-	let index: usize = idx.trim().parse().with_context(|| format!("invalid parameter index '{idx}'"))?;
+	let (idx, value) = raw
+		.split_once('=')
+		.with_context(|| format!("--set expects <index>=<value>, got '{raw}'"))?;
+	let index: usize = idx
+		.trim()
+		.parse()
+		.with_context(|| format!("invalid parameter index '{idx}'"))?;
 	Ok((index, value.to_string()))
 }
 
@@ -312,6 +316,11 @@ fn describe(value: &ParamValue) -> String {
 		ParamValue::Angle(v) => format!("angle    {v}"),
 		ParamValue::Checkbox(v) => format!("checkbox {v}"),
 		ParamValue::Point { x, y } => format!("point    {x},{y}"),
-		ParamValue::Color { red, green, blue, alpha } => format!("color    {red},{green},{blue},{alpha}"),
+		ParamValue::Color {
+			red,
+			green,
+			blue,
+			alpha,
+		} => format!("color    {red},{green},{blue},{alpha}"),
 	}
 }

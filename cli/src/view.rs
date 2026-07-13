@@ -22,7 +22,10 @@ pub fn run(path: &Path) -> Result<()> {
 	// spawn (e.g. from `#[aexlo::preview]` with AEXLO_PREVIEW=live) just exits and
 	// lets the running window pick up the change. `_lock` releases on return.
 	let Some(_lock) = aexlo::acquire_viewer_lock(path) else {
-		println!("aexlo view: already watching {} — leaving it to the running window", path.display());
+		println!(
+			"aexlo view: already watching {} — leaving it to the running window",
+			path.display()
+		);
 		return Ok(());
 	};
 
@@ -32,20 +35,29 @@ pub fn run(path: &Path) -> Result<()> {
 		init_w,
 		init_h,
 		// Float above the editor so the live preview stays visible while you work.
-		WindowOptions { resize: true, topmost: true, scale_mode: ScaleMode::AspectRatioStretch, ..Default::default() },
+		WindowOptions {
+			resize: true,
+			topmost: true,
+			scale_mode: ScaleMode::AspectRatioStretch,
+			..Default::default()
+		},
 	)
 	.map_err(|e| anyhow!("opening view window: {e}"))?;
 
 	// Watch the parent directory, not the file inode: editors (and `image`'s own
 	// write) often replace the file, after which inode-level watches go silent.
 	let (tx, rx) = mpsc::channel();
-	let mut watcher =
-		notify::recommended_watcher(move |res| {
-			let _ = tx.send(res);
-		})
-		.context("creating file watcher")?;
-	let dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
-	watcher.watch(dir, RecursiveMode::NonRecursive).with_context(|| format!("watching {}", dir.display()))?;
+	let mut watcher = notify::recommended_watcher(move |res| {
+		let _ = tx.send(res);
+	})
+	.context("creating file watcher")?;
+	let dir = path
+		.parent()
+		.filter(|p| !p.as_os_str().is_empty())
+		.unwrap_or_else(|| Path::new("."));
+	watcher
+		.watch(dir, RecursiveMode::NonRecursive)
+		.with_context(|| format!("watching {}", dir.display()))?;
 
 	let mut framebuf = vec![0u32; init_w * init_h];
 	let mut frame_dims = (init_w, init_h);
@@ -90,7 +102,9 @@ pub fn run(path: &Path) -> Result<()> {
 
 /// Decode a PNG into minifb's `0x00RRGGBB` buffer plus its dimensions.
 fn load_png(path: &Path) -> Result<(Vec<u32>, usize, usize)> {
-	let img = image::open(path).with_context(|| format!("opening {}", path.display()))?.to_rgba8();
+	let img = image::open(path)
+		.with_context(|| format!("opening {}", path.display()))?
+		.to_rgba8();
 	let (w, h) = img.dimensions();
 	let buf = img
 		.chunks_exact(4)

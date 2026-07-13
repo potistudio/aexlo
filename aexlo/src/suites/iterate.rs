@@ -181,6 +181,10 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 // Stub Implementations (Logging Only)
 // ============================================================================
 
+// Unimplemented iterate variants return an error instead of PF_Err_NONE:
+// silently skipping the plugin's per-pixel work produces a blank/stale frame
+// with no indication of why, which is far harder to debug than a failed render.
+
 unsafe extern "C" fn iterate_origin_stub(
 	_in_data: *mut PF_InData,
 	_progress_base: A_long,
@@ -200,8 +204,8 @@ unsafe extern "C" fn iterate_origin_stub(
 	>,
 	_dst: *mut PF_EffectWorld,
 ) -> PF_Err {
-	log::warn!("STUB: iterate_origin called");
-	PF_Err_NONE as PF_Err
+	log::error!("iterate_origin is not implemented; failing the call rather than silently skipping it");
+	PF_Err_BAD_CALLBACK_PARAM as PF_Err
 }
 
 unsafe extern "C" fn iterate_lut_stub(
@@ -216,8 +220,8 @@ unsafe extern "C" fn iterate_lut_stub(
 	_b_lut0: *mut A_u_char,
 	_dst: *mut PF_EffectWorld,
 ) -> PF_Err {
-	log::warn!("STUB: iterate_lut called");
-	PF_Err_NONE as PF_Err
+	log::error!("iterate_lut is not implemented; failing the call rather than silently skipping it");
+	PF_Err_BAD_CALLBACK_PARAM as PF_Err
 }
 
 unsafe extern "C" fn iterate_origin_non_clip_src_stub(
@@ -239,19 +243,55 @@ unsafe extern "C" fn iterate_origin_non_clip_src_stub(
 	>,
 	_dst: *mut PF_EffectWorld,
 ) -> PF_Err {
-	log::warn!("STUB: iterate_origin_non_clip_src called");
-	PF_Err_NONE as PF_Err
+	log::error!("iterate_origin_non_clip_src is not implemented; failing the call rather than silently skipping it");
+	PF_Err_BAD_CALLBACK_PARAM as PF_Err
 }
 
-unsafe extern "C" fn iterate_generic_stub(
-	_iterationsL: A_long,
-	_refconPV: *mut c_void,
-	_fn_func: ::std::option::Option<
+/// Real `iterate_generic`: run `fn_func` for every `i` in `0..iterationsL`,
+/// in parallel, passing the rayon worker index as `thread_indexL` (plugins use
+/// it to index per-thread scratch buffers, so it must be dense and small).
+unsafe extern "C" fn iterate_generic_sys(
+	iterationsL: A_long,
+	refconPV: *mut c_void,
+	fn_func: ::std::option::Option<
 		unsafe extern "C" fn(refconPV: *mut c_void, thread_indexL: A_long, i: A_long, iterationsL: A_long) -> PF_Err,
 	>,
 ) -> PF_Err {
-	log::warn!("STUB: iterate_generic called");
-	PF_Err_NONE as PF_Err
+	let Some(func) = fn_func else {
+		log::error!("iterate_generic: fn_func is null");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	};
+
+	if iterationsL <= 0 {
+		return PF_Err_NONE as PF_Err;
+	}
+
+	// Cast refcon to usize so it can cross the rayon closure; the plugin owns
+	// its thread-safety by contract (same as `iterate`).
+	let refcon_addr = refconPV as usize;
+
+	#[cfg(target_os = "macos")]
+	let error_capsule = AtomicU32::new(PF_Err_NONE);
+	#[cfg(not(target_os = "macos"))]
+	let error_capsule = AtomicI32::new(PF_Err_NONE);
+
+	(0..iterationsL).into_par_iter().for_each(|i| {
+		if error_capsule.load(Ordering::Relaxed) != PF_Err_NONE {
+			return;
+		}
+
+		let thread_index = rayon::current_thread_index().unwrap_or(0) as A_long;
+
+		// SAFETY: `func` is the plugin's iteration callback; each `i` is visited
+		// exactly once and the plugin guarantees refcon thread-safety per the
+		// iterate_generic contract.
+		let err = unsafe { func(refcon_addr as *mut c_void, thread_index, i, iterationsL) };
+		if err != PF_Err_NONE as PF_Err {
+			error_capsule.store(err as _, Ordering::Relaxed);
+		}
+	});
+
+	error_capsule.load(Ordering::Relaxed) as PF_Err
 }
 
 // ============================================================================
@@ -268,6 +308,53 @@ pub const fn create_iterate_8_suite_2() -> PF_Iterate8Suite2 {
 		iterate_origin: Some(iterate_origin_stub),
 		iterate_lut: Some(iterate_lut_stub),
 		iterate_origin_non_clip_src: Some(iterate_origin_non_clip_src_stub),
-		iterate_generic: Some(iterate_generic_stub),
+		iterate_generic: Some(iterate_generic_sys),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::sync::atomic::AtomicI64;
+
+	unsafe extern "C" fn accumulate(refcon: *mut c_void, _thread: A_long, i: A_long, _n: A_long) -> PF_Err {
+		let sum = unsafe { &*(refcon as *const AtomicI64) };
+		sum.fetch_add(i as i64, Ordering::Relaxed);
+		PF_Err_NONE as PF_Err
+	}
+
+	unsafe extern "C" fn fail_at_zero(_refcon: *mut c_void, _thread: A_long, i: A_long, _n: A_long) -> PF_Err {
+		if i == 0 {
+			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+		} else {
+			PF_Err_NONE as PF_Err
+		}
+	}
+
+	#[test]
+	fn iterate_generic_visits_every_index_once() {
+		let sum = AtomicI64::new(0);
+		let err = unsafe { iterate_generic_sys(100, &sum as *const _ as *mut c_void, Some(accumulate)) };
+		assert_eq!(err, PF_Err_NONE as PF_Err);
+		// 0 + 1 + ... + 99
+		assert_eq!(sum.load(Ordering::Relaxed), 4950);
+	}
+
+	#[test]
+	fn iterate_generic_propagates_callback_errors() {
+		let err = unsafe { iterate_generic_sys(8, std::ptr::null_mut(), Some(fail_at_zero)) };
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as PF_Err);
+	}
+
+	#[test]
+	fn iterate_generic_rejects_null_fn_and_accepts_zero_iterations() {
+		assert_eq!(
+			unsafe { iterate_generic_sys(10, std::ptr::null_mut(), None) },
+			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+		);
+		assert_eq!(
+			unsafe { iterate_generic_sys(0, std::ptr::null_mut(), Some(accumulate)) },
+			PF_Err_NONE as PF_Err
+		);
 	}
 }

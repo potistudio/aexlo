@@ -39,8 +39,13 @@ pub fn preview_mode() -> PreviewMode {
 
 /// Sibling lock file recording the pid of the live `aexlo view` owning `png`.
 fn viewer_lock_path(png: &Path) -> PathBuf {
-	let name = png.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-	png.parent().unwrap_or_else(|| Path::new(".")).join(format!(".{name}.aexlo-view.lock"))
+	let name = png
+		.file_name()
+		.map(|n| n.to_string_lossy().into_owned())
+		.unwrap_or_default();
+	png.parent()
+		.unwrap_or_else(|| Path::new("."))
+		.join(format!(".{name}.aexlo-view.lock"))
 }
 
 /// Best-effort "is this pid alive?" without pulling in platform FFI crates.
@@ -116,7 +121,8 @@ pub fn ensure_live_viewer(png: impl AsRef<Path>) -> Result<()> {
 	if let Ok(out) = std::fs::File::create(&log)
 		&& let Ok(err) = out.try_clone()
 	{
-		cmd.stdout(std::process::Stdio::from(out)).stderr(std::process::Stdio::from(err));
+		cmd.stdout(std::process::Stdio::from(out))
+			.stderr(std::process::Stdio::from(err));
 	}
 
 	cmd.spawn().map_err(|e| {
@@ -156,7 +162,10 @@ pub fn acquire_viewer_lock(png: impl AsRef<Path>) -> Option<ViewerLock> {
 /// source tree. The directory is created if missing. `manifest_dir` should be
 /// the caller crate's `env!("CARGO_MANIFEST_DIR")`.
 pub fn preview_path(manifest_dir: &str, module_path: &str, name: &str) -> PathBuf {
-	let slug: String = module_path.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
+	let slug: String = module_path
+		.chars()
+		.map(|c| if c.is_alphanumeric() { c } else { '_' })
+		.collect();
 	let dir = Path::new(manifest_dir).join("target").join("aexlo-preview");
 	let _ = std::fs::create_dir_all(&dir);
 	dir.join(format!("{slug}_{name}.png"))

@@ -137,7 +137,10 @@ unsafe extern "C" fn get_gpu_world_data(
 			PF_Err_NONE as PF_Err
 		}
 		None => {
-			log::error!("GetGPUWorldData: no GPU buffer registered for world {:#x}", worldP as usize);
+			log::error!(
+				"GetGPUWorldData: no GPU buffer registered for world {:#x}",
+				worldP as usize
+			);
 			PF_Err_BAD_CALLBACK_PARAM as PF_Err
 		}
 	}
@@ -168,7 +171,11 @@ unsafe extern "C" fn allocate_device_memory(
 }
 
 /// Release memory previously handed out by [`allocate_device_memory`].
-unsafe extern "C" fn free_device_memory(effect_ref: PF_ProgPtr, _device_index: A_u_long, memoryP: *mut c_void) -> PF_Err {
+unsafe extern "C" fn free_device_memory(
+	effect_ref: PF_ProgPtr,
+	_device_index: A_u_long,
+	memoryP: *mut c_void,
+) -> PF_Err {
 	let ctx = gpu_context_mut_or_bail!(effect_ref, "FreeDeviceMemory");
 	if ctx.free_raw(memoryP) {
 		PF_Err_NONE as PF_Err
@@ -180,7 +187,11 @@ unsafe extern "C" fn free_device_memory(effect_ref: PF_ProgPtr, _device_index: A
 
 /// Size in bytes of the buffer backing `worldP`. Our GPU worlds are tightly
 /// packed (`rowbytes == width * 16`), so `height * rowbytes` is exact.
-unsafe extern "C" fn get_gpu_world_size(_effect_ref: PF_ProgPtr, worldP: *mut PF_EffectWorld, size_in_bytesP: *mut usize) -> PF_Err {
+unsafe extern "C" fn get_gpu_world_size(
+	_effect_ref: PF_ProgPtr,
+	worldP: *mut PF_EffectWorld,
+	size_in_bytesP: *mut usize,
+) -> PF_Err {
 	if worldP.is_null() || size_in_bytesP.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
@@ -190,7 +201,11 @@ unsafe extern "C" fn get_gpu_world_size(_effect_ref: PF_ProgPtr, worldP: *mut PF
 }
 
 /// aexlo only ever exposes one GPU device, so every world lives on device 0.
-unsafe extern "C" fn get_gpu_world_device_index(_effect_ref: PF_ProgPtr, worldP: *mut PF_EffectWorld, device_indexP: *mut A_u_long) -> PF_Err {
+unsafe extern "C" fn get_gpu_world_device_index(
+	_effect_ref: PF_ProgPtr,
+	worldP: *mut PF_EffectWorld,
+	device_indexP: *mut A_u_long,
+) -> PF_Err {
 	if worldP.is_null() || device_indexP.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}

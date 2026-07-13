@@ -402,7 +402,12 @@ fn param_widget(ui: &mut egui::Ui, control: &mut ParamControl) -> bool {
 				let cy = ui.add(egui::DragValue::new(y).speed(1.0).prefix("y ")).changed();
 				cx || cy
 			}
-			ParamValue::Color { red, green, blue, alpha } => {
+			ParamValue::Color {
+				red,
+				green,
+				blue,
+				alpha,
+			} => {
 				let mut rgba = [*red, *green, *blue, *alpha];
 				let changed = ui.color_edit_button_srgba_unmultiplied(&mut rgba).changed();
 				if changed {

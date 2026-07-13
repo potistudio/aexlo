@@ -32,18 +32,24 @@ pub fn run(crate_dir: &Path) -> Result<()> {
 		init_w,
 		init_h,
 		// Float above the editor so the live preview stays visible while you work.
-		WindowOptions { resize: true, topmost: true, scale_mode: ScaleMode::AspectRatioStretch, ..Default::default() },
+		WindowOptions {
+			resize: true,
+			topmost: true,
+			scale_mode: ScaleMode::AspectRatioStretch,
+			..Default::default()
+		},
 	)
 	.map_err(|e| anyhow!("opening preview window: {e}"))?;
 
 	// File watcher: forward raw events over a channel; the main loop debounces them.
 	let (tx, rx) = mpsc::channel();
-	let mut watcher =
-		notify::recommended_watcher(move |res| {
-			let _ = tx.send(res);
-		})
-		.context("creating file watcher")?;
-	watcher.watch(&src_dir, RecursiveMode::Recursive).with_context(|| format!("watching {}", src_dir.display()))?;
+	let mut watcher = notify::recommended_watcher(move |res| {
+		let _ = tx.send(res);
+	})
+	.context("creating file watcher")?;
+	watcher
+		.watch(&src_dir, RecursiveMode::Recursive)
+		.with_context(|| format!("watching {}", src_dir.display()))?;
 	let _ = watcher.watch(&manifest, RecursiveMode::NonRecursive);
 
 	// Last good frame, kept on screen across failed builds.
@@ -52,7 +58,10 @@ pub fn run(crate_dir: &Path) -> Result<()> {
 	let mut generation: u64 = 0;
 	let mut pending: Option<Instant> = Some(Instant::now()); // build once on startup
 
-	println!("aexlo watch: watching {} (Esc or close window to quit)", src_dir.display());
+	println!(
+		"aexlo watch: watching {} (Esc or close window to quit)",
+		src_dir.display()
+	);
 
 	while window.is_open() && !window.is_key_down(Key::Escape) {
 		// Collapse any file-change events into a single pending rebuild.

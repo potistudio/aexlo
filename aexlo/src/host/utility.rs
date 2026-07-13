@@ -548,11 +548,7 @@ stub_log!(get_pixel_data16_stub,
 const PF_PLAT_DATA_EXE_FILE_PATH_W: PF_PlatDataID = 7;
 const PF_PLAT_DATA_RES_FILE_PATH_W: PF_PlatDataID = 8;
 
-unsafe extern "C" fn get_platform_data_impl(
-	effect_ref: PF_ProgPtr,
-	which: PF_PlatDataID,
-	data: *mut c_void,
-) -> PF_Err {
+unsafe extern "C" fn get_platform_data_impl(effect_ref: PF_ProgPtr, which: PF_PlatDataID, data: *mut c_void) -> PF_Err {
 	#[cfg(feature = "diagnostics")]
 	DiagnosticBuilder::new()
 		.set_name("get_platform_data")

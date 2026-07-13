@@ -496,7 +496,8 @@ impl PluginInstance {
 		// Phase C: read the rendered BGRA float output back into the 8-bit layer,
 		// reusing the instance's staging buffer.
 		if let Some(ctx) = self.gpu_context.as_ref() {
-			self.gpu_readback_staging.resize(out_len / std::mem::size_of::<f32>(), 0.0);
+			self.gpu_readback_staging
+				.resize(out_len / std::mem::size_of::<f32>(), 0.0);
 			if ctx.read_buffer(output_key, bytemuck::cast_slice_mut(&mut self.gpu_readback_staging)) {
 				Self::unpack_bgra_f32_to_layer(&self.gpu_readback_staging, &mut self.output_layer);
 			}
