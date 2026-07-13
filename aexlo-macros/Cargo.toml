@@ -1,0 +1,16 @@
+[package]
+name = "aexlo-macros"
+description = "Attribute macros for aexlo (e.g. #[aexlo::preview])."
+version = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+repository = "https://github.com/potistudio/aexlo-rs"
+edition = { workspace = true }
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
