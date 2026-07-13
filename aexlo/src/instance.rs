@@ -58,9 +58,9 @@ use std::{
 	ptr::null_mut,
 };
 
+use crate::core::constants::{DEFAULT_HEIGHT as HEIGHT, DEFAULT_WIDTH as WIDTH};
+
 const DEFAULT_ENTRY_POINT_NAME: &str = "EffectMain";
-const WIDTH: u32 = 1920;
-const HEIGHT: u32 = 1080;
 
 /// Entry point names to try if the plugin doesn't implement `PluginDataEntryFunction2`.
 const FALLBACK_ENTRY_POINT_CANDIDATES: &[&str] = &[DEFAULT_ENTRY_POINT_NAME, "EntryPointFunc"];
@@ -730,6 +730,38 @@ impl PluginInstance {
 		self.render()
 	}
 
+	/// Set the output frame size, resizing the output world and updating every
+	/// place the plugin sees the frame dimensions (`in_data`, the smart-render
+	/// output request rects).
+	///
+	/// Call this before rendering. Global/params/sequence setup runs at the
+	/// default size ([`Self::output_size`] after load), which plugins tolerate --
+	/// After Effects itself resizes freely between renders.
+	pub fn set_render_size(&mut self, width: u32, height: u32) {
+		self.output_layer = Self::build_layer(width, height, wrapper::Pixel::<wrapper::Depth8>::black());
+
+		self.world = crate::core::helpers::LayerDefBuilder::new()
+			.with_size(width as i32, height as i32)
+			.build();
+		self.world.data = self.output_layer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
+
+		self.in_data.width = width as i32;
+		self.in_data.height = height as i32;
+		self.in_data.extent_hint = after_effects_sys::PF_UnionableRect {
+			left: 0,
+			top: 0,
+			right: width as i32,
+			bottom: height as i32,
+		};
+
+		self.smart_render_data.set_output_rect(width as i32, height as i32);
+	}
+
+	/// Get input layer dimensions in pixels (width, height).
+	pub fn input_size(&self) -> (u32, u32) {
+		(self.input_layer.width(), self.input_layer.height())
+	}
+
 	/// Replace the input layer, keeping the `PF_Param_LAYER` parameter (index 0) in sync.
 	pub fn set_input(&mut self, input: wrapper::Layer<wrapper::Depth8>) {
 		self.input_layer = input;
@@ -1050,8 +1082,8 @@ impl PluginInstance {
 		let utility_callbacks = crate::host::utility::create_utility_callbacks();
 		let pica = Self::build_pica_suite();
 
-		let input_layer = Self::build_layer(wrapper::Pixel::<wrapper::Depth8>::green());
-		let output_layer = Self::build_layer(wrapper::Pixel::<wrapper::Depth8>::black());
+		let input_layer = Self::build_layer(WIDTH, HEIGHT, wrapper::Pixel::<wrapper::Depth8>::green());
+		let output_layer = Self::build_layer(WIDTH, HEIGHT, wrapper::Pixel::<wrapper::Depth8>::black());
 
 		{
 			let mut instance_placeholder = PluginInstance {
@@ -1110,9 +1142,9 @@ impl PluginInstance {
 		})
 	}
 
-	/// Build a `WIDTH` x `HEIGHT` layer filled with `fill`.
-	fn build_layer(fill: wrapper::Pixel<wrapper::Depth8>) -> wrapper::Layer<wrapper::Depth8> {
-		wrapper::Layer::<wrapper::Depth8>::new(WIDTH, HEIGHT, vec![fill; (WIDTH * HEIGHT) as usize]).unwrap()
+	/// Build a `width` x `height` layer filled with `fill`.
+	fn build_layer(width: u32, height: u32, fill: wrapper::Pixel<wrapper::Depth8>) -> wrapper::Layer<wrapper::Depth8> {
+		wrapper::Layer::<wrapper::Depth8>::new(width, height, vec![fill; (width * height) as usize]).unwrap()
 	}
 
 	/// Point `in_data`/`world` raw pointers at this instance's own owned buffers, now
@@ -1487,6 +1519,19 @@ mod tests {
 		// Out of bounds and type mismatches are rejected.
 		assert!(fx.set_param(2, ParamValue::Float(0.0)).is_err());
 		assert!(fx.set_param(1, ParamValue::Checkbox(true)).is_err());
+	}
+
+	#[test]
+	fn set_render_size_updates_every_dimension_view() {
+		let mut fx = bare_instance();
+		fx.set_render_size(640, 360);
+
+		assert_eq!(fx.output_size(), (640, 360));
+		assert_eq!((fx.in_data.width, fx.in_data.height), (640, 360));
+		assert_eq!((fx.world.width, fx.world.height), (640, 360));
+		// The world must point at the freshly sized output layer's pixels.
+		assert_eq!(fx.world.data as *const _, fx.output_layer.pixels().as_ptr());
+		assert_eq!(fx.world.rowbytes, 640 * 4);
 	}
 
 	#[test]

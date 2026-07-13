@@ -34,24 +34,35 @@ unsafe extern "C" fn checkout_layer_stub(
 	}
 
 	//== Implementation ==//
+	// Report the instance's actual input layer size, not the compile-time
+	// default: with a custom input (or `set_render_size`) the default rect
+	// would describe a frame that doesn't exist.
+	let (layer_w, layer_h) = match PluginInstance::get_instance_ptr(effect_ref) {
+		Some(instance) => {
+			let (w, h) = unsafe { instance.as_ref() }.input_size();
+			(w as i32, h as i32)
+		}
+		None => (WIDTH as i32, HEIGHT as i32),
+	};
+
 	let result = after_effects_sys::PF_CheckoutResult {
 		result_rect: after_effects_sys::PF_Rect {
 			left: 0,
 			top: 0,
-			right: WIDTH as i32,
-			bottom: HEIGHT as i32,
+			right: layer_w,
+			bottom: layer_h,
 		},
 		max_result_rect: after_effects_sys::PF_Rect {
 			left: 0,
 			top: 0,
-			right: WIDTH as i32,
-			bottom: HEIGHT as i32,
+			right: layer_w,
+			bottom: layer_h,
 		},
 		par: after_effects_sys::PF_RationalScale { num: 1, den: 1 },
 		solid: 1,
 		reservedB: [0; 3],
-		ref_width: WIDTH as i32,
-		ref_height: HEIGHT as i32,
+		ref_width: layer_w,
+		ref_height: layer_h,
 		reserved: [0; 6],
 	};
 
@@ -264,6 +275,20 @@ impl SmartRenderData {
 	/// Syncs the smart render input with the pre-render output. Call this at the end of your pre-render callback implementation to pass data to the smart render phase.
 	pub fn sync(&mut self) {
 		self.input.pre_render_data = self.pre_output.pre_render_data;
+	}
+
+	/// Point the pre-render and render output-request rects at a new frame size,
+	/// keeping them in step with the instance's output world (see
+	/// [`PluginInstance::set_render_size`](crate::PluginInstance::set_render_size)).
+	pub fn set_output_rect(&mut self, width: i32, height: i32) {
+		let rect = PF_LRect {
+			left: 0,
+			top: 0,
+			right: width,
+			bottom: height,
+		};
+		self.pre_input.output_request.rect = rect;
+		self.input.output_request.rect = rect;
 	}
 
 	/// Configure the pre-render and render inputs for GPU rendering: advertise
