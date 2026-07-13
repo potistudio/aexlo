@@ -41,14 +41,14 @@ impl ParamValue {
 	}
 }
 
+use crate::gpu::GPU_BYTES_PER_PIXEL;
 use after_effects::{ParamType, RawCommand};
 use after_effects_sys::{
-	PF_Err_INVALID_CALLBACK, PF_Err_NONE, PF_GPUDeviceSetdownExtra, PF_GPUDeviceSetdownInput, PF_GPUDeviceSetupExtra,
-	PF_GPUDeviceSetupInput, PF_GPUDeviceSetupOutput, PF_GPU_Framework, PF_GPU_Framework_NONE,
+	PF_Err_INVALID_CALLBACK, PF_Err_NONE, PF_GPU_Framework, PF_GPU_Framework_NONE, PF_GPUDeviceSetdownExtra,
+	PF_GPUDeviceSetdownInput, PF_GPUDeviceSetupExtra, PF_GPUDeviceSetupInput, PF_GPUDeviceSetupOutput,
 	PF_OutFlag2_SUPPORTS_GPU_RENDER_F32, PF_OutFlags2, PF_ParamDef, PF_ParamDefUnion, PF_ParamType, PF_Pixel,
 	PF_ProgPtr,
 };
-use crate::gpu::GPU_BYTES_PER_PIXEL;
 use colored::Colorize;
 use dlopen2::raw::Library;
 use std::{
@@ -69,7 +69,11 @@ const PLUGIN_DATA_ENTRY_SYMBOL: &str = "PluginDataEntryFunction2";
 const HOST_NAME: &str = "AfterEffects";
 const HOST_VERSION: &str = "25.2";
 
-type PluginEntryPoint = unsafe extern "C" fn(
+/// ABI of an After Effects effect entry point (`EffectMain`): the fixed
+/// `(cmd, in_data, out_data, params, output, extra)` signature every effect
+/// exports. Handed to [`PluginInstance::from_entry`] to drive an in-process
+/// effect without `dlopen`.
+pub type PluginEntryPoint = unsafe extern "C" fn(
 	cmd: RawCommand,
 	in_data: *mut after_effects_sys::PF_InData,
 	out_data: *mut after_effects_sys::PF_OutData,
@@ -116,6 +120,163 @@ unsafe extern "C" fn receive_plugin_data(
 	info.entry_point_name = Some(name.to_string_lossy().into_owned());
 
 	PF_Err_NONE as after_effects_sys::A_Err
+}
+
+/// Whether a visual preview was requested, i.e. the `AEXLO_PREVIEW` env var is
+/// set. Used by `#[aexlo::preview]` to decide whether to pop the OS viewer.
+pub fn preview_requested() -> bool {
+	std::env::var_os("AEXLO_PREVIEW").is_some()
+}
+
+/// How `#[aexlo::preview]` should surface the rendered frame, from
+/// `AEXLO_PREVIEW`: unset = save only, `live` = keep a live `aexlo view` window
+/// updated, anything else = open the OS viewer once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreviewMode {
+	/// Just write the PNG.
+	Off,
+	/// Write the PNG and open it once in the OS image viewer.
+	Once,
+	/// Write the PNG and ensure a live `aexlo view` window is watching it.
+	Live,
+}
+
+/// Read [`PreviewMode`] from the `AEXLO_PREVIEW` env var.
+pub fn preview_mode() -> PreviewMode {
+	match std::env::var("AEXLO_PREVIEW") {
+		Err(_) => PreviewMode::Off,
+		Ok(v) if v.eq_ignore_ascii_case("live") => PreviewMode::Live,
+		Ok(_) => PreviewMode::Once,
+	}
+}
+
+/// Sibling lock file recording the pid of the live `aexlo view` owning `png`.
+fn viewer_lock_path(png: &Path) -> PathBuf {
+	let name = png.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+	png.parent().unwrap_or_else(|| Path::new(".")).join(format!(".{name}.aexlo-view.lock"))
+}
+
+/// Best-effort "is this pid alive?" without pulling in `libc` (uses `kill -0`).
+fn pid_alive(pid: u32) -> bool {
+	#[cfg(unix)]
+	{
+		std::process::Command::new("kill")
+			.arg("-0")
+			.arg(pid.to_string())
+			.stdout(std::process::Stdio::null())
+			.stderr(std::process::Stdio::null())
+			.status()
+			.map(|s| s.success())
+			.unwrap_or(false)
+	}
+	#[cfg(not(unix))]
+	{
+		let _ = pid;
+		true
+	}
+}
+
+/// Whether a live `aexlo view` window already owns `png`.
+pub fn viewer_is_running(png: impl AsRef<Path>) -> bool {
+	match std::fs::read_to_string(viewer_lock_path(png.as_ref())) {
+		Ok(contents) => contents.trim().parse::<u32>().map(pid_alive).unwrap_or(false),
+		Err(_) => false,
+	}
+}
+
+/// Ensure a live `aexlo view` window is watching `png`, spawning one (detached)
+/// only if none is already running for it.
+///
+/// The viewer binary is `aexlo` by default; override with the `AEXLO_BIN` env
+/// var (e.g. a `target/debug/aexlo` path in a workspace).
+pub fn ensure_live_viewer(png: impl AsRef<Path>) -> Result<()> {
+	let png = png.as_ref();
+	if viewer_is_running(png) {
+		return Ok(());
+	}
+
+	let bin = std::env::var("AEXLO_BIN").unwrap_or_else(|_| "aexlo".to_string());
+	let mut cmd = std::process::Command::new(&bin);
+	cmd.arg("view").arg(png);
+
+	// Detach from our process group: a re-runner like `bacon` kills its job's
+	// whole process group when the run finishes, which would otherwise take the
+	// freshly spawned viewer window down with it.
+	#[cfg(unix)]
+	{
+		use std::os::unix::process::CommandExt;
+		cmd.process_group(0);
+	}
+
+	// The viewer outlives us, so inheriting our soon-closed stdio risks SIGPIPE,
+	// while discarding it hides setup errors (e.g. a stale `aexlo` on PATH with
+	// no `view` command). Send it to a log file instead.
+	let log = std::env::temp_dir().join("aexlo-view.log");
+	if let Ok(out) = std::fs::File::create(&log)
+		&& let Ok(err) = out.try_clone()
+	{
+		cmd.stdout(std::process::Stdio::from(out)).stderr(std::process::Stdio::from(err));
+	}
+
+	cmd.spawn().map_err(|e| {
+		AexloError::Unexpected(format!(
+			"spawning live viewer `{bin} view` (set AEXLO_BIN to the aexlo binary, or install the CLI): {e}"
+		))
+	})?;
+	Ok(())
+}
+
+/// Ownership of the live-viewer lock for a PNG; removes the lock on drop. Held
+/// by `aexlo view` for as long as its window is open.
+pub struct ViewerLock(PathBuf);
+
+impl Drop for ViewerLock {
+	fn drop(&mut self) {
+		let _ = std::fs::remove_file(&self.0);
+	}
+}
+
+/// Claim the live-viewer lock for `png`. Returns `None` if another live viewer
+/// already owns it (the caller should exit); `Some` guard once we own it.
+pub fn acquire_viewer_lock(png: impl AsRef<Path>) -> Option<ViewerLock> {
+	let png = png.as_ref();
+	if viewer_is_running(png) {
+		return None;
+	}
+	let lock = viewer_lock_path(png);
+	std::fs::write(&lock, std::process::id().to_string()).ok()?;
+	Some(ViewerLock(lock))
+}
+
+/// Stable on-disk location for a preview PNG:
+/// `<manifest_dir>/target/aexlo-preview/<module>_<name>.png`.
+///
+/// Lives under `target/` (git-ignored by default) so previews don't clutter the
+/// source tree. The directory is created if missing. `manifest_dir` should be
+/// the caller crate's `env!("CARGO_MANIFEST_DIR")`.
+pub fn preview_path(manifest_dir: &str, module_path: &str, name: &str) -> PathBuf {
+	let slug: String = module_path.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
+	let dir = Path::new(manifest_dir).join("target").join("aexlo-preview");
+	let _ = std::fs::create_dir_all(&dir);
+	dir.join(format!("{slug}_{name}.png"))
+}
+
+/// Launch the OS image viewer on `path` without waiting (spawn, not status), so
+/// it never blocks a test or `--watch` cycle.
+pub fn open_in_viewer(path: impl AsRef<Path>) -> Result<()> {
+	let path = path.as_ref();
+	let program = if cfg!(target_os = "macos") {
+		"open"
+	} else if cfg!(target_os = "windows") {
+		"explorer"
+	} else {
+		"xdg-open"
+	};
+	std::process::Command::new(program)
+		.arg(path)
+		.spawn()
+		.map_err(|e| AexloError::Unexpected(format!("launching image viewer ({program}): {e}")))?;
+	Ok(())
 }
 
 /// Represents a loaded After Effects plugin instance, managing its library, entry point, parameters, and execution state.
@@ -179,15 +340,70 @@ impl PluginInstance {
 	/// # Errors
 	/// Returns an error if the binary can't be located or opened, if no entry
 	/// point symbol can be resolved, or if the plugin rejects the
-	/// `PF_Cmd_GLOBAL_SETUP` or `PF_Cmd_PARAMS_SETUP` commands.
+	/// `PF_Cmd_GLOBAL_SETUP`, `PF_Cmd_PARAMS_SETUP`, or `PF_Cmd_SEQUENCE_SETUP`
+	/// commands.
 	pub fn try_load(path: impl AsRef<Path>) -> Result<Self> {
 		let mut instance = Self::new(path.as_ref());
 
 		instance.load()?;
-		instance.setup_global()?;
-		instance.setup_params()?;
+		instance.finalize()?;
 
 		Ok(instance)
+	}
+
+	/// Drive an entry point that already lives in this process, skipping the
+	/// whole `dlopen` → cdylib → bundle path.
+	///
+	/// The intended caller is a plugin's own `#[test]`/example: the
+	/// `after-effects` `define_effect!` macro exports `EffectMain` as a plain
+	/// `#[no_mangle] extern "C"` function, so it can be handed here directly for
+	/// a fast, in-process preview that also happens to be debuggable (breakpoints
+	/// and real backtraces, unlike a `dlopen`ed cdylib).
+	///
+	/// Use this when the plugin crate is built against the *same*
+	/// `after-effects-sys` version as aexlo, so `EffectMain as PluginEntryPoint`
+	/// coerces. Otherwise reach for [`Self::from_entry_raw`].
+	///
+	/// # Safety
+	/// `entry` must be a valid AE effect entry point that is ABI-compatible with
+	/// [`PluginEntryPoint`] and stays callable for the lifetime of the instance.
+	pub unsafe fn from_entry(entry: PluginEntryPoint) -> Result<Self> {
+		let mut instance = Self::new(Path::new("<in-process>"));
+
+		instance.entry_point = Some(entry);
+		instance.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_string());
+		// No `raw_library`: the entry point is already resident in this process.
+		instance.finalize()?;
+
+		Ok(instance)
+	}
+
+	/// Like [`Self::from_entry`], but takes the entry point's raw address and
+	/// transmutes it to the expected ABI.
+	///
+	/// This exists for the common case where the plugin crate pulls a *different*
+	/// `after-effects-sys` version than aexlo: the two `PluginEntryPoint` types
+	/// are then nominally distinct and won't coerce, even though the C ABI is
+	/// identical. Passing the address (`EffectMain as usize`) sidesteps the type
+	/// mismatch, making ABI compatibility the caller's explicit promise.
+	///
+	/// # Safety
+	/// `entry_addr` must be the address of a function that is ABI-compatible with
+	/// [`PluginEntryPoint`] and stays callable for the lifetime of the instance.
+	pub unsafe fn from_entry_raw(entry_addr: usize) -> Result<Self> {
+		let entry: PluginEntryPoint = unsafe { std::mem::transmute(entry_addr) };
+		unsafe { Self::from_entry(entry) }
+	}
+
+	/// Run the post-load setup shared by every constructor: `GLOBAL_SETUP`,
+	/// `PARAMS_SETUP`, then `SEQUENCE_SETUP`. Independent of where the entry point
+	/// came from (`dlopen`ed or handed in directly).
+	fn finalize(&mut self) -> Result<()> {
+		self.setup_global()?;
+		self.setup_params()?;
+		self.setup_sequence()?;
+
+		Ok(())
 	}
 
 	/// Call the plugin with `PF_Cmd_ABOUT` command.
@@ -261,14 +477,19 @@ impl PluginInstance {
 			self.gpu_context = crate::gpu::GpuContext::new();
 		}
 		let Some(ctx) = self.gpu_context.as_ref() else {
-			return Err(AexloError::Unexpected("No GPU device available for GPU render".to_string()));
+			return Err(AexloError::Unexpected(
+				"No GPU device available for GPU render".to_string(),
+			));
 		};
 		let what_gpu = ctx.framework();
 		// The plugin's own GPU-API calls during setup (e.g. cudaMalloc) resolve
 		// against the thread-current context.
 		ctx.make_current();
 
-		let mut input = PF_GPUDeviceSetupInput { what_gpu, device_index: 0 };
+		let mut input = PF_GPUDeviceSetupInput {
+			what_gpu,
+			device_index: 0,
+		};
 		let mut output = PF_GPUDeviceSetupOutput { gpu_data: null_mut() };
 		let mut extra = PF_GPUDeviceSetupExtra {
 			input: &mut input,
@@ -376,13 +597,19 @@ impl PluginInstance {
 			framework = ctx.framework();
 			ctx.make_current();
 
-			if !ctx.ensure_buffer(input_key, in_w * in_h * GPU_BYTES_PER_PIXEL) || !ctx.ensure_buffer(output_key, out_len) {
-				return Err(AexloError::Unexpected("Failed to allocate GPU world buffers".to_string()));
+			if !ctx.ensure_buffer(input_key, in_w * in_h * GPU_BYTES_PER_PIXEL)
+				|| !ctx.ensure_buffer(output_key, out_len)
+			{
+				return Err(AexloError::Unexpected(
+					"Failed to allocate GPU world buffers".to_string(),
+				));
 			}
 
 			let staging = Self::pack_layer_to_bgra_f32(&self.input_layer);
 			if !ctx.write_buffer(input_key, bytemuck::cast_slice(&staging)) {
-				return Err(AexloError::Unexpected("Failed to upload input pixels to the GPU".to_string()));
+				return Err(AexloError::Unexpected(
+					"Failed to upload input pixels to the GPU".to_string(),
+				));
 			}
 		}
 
@@ -504,6 +731,50 @@ impl PluginInstance {
 			.map_err(|e| AexloError::Unexpected("Failed to write RGBA bytes: ".to_string() + &e))
 	}
 
+	/// Encode the current output frame to an 8-bit RGBA PNG at `path`.
+	///
+	/// Full fidelity, no terminal/protocol dependence -- the point of a preview
+	/// is to *see* the render, so this never degrades quality. The frame must be
+	/// rendered first (call a `render_*` method before this).
+	pub fn save_preview(&self, path: impl AsRef<Path>) -> Result<()> {
+		let path = path.as_ref();
+		let (w, h) = self.output_size();
+
+		let mut pixels = vec![0u8; w as usize * h as usize * 4];
+		self.write_output_rgba(&mut pixels)?;
+
+		let file = std::fs::File::create(path)
+			.map_err(|e| AexloError::Unexpected(format!("creating preview {}: {e}", path.display())))?;
+
+		let options = mtpng::encoder::Options::new();
+		let mut encoder = mtpng::encoder::Encoder::new(file, &options);
+		let mut header = mtpng::Header::new();
+
+		header
+			.set_size(w, h)
+			.and_then(|()| header.set_color(mtpng::ColorType::TruecolorAlpha, 8))
+			.and_then(|()| encoder.write_header(&header))
+			.and_then(|()| encoder.write_image_rows(&pixels))
+			.and_then(|()| encoder.finish().map(drop))
+			.map_err(|e| AexloError::Unexpected(format!("encoding preview PNG {}: {e}", path.display())))?;
+
+		Ok(())
+	}
+
+	/// Save the current frame to a temp PNG and open it in the OS image viewer,
+	/// returning the path written.
+	///
+	/// The dev-loop one-liner: render, then eyeball the result in a real viewer
+	/// at full quality. Spawns the viewer without waiting, so it never blocks a
+	/// test or `--watch` cycle.
+	pub fn open_preview(&self) -> Result<PathBuf> {
+		let path = std::env::temp_dir().join(format!("aexlo-preview-{}.png", std::process::id()));
+		self.save_preview(&path)?;
+		open_in_viewer(&path)?;
+
+		Ok(path)
+	}
+
 	//---- Setter / Getter =================================
 
 	/// Get a pointer to the instance's persistent output world (`PF_LayerDef`/`PF_EffectWorld`).
@@ -581,7 +852,12 @@ impl PluginInstance {
 				target.u.td.x_value = utils::f32_to_fixed16(x);
 				target.u.td.y_value = utils::f32_to_fixed16(y);
 			}
-			ParamValue::Color { red, green, blue, alpha } => {
+			ParamValue::Color {
+				red,
+				green,
+				blue,
+				alpha,
+			} => {
 				target.u.cd.value = after_effects_sys::PF_Pixel {
 					alpha,
 					red,
@@ -863,6 +1139,25 @@ impl PluginInstance {
 	/// Call the plugin with `PF_Cmd_PARAMS_SETUP` command.
 	fn setup_params(&mut self) -> Result<()> {
 		self.call_plugin(RawCommand::ParamsSetup, null_mut())
+	}
+
+	/// Call the plugin with `PF_Cmd_SEQUENCE_SETUP` command.
+	///
+	/// This gives the plugin a chance to allocate its per-instance
+	/// `sequence_data` (which [`Self::call_plugin`] then propagates back into
+	/// `in_data` for subsequent commands). Some effects also perform work here
+	/// that later render commands depend on -- e.g. plugins built on the
+	/// aescripts licensing library run their license check during
+	/// `SEQUENCE_SETUP`/`SEQUENCE_RESETUP`, and render a watermark if it never
+	/// runs -- so we always issue it before rendering.
+	///
+	/// A fresh setup expects a null incoming `sequence_data`; make sure any
+	/// stale pointer is cleared so the plugin allocates from scratch rather than
+	/// treating garbage as a flattened blob to resurrect.
+	fn setup_sequence(&mut self) -> Result<()> {
+		self.in_data.sequence_data = null_mut();
+		self.out_data.sequence_data = null_mut();
+		self.call_plugin(RawCommand::SequenceSetup, null_mut())
 	}
 
 	/// Ask the plugin what its real entry point symbol is via the modern

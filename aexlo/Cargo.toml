@@ -16,6 +16,7 @@ diagnostics = []
 
 [dependencies]
 wrapper = { path = "../wrapper" }
+aexlo-macros = { path = "../aexlo-macros" }
 after-effects-sys = "0.3.0"
 chrono = "0.4.42"
 colored = "3.0.0"

@@ -55,6 +55,21 @@ pub use core::error::{AexloError, Result};
 /// The core plugin loader and executor.
 pub use instance::PluginInstance;
 
+/// Entry point ABI for driving an in-process effect via
+/// [`PluginInstance::from_entry`].
+pub use instance::PluginEntryPoint;
+
+/// Preview helpers used by the [`macro@preview`] attribute macro (and usable
+/// directly): where to write a preview PNG, whether one was requested, how to
+/// open it, and how to drive a live `aexlo view` window.
+pub use instance::{
+	PreviewMode, ViewerLock, acquire_viewer_lock, ensure_live_viewer, open_in_viewer, preview_mode, preview_path,
+	preview_requested, viewer_is_running,
+};
+
+/// `#[aexlo::preview]` — render a plugin in-process and drop a preview PNG.
+pub use aexlo_macros::preview;
+
 /// Parameter value type for reading and writing plugin parameters.
 pub use instance::ParamValue;
 
