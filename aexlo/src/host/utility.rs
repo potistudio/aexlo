@@ -3,31 +3,22 @@ use crate::suites::macros::stub_log;
 use after_effects_sys::*;
 use rayon::prelude::*;
 use std::os::raw::c_void;
-use std::sync::RwLock;
 use std::sync::atomic::{AtomicI32, Ordering};
 
-// Global plugin path storage (UTF-16 for Windows)
-static PLUGIN_PATH: RwLock<Option<Vec<u16>>> = RwLock::new(None);
-
-/// Set plugin path for get_platform_data callback.
-/// The path should be absolute and will be stored as UTF-16.
-pub fn set_plugin_path(path: &std::path::Path) {
-	let wide: Vec<u16> = {
-		#[cfg(windows)]
-		{
-			use std::os::windows::ffi::OsStrExt;
-			path.as_os_str().encode_wide().chain(std::iter::once(0)).collect()
-		}
-		#[cfg(not(windows))]
-		{
-			path.to_string_lossy()
-				.encode_utf16()
-				.chain(std::iter::once(0))
-				.collect()
-		}
-	};
-	if let Ok(mut guard) = PLUGIN_PATH.write() {
-		*guard = Some(wide);
+/// Encode a path as a null-terminated UTF-16 string, the representation
+/// `get_platform_data` hands back for `PF_PlatData_*_FILE_PATH_W` queries.
+fn encode_path_utf16(path: &std::path::Path) -> Vec<u16> {
+	#[cfg(windows)]
+	{
+		use std::os::windows::ffi::OsStrExt;
+		path.as_os_str().encode_wide().chain(std::iter::once(0)).collect()
+	}
+	#[cfg(not(windows))]
+	{
+		path.to_string_lossy()
+			.encode_utf16()
+			.chain(std::iter::once(0))
+			.collect()
 	}
 }
 
@@ -558,7 +549,7 @@ const PF_PLAT_DATA_EXE_FILE_PATH_W: PF_PlatDataID = 7;
 const PF_PLAT_DATA_RES_FILE_PATH_W: PF_PlatDataID = 8;
 
 unsafe extern "C" fn get_platform_data_impl(
-	_effect_ref: PF_ProgPtr,
+	effect_ref: PF_ProgPtr,
 	which: PF_PlatDataID,
 	data: *mut c_void,
 ) -> PF_Err {
@@ -576,26 +567,31 @@ unsafe extern "C" fn get_platform_data_impl(
 
 	match which {
 		PF_PLAT_DATA_EXE_FILE_PATH_W | PF_PLAT_DATA_RES_FILE_PATH_W => {
-			// Return plugin path as UTF-16
-			if let Ok(guard) = PLUGIN_PATH.read()
-				&& let Some(ref path) = *guard
-			{
-				// Copy path to output buffer (max AEFX_MAX_PATH = 260)
-				let dst = data as *mut u16;
-				const AEFX_MAX_PATH: usize = 260;
-				let copy_len = path.len().min(AEFX_MAX_PATH);
-				unsafe {
-					std::ptr::copy_nonoverlapping(path.as_ptr(), dst, copy_len);
-					// Ensure null termination if truncated
-					if path.len() > AEFX_MAX_PATH {
-						*dst.add(AEFX_MAX_PATH - 1) = 0;
-					}
+			// The path is per instance (recovered via effect_ref), so loading a
+			// second plugin can't clobber the first one's answer.
+			let Some(instance) = crate::PluginInstance::get_instance_ptr(effect_ref) else {
+				log::warn!("get_platform_data: no instance for effect_ref");
+				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			};
+			let Some(path) = unsafe { instance.as_ref() }.resolved_binary_path() else {
+				log::warn!("get_platform_data: plugin path not set (in-process entry point?)");
+				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			};
+
+			// Copy the UTF-16 path into the output buffer (max AEFX_MAX_PATH = 260)
+			let wide = encode_path_utf16(path);
+			let dst = data as *mut u16;
+			const AEFX_MAX_PATH: usize = 260;
+			let copy_len = wide.len().min(AEFX_MAX_PATH);
+			unsafe {
+				std::ptr::copy_nonoverlapping(wide.as_ptr(), dst, copy_len);
+				// Ensure null termination if truncated
+				if wide.len() > AEFX_MAX_PATH {
+					*dst.add(AEFX_MAX_PATH - 1) = 0;
 				}
-				log::info!("get_platform_data: returned plugin path (len={})", copy_len);
-				return PF_Err_NONE as PF_Err;
 			}
-			log::warn!("get_platform_data: plugin path not set");
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			log::debug!("get_platform_data: returned plugin path (len={})", copy_len);
+			PF_Err_NONE as PF_Err
 		}
 		_ => {
 			log::warn!("get_platform_data: unsupported which={}", which);

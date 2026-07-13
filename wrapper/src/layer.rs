@@ -203,15 +203,14 @@ where
 impl Layer<Depth8> {
 	/// Write RGBA bytes directly into an existing buffer (zero-allocation).
 	/// The buffer must have exactly `width * height * 4` bytes.
-	pub fn write_rgba_bytes(&self, buffer: &mut [u8]) -> Result<(), String> {
+	pub fn write_rgba_bytes(&self, buffer: &mut [u8]) -> Result<(), LayerError> {
 		let required = self.pixels.len() * 4;
 
 		if buffer.len() != required {
-			return Err(format!(
-				"Buffer length ({}) does not match required size ({}).",
-				buffer.len(),
-				required
-			));
+			return Err(LayerError::DimensionMismatch {
+				expected: required,
+				actual: buffer.len(),
+			});
 		}
 
 		for (chunk, pixel) in buffer.chunks_exact_mut(4).zip(self.pixels.iter()) {

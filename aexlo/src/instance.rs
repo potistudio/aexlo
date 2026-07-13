@@ -129,6 +129,13 @@ pub struct PluginInstance {
 	entry_point_name: Option<String>,
 	binary_file_path: PathBuf,
 
+	/// The dynamic library actually `dlopen`ed (resolved from
+	/// `binary_file_path`, e.g. the binary inside a `.plugin` bundle), or `None`
+	/// for in-process entry points. Reported to the plugin through
+	/// `get_platform_data` (`PF_PlatData_EXE_FILE_PATH_W`, ...) — per instance,
+	/// so loading a second plugin doesn't clobber the first one's path.
+	resolved_binary_path: Option<PathBuf>,
+
 	/// Persistent output world handed back by `checkout_output` during smart render.
 	world: after_effects_sys::PF_LayerDef,
 
@@ -627,9 +634,8 @@ impl PluginInstance {
 	/// Write output pixels directly to an RGBA buffer (zero-allocation).
 	/// The buffer must have exactly `width * height * 4` bytes.
 	pub fn write_output_rgba(&self, buffer: &mut [u8]) -> Result<()> {
-		self.output_layer
-			.write_rgba_bytes(buffer)
-			.map_err(|e| AexloError::Unexpected("Failed to write RGBA bytes: ".to_string() + &e))
+		self.output_layer.write_rgba_bytes(buffer)?;
+		Ok(())
 	}
 
 	/// Encode the current output frame to an 8-bit RGBA PNG at `path`.
@@ -713,6 +719,12 @@ impl PluginInstance {
 	/// release device memory (`AllocateDeviceMemory`/`FreeDeviceMemory`).
 	pub(crate) fn gpu_context_mut(&mut self) -> Option<&mut crate::gpu::GpuContext> {
 		self.gpu_context.as_mut()
+	}
+
+	/// The dynamic library this instance `dlopen`ed, if any. Used by the
+	/// `get_platform_data` callback to answer plugin path queries.
+	pub(crate) fn resolved_binary_path(&self) -> Option<&Path> {
+		self.resolved_binary_path.as_deref()
 	}
 
 	//==== Setter / Getter =================================
@@ -953,6 +965,7 @@ impl PluginInstance {
 				entry_point: None,
 				entry_point_name: None,
 				binary_file_path: path.to_path_buf(),
+				resolved_binary_path: None,
 				utility_callbacks,
 				pica,
 				in_data: crate::core::helpers::InDataBuilder::new()
@@ -1223,8 +1236,8 @@ impl PluginInstance {
 		self.entry_point_name = Some(resolved_name.clone());
 		self.raw_library = Some(lib);
 
-		// Set plugin path for get_platform_data callback
-		crate::host::utility::set_plugin_path(&module_path);
+		// Remembered for the get_platform_data callback (plugin path queries).
+		self.resolved_binary_path = Some(module_path.clone());
 
 		log::info!("Resolved entry point symbol: {}.", resolved_name.blue());
 		log::info!("Loaded plugin '{}' {}.", module_path_str.blue(), "successfully".green());
@@ -1302,7 +1315,11 @@ impl PluginInstance {
 				);
 			}
 			code => {
-				return Err(AexloError::PluginExecutionFailed { code: code.into() });
+				// The format! only runs on the failure path, never per frame.
+				return Err(AexloError::PluginExecutionFailed {
+					command: format!("{command:?}"),
+					code: code.into(),
+				});
 			}
 		}
 		//* -------------------------------------------- *//

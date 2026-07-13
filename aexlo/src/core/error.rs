@@ -27,11 +27,16 @@ pub enum AexloError {
 
 	/// The plugin returned a non-zero `PF_Err` code during execution.
 	///
+	/// `command` names the `PF_Cmd_*` that failed — essential context, since
+	/// hosts like [`render_frame`](crate::PluginInstance::render_frame) chain
+	/// GPU → smart → legacy fallbacks and the final error alone doesn't say
+	/// which stage rejected the call.
+	///
 	/// The raw code is widened to `i64` so this variant has the same shape on
 	/// every platform (the underlying `PF_Err` is `u32` on macOS and `i32`
 	/// elsewhere), keeping downstream `match` arms portable.
-	#[error("Plugin execution failed with error code: {code}")]
-	PluginExecutionFailed { code: i64 },
+	#[error("Plugin rejected {command} with error code: {code}")]
+	PluginExecutionFailed { command: String, code: i64 },
 
 	/// Parameter index is out of bounds.
 	#[error("Parameter index {index} out of bounds (max {max})")]
@@ -44,6 +49,10 @@ pub enum AexloError {
 		expected: &'static str,
 		actual: i32,
 	},
+
+	/// A pixel-buffer operation failed (dimension mismatch, ...).
+	#[error("Layer error: {0}")]
+	Layer(#[from] wrapper::LayerError),
 
 	#[error("Unexpected error: {0}")]
 	Unexpected(String),
