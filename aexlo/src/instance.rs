@@ -1335,7 +1335,9 @@ impl PluginInstance {
 
 		let entry_point_name = self.entry_point_name.as_deref().unwrap_or(DEFAULT_ENTRY_POINT_NAME);
 
-		log::info!("Executing command: {}", format!("{:?}", command).blue());
+		// debug, not info: this runs for every render command, so at info level a
+		// preview loop drowns the log.
+		log::debug!("Executing command: {}", format!("{:?}", command).blue());
 
 		if self.params_dirty {
 			self.params_ptr_cache = self.params.iter_mut().map(|p| p as *mut _).collect();
@@ -1364,22 +1366,17 @@ impl PluginInstance {
 			self.in_data.sequence_data = self.out_data.sequence_data;
 		}
 
-		log::info!(
-			"Executed command '{}' {}.",
-			format!("{:?}", command).blue(),
-			"successfully".green()
-		);
-		log::debug!(
-			"{} exited with code: {}.",
-			entry_point_name.blue(),
-			result.to_string().blue()
-		);
-
 		//* ---- Check for errors ---------------------- *//
 		#[allow(non_upper_case_globals)]
 		match result {
 			PF_Err_NONE => {
-				log::info!("Plugin executed {}.", "successfully".green());
+				log::debug!(
+					"Executed command '{}' {} ({} exited with code {}).",
+					format!("{:?}", command).blue(),
+					"successfully".green(),
+					entry_point_name.blue(),
+					result.to_string().blue()
+				);
 			}
 			code => {
 				return Err(AexloError::PluginExecutionFailed { code: code.into() });
@@ -1388,6 +1385,34 @@ impl PluginInstance {
 		//* -------------------------------------------- *//
 
 		Ok(())
+	}
+}
+
+impl Drop for PluginInstance {
+	/// Best-effort teardown mirroring After Effects' shutdown order: release the
+	/// plugin's GPU data, then `PF_Cmd_SEQUENCE_SETDOWN`, then
+	/// `PF_Cmd_GLOBAL_SETDOWN`, so plugin-allocated state (sequence/global
+	/// handles, license threads, GPU pipelines) is freed instead of leaking.
+	///
+	/// Failures are logged, never propagated — panicking in `drop` would abort,
+	/// and a half-torn-down plugin is about to be unloaded anyway.
+	fn drop(&mut self) {
+		if let Err(err) = self.gpu_device_setdown() {
+			log::warn!("PF_Cmd_GPU_DEVICE_SETDOWN failed during drop: {err:?}");
+		}
+
+		// Without an entry point nothing was ever set up, so there is nothing to
+		// tear down (and call_plugin would just error).
+		if self.entry_point.is_none() {
+			return;
+		}
+
+		if let Err(err) = self.call_plugin(RawCommand::SequenceSetdown, null_mut()) {
+			log::warn!("PF_Cmd_SEQUENCE_SETDOWN failed during drop: {err:?}");
+		}
+		if let Err(err) = self.call_plugin(RawCommand::GlobalSetdown, null_mut()) {
+			log::warn!("PF_Cmd_GLOBAL_SETDOWN failed during drop: {err:?}");
+		}
 	}
 }
 

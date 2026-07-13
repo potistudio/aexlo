@@ -29,8 +29,8 @@ const HANDLE_MAGIC: u64 = 0x4145584C4F484E44; // "AEXLOHND" in ASCII
 /// # Safety
 /// This function is unsafe because it deals with raw pointers and manual memory management.
 pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_Handle {
-	// Log immediately at function entry
-	log::info!("host_new_handle: ENTRY with size={} (0x{:x})", size, size);
+	// trace, not info: plugins allocate handles inside their per-frame paths.
+	log::trace!("host_new_handle: ENTRY with size={} (0x{:x})", size, size);
 
 	#[cfg(feature = "diagnostics")]
 	{
@@ -125,7 +125,7 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 
 	unsafe { *handle_ptr = user_ptr as *mut c_void };
 
-	log::info!(
+	log::trace!(
 		"host_new_handle: SUCCESS handle={:p}, user_ptr={:p}, size={}",
 		handle_ptr,
 		user_ptr,

@@ -108,7 +108,8 @@ macro_rules! dispatch_static {
 		// SAFETY: `rusty_acquire_suite` returns early when `suite` is null,
 		// so the out-param is a valid place to write here.
 		unsafe { *$suite = &SUITE_CONTAINER.$field as *const _ as *const c_void };
-		log::info!("Acquired {} v{}", $name, $version);
+		// debug, not info: some plugins re-acquire suites on every render call.
+		log::debug!("Acquired {} v{}", $name, $version);
 		PF_Err_NONE as PF_Err
 	}};
 }
@@ -164,7 +165,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			// Lives in its own LazyLock rather than SUITE_CONTAINER (see AEGP_UTILITY_SUITE).
 			// SAFETY: `suite` was null-checked at the top of this function.
 			unsafe { *suite = &*utility::AEGP_UTILITY_SUITE as *const _ as *const c_void };
-			log::info!("Acquired {} v{}", suite_name, version);
+			log::debug!("Acquired {} v{}", suite_name, version);
 			PF_Err_NONE as PF_Err
 		}
 		_ => {

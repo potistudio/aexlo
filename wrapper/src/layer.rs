@@ -170,6 +170,9 @@ where
 	}
 
 	pub fn as_sys(&mut self) -> PF_LayerDef {
+		// `data` must come from `as_mut_ptr`: the host/plugin writes through it,
+		// and a pointer derived from `as_ptr` only carries read provenance.
+		let data = self.pixels.as_mut_ptr() as *mut PF_Pixel;
 		PF_LayerDef {
 			reserved0: null_mut(),
 			reserved1: null_mut(),
@@ -191,7 +194,7 @@ where
 			origin_y: 0,
 			reserved_long3: 0,
 			dephault: 0,
-			data: self.pixels.as_ptr() as *mut PF_Pixel,
+			data,
 			rowbytes: (self.width as i32) * (std::mem::size_of::<Pixel<D>>() as i32),
 		}
 	}
@@ -211,12 +214,11 @@ impl Layer<Depth8> {
 			));
 		}
 
-		for (i, pixel) in self.pixels.iter().enumerate() {
-			let offset = i * 4;
-			buffer[offset] = pixel.red;
-			buffer[offset + 1] = pixel.green;
-			buffer[offset + 2] = pixel.blue;
-			buffer[offset + 3] = pixel.alpha;
+		for (chunk, pixel) in buffer.chunks_exact_mut(4).zip(self.pixels.iter()) {
+			chunk[0] = pixel.red;
+			chunk[1] = pixel.green;
+			chunk[2] = pixel.blue;
+			chunk[3] = pixel.alpha;
 		}
 
 		Ok(())
