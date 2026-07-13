@@ -183,8 +183,8 @@ impl RawWorld {
 				blue: 0,
 			};
 		}
-		let ptr =
-			(self.addr as *const u8).wrapping_offset(y as isize * self.rowbytes + x as isize * PIXEL_SIZE) as *const PF_Pixel8;
+		let ptr = (self.addr as *const u8).wrapping_offset(y as isize * self.rowbytes + x as isize * PIXEL_SIZE)
+			as *const PF_Pixel8;
 		unsafe { *ptr }
 	}
 
@@ -207,7 +207,8 @@ impl RawWorld {
 		if self.addr == 0 || x < 0 || y < 0 || x >= self.width || y >= self.height {
 			return;
 		}
-		let ptr = (self.addr as *mut u8).wrapping_offset(y as isize * self.rowbytes + x as isize * PIXEL_SIZE) as *mut PF_Pixel8;
+		let ptr = (self.addr as *mut u8).wrapping_offset(y as isize * self.rowbytes + x as isize * PIXEL_SIZE)
+			as *mut PF_Pixel8;
 		unsafe { *ptr = pixel };
 	}
 
@@ -244,9 +245,9 @@ impl RawWorld {
 /// rows; `FRAME` (and any other value) processes every row.
 #[inline]
 fn skip_row_for_field(y: i32, field: PF_Field) -> bool {
-	if field == PF_Field_UPPER {
+	if field == PF_Field_UPPER as i32 {
 		y.rem_euclid(2) != 0
-	} else if field == PF_Field_LOWER {
+	} else if field == PF_Field_LOWER as i32 {
 		y.rem_euclid(2) == 0
 	} else {
 		false
@@ -303,7 +304,11 @@ fn soft_light(cb: f64, cs: f64) -> f64 {
 	if cs <= 0.5 {
 		cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb)
 	} else {
-		let d = if cb <= 0.25 { ((16.0 * cb - 12.0) * cb + 4.0) * cb } else { cb.sqrt() };
+		let d = if cb <= 0.25 {
+			((16.0 * cb - 12.0) * cb + 4.0) * cb
+		} else {
+			cb.sqrt()
+		};
 		cb + (2.0 * cs - 1.0) * (d - cb)
 	}
 }
@@ -351,7 +356,10 @@ fn pin_light(cb: f64, cs: f64) -> f64 {
 #[allow(non_upper_case_globals)]
 fn blend_channel(mode: A_long, cb: f64, cs: f64) -> f64 {
 	match mode {
-		PF_Xfer_MULTIPLY | PF_Xfer_MULTIPLY_ALPHA | PF_Xfer_MULTIPLY_ALPHA_LUMA | PF_Xfer_MULTIPLY_NOT_ALPHA
+		PF_Xfer_MULTIPLY
+		| PF_Xfer_MULTIPLY_ALPHA
+		| PF_Xfer_MULTIPLY_ALPHA_LUMA
+		| PF_Xfer_MULTIPLY_NOT_ALPHA
 		| PF_Xfer_MULTIPLY_NOT_ALPHA_LUMA => cb * cs,
 		PF_Xfer_SCREEN => cb + cs - cb * cs,
 		PF_Xfer_OVERLAY => hard_light(cs, cb),
@@ -475,8 +483,14 @@ fn composite_over(top_a: f64, top_c: [f64; 3], bottom_a: f64, bottom_c: [f64; 3]
 	let blended = blend_rgb(mode, bottom_c, top_c);
 	let mut out_c = [0.0; 3];
 	for i in 0..3 {
-		let premul = top_c[i] * top_a * (1.0 - bottom_a) + bottom_c[i] * bottom_a * (1.0 - top_a) + blended[i] * top_a * bottom_a;
-		out_c[i] = if out_a > 1e-6 { (premul / out_a).clamp(0.0, 1.0) } else { 0.0 };
+		let premul = top_c[i] * top_a * (1.0 - bottom_a)
+			+ bottom_c[i] * bottom_a * (1.0 - top_a)
+			+ blended[i] * top_a * bottom_a;
+		out_c[i] = if out_a > 1e-6 {
+			(premul / out_a).clamp(0.0, 1.0)
+		} else {
+			0.0
+		};
 	}
 	(out_a, out_c)
 }
@@ -504,12 +518,16 @@ fn composite_pixel(src_a: f64, src_c: [f64; 3], dst_a: f64, dst_c: [f64; 3], mod
 #[allow(non_upper_case_globals)]
 fn mask_value(mask: RawWorld, offset: PF_Point, what_is_mask: PF_MaskFlags, x: i32, y: i32) -> f64 {
 	let p = unsafe { mask.read(x - offset.h, y - offset.v) };
-	let v = if what_is_mask & PF_MaskFlag_LUMINANCE != 0 {
+	let v = if what_is_mask & PF_MaskFlag_LUMINANCE as i32 != 0 {
 		(0.3 * p.red as f64 + 0.59 * p.green as f64 + 0.11 * p.blue as f64) / 255.0
 	} else {
 		p.alpha as f64 / 255.0
 	};
-	if what_is_mask & PF_MaskFlag_INVERTED != 0 { 1.0 - v } else { v }
+	if what_is_mask & PF_MaskFlag_INVERTED as i32 != 0 {
+		1.0 - v
+	} else {
+		v
+	}
 }
 
 // ---- 3x3 affine matrix helpers (row-vector convention: p' = p * M) --------
@@ -689,7 +707,14 @@ struct ConvolveCtx<'a> {
 	normalized: bool,
 }
 
-fn convolve_value(ctx: ConvolveCtx, x: i32, y: i32, weights: &[f64], sum: f64, extract: impl Fn(PF_Pixel8) -> f64) -> f64 {
+fn convolve_value(
+	ctx: ConvolveCtx,
+	x: i32,
+	y: i32,
+	weights: &[f64],
+	sum: f64,
+	extract: impl Fn(PF_Pixel8) -> f64,
+) -> f64 {
 	let mut acc = 0.0;
 	for (i, &(ox, oy)) in ctx.taps.iter().enumerate() {
 		let w = weights[i];
@@ -699,7 +724,11 @@ fn convolve_value(ctx: ConvolveCtx, x: i32, y: i32, weights: &[f64], sum: f64, e
 		let px = unsafe { ctx.world.read_edge(x + ox, y + oy, ctx.replicate) };
 		acc += w * extract(px);
 	}
-	if ctx.normalized || sum.abs() < 1e-9 { acc } else { acc / sum }
+	if ctx.normalized || sum.abs() < 1e-9 {
+		acc
+	} else {
+		acc / sum
+	}
 }
 
 /// Convolves premultiplied by each tap's own alpha, then unpremultiplies the
@@ -707,7 +736,13 @@ fn convolve_value(ctx: ConvolveCtx, x: i32, y: i32, weights: &[f64], sum: f64, e
 /// at partially-transparent edges. Self-normalizing regardless of the
 /// `NORMALIZED` flag, since scaling every weight by a constant cancels out of
 /// the ratio.
-fn convolve_value_alpha_weighted(ctx: ConvolveCtx, x: i32, y: i32, weights: &[f64], extract: impl Fn(PF_Pixel8) -> f64) -> f64 {
+fn convolve_value_alpha_weighted(
+	ctx: ConvolveCtx,
+	x: i32,
+	y: i32,
+	weights: &[f64],
+	extract: impl Fn(PF_Pixel8) -> f64,
+) -> f64 {
 	let mut num = 0.0;
 	let mut den = 0.0;
 	for (i, &(ox, oy)) in ctx.taps.iter().enumerate() {
@@ -865,7 +900,13 @@ unsafe extern "C" fn convolve_sys(
 /// Like [`Copy_sys`], but resamples with bilinear filtering, so `src_r` and
 /// `dst_r` may have different sizes (a scaled blit) rather than requiring an
 /// exact 1:1 pixel match.
-unsafe extern "C" fn copy_hq_sys(_effect_ref: PF_ProgPtr, src: *mut PF_EffectWorld, dst: *mut PF_EffectWorld, src_r: *mut PF_Rect, dst_r: *mut PF_Rect) -> PF_Err {
+unsafe extern "C" fn copy_hq_sys(
+	_effect_ref: PF_ProgPtr,
+	src: *mut PF_EffectWorld,
+	dst: *mut PF_EffectWorld,
+	src_r: *mut PF_Rect,
+	dst_r: *mut PF_Rect,
+) -> PF_Err {
 	if src.is_null() || dst.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
@@ -982,7 +1023,7 @@ unsafe extern "C" fn transfer_rect_sys(
 	}
 
 	let opacity = mode.opacity as f64 / 255.0;
-	let premultiplied = m_flags & PF_MF_Alpha_STRAIGHT == 0;
+	let premultiplied = m_flags & PF_MF_Alpha_STRAIGHT as i32 == 0;
 	let rgb_only = mode.rgb_only != 0;
 	let xfer = mode.xfer;
 
@@ -1070,11 +1111,17 @@ unsafe extern "C" fn transform_world_sys(
 	// ever has to forward-map.
 	let mats: Vec<Mat3> = unsafe { std::slice::from_raw_parts(matrices, num_matrices as usize) }
 		.iter()
-		.map(|m| if src2dst_matrix != 0 { invert3(m.mat).unwrap_or(IDENTITY3) } else { m.mat })
+		.map(|m| {
+			if src2dst_matrix != 0 {
+				invert3(m.mat).unwrap_or(IDENTITY3)
+			} else {
+				m.mat
+			}
+		})
 		.collect();
 
 	let opacity = mode.opacity as f64 / 255.0;
-	let premultiplied = m_flags & PF_MF_Alpha_STRAIGHT == 0;
+	let premultiplied = m_flags & PF_MF_Alpha_STRAIGHT as i32 == 0;
 	let rgb_only = mode.rgb_only != 0;
 	let xfer = mode.xfer;
 
@@ -1179,7 +1226,12 @@ mod tests {
 				rowbytes,
 				width,
 				height,
-				extent_hint: PF_UnionableRect { left: 0, top: 0, right: width, bottom: height },
+				extent_hint: PF_UnionableRect {
+					left: 0,
+					top: 0,
+					right: width,
+					bottom: height,
+				},
 				platform_ref: std::ptr::null_mut(),
 				reserved_long1: 0,
 				reserved_long4: std::ptr::null_mut(),
@@ -1209,7 +1261,12 @@ mod tests {
 	}
 
 	fn px(a: u8, r: u8, g: u8, b: u8) -> PF_Pixel8 {
-		PF_Pixel8 { alpha: a, red: r, green: g, blue: b }
+		PF_Pixel8 {
+			alpha: a,
+			red: r,
+			green: g,
+			blue: b,
+		}
 	}
 
 	/// `PF_Pixel` (from `after-effects-sys`) doesn't derive `PartialEq`, so
@@ -1229,13 +1286,37 @@ mod tests {
 		let mut s2 = TestWorld::new(2, 2, px(255, 0, 200, 0));
 		let mut d = TestWorld::new(2, 2, px(0, 0, 0, 0));
 
-		unsafe { blend_sys(std::ptr::null_mut(), s1.as_mut_ptr(), s2.as_mut_ptr(), 0, d.as_mut_ptr()) };
+		unsafe {
+			blend_sys(
+				std::ptr::null_mut(),
+				s1.as_mut_ptr(),
+				s2.as_mut_ptr(),
+				0,
+				d.as_mut_ptr(),
+			)
+		};
 		assert_px_eq(d.pixel(0, 0), px(255, 100, 0, 0), "ratio=0 should equal src1");
 
-		unsafe { blend_sys(std::ptr::null_mut(), s1.as_mut_ptr(), s2.as_mut_ptr(), 1 << 16, d.as_mut_ptr()) };
+		unsafe {
+			blend_sys(
+				std::ptr::null_mut(),
+				s1.as_mut_ptr(),
+				s2.as_mut_ptr(),
+				1 << 16,
+				d.as_mut_ptr(),
+			)
+		};
 		assert_px_eq(d.pixel(0, 0), px(255, 0, 200, 0), "ratio=1 should equal src2");
 
-		unsafe { blend_sys(std::ptr::null_mut(), s1.as_mut_ptr(), s2.as_mut_ptr(), 1 << 15, d.as_mut_ptr()) };
+		unsafe {
+			blend_sys(
+				std::ptr::null_mut(),
+				s1.as_mut_ptr(),
+				s2.as_mut_ptr(),
+				1 << 15,
+				d.as_mut_ptr(),
+			)
+		};
 		assert_px_eq(d.pixel(0, 0), px(255, 50, 100, 0), "ratio=0.5 should be the midpoint");
 	}
 
@@ -1252,13 +1333,17 @@ mod tests {
 				src.as_mut_ptr(),
 				0,
 				0,
-				PF_Field_FRAME,
+				PF_Field_FRAME as i32,
 				PF_Xfer_COPY,
 				dst.as_mut_ptr(),
 			)
 		};
 		assert_eq!(err, PF_Err_NONE as PF_Err);
-		assert_px_eq(dst.pixel(0, 0), px(255, 10, 20, 30), "opaque COPY should fully replace dst");
+		assert_px_eq(
+			dst.pixel(0, 0),
+			px(255, 10, 20, 30),
+			"opaque COPY should fully replace dst",
+		);
 	}
 
 	#[test]
@@ -1274,12 +1359,16 @@ mod tests {
 				src.as_mut_ptr(),
 				0,
 				0,
-				PF_Field_FRAME,
+				PF_Field_FRAME as i32,
 				PF_Xfer_COPY,
 				dst.as_mut_ptr(),
 			)
 		};
-		assert_px_eq(dst.pixel(0, 0), px(255, 200, 200, 200), "zero opacity should leave dst untouched");
+		assert_px_eq(
+			dst.pixel(0, 0),
+			px(255, 200, 200, 200),
+			"zero opacity should leave dst untouched",
+		);
 	}
 
 	#[test]
@@ -1287,7 +1376,15 @@ mod tests {
 		let mut src = TestWorld::new(3, 3, px(255, 42, 84, 126));
 		let mut dst = TestWorld::new(3, 3, px(0, 0, 0, 0));
 
-		unsafe { copy_hq_sys(std::ptr::null_mut(), src.as_mut_ptr(), dst.as_mut_ptr(), std::ptr::null_mut(), std::ptr::null_mut()) };
+		unsafe {
+			copy_hq_sys(
+				std::ptr::null_mut(),
+				src.as_mut_ptr(),
+				dst.as_mut_ptr(),
+				std::ptr::null_mut(),
+				std::ptr::null_mut(),
+			)
+		};
 
 		for y in 0..3 {
 			for x in 0..3 {
@@ -1367,8 +1464,8 @@ mod tests {
 			transform_world_sys(
 				std::ptr::null_mut(),
 				PF_Quality_HI,
-				PF_MF_Alpha_STRAIGHT,
-				PF_Field_FRAME,
+				PF_MF_Alpha_STRAIGHT as i32,
+				PF_Field_FRAME as i32,
 				src.as_mut_ptr(),
 				&comp_mode as *const _,
 				std::ptr::null(),

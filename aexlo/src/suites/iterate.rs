@@ -167,7 +167,7 @@ pub(super) unsafe extern "C" fn iterate_8_sys(
 				let err = unsafe { func(refcon_ptr, current_x, current_y, src_pixel, dst_pixel) };
 				if err != PF_Err_NONE as PF_Err {
 					// Attempt to store the first error. We don't care if we overwrite another error or lose one race.
-					error_capsule.store(err, Ordering::Relaxed);
+					error_capsule.store(err as u32, Ordering::Relaxed);
 					return; // Stop processing this row
 				}
 			}

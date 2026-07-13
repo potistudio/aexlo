@@ -41,7 +41,7 @@ use after_effects_sys::{
 
 use crate::core::diagnostics::DiagnosticBuilder;
 
-unsafe extern "C" fn dispose_world_stub(effect_ref: PF_ProgPtr, worldP: *mut PF_EffectWorld) -> PF_Err {
+unsafe extern "C" fn dispose_world_sys(effect_ref: PF_ProgPtr, worldP: *mut PF_EffectWorld) -> PF_Err {
 	if worldP.is_null() {
 		log::warn!("dispose_world: worldP is null");
 		return PF_Err_NONE as PF_Err;
@@ -110,7 +110,7 @@ unsafe extern "C" fn new_world_sys(
 	let height = heightL.max(0);
 
 	#[allow(non_upper_case_globals)]
-	let depth = match pixel_format {
+	let depth = match pixel_format as u32 {
 		PF_PixelFormat_ARGB32 => 4,
 		PF_PixelFormat_ARGB64 => 8,
 		PF_PixelFormat_ARGB128 => 16,
@@ -175,10 +175,7 @@ unsafe extern "C" fn new_world_sys(
 	PF_Err_NONE as PF_Err
 }
 
-unsafe extern "C" fn get_pixel_format_stub(
-	worldP: *const PF_EffectWorld,
-	pixel_formatP: *mut PF_PixelFormat,
-) -> PF_Err {
+unsafe extern "C" fn get_pixel_format_sys(worldP: *const PF_EffectWorld, pixel_formatP: *mut PF_PixelFormat) -> PF_Err {
 	if worldP.is_null() {
 		log::warn!("PF_GetPixelFormat: worldP is null");
 		return PF_Err_NONE as PF_Err;
@@ -214,10 +211,10 @@ unsafe extern "C" fn get_pixel_format_stub(
 ///
 /// `const` so it can initialize the shared [`SUITE_CONTAINER`](crate::suites::SUITE_CONTAINER)
 /// static; the suite is a stateless table of function pointers.
-pub const fn create_world_suite_2() -> PF_WorldSuite2 {
+pub const fn create_world_suite() -> PF_WorldSuite2 {
 	PF_WorldSuite2 {
 		PF_NewWorld: Some(new_world_sys),
-		PF_DisposeWorld: Some(dispose_world_stub),
-		PF_GetPixelFormat: Some(get_pixel_format_stub),
+		PF_DisposeWorld: Some(dispose_world_sys),
+		PF_GetPixelFormat: Some(get_pixel_format_sys),
 	}
 }

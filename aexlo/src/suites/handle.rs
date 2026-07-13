@@ -414,7 +414,7 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(new_sizeL: A_HandleSize,
 /// `const` so it can initialize the shared [`SUITE_CONTAINER`](crate::suites::SUITE_CONTAINER)
 /// static: the suite is a stateless table of function pointers, so a single
 /// process-wide instance is handed to every plugin.
-pub const fn create_handle_suite_1() -> PF_HandleSuite1 {
+pub const fn create_handle_suite() -> PF_HandleSuite1 {
 	PF_HandleSuite1 {
 		host_new_handle: Some(host_new_handle_impl),
 		host_lock_handle: Some(host_lock_handle_impl),

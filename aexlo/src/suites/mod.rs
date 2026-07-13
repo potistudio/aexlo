@@ -24,6 +24,7 @@ pub mod interface;
 pub mod iterate;
 pub mod macros;
 pub mod param_utils;
+pub mod persistent_data;
 pub mod transform;
 pub mod ui;
 pub mod utility;
@@ -61,9 +62,9 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	effect_ui: PF_EffectUISuite1 {
 		PF_SetOptionsButtonName: Some(ui::SetOptionButtonName_sys),
 	},
-	handle: handle::create_handle_suite_1(),
+	handle: handle::create_handle_suite(),
 	world_transform: transform::create_world_transform_suite_1(),
-	world: world::create_world_suite_2(),
+	world: world::create_world_suite(),
 	iterate8: iterate::create_iterate_8_suite_2(),
 	utility: utility::create_utility_suite(),
 	aegp_interface: interface::create_aegp_pf_interface_suite(),
@@ -71,6 +72,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	ae_app: ae_app::create_ae_app_suite_v6(),
 	gpu_device: gpu_device::create_gpu_device_suite_1(),
 	param_utils: param_utils::create_param_utils_suite_3(),
+	persistent_data: persistent_data::create_persistent_data_suite_3(),
 };
 
 /// Process-wide storage for the stateless suite vtables handed to plugins.
@@ -93,6 +95,7 @@ pub struct SuiteContainer {
 	pub ae_app: PFAppSuite6,
 	pub gpu_device: PF_GPUDeviceSuite1,
 	pub param_utils: PF_ParamUtilsSuite3,
+	pub persistent_data: AEGP_PersistentDataSuite3,
 }
 
 /// Hand back a pointer to one of the shared [`SUITE_CONTAINER`] vtables.
@@ -154,6 +157,9 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("PF GPU Device Suite", 1) => dispatch_static!(suite, suite_name, version, gpu_device),
 		// ParamUtils suites are append-only, so the v3 table also satisfies v1/v2 requests.
 		("PF Param Utils Suite", 1..=3) => dispatch_static!(suite, suite_name, version, param_utils),
+		("AEGP Persistent Data Suite", 3) => {
+			dispatch_static!(suite, suite_name, version, persistent_data)
+		}
 		("AEGP Utility Suite", 1..=18) => {
 			// Lives in its own LazyLock rather than SUITE_CONTAINER (see AEGP_UTILITY_SUITE).
 			// SAFETY: `suite` was null-checked at the top of this function.

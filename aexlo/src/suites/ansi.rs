@@ -98,14 +98,14 @@ pub(crate) unsafe extern "C" fn sprintf_sys(arg1: *mut A_char, arg2: *const A_ch
 				match next {
 					'd' => {
 						// Get an integer argument
-						let arg = unsafe { args.arg::<i32>() };
+						let arg = unsafe { args.next_arg::<i32>() };
 
 						diagnostics.add_arg("arg_int", format!("{:?}", arg));
 						result.push_str(&arg.to_string());
 					}
 					's' => {
 						// Get a string argument
-						let ptr = unsafe { args.arg::<*const i8>() };
+						let ptr = unsafe { args.next_arg::<*const i8>() };
 
 						if !ptr.is_null() {
 							match unsafe { CStr::from_ptr(ptr) }.to_str() {
