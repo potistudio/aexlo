@@ -180,15 +180,13 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 		instance.render_frame().context("render failed")?;
 	}
 
-	let (w, h) = instance.output_size();
-	let mut pixels = vec![0u8; w as usize * h as usize * 4];
+	// save_preview encodes with mtpng (multithreaded), reusing the library's
+	// only PNG-encode path instead of pulling in a second encoder.
 	instance
-		.write_output_rgba(&mut pixels)
-		.context("reading rendered output")?;
-
-	image::save_buffer(&output, &pixels, w, h, image::ColorType::Rgba8)
+		.save_preview(&output)
 		.with_context(|| format!("writing {}", output.display()))?;
 
+	let (w, h) = instance.output_size();
 	println!("rendered {}x{} -> {}", w, h, output.display());
 	Ok(())
 }

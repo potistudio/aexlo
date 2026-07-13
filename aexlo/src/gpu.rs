@@ -425,13 +425,10 @@ mod imp {
 
 		/// Block until all outstanding GPU work has finished.
 		///
-		/// Synchronizes our stream (where well-behaved plugins launch, via
-		/// `command_queuePV`) and then the whole context, in case the plugin
-		/// launched on the default stream or one of its own.
+		/// A context synchronize (`cuCtxSynchronize`) waits for *every* stream in
+		/// the context — ours and any the plugin created — so a separate stream
+		/// synchronize beforehand would be pure redundant latency.
 		pub fn wait_for_completion(&self) {
-			if let Err(err) = self.stream.synchronize() {
-				log::warn!("CUDA stream synchronize failed: {err}");
-			}
 			if let Err(err) = self.ctx.synchronize() {
 				log::warn!("CUDA context synchronize failed: {err}");
 			}
