@@ -3,5 +3,5 @@ name = "wrapper"
 edition = "2024"
 
 [dependencies]
-after-effects-sys = "0.3.0"
-rand = "0.9.2"
+after-effects-sys = "0.4.0"
+rand = "0.10.2"

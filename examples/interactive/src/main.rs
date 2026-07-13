@@ -290,13 +290,13 @@ impl AexloApp {
 
 	/// Draw the left control panel; returns pending user actions to apply after
 	/// the panel closes (keeping borrows simple).
-	fn controls_panel(&mut self, ctx: &egui::Context) -> PanelActions {
+	fn controls_panel(&mut self, ui: &mut egui::Ui) -> PanelActions {
 		let mut actions = PanelActions::default();
 
-		egui::SidePanel::left("controls")
+		egui::Panel::left("controls")
 			.resizable(true)
-			.default_width(280.0)
-			.show(ctx, |ui| {
+			.default_size(280.0)
+			.show(ui, |ui| {
 				ui.heading("🎬 aexlo Playground");
 				ui.separator();
 
@@ -421,10 +421,10 @@ fn param_widget(ui: &mut egui::Ui, control: &mut ParamControl) -> bool {
 }
 
 impl eframe::App for AexloApp {
-	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+	fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
 		self.update_fps();
 
-		let actions = self.controls_panel(ctx);
+		let actions = self.controls_panel(ui);
 
 		if let Some(index) = actions.select {
 			self.selected = index;
@@ -438,10 +438,12 @@ impl eframe::App for AexloApp {
 			self.needs_render = true;
 		}
 
-		egui::CentralPanel::default().show(ctx, |ui| {
+		let ctx = ui.ctx().clone();
+
+		egui::CentralPanel::default().show(ui, |ui| {
 			if self.auto_render || self.needs_render {
 				self.render_frame();
-				self.update_texture(ctx);
+				self.update_texture(&ctx);
 				self.needs_render = false;
 			}
 

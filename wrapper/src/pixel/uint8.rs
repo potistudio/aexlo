@@ -84,7 +84,7 @@ impl Pixel<Depth8> {
 	}
 
 	pub fn random() -> Self {
-		use rand::Rng;
+		use rand::RngExt;
 		let mut rng = rand::rng();
 
 		Pixel {

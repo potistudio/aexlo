@@ -53,10 +53,10 @@ pub(crate) fn normalize_param_value_to_default(mut param: PF_ParamDef) -> PF_Par
 /// The name field in `PF_ParamDef` is a null-terminated byte array,
 /// so this trims at the first null byte before decoding.
 pub(crate) fn param_name(param: &PF_ParamDef) -> String {
-	let raw_name = &param.name;
-	let end = raw_name.iter().position(|&c| c == 0).unwrap_or(param.name.len());
+	let raw_name = &param.name_do_not_use_directly;
+	let end = raw_name.iter().position(|&c| c == 0).unwrap_or(param.name_do_not_use_directly.len());
 
-	let bytes: Vec<u8> = param.name[..end].iter().map(|c| *c as u8).collect();
+	let bytes: Vec<u8> = param.name_do_not_use_directly[..end].iter().map(|c| *c as u8).collect();
 	String::from_utf8_lossy(&bytes).trim().to_string()
 }
 

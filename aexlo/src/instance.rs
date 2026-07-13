@@ -932,7 +932,7 @@ impl PluginInstance {
 			target.ui_flags = def.ui_flags;
 			target.ui_width = def.ui_width;
 			target.ui_height = def.ui_height;
-			target.name = def.name;
+			target.name_do_not_use_directly = def.name_do_not_use_directly;
 		}
 	}
 
@@ -1043,7 +1043,7 @@ impl PluginInstance {
 			ui_width: 0,
 			ui_height: 0,
 			param_type: 0 as PF_ParamType,
-			name: [0; 32],
+			name_do_not_use_directly: [0; 32],
 			flags: 0,
 			unused: 0,
 			u: PF_ParamDefUnion {

@@ -37,7 +37,7 @@ use std::ffi::CStr;
 use std::os::raw::c_void;
 
 pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
-	ansi: PF_ANSICallbacks {
+	ansi: PF_ANSICallbacksBlock {
 		atan: Some(ansi::atan_sys),
 		atan2: Some(ansi::atan2_sys),
 		ceil: Some(ansi::ceil_sys),
@@ -57,7 +57,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 		strcpy: Some(ansi::strcpy_sys),
 		asin: Some(ansi::asin_sys),
 		acos: Some(ansi::acos_sys),
-		ansi_procs: [0; 1],
+		unused_longA: [0; 1],
 	},
 	effect_ui: PF_EffectUISuite1 {
 		PF_SetOptionsButtonName: Some(ui::SetOptionButtonName_sys),
@@ -83,7 +83,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 /// notes. Suites live for the program's lifetime; there is nothing to allocate
 /// or free.
 pub struct SuiteContainer {
-	pub ansi: PF_ANSICallbacks,
+	pub ansi: PF_ANSICallbacksBlock,
 	pub effect_ui: PF_EffectUISuite1,
 	pub handle: PF_HandleSuite1,
 	pub world_transform: PF_WorldTransformSuite1,

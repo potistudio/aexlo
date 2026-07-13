@@ -14,12 +14,12 @@ harness = false
 
 [dependencies]
 aexlo = { path = "../../aexlo" }
-chrono = "0.4.42"
-colored = "3.0.0"
-env_logger = "0.11.8"
+chrono = "0.4.45"
+colored = "3.1.1"
+env_logger = "0.11.11"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
-log = "0.4.28"
+log = "0.4.33"
 mtpng = "0.4.1"
 
 [dev-dependencies]
-criterion = "0.7.0"
+criterion = "0.8.2"
