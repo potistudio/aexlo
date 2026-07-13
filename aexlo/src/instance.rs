@@ -322,6 +322,17 @@ pub struct PluginInstance {
 	/// created lazily when driving a plugin that declared GPU render support.
 	gpu_context: Option<crate::gpu::GpuContext>,
 
+	/// Reusable staging buffers for the GPU upload/readback paths, so a preview
+	/// loop doesn't reallocate ~66 MB per 1080p frame.
+	gpu_upload_staging: Vec<f32>,
+	gpu_readback_staging: Vec<f32>,
+
+	/// Whether the GPU input buffer currently holds `input_layer`'s pixels.
+	/// Cleared by [`Self::set_input`] (and on context creation) so the next
+	/// [`Self::render_gpu`] re-packs and re-uploads; left set otherwise, since a
+	/// parameter-only change doesn't touch the input pixels.
+	gpu_input_uploaded: bool,
+
 	/// Opaque, plugin-owned GPU state returned by `PF_Cmd_GPU_DEVICE_SETUP`
 	/// (compiled pipelines, etc.), handed back to the plugin during GPU render and
 	/// released by `PF_Cmd_GPU_DEVICE_SETDOWN`.
@@ -475,6 +486,8 @@ impl PluginInstance {
 	fn gpu_device_setup(&mut self) -> Result<()> {
 		if self.gpu_context.is_none() {
 			self.gpu_context = crate::gpu::GpuContext::new();
+			// A fresh context owns no buffers yet; force an input upload.
+			self.gpu_input_uploaded = false;
 		}
 		let Some(ctx) = self.gpu_context.as_ref() else {
 			return Err(AexloError::Unexpected(
@@ -605,11 +618,17 @@ impl PluginInstance {
 				));
 			}
 
-			let staging = Self::pack_layer_to_bgra_f32(&self.input_layer);
-			if !ctx.write_buffer(input_key, bytemuck::cast_slice(&staging)) {
-				return Err(AexloError::Unexpected(
-					"Failed to upload input pixels to the GPU".to_string(),
-				));
+			// Pack + upload only when the input pixels changed since the last upload
+			// (an input size change goes through `set_input`, which clears the flag,
+			// so a reallocated buffer always gets fresh pixels).
+			if !self.gpu_input_uploaded {
+				Self::pack_layer_to_bgra_f32(&self.input_layer, &mut self.gpu_upload_staging);
+				if !ctx.write_buffer(input_key, bytemuck::cast_slice(&self.gpu_upload_staging)) {
+					return Err(AexloError::Unexpected(
+						"Failed to upload input pixels to the GPU".to_string(),
+					));
+				}
+				self.gpu_input_uploaded = true;
 			}
 		}
 
@@ -624,11 +643,12 @@ impl PluginInstance {
 			ctx.wait_for_completion();
 		}
 
-		// Phase C: read the rendered BGRA float output back into the 8-bit layer.
+		// Phase C: read the rendered BGRA float output back into the 8-bit layer,
+		// reusing the instance's staging buffer.
 		if let Some(ctx) = self.gpu_context.as_ref() {
-			let mut staging = vec![0f32; out_len / std::mem::size_of::<f32>()];
-			if ctx.read_buffer(output_key, bytemuck::cast_slice_mut(&mut staging)) {
-				Self::unpack_bgra_f32_to_layer(&staging, &mut self.output_layer);
+			self.gpu_readback_staging.resize(out_len / std::mem::size_of::<f32>(), 0.0);
+			if ctx.read_buffer(output_key, bytemuck::cast_slice_mut(&mut self.gpu_readback_staging)) {
+				Self::unpack_bgra_f32_to_layer(&self.gpu_readback_staging, &mut self.output_layer);
 			}
 		}
 
@@ -637,16 +657,19 @@ impl PluginInstance {
 
 	/// Pack an 8-bit ARGB layer into `PF_PixelFormat_GPU_BGRA128` staging data:
 	/// BGRA channel order, each channel normalised to `[0, 1]` float.
-	fn pack_layer_to_bgra_f32(layer: &wrapper::Layer<wrapper::Depth8>) -> Vec<f32> {
+	///
+	/// Writes into the caller-provided `staging` buffer (cleared first) so a
+	/// render loop can reuse one allocation across frames.
+	fn pack_layer_to_bgra_f32(layer: &wrapper::Layer<wrapper::Depth8>, staging: &mut Vec<f32>) {
 		let pixels = layer.pixels();
-		let mut staging = Vec::with_capacity(pixels.len() * 4);
+		staging.clear();
+		staging.reserve(pixels.len() * 4);
 		for pixel in pixels {
 			staging.push(pixel.blue as f32 / 255.0);
 			staging.push(pixel.green as f32 / 255.0);
 			staging.push(pixel.red as f32 / 255.0);
 			staging.push(pixel.alpha as f32 / 255.0);
 		}
-		staging
 	}
 
 	/// Unpack `PF_PixelFormat_GPU_BGRA128` staging data (BGRA float) back into an
@@ -710,6 +733,9 @@ impl PluginInstance {
 	/// Replace the input layer, keeping the `PF_Param_LAYER` parameter (index 0) in sync.
 	pub fn set_input(&mut self, input: wrapper::Layer<wrapper::Depth8>) {
 		self.input_layer = input;
+
+		// The GPU input buffer (if any) now holds stale pixels.
+		self.gpu_input_uploaded = false;
 
 		// Keep the persistent input world (used by smart-render `checkout_layer_pixels`)
 		// pointing at the new layer's pixels.
@@ -1058,6 +1084,9 @@ impl PluginInstance {
 
 				smart_render_data: SmartRenderData::new(),
 				gpu_context: None,
+				gpu_upload_staging: Vec::new(),
+				gpu_readback_staging: Vec::new(),
+				gpu_input_uploaded: false,
 				gpu_data: null_mut(),
 			};
 
