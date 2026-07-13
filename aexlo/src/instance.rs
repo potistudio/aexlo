@@ -296,10 +296,10 @@ pub struct PluginInstance {
 	utility_callbacks: Box<after_effects_sys::_PF_UtilCallbacks>,
 
 	/// Basic Suite pointer.
-	pub pica: Box<after_effects_sys::SPBasicSuite>,
+	pica: Box<after_effects_sys::SPBasicSuite>,
 
 	/// InData structure.
-	pub in_data: after_effects_sys::PF_InData,
+	pub(crate) in_data: after_effects_sys::PF_InData,
 	out_data: after_effects_sys::PF_OutData,
 
 	/// Instance-specific parameters from the host (non-global storage).
@@ -839,7 +839,7 @@ impl PluginInstance {
 	///
 	/// Used by smart-render callbacks to hand back a stable pointer instead of one
 	/// pointing at a temporary value that would dangle after the callback returns.
-	pub fn output_world_ptr(&mut self) -> *mut after_effects_sys::PF_EffectWorld {
+	pub(crate) fn output_world_ptr(&mut self) -> *mut after_effects_sys::PF_EffectWorld {
 		&mut self.world as *mut after_effects_sys::PF_LayerDef as *mut after_effects_sys::PF_EffectWorld
 	}
 
@@ -847,7 +847,7 @@ impl PluginInstance {
 	///
 	/// Used by smart-render `checkout_layer_pixels` to hand back a stable pointer to
 	/// the input layer, kept in sync with `input_layer` by [`Self::set_input`].
-	pub fn input_world_ptr(&mut self) -> *mut after_effects_sys::PF_EffectWorld {
+	pub(crate) fn input_world_ptr(&mut self) -> *mut after_effects_sys::PF_EffectWorld {
 		&mut self.input_world as *mut after_effects_sys::PF_LayerDef as *mut after_effects_sys::PF_EffectWorld
 	}
 
@@ -1008,7 +1008,7 @@ impl PluginInstance {
 	///
 	/// The returned pointer does not imply unique mutable access.
 	/// Callers must uphold aliasing rules before dereferencing.
-	pub fn get_instance_ptr(effect_ref: PF_ProgPtr) -> Option<NonNull<PluginInstance>> {
+	pub(crate) fn get_instance_ptr(effect_ref: PF_ProgPtr) -> Option<NonNull<PluginInstance>> {
 		if effect_ref.is_null() {
 			return None;
 		}
@@ -1027,7 +1027,10 @@ impl PluginInstance {
 	// -----------------------------------------------------
 
 	/// Add a parameter to this instance's parameter storage.
-	pub fn add_instance_param(&mut self, param: PF_ParamDef) {
+	///
+	/// Crate-internal: this exists only to bridge `PF_Cmd_PARAMS_SETUP` -- the
+	/// plugin owns its parameter list, the host never appends to it.
+	pub(crate) fn add_instance_param(&mut self, param: PF_ParamDef) {
 		self.params.push(param);
 		self.params_dirty = true;
 		self.in_data.num_params = self.params.len() as i32;
@@ -1039,14 +1042,26 @@ impl PluginInstance {
 	}
 
 	/// Get all instance parameters.
-	pub fn params(&self) -> &[PF_ParamDef] {
+	pub(crate) fn params(&self) -> &[PF_ParamDef] {
 		&self.params
 	}
 
 	/// Get a specific instance parameter by index (same index space as
 	/// [`Self::set_param`]: index 0 is the input layer, real parameters start at 1).
-	pub fn param_by_index(&self, index: usize) -> Option<&PF_ParamDef> {
+	///
+	/// Crate-internal because it exposes the raw `PF_ParamDef` sys type; the
+	/// public surface is [`Self::get_param`] / [`Self::param_name`].
+	pub(crate) fn param_by_index(&self, index: usize) -> Option<&PF_ParamDef> {
 		self.params.get(index)
+	}
+
+	/// The plugin-declared display name of the parameter at `index` (same index
+	/// space as [`Self::set_param`]), or `None` if the index is out of bounds.
+	///
+	/// The name is decoded from the plugin's null-terminated byte array and may
+	/// be empty when the plugin left it blank.
+	pub fn param_name(&self, index: usize) -> Option<String> {
+		self.params.get(index).map(crate::host::params::param_name)
 	}
 
 	/// Apply a plugin's `PF_UpdateParamUI` request: copy the UI-only fields from
@@ -1066,7 +1081,9 @@ impl PluginInstance {
 	}
 
 	/// Clear all instance parameters.
-	pub fn clear_instance_params(&mut self) {
+	///
+	/// Crate-internal: see [`Self::add_instance_param`].
+	pub(crate) fn clear_instance_params(&mut self) {
 		self.params.clear();
 		self.params_dirty = true;
 		log::debug!("PluginInstance: cleared all instance params");

@@ -297,11 +297,7 @@ fn load_input(path: &Path) -> Result<(Vec<u8>, u32, u32)> {
 /// The plugin-declared name for a parameter, falling back to a positional label.
 fn param_name(instance: &PluginInstance, index: usize) -> String {
 	instance
-		.param_by_index(index)
-		.map(|def| {
-			let bytes: Vec<u8> = def.name.iter().take_while(|&&c| c != 0).map(|&c| c as u8).collect();
-			String::from_utf8_lossy(&bytes).trim().to_string()
-		})
+		.param_name(index)
 		.filter(|name| !name.is_empty())
 		.unwrap_or_else(|| format!("Param {index}"))
 }

@@ -76,5 +76,6 @@ pub use instance::ParamValue;
 /// Diagnostic utilities (feature-gated).
 pub use core::diagnostics::{Diagnostic, DiagnosticBuilder};
 
-/// Safe pixel/layer wrappers ([`Layer`], [`Pixel`], depth markers, …).
-pub use wrapper::*;
+/// Safe pixel/layer wrappers, re-exported explicitly so additions to the
+/// `wrapper` crate don't silently widen this crate's public API.
+pub use wrapper::{Depth8, Depth16, Depth32, Layer, LayerError, Pixel, PixelDepth};

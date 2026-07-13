@@ -70,15 +70,11 @@ fn load_input_image() -> Option<(Vec<u8>, u32, u32)> {
 	}
 }
 
-/// Read a parameter's human-readable name from the plugin's stored `PF_ParamDef`,
-/// falling back to a positional label when the plugin left it blank.
+/// Read a parameter's plugin-declared display name, falling back to a
+/// positional label when the plugin left it blank.
 fn param_name(instance: &PluginInstance, index: usize) -> String {
 	instance
-		.param_by_index(index)
-		.map(|def| {
-			let bytes: Vec<u8> = def.name.iter().take_while(|&&c| c != 0).map(|&c| c as u8).collect();
-			String::from_utf8_lossy(&bytes).trim().to_string()
-		})
+		.param_name(index)
 		.filter(|name| !name.is_empty())
 		.unwrap_or_else(|| format!("Param {index}"))
 }
