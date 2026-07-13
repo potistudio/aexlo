@@ -9,6 +9,7 @@
 //! aexlo params <plugin>
 //! ```
 
+mod dev;
 mod view;
 mod watch;
 
@@ -32,6 +33,8 @@ COMMANDS:
                        (add --once for a single headless render to PNG)
     view   <png>       Live image window: reload a PNG whenever it changes
                        (pair with `bacon` re-running a #[aexlo::preview])
+    dev    <crate>     Rerun a #[aexlo::preview] test on save + live viewer
+                       (built-in `bacon` replacement; add a name to filter tests)
 
 RENDER OPTIONS:
     -i, --input  <png>     Feed a PNG as the effect's input layer
@@ -71,6 +74,7 @@ fn run() -> Result<()> {
 		"render" => cmd_render(args),
 		"watch" => cmd_watch(args),
 		"view" => cmd_view(args),
+		"dev" => cmd_dev(args),
 		other => {
 			print!("{USAGE}");
 			bail!("unknown command '{other}'");
@@ -216,6 +220,15 @@ fn cmd_watch(args: impl Iterator<Item = String>) -> Result<()> {
 fn cmd_view(mut args: impl Iterator<Item = String>) -> Result<()> {
 	let path = args.next().context("view: missing <png> path")?;
 	view::run(Path::new(&path))
+}
+
+fn cmd_dev(mut args: impl Iterator<Item = String>) -> Result<()> {
+	let dir = args.next().context("dev: missing <crate> directory")?;
+	let filter = args.next();
+	if args.next().is_some() {
+		bail!("dev: expected <crate> [filter]");
+	}
+	dev::run(Path::new(&dir), filter.as_deref())
 }
 
 /// Pull the value that follows a flag like `--output`, erroring if it's missing.
