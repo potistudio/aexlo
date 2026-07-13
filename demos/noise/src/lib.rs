@@ -42,7 +42,7 @@ fn fill_noise(layer: &ae::Layer) {
 		for x in 0..w {
 			// One hash per pixel; spread its bytes across the channels so the
 			// noise is colored rather than grey.
-			let n = hash((y as u32).wrapping_shl(24) ^ x as u32);
+			let n = hash((y as u32).wrapping_shl(16) ^ x as u32);
 			let px = layer.as_pixel8_mut(x, y);
 			px.red = n as u8;
 			px.green = (n >> 8) as u8;
@@ -64,11 +64,8 @@ fn hash(mut x: u32) -> u32 {
 
 #[cfg(test)]
 mod preview {
-	#[test]
-	fn renders_noise_in_process() {
-		let mut fx = unsafe { aexlo::PluginInstance::from_entry_raw(crate::EffectMain as *const () as usize) }
-			.expect("plugin should load in-process");
-
+	#[aexlo::preview]
+	fn renders_noise_in_process(fx: &mut aexlo::PluginInstance) {
 		fx.render_frame().expect("render should succeed");
 
 		let (w, h) = fx.output_size();
@@ -82,14 +79,5 @@ mod preview {
 		let first = &pixels[0..4];
 		let varied = pixels.chunks_exact(4).any(|px| px != first);
 		assert!(varied, "noise render should not be a flat color");
-
-		// Always drop a full-quality PNG next to the crate; open it only on demand.
-		let preview = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("preview.png");
-		fx.save_preview(&preview).expect("saving preview should succeed");
-		eprintln!("preview written to {}", preview.display());
-
-		if std::env::var_os("AEXLO_PREVIEW").is_some() {
-			fx.open_preview().expect("opening preview should succeed");
-		}
 	}
 }
