@@ -262,8 +262,8 @@ fn parse_param_value(instance: &PluginInstance, index: usize, raw: &str) -> Resu
 
 fn parse_bool(raw: &str) -> Result<bool> {
 	match raw.trim().to_ascii_lowercase().as_str() {
-		"1" | "true" | "on" | "yes" => Ok(true),
-		"0" | "false" | "off" | "no" => Ok(false),
+		"true" => Ok(true),
+		"false" => Ok(false),
 		_ => bail!("expected a boolean (true/false), got '{raw}'"),
 	}
 }
