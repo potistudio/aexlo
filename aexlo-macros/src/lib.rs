@@ -24,7 +24,9 @@ use syn::{FnArg, ItemFn, parse_macro_input};
 ///
 /// After the body runs, the macro writes a full-quality PNG and -- when
 /// `AEXLO_PREVIEW` is set -- opens it in the OS image viewer. Run it like any
-/// test (`cargo test`, or the IDE gutter); it never asserts, it just renders.
+/// test (`cargo test -- --ignored`, or the IDE gutter); it never asserts, it
+/// just renders. The generated test is `#[ignore]`d so a plain `cargo test`
+/// (CI included) never pays the render cost as a side effect.
 ///
 /// The function must take a fixture parameter (a `&mut aexlo::PluginInstance`).
 /// If the plugin's entry point isn't named `EffectMain`, override it with
@@ -68,6 +70,7 @@ pub fn preview(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 	quote! {
 		#[test]
+		#[ignore = "aexlo preview — run via `aexlo dev`/`cargo test -- --ignored`, not plain `cargo test`"]
 		fn #name() -> ::aexlo::Result<()> {
 			// In-process: `EffectMain` is already resident, so hand its address
 			// to aexlo. `from_entry_raw` (not `from_entry`) so a plugin built

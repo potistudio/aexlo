@@ -69,6 +69,9 @@ pub fn run(crate_dir: &Path, filter: Option<&str>) -> Result<()> {
 
 /// Run `cargo test` for `manifest`, filtered to `filter` if given, with
 /// `AEXLO_PREVIEW=live` so any `#[aexlo::preview]` it runs pops a live viewer.
+///
+/// `#[aexlo::preview]` generates an `#[ignore]`d test (so a plain `cargo test`
+/// never pays the render cost), so this passes `--ignored` to actually run it.
 fn spawn_test(manifest: &Path, filter: Option<&str>) -> Result<Child> {
 	let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
 	let mut cmd = Command::new(cargo);
@@ -76,7 +79,7 @@ fn spawn_test(manifest: &Path, filter: Option<&str>) -> Result<Child> {
 	if let Some(filter) = filter {
 		cmd.arg(filter);
 	}
-	cmd.args(["--", "--nocapture"]);
+	cmd.args(["--", "--ignored", "--nocapture"]);
 	cmd.env("AEXLO_PREVIEW", "live");
 	cmd.spawn().context("spawning cargo test")
 }
