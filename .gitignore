@@ -4,9 +4,5 @@
 # Cargo artifacts
 target/
 
-# Preview render outputs (aexlo view / #[aexlo::preview] / render defaults)
-/preview.png
-/out.png
-
 # Personal references
 refs/

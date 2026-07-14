@@ -25,14 +25,10 @@
 		"samp",
 		"sdata",
 		"sprintf",
-		"Truecolor",
-		"Unionable"
-	],
-	"editor.rulers": [
-		60,
+		"truecolor",
+		"unionable"
 	],
 	"rust-analyzer.cargo.features": [
 		"all",
 	],
-	"editor.formatOnSave": true
 }

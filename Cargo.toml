@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/aexlo", "crates/aexlo-macros", "crates/cli", "crates/wrapper", "crates/bench", "examples/*", "tests/e2e", "demos/*"]
+members = ["crates/*", "examples/*", "tests/e2e", "demos/*"]
 default-members = ["crates/aexlo"]
 
 [workspace.package]
@@ -14,5 +14,6 @@ codegen-units = 1
 lto = true
 
 [workspace.dependencies]
-aexlo = { path = "./crates/aexlo" }
-wrapper = { path = "./crates/wrapper" }
+aexlo = { path = "crates/aexlo" }
+wrapper = { path = "crates/wrapper" }
+aexlo-macros = { path = "crates/aexlo-macros" }

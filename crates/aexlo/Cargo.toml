@@ -1,33 +1,33 @@
 [package]
 name = "aexlo"
-description = "Run After Effects plugin without Adobe dependency."
 version = { workspace = true }
-license = { workspace = true }
+edition = { workspace = true }
+description = "Run After Effects plugin without Adobe dependency."
 authors = { workspace = true }
+license = { workspace = true }
 repository = "https://github.com/potistudio/aexlo-rs"
 keywords = ["after-effects", "graphics", "emulator"]
 categories = ["emulator"]
 readme = "README.md"
-edition = { workspace = true }
 
 [features]
 all = ["diagnostics"]
 diagnostics = []
 
 [dependencies]
-wrapper = { path = "../wrapper" }
-aexlo-macros = { path = "../aexlo-macros" }
+aexlo-macros = { workspace = true }
+after-effects = "0.4.0"
 after-effects-sys = "0.4.0"
+bytemuck = "1.25.1"
 chrono = "0.4.45"
 colored = "3.1.1"
+dlopen2 = "0.8.2"
 env_logger = "0.11.11"
 log = "0.4.33"
-after-effects = "0.4.0"
 mtpng = "0.4.1"
-thiserror = "2.0.18"
 rayon = "1.12.0"
-dlopen2 = "0.8.2"
-bytemuck = "1.25.1"
+thiserror = "2.0.18"
+wrapper = { workspace = true }
 
 # Metal-backed GPU rendering is macOS-only; plugins that declare
 # PF_OutFlag2_SUPPORTS_GPU_RENDER_F32 are driven through it (see `gpu` module).
