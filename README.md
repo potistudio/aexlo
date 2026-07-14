@@ -1,7 +1,6 @@
 # aexlo — After Effects Plugin Runtime
 
 > Load, run, and render After Effects plugins (.aex) outside of After Effects.
-> No Adobe license required.
 
 ## What
 
