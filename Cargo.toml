@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["aexlo", "aexlo-macros", "cli", "wrapper", "examples/*", "tests/e2e", "benches", "demos/*"]
-default-members = ["aexlo"]
+members = ["crates/aexlo", "crates/aexlo-macros", "crates/cli", "crates/wrapper", "crates/bench", "examples/*", "tests/e2e", "demos/*"]
+default-members = ["crates/aexlo"]
 
 [workspace.package]
 version = "0.0.1"
@@ -14,5 +14,5 @@ codegen-units = 1
 lto = true
 
 [workspace.dependencies]
-aexlo = { path = "./aexlo" }
-wrapper = { path = "./wrapper" }
+aexlo = { path = "./crates/aexlo" }
+wrapper = { path = "./crates/wrapper" }
