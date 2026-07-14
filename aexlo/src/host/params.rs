@@ -171,7 +171,7 @@ pub(crate) fn param_details(param: &PF_ParamDef) -> String {
 	}
 }
 
-fn popup_options(popup: &PF_PopupDef) -> Vec<String> {
+pub(crate) fn popup_options(popup: &PF_PopupDef) -> Vec<String> {
 	unsafe {
 		if popup.u.namesptr.is_null() {
 			return Vec::new();

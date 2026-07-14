@@ -250,10 +250,33 @@ fn params_json(fx: &PluginInstance) -> String {
 		let head = format!("{{\"index\":{index},\"name\":\"{name}\",");
 		out.push_str(&head);
 		match value {
-			ParamValue::Float(v) => out.push_str(&format!("\"kind\":\"float\",\"value\":{v}")),
-			ParamValue::Fixed(v) => out.push_str(&format!("\"kind\":\"fixed\",\"value\":{v}")),
-			ParamValue::Slider(v) => out.push_str(&format!("\"kind\":\"slider\",\"value\":{v}")),
-			ParamValue::Popup(v) => out.push_str(&format!("\"kind\":\"popup\",\"value\":{v}")),
+			ParamValue::Float(v) => {
+				out.push_str(&format!("\"kind\":\"float\",\"value\":{v}"));
+				push_range(&mut out, fx.param_slider_range(index));
+			}
+			ParamValue::Fixed(v) => {
+				out.push_str(&format!("\"kind\":\"fixed\",\"value\":{v}"));
+				push_range(&mut out, fx.param_slider_range(index));
+			}
+			ParamValue::Slider(v) => {
+				out.push_str(&format!("\"kind\":\"slider\",\"value\":{v}"));
+				push_range(&mut out, fx.param_slider_range(index));
+			}
+			ParamValue::Popup(v) => {
+				out.push_str(&format!("\"kind\":\"popup\",\"value\":{v}"));
+				if let Some(choices) = fx.param_choices(index) {
+					out.push_str(",\"choices\":[");
+					for (i, c) in choices.iter().enumerate() {
+						if i > 0 {
+							out.push(',');
+						}
+						out.push('"');
+						out.push_str(&json_escape(c));
+						out.push('"');
+					}
+					out.push(']');
+				}
+			}
 			ParamValue::Angle(v) => out.push_str(&format!("\"kind\":\"angle\",\"value\":{v}")),
 			ParamValue::Checkbox(v) => out.push_str(&format!("\"kind\":\"checkbox\",\"value\":{v}")),
 			ParamValue::Point { x, y } => out.push_str(&format!("\"kind\":\"point\",\"x\":{x},\"y\":{y}")),
@@ -270,6 +293,13 @@ fn params_json(fx: &PluginInstance) -> String {
 	}
 	out.push(']');
 	out
+}
+
+/// Append `,"min":..,"max":..` to a param object when the slider has a range.
+fn push_range(out: &mut String, range: Option<(f64, f64)>) {
+	if let Some((min, max)) = range {
+		out.push_str(&format!(",\"min\":{min},\"max\":{max}"));
+	}
 }
 
 fn json_escape(s: &str) -> String {
@@ -443,11 +473,14 @@ const VIEWER_HTML: &str = r#"<!doctype html>
   aside:empty::before { content: "no parameters"; color: #6b7280; }
   .row { margin-bottom: 12px; }
   .row label { display: block; margin-bottom: 4px; color: #9aa2ad; }
-  .row input[type=range], .row input[type=number] { width: 100%; box-sizing: border-box; }
-  .pt { display: flex; gap: 6px; }
-  .pt input { width: 50%; box-sizing: border-box; }
-  input { background: #1c1f26; color: #c7ccd4; border: 1px solid #2f343c;
+  .row input[type=number], .row select { width: 100%; box-sizing: border-box; }
+  .pt { display: flex; gap: 6px; align-items: center; }
+  .pt input { min-width: 0; box-sizing: border-box; }
+  .pt input[type=range] { flex: 1; }
+  .pt input[type=number] { width: 76px; flex: 0 0 auto; }
+  input, select { background: #1c1f26; color: #c7ccd4; border: 1px solid #2f343c;
     border-radius: 4px; padding: 3px 5px; font: inherit; }
+  input[type=range] { padding: 0; accent-color: #3fb950; }
   main { flex: 1; display: grid; place-items: center; overflow: auto; padding: 12px; min-width: 0; }
   canvas { max-width: 100%; max-height: 100%; background: #0000; box-shadow: 0 0 0 1px #262a31; }
 </style>
@@ -487,13 +520,49 @@ function set(index, value) {
   }, 40);
 }
 
-function numberRow(p, step, fmt) {
+function labelled(p) {
   const row = el('div', 'row');
   row.append(el('label', '', `#${p.index} ${p.name}`));
+  return row;
+}
+
+// Plain number field, for ranges the plugin didn't bound (and for angles).
+function numberRow(p, step) {
+  const row = labelled(p);
   const inp = document.createElement('input');
   inp.type = 'number'; inp.step = step; inp.value = p.value;
-  inp.oninput = () => set(p.index, fmt ? fmt(inp.value) : inp.value);
+  inp.oninput = () => set(p.index, inp.value);
   row.append(inp);
+  return row;
+}
+
+// Range slider paired with a number box, kept in sync, for bounded sliders.
+function sliderRow(p, step) {
+  const row = labelled(p);
+  const wrap = el('div', 'pt');
+  const range = document.createElement('input');
+  range.type = 'range'; range.min = p.min; range.max = p.max;
+  range.step = step === '1' ? '1' : (p.max - p.min) / 1000 || 'any';
+  range.value = p.value;
+  const num = numInput(p.value); num.step = step;
+  const push = v => { range.value = v; num.value = v; set(p.index, v); };
+  range.oninput = () => push(range.value);
+  num.oninput = () => push(num.value);
+  wrap.append(range, num); row.append(wrap);
+  return row;
+}
+
+// Dropdown for popups whose choice labels the plugin exposed.
+function selectRow(p) {
+  const row = labelled(p);
+  const sel = document.createElement('select');
+  p.choices.forEach((c, i) => {
+    const o = document.createElement('option');
+    o.value = i + 1; o.textContent = c; sel.append(o); // popup values are 1-based
+  });
+  sel.value = p.value;
+  sel.oninput = () => set(p.index, sel.value);
+  row.append(sel);
   return row;
 }
 
@@ -502,34 +571,34 @@ function buildControls(params) {
   for (const p of params) {
     let row;
     if (p.kind === 'checkbox') {
-      row = el('div', 'row');
-      const lab = el('label', '', `#${p.index} ${p.name}`);
+      row = labelled(p);
       const inp = document.createElement('input');
-      inp.type = 'checkbox'; inp.checked = p.value; inp.style.width = 'auto';
+      inp.type = 'checkbox'; inp.checked = p.value;
       inp.oninput = () => set(p.index, inp.checked ? 'true' : 'false');
-      lab.prepend(inp, ' ');
-      row.append(lab);
+      row.querySelector('label').prepend(inp, ' ');
     } else if (p.kind === 'point') {
-      row = el('div', 'row');
-      row.append(el('label', '', `#${p.index} ${p.name}`));
+      row = labelled(p);
       const wrap = el('div', 'pt');
       const x = numInput(p.x), y = numInput(p.y);
       const push = () => set(p.index, x.value + ',' + y.value);
       x.oninput = push; y.oninput = push;
       wrap.append(x, y); row.append(wrap);
     } else if (p.kind === 'color') {
-      row = el('div', 'row');
-      row.append(el('label', '', `#${p.index} ${p.name}`));
+      row = labelled(p);
       const wrap = el('div', 'pt');
       const col = document.createElement('input');
-      col.type = 'color'; col.value = rgbHex(p.r, p.g, p.b); col.style.width = '60%';
+      col.type = 'color'; col.value = rgbHex(p.r, p.g, p.b);
       const a = numInput(p.a); a.min = 0; a.max = 255;
       const push = () => { const [r, g, b] = hexRgb(col.value); set(p.index, `${r},${g},${b},${a.value}`); };
       col.oninput = push; a.oninput = push;
       wrap.append(col, a); row.append(wrap);
+    } else if (p.kind === 'popup' && p.choices) {
+      row = selectRow(p);
+    } else if ((p.kind === 'float' || p.kind === 'fixed' || p.kind === 'slider') && p.min !== undefined) {
+      row = sliderRow(p, p.kind === 'slider' ? '1' : 'any');
     } else {
-      const int = (p.kind === 'slider' || p.kind === 'popup');
-      row = numberRow(p, int ? '1' : 'any');
+      // angle, unbounded sliders, or a popup with no labels
+      row = numberRow(p, (p.kind === 'slider' || p.kind === 'popup') ? '1' : 'any');
     }
     panel.append(row);
   }

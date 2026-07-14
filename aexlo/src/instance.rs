@@ -155,6 +155,12 @@ pub struct PluginInstance {
 	/// Instance-specific parameters from the host (non-global storage).
 	params: Vec<after_effects_sys::PF_ParamDef>,
 
+	/// Popup choice labels captured per parameter at `PF_Cmd_PARAMS_SETUP`,
+	/// parallel to `params` (empty for non-popup params). Captured at add time
+	/// because a popup's `namesptr` points into a plugin-owned string that only
+	/// lives for the add-param callback; reading it later is a dangling read.
+	popup_choices: Vec<Vec<String>>,
+
 	/// Track if instance params need synchronization.
 	params_dirty: bool,
 
@@ -860,6 +866,50 @@ impl PluginInstance {
 		}
 	}
 
+	/// The parameter's displayed slider range `(min, max)`, in the same units as
+	/// its [`ParamValue`], for the slider-like types (`Float`/`Fixed`/`Slider`).
+	///
+	/// Returns `None` for types that have no slider track (checkbox, popup,
+	/// angle dial, point, color) or when the range is degenerate (`min == max`),
+	/// so callers can fall back to a plain numeric input.
+	pub fn param_slider_range(&self, index: usize) -> Option<(f64, f64)> {
+		let param = self.params.get(index)?;
+
+		// SAFETY: the union variant is selected based on `param_type`, matching
+		// the reads in `get_param`.
+		let (min, max) = unsafe {
+			match param.param_type {
+				t if t == ParamType::FloatSlider as PF_ParamType => {
+					(param.u.fs_d.slider_min as f64, param.u.fs_d.slider_max as f64)
+				}
+				t if t == ParamType::Slider as PF_ParamType => {
+					(param.u.sd.slider_min as f64, param.u.sd.slider_max as f64)
+				}
+				t if t == ParamType::FixSlider as PF_ParamType => (
+					utils::fixed16_to_f32(param.u.fd.slider_min) as f64,
+					utils::fixed16_to_f32(param.u.fd.slider_max) as f64,
+				),
+				_ => return None,
+			}
+		};
+		(min != max).then_some((min, max))
+	}
+
+	/// The choice labels of a `Popup` parameter, in selection order (the 1-based
+	/// [`ParamValue::Popup`] value indexes into this list).
+	///
+	/// Returns `None` for non-popup parameters or when the plugin supplied no
+	/// choice string.
+	pub fn param_choices(&self, index: usize) -> Option<Vec<String>> {
+		let param = self.params.get(index)?;
+		if param.param_type != ParamType::PopUp as PF_ParamType {
+			return None;
+		}
+		// Read the labels captured at PARAMS_SETUP, not the now-dangling
+		// `namesptr` (see `popup_choices`).
+		self.popup_choices.get(index).filter(|c| !c.is_empty()).cloned()
+	}
+
 	/// Get a PluginInstance pointer from an effect reference pointer.
 	///
 	/// The returned pointer does not imply unique mutable access.
@@ -887,7 +937,15 @@ impl PluginInstance {
 	/// Crate-internal: this exists only to bridge `PF_Cmd_PARAMS_SETUP` -- the
 	/// plugin owns its parameter list, the host never appends to it.
 	pub(crate) fn add_instance_param(&mut self, param: PF_ParamDef) {
+		// Capture popup choice labels now, while the plugin-owned `namesptr`
+		// string is still alive (it dies when the add-param callback returns).
+		let choices = if param.param_type == ParamType::PopUp as PF_ParamType {
+			unsafe { crate::host::params::popup_options(&param.u.pd) }
+		} else {
+			Vec::new()
+		};
 		self.params.push(param);
+		self.popup_choices.push(choices);
 		self.params_dirty = true;
 		self.in_data.num_params = self.params.len() as i32;
 		log::debug!(
@@ -943,6 +1001,7 @@ impl PluginInstance {
 	#[allow(dead_code)]
 	pub(crate) fn clear_instance_params(&mut self) {
 		self.params.clear();
+		self.popup_choices.clear();
 		self.params_dirty = true;
 		log::debug!("PluginInstance: cleared all instance params");
 	}
@@ -978,6 +1037,7 @@ impl PluginInstance {
 					.build(),
 				out_data: crate::core::helpers::OutDataBuilder::new().build(),
 				params: Vec::new(),
+				popup_choices: Vec::new(),
 				params_dirty: false,
 				params_ptr_cache: Vec::new(),
 				input_layer,
@@ -1050,6 +1110,7 @@ impl PluginInstance {
 				ld: self.input_layer.as_sys(),
 			},
 		});
+		self.popup_choices.push(Vec::new());
 		// The push above invalidates any (nonexistent yet) cached param pointers;
 		// mark dirty so `call_plugin` builds the cache on its first invocation.
 		self.params_dirty = true;
