@@ -101,7 +101,23 @@ pub fn run(manifest: &Path) -> Result<()> {
 }
 
 /// Build the crate's cdylib, load it, render one frame, and hand back RGBA8.
+///
+/// One-shot: the instance is dropped and its staged copy removed before
+/// returning. Callers that need to keep the instance alive (to re-render on a
+/// parameter change without rebuilding) use [`build_and_load`] +
+/// [`render_instance`] instead.
 pub(crate) fn build_and_render(manifest: &Path, generation: u64) -> Result<(Vec<u8>, u32, u32)> {
+	let (mut fx, staged) = build_and_load(manifest, generation)?;
+	let result = render_instance(&mut fx);
+	drop(fx);
+	let _ = std::fs::remove_file(&staged);
+	result
+}
+
+/// Build the crate's cdylib and load it, returning the live instance plus the
+/// path of the staged copy it was loaded from (so the caller can remove that
+/// copy once it drops the instance).
+pub(crate) fn build_and_load(manifest: &Path, generation: u64) -> Result<(PluginInstance, PathBuf)> {
 	let artifact = build_cdylib(manifest)?;
 
 	// Load a uniquely named copy each time: reopening the same path can hand back
@@ -110,17 +126,17 @@ pub(crate) fn build_and_render(manifest: &Path, generation: u64) -> Result<(Vec<
 	let staged = std::env::temp_dir().join(format!("aexlo-watch-{generation}.{ext}"));
 	std::fs::copy(&artifact, &staged).with_context(|| format!("staging {}", artifact.display()))?;
 
-	let result = (|| {
-		let mut fx = PluginInstance::try_load(&staged).context("loading freshly built plugin")?;
-		fx.render_frame().context("render failed")?;
-		let (w, h) = fx.output_size();
-		let mut rgba = vec![0u8; w as usize * h as usize * 4];
-		fx.write_output_rgba(&mut rgba).context("reading rendered output")?;
-		Ok((rgba, w, h))
-	})();
+	let fx = PluginInstance::try_load(&staged).context("loading freshly built plugin")?;
+	Ok((fx, staged))
+}
 
-	let _ = std::fs::remove_file(&staged);
-	result
+/// Render the loaded instance's current parameters to an RGBA8 frame.
+pub(crate) fn render_instance(fx: &mut PluginInstance) -> Result<(Vec<u8>, u32, u32)> {
+	fx.render_frame().context("render failed")?;
+	let (w, h) = fx.output_size();
+	let mut rgba = vec![0u8; w as usize * h as usize * 4];
+	fx.write_output_rgba(&mut rgba).context("reading rendered output")?;
+	Ok((rgba, w, h))
 }
 
 /// Run `cargo build` for `manifest` and return the path to its cdylib artifact.

@@ -318,7 +318,7 @@ fn parse_set(raw: &str) -> Result<(usize, String)> {
 
 /// Parse a textual value into the `ParamValue` variant the plugin already uses
 /// at `index`, so callers don't have to spell out the parameter type.
-fn parse_param_value(instance: &PluginInstance, index: usize, raw: &str) -> Result<ParamValue> {
+pub(crate) fn parse_param_value(instance: &PluginInstance, index: usize, raw: &str) -> Result<ParamValue> {
 	let current = instance
 		.get_param(index)
 		.with_context(|| format!("no parameter at index {index}"))?;
