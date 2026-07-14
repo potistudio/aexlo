@@ -29,8 +29,12 @@ COMMANDS:
     render <plugin>		Render a frame and write it to a PNG
     about  <plugin>		Print the plugin's ABOUT text
     params <plugin>    List the plugin's parameters (index, name, value)
-    dev    <crate> [filter]   Rerun a #[aexlo::preview] test on save + live viewer
+    dev    [filter]     Rerun a #[aexlo::preview] test on save + live viewer
                               (built-in `bacon` replacement; add a name to filter tests)
+                              Like `cargo build`: defaults to the crate in the
+                              current directory; use -p to pick another.
+        -p, --package <name>   Preview this workspace member instead of the
+                              crate in the current directory
         --bin                 Skip the test harness: rebuild the crate's cdylib and
                               dlopen + render it directly on save (faster, but no
                               println!/dbg!/debugger support — no filter, either)
@@ -215,28 +219,53 @@ fn cmd_view(mut args: impl Iterator<Item = String>) -> Result<()> {
 }
 
 fn cmd_dev(args: impl Iterator<Item = String>) -> Result<()> {
-	let mut dir: Option<String> = None;
+	let mut package: Option<String> = None;
 	let mut filter: Option<String> = None;
 	let mut bin = false;
-	for arg in args {
+	let mut args = args.peekable();
+	while let Some(arg) = args.next() {
 		match arg.as_str() {
 			"--bin" => bin = true,
+			"-p" | "--package" => package = Some(next_value(&mut args, &arg)?),
 			other if other.starts_with('-') => bail!("unknown option '{other}'"),
-			_ if dir.is_none() => dir = Some(arg),
 			_ if filter.is_none() => filter = Some(arg),
-			_ => bail!("dev: expected <crate> [filter]"),
+			_ => bail!("dev: expected [filter] [-p <package>] [--bin]"),
 		}
 	}
-	let dir = dir.context("dev: missing <crate> directory")?;
+
+	let manifest = resolve_manifest(package.as_deref())?;
 
 	if bin {
 		if filter.is_some() {
 			bail!("dev --bin: no test filter — it doesn't run the test harness");
 		}
-		watch::run(Path::new(&dir))
+		watch::run(&manifest)
 	} else {
-		dev::run(Path::new(&dir), filter.as_deref())
+		dev::run(&manifest, filter.as_deref())
 	}
+}
+
+/// Resolve `-p <package>` (or, if absent, the crate in the current directory)
+/// to its `Cargo.toml`, the same way `cargo build [-p <package>]` would.
+fn resolve_manifest(package: Option<&str>) -> Result<PathBuf> {
+	// No `.no_deps()`: `root_package()` needs the resolve graph cargo omits
+	// without it, and dev-only usage doesn't need this to be instant.
+	let metadata = cargo_metadata::MetadataCommand::new()
+		.exec()
+		.context("running cargo metadata")?;
+
+	let pkg = if let Some(name) = package {
+		metadata
+			.packages
+			.iter()
+			.find(|p| p.name.as_str() == name)
+			.with_context(|| format!("no package named '{name}' in this workspace"))?
+	} else {
+		metadata
+			.root_package()
+			.context("no crate in the current directory — pass -p <package>")?
+	};
+	Ok(pkg.manifest_path.clone().into_std_path_buf())
 }
 
 /// Pull the value that follows a flag like `--output`, erroring if it's missing.

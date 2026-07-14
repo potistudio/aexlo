@@ -1,4 +1,4 @@
-//! `aexlo dev <crate> [filter]` — rerun a `#[aexlo::preview]` test on save.
+//! `aexlo dev [filter] [-p <package>]` — rerun a `#[aexlo::preview]` test on save.
 //!
 //! Built-in replacement for pairing `bacon` with `#[aexlo::preview]`: watches
 //! the crate's sources and reruns `cargo test` on every change, with
@@ -13,17 +13,14 @@ use std::process::{Child, Command};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use notify::{RecursiveMode, Watcher};
 
 /// Debounce window so a burst of editor save events triggers one rerun.
 const DEBOUNCE: Duration = Duration::from_millis(150);
 
-pub fn run(crate_dir: &Path, filter: Option<&str>) -> Result<()> {
-	let manifest = crate_dir.join("Cargo.toml");
-	if !manifest.exists() {
-		bail!("no Cargo.toml at {} — pass a crate directory", crate_dir.display());
-	}
+pub fn run(manifest: &Path, filter: Option<&str>) -> Result<()> {
+	let crate_dir = manifest.parent().context("manifest path has no parent directory")?;
 	let src_dir = crate_dir.join("src");
 
 	let (tx, rx) = mpsc::channel();
@@ -34,7 +31,7 @@ pub fn run(crate_dir: &Path, filter: Option<&str>) -> Result<()> {
 	watcher
 		.watch(&src_dir, RecursiveMode::Recursive)
 		.with_context(|| format!("watching {}", src_dir.display()))?;
-	let _ = watcher.watch(&manifest, RecursiveMode::NonRecursive);
+	let _ = watcher.watch(manifest, RecursiveMode::NonRecursive);
 
 	let mut current: Option<Child> = None;
 	let mut pending: Option<Instant> = Some(Instant::now()); // run once on startup
@@ -60,7 +57,7 @@ pub fn run(crate_dir: &Path, filter: Option<&str>) -> Result<()> {
 			if let Some(child) = &mut current {
 				let _ = child.wait();
 			}
-			current = Some(spawn_test(&manifest, filter)?);
+			current = Some(spawn_test(manifest, filter)?);
 		}
 
 		std::thread::sleep(Duration::from_millis(50));

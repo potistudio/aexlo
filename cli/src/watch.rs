@@ -1,4 +1,4 @@
-//! `aexlo dev <crate> --bin` — a live preview window.
+//! `aexlo dev --bin [-p <package>]` — a live preview window.
 //!
 //! Watches a plugin crate's sources; on every save it rebuilds the cdylib,
 //! `try_load`s the fresh artifact, renders a frame, and blits it into a single
@@ -19,11 +19,8 @@ use notify::{RecursiveMode, Watcher};
 /// Debounce window so a burst of editor save events triggers one rebuild.
 const DEBOUNCE: Duration = Duration::from_millis(150);
 
-pub fn run(crate_dir: &Path) -> Result<()> {
-	let manifest = crate_dir.join("Cargo.toml");
-	if !manifest.exists() {
-		bail!("no Cargo.toml at {} — pass a crate directory", crate_dir.display());
-	}
+pub fn run(manifest: &Path) -> Result<()> {
+	let crate_dir = manifest.parent().context("manifest path has no parent directory")?;
 	let src_dir = crate_dir.join("src");
 
 	let (init_w, init_h) = (1280usize, 720usize);
@@ -50,7 +47,7 @@ pub fn run(crate_dir: &Path) -> Result<()> {
 	watcher
 		.watch(&src_dir, RecursiveMode::Recursive)
 		.with_context(|| format!("watching {}", src_dir.display()))?;
-	let _ = watcher.watch(&manifest, RecursiveMode::NonRecursive);
+	let _ = watcher.watch(manifest, RecursiveMode::NonRecursive);
 
 	// Last good frame, kept on screen across failed builds.
 	let mut framebuf: Vec<u32> = vec![0; init_w * init_h];
@@ -80,7 +77,7 @@ pub fn run(crate_dir: &Path) -> Result<()> {
 			generation += 1;
 			window.set_title("aexlo dev --bin — building…");
 
-			match build_and_render(&manifest, generation) {
+			match build_and_render(manifest, generation) {
 				Ok((rgba, w, h)) => {
 					framebuf = rgba_to_argb(&rgba);
 					frame_dims = (w as usize, h as usize);
