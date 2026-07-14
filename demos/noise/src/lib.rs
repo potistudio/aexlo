@@ -77,7 +77,7 @@ mod preview {
 		fx.write_output_rgba(&mut pixels)
 			.expect("reading output should succeed");
 		let first = &pixels[0..4];
-		let varied = pixels.chunks_exact(4).any(|px| px != first);
+		let varied = pixels.as_chunks::<4>().0.iter().any(|px| px != first);
 		assert!(varied, "noise render should not be a flat color");
 	}
 }
