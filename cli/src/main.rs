@@ -12,6 +12,7 @@
 mod dev;
 mod view;
 mod watch;
+mod web;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -38,6 +39,11 @@ COMMANDS:
         --bin                 Skip the test harness: rebuild the crate's cdylib and
                               dlopen + render it directly on save (faster, but no
                               println!/dbg!/debugger support — no filter, either)
+        --web                 Preview in the browser instead of a native window:
+                              serve the frame over a local HTTP server and stream
+                              it into a <canvas>. Requires --bin. Good for
+                              headless/remote hosts.
+        --port <n>            Port for --web  [default: OS-assigned]
     view   <png>       Live image window: reload a PNG whenever it changes
                        (spawned automatically by a `dev`-driven #[aexlo::preview];
                        pair manually with your own re-runner otherwise)
@@ -127,9 +133,12 @@ fn load(plugin_arg: &str) -> Result<PluginInstance> {
 
 fn cmd_about(mut args: impl Iterator<Item = String>) -> Result<()> {
 	let plugin = args.next().context("about: missing <plugin>")?;
+
 	let mut instance = load(&plugin)?;
+
 	let text = instance.about().context("plugin rejected PF_Cmd_ABOUT")?;
 	println!("{}", text.trim());
+
 	Ok(())
 }
 
@@ -221,25 +230,47 @@ fn cmd_view(mut args: impl Iterator<Item = String>) -> Result<()> {
 fn cmd_dev(args: impl Iterator<Item = String>) -> Result<()> {
 	let mut package: Option<String> = None;
 	let mut filter: Option<String> = None;
-	let mut bin = false;
+	let mut bin_mode = false;
+	let mut web_mode = false;
+	let mut port: u16 = 0;
+
 	let mut args = args.peekable();
+
 	while let Some(arg) = args.next() {
 		match arg.as_str() {
-			"--bin" => bin = true,
+			"--bin" => bin_mode = true,
+			"--web" => web_mode = true,
+			"--port" => {
+				port = next_value(&mut args, &arg)?
+					.parse()
+					.with_context(|| "--port expects a number 0-65535".to_string())?;
+			}
 			"-p" | "--package" => package = Some(next_value(&mut args, &arg)?),
 			other if other.starts_with('-') => bail!("unknown option '{other}'"),
 			_ if filter.is_none() => filter = Some(arg),
-			_ => bail!("dev: expected [filter] [-p <package>] [--bin]"),
+			_ => bail!("dev: expected [filter] [-p <package>] [--bin] [--web] [--port <n>]"),
 		}
+	}
+
+	if web_mode && !bin_mode {
+		bail!("dev --web requires --bin (the browser preview uses the cdylib render path)");
+	}
+	if port != 0 && !web_mode {
+		bail!("--port only applies to --web");
 	}
 
 	let manifest = resolve_manifest(package.as_deref())?;
 
-	if bin {
+	if bin_mode {
 		if filter.is_some() {
 			bail!("dev --bin: no test filter — it doesn't run the test harness");
 		}
-		watch::run(&manifest)
+
+		if web_mode {
+			web::run(&manifest, port)
+		} else {
+			watch::run(&manifest)
+		}
 	} else {
 		dev::run(&manifest, filter.as_deref())
 	}

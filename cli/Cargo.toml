@@ -22,3 +22,6 @@ image = { version = "0.25.10", default-features = false, features = ["png"] }
 minifb = "0.28.0"
 notify = "8.2.0"
 cargo_metadata = "0.23.1"
+
+# `aexlo dev --bin --web`: serve the live preview over a tiny local HTTP server.
+tiny_http = "0.12.0"

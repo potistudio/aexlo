@@ -17,7 +17,7 @@ use minifb::{Key, ScaleMode, Window, WindowOptions};
 use notify::{RecursiveMode, Watcher};
 
 /// Debounce window so a burst of editor save events triggers one rebuild.
-const DEBOUNCE: Duration = Duration::from_millis(150);
+pub(crate) const DEBOUNCE: Duration = Duration::from_millis(150);
 
 pub fn run(manifest: &Path) -> Result<()> {
 	let crate_dir = manifest.parent().context("manifest path has no parent directory")?;
@@ -101,7 +101,7 @@ pub fn run(manifest: &Path) -> Result<()> {
 }
 
 /// Build the crate's cdylib, load it, render one frame, and hand back RGBA8.
-fn build_and_render(manifest: &Path, generation: u64) -> Result<(Vec<u8>, u32, u32)> {
+pub(crate) fn build_and_render(manifest: &Path, generation: u64) -> Result<(Vec<u8>, u32, u32)> {
 	let artifact = build_cdylib(manifest)?;
 
 	// Load a uniquely named copy each time: reopening the same path can hand back
@@ -166,7 +166,7 @@ fn is_dynamic_library(path: &Path) -> bool {
 }
 
 /// Only rebuild for source-ish changes, ignoring editor swap/lock files.
-fn is_relevant(path: &Path) -> bool {
+pub(crate) fn is_relevant(path: &Path) -> bool {
 	matches!(path.extension().and_then(|s| s.to_str()), Some("rs"))
 		|| path.file_name().is_some_and(|n| n == "Cargo.toml")
 }
