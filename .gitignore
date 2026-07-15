@@ -6,3 +6,6 @@ target/
 
 # Personal references
 refs/
+
+# playground packaged plugin
+playground/dist/

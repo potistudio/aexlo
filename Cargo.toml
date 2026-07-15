@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "examples/*", "tests/e2e", "demos/*"]
+members = ["crates/*", "examples/*", "tests/e2e", "demos/*", "playground/probe", "playground/harness"]
 default-members = ["crates/aexlo"]
 
 [workspace.package]

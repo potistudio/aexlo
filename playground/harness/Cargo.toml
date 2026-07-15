@@ -1,0 +1,25 @@
+[package]
+name = "playground"
+version = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+publish = false
+description = "Drives the aexlo-probe plugin under aexlo and diffs its traces against real After Effects."
+
+[[bin]]
+name = "playground"
+path = "src/main.rs"
+
+[dependencies]
+aexlo = { workspace = true }
+# rlib link for `run --in-process` (breakpoints into the probe itself).
+aexlo-probe = { path = "../probe" }
+anyhow = "1.0.103"
+colored = "3.1.1"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+serde_json = "1.0"
+
+# `pipl` subcommand: read the PiPL resource back out of the built .aex.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
