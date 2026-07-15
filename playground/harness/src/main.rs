@@ -197,7 +197,12 @@ fn print_report(path: &Path) -> anyhow::Result<()> {
 		println!("  {key}: {value}");
 	}
 
-	section("Commands");
+	section("Facts (fixed input → exact output; compared by default)");
+	for (key, value) in summary.range("fact/".to_string().."fact/~".to_string()) {
+		println!("  {} = {value}", key.strip_prefix("fact/").unwrap_or(key));
+	}
+
+	section("Commands (context — how this host drove the plugin)");
 	for (key, value) in summary.range("cmd/".to_string().."cmd/~".to_string()) {
 		println!("  {key} = {value}");
 	}
@@ -252,12 +257,12 @@ fn diff(args: &[String]) -> anyhow::Result<()> {
 	let (Some(left_path), Some(right_path)) = (args.first(), args.get(1)) else {
 		anyhow::bail!("usage: playground diff <a.jsonl> <b.jsonl> [--all]");
 	};
-	let include_volatile = flag(args, "--all");
+	let include_all = flag(args, "--all");
 
 	let left = summary::summarize(&summary::load_events(Path::new(left_path))?);
 	let right = summary::summarize(&summary::load_events(Path::new(right_path))?);
 
-	let (lines, matches) = summary::diff(&left, &right, include_volatile);
+	let (lines, matches) = summary::diff(&left, &right, include_all);
 
 	println!(
 		"\n{}  A = {left_path}\n{}  B = {right_path}\n",
@@ -287,10 +292,10 @@ fn diff(args: &[String]) -> anyhow::Result<()> {
 		"\n{} matching, {} differing{}",
 		matches.to_string().green().bold(),
 		lines.len().to_string().red().bold(),
-		if include_volatile {
-			" (including volatile keys)"
+		if include_all {
+			" (including context keys)"
 		} else {
-			""
+			" (facts, suites, presence; --all for context)"
 		}
 	);
 

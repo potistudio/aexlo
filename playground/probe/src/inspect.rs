@@ -140,7 +140,7 @@ pub unsafe fn snapshot_world(world: *const ae::PF_LayerDef, with_hash: bool) -> 
 		"data": !w.data.is_null(),
 	});
 
-	if with_hash && let Some(hash) = unsafe { hash_world(w) } {
+	if with_hash && let Some(hash) = unsafe { world_pixels_fnv1a(w) } {
 		value["pixels_fnv1a"] = json!(format!("{hash:016x}"));
 	}
 
@@ -148,7 +148,7 @@ pub unsafe fn snapshot_world(world: *const ae::PF_LayerDef, with_hash: bool) -> 
 }
 
 /// FNV-1a over the meaningful bytes of each row (skips rowbytes padding).
-unsafe fn hash_world(w: &ae::PF_LayerDef) -> Option<u64> {
+pub unsafe fn world_pixels_fnv1a(w: &ae::PF_LayerDef) -> Option<u64> {
 	if w.data.is_null() || w.width <= 0 || w.height <= 0 || w.rowbytes <= 0 {
 		return None;
 	}

@@ -106,9 +106,8 @@ pub unsafe fn probe_suites(in_data: *const ae::PF_InData) {
 	}
 }
 
-/// Exercise the inline `PF_UtilCallbacks`: log which entries the host filled
-/// in at all, then call the safe ones (ANSI block, host handles) with fixed
-/// inputs and record their results.
+/// Log which `PF_UtilCallbacks` entries the host filled in at all — a pure
+/// presence map. Calling them with fixed inputs is `checks.rs` territory.
 pub unsafe fn probe_utils(in_data: *const ae::PF_InData) {
 	let utils = unsafe { (*in_data).utils };
 	if utils.is_null() {
@@ -149,122 +148,6 @@ pub unsafe fn probe_utils(in_data: *const ae::PF_InData) {
 			"ansi.sprintf": u.ansi.sprintf.is_some(),
 			"ansi.strcpy": u.ansi.strcpy.is_some(),
 			"colorCB.RGBtoHLS": u.colorCB.RGBtoHLS.is_some(),
-		}),
-	);
-
-	unsafe {
-		probe_ansi(u);
-		probe_handles(u);
-	}
-}
-
-unsafe fn probe_ansi(u: &ae::_PF_UtilCallbacks) {
-	if let Some(sprintf) = u.ansi.sprintf {
-		let mut buffer = [0i8; 128];
-		let written = unsafe {
-			sprintf(
-				buffer.as_mut_ptr(),
-				c"int=%d str=%s float=%.3f".as_ptr(),
-				42i32,
-				c"aexlo".as_ptr(),
-				2.5f64,
-			)
-		};
-		trace().emit(
-			"callback",
-			json!({
-				"name": "ansi.sprintf",
-				"result": written,
-				"buffer": crate::inspect::cstr_field(&buffer),
-			}),
-		);
-	}
-
-	if let Some(strcpy) = u.ansi.strcpy {
-		let mut buffer = [0i8; 32];
-		let returned = unsafe { strcpy(buffer.as_mut_ptr(), c"probe".as_ptr()) };
-		trace().emit(
-			"callback",
-			json!({
-				"name": "ansi.strcpy",
-				"returned_dst": returned == buffer.as_mut_ptr(),
-				"buffer": crate::inspect::cstr_field(&buffer),
-			}),
-		);
-	}
-
-	// A couple of math entries; enough to notice a host wiring them to the
-	// wrong libc symbol without dumping the whole table.
-	if let (Some(sin), Some(pow), Some(atan2)) = (u.ansi.sin, u.ansi.pow, u.ansi.atan2) {
-		trace().emit(
-			"callback",
-			json!({
-				"name": "ansi.math",
-				"sin(0.5)": unsafe { sin(0.5) },
-				"pow(2,10)": unsafe { pow(2.0, 10.0) },
-				"atan2(1,1)": unsafe { atan2(1.0, 1.0) },
-			}),
-		);
-	}
-}
-
-unsafe fn probe_handles(u: &ae::_PF_UtilCallbacks) {
-	let (Some(new_handle), Some(lock), Some(unlock), Some(dispose)) = (
-		u.host_new_handle,
-		u.host_lock_handle,
-		u.host_unlock_handle,
-		u.host_dispose_handle,
-	) else {
-		trace().emit(
-			"callback",
-			json!({ "name": "host_handles", "ok": false, "reason": "callbacks missing" }),
-		);
-		return;
-	};
-
-	let mut handle = unsafe { new_handle(64) };
-	if handle.is_null() {
-		trace().emit(
-			"callback",
-			json!({ "name": "host_handles", "ok": false, "reason": "host_new_handle returned null" }),
-		);
-		return;
-	}
-
-	let ptr = unsafe { lock(handle) };
-	let roundtrip = if ptr.is_null() {
-		false
-	} else {
-		unsafe {
-			std::ptr::write_bytes(ptr as *mut u8, 0xA5, 64);
-			(ptr as *const u8).read() == 0xA5
-		}
-	};
-	unsafe { unlock(handle) };
-
-	let reported_size = u.host_get_handle_size.map(|get_size| unsafe { get_size(handle) });
-
-	// `resize` may relocate; it updates `handle` in place so the dispose below
-	// always sees the current one.
-	let mut resized_size = None;
-	if let Some(resize) = u.host_resize_handle {
-		let err = unsafe { resize(128, &mut handle) };
-		if err == 0 {
-			resized_size = u.host_get_handle_size.map(|get_size| unsafe { get_size(handle) });
-		}
-	}
-
-	unsafe { dispose(handle) };
-
-	trace().emit(
-		"callback",
-		json!({
-			"name": "host_handles",
-			"ok": true,
-			"lock_nonnull": !ptr.is_null(),
-			"write_read_roundtrip": roundtrip,
-			"size_after_new(64)": reported_size,
-			"size_after_resize(128)": resized_size,
 		}),
 	);
 }

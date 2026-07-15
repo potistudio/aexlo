@@ -1,18 +1,20 @@
 //! aexlo-probe — an instrumented After Effects effect plugin.
 //!
 //! The probe is the measuring instrument; the host is the variable. Load the
-//! same binary into real After Effects and into aexlo, and each run writes a
-//! JSONL trace of everything the host did: command order, `PF_InData`
-//! contents, which suites/callbacks the host vends, parameter values at
-//! render time, and world layouts with pixel hashes. Diffing two traces
-//! (`cargo run -p playground -- diff`) pinpoints exactly where aexlo's
-//! emulation diverges from the real host.
+//! same binary into real After Effects and into aexlo, and it verifies host
+//! behavior *one function, one suite, one variable at a time*: every check in
+//! `checks.rs` feeds a host service fixed inputs and records the exact output
+//! as a `fact`. Facts are deterministic by construction, so
+//! `cargo run -p playground -- diff` compares them across hosts without any
+//! scenario noise — command order, timing, and GUI-driven behavior are logged
+//! too, but only as context.
 //!
 //! Renders a deterministic, parameter-driven test pattern so plumbing
 //! problems are visible on screen as well as in the trace.
 
 #![allow(non_snake_case)]
 
+mod checks;
 mod inspect;
 mod probes;
 mod render;
@@ -183,6 +185,7 @@ unsafe fn dispatch(
 
 			probes::probe_suites(in_data);
 			probes::probe_utils(in_data);
+			checks::run_all(in_data);
 			none
 		},
 

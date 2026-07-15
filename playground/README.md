@@ -5,11 +5,16 @@ the real After Effects host?**
 
 The idea: *the plugin is the measuring instrument; the host is the variable.*
 `playground/probe` is a real, loadable AE effect plugin (written in Rust,
-PiPL and all) that records everything the host does to a JSONL trace —
-command order, `PF_InData` contents, which suites `AcquireSuite` actually
-vends, callback results, parameter values at render time, and world layouts
-with pixel hashes. Load the same binary into real AE and into aexlo, then
-diff the two traces to see exactly where the emulation diverges.
+PiPL and all) that verifies host behavior **one function, one suite, one
+variable at a time**: every check feeds a host service fixed inputs and
+records the exact output as a `fact` in a JSONL trace — `sin(0.5)` down to
+the last bit, every `sprintf` conversion, rowbytes layout policy, `blend`
+rounding, iterate invocation counts. Load the same binary into real AE and
+into aexlo, then diff the two traces: facts are deterministic by
+construction, so any difference is a real emulation divergence — never
+scenario noise. A headless aexlo run and a GUI AE session drive the plugin
+completely differently (command order, timing, UI chatter), so all of that
+is recorded only as context and excluded from the default comparison.
 
 ```text
 ┌───────────────┐  load   ┌─────────────────┐  writes  trace-ae.jsonl ─┐
@@ -46,38 +51,45 @@ reference trace from real AE is checked in.
 | --- | --- |
 | `run [--release] [--in-process] [--trace <file>] [--input <png>]` | Build + load the probe under aexlo, nudge every param off its default, render `input.png`, write `target/probe/trace-aexlo.jsonl` and a preview PNG, print the report. `--in-process` drives the entry point without `dlopen` — breakpoints inside the probe work. |
 | `report <trace.jsonl>` | Human-readable summary of one trace (host identity, command/error table, suite availability map, callback results, world layouts, param values). |
-| `diff <a> <b> [--all]` | Key-by-key comparison of two traces. Volatile keys (exe path, serial, command counts, timestamps) are ignored unless `--all`. |
+| `diff <a> <b> [--all]` | Key-by-key comparison of two traces. Compares facts, suite availability, and callback presence by default; `--all` also compares context (command counts, render scenario, timing). |
 | `package [--debug] [--to <dir>]` | Build release and drop `playground/dist/AexloProbe.aex`. |
 | `pipl [--release]` | Parse the PiPL resource back out of the built DLL — preflight that real AE will accept it (Windows). |
 
-## What the probe records
+## Facts: the unit under test
 
-Every line in the trace is one JSON event with `seq` / `t_ms` / `tid` /
-`event` plus event-specific fields:
+`probe/src/checks.rs` runs at GLOBAL_SETUP, each check panic-guarded so one
+broken host service can't silence the rest. Every fact is
+`fixed input → exact output`:
 
-- **`cmd` (begin/end)** — every `EffectMain` invocation: command name, a full
-  `PF_InData` snapshot (times, extents, downsample factors, quality, flags,
-  which callback pointers are non-null), then the error code and the
-  `PF_OutData` fields the handler touched.
-- **`suite`** — one entry per (name, version) pair from a fixed table of ~45
-  SDK suites: `AcquireSuite` error code and whether a pointer came back.
-  Mirrors the implementation-progress table in the root README.
-- **`utils_presence` / `callback`** — which `PF_UtilCallbacks` entries the
-  host filled in, plus live results from calling the safe ones
-  (`ansi.sprintf`, `ansi.strcpy`, math entries, and a full
-  new/lock/write/resize/dispose cycle through the host handle allocator).
-- **`param`** — every parameter as received at render time (type + value),
-  catching value-translation bugs between host and plugin.
-- **`world`** — input/output world layouts (dimensions, rowbytes, flags,
-  origin) with FNV-1a pixel hashes, so "same picture in, same picture out"
-  is checkable bit-for-bit.
-- **`sequence`** — whether sequence-data handles survive
-  SETUP → RESETUP/FLATTEN → SETDOWN with contents intact.
-- **`panic`** — probe bugs surface in the trace instead of crashing the host.
+- **Variables** — `appl_id`, spec version, quality, in_flags: static host
+  identity read straight from `PF_InData`.
+- **ANSI callbacks** — all 17 math entries at full f64 precision (a last-bit
+  libm difference is a genuine finding), an `sprintf` formatting matrix
+  (width, precision, alignment, zero-pad, `%d/%u/%x/%f/%e/%g/%s/%c/%%`), and
+  `strcpy` semantics.
+- **Color callbacks** — `RGBtoHLS` / `HLStoRGB` on fixed pixels.
+- **Host handles** — new/lock/write/read/unlock/resize/dispose cycle: sizes
+  reported at each step, whether resize preserves contents.
+- **Worlds & pixel ops** — worlds allocated *through the host*
+  (`utils.new_world`, falling back to World Suite 2): rowbytes/layout policy,
+  clear-on-alloc, `fill` (full and sub-rect, edge exclusivity), `copy`,
+  `blend` at ratio 0.5 (rounding direction), `premultiply` rounding,
+  `iterate` invocation count + result hash.
+- **Kernel** — `gaussian_kernel` diameter and normalized weights.
+- **Suite functions** — one level below the availability map: the same fixed
+  inputs pushed through `PF ANSI Suite`, `PF Handle Suite`,
+  `PF World Suite v2` (per-pixel-format allocation + `PF_GetPixelFormat`
+  echo), and `PF Iterate8 Suite v2`.
 
-The probe renders a deterministic test pattern driven by its six parameters
+Alongside the facts, the trace also captures **context**: the suite
+availability map (~45 suites × versions), the `PF_UtilCallbacks` presence
+map (both compared by default too, since they're deterministic), plus
+command flow, `PF_InData` snapshots, render params, and world hashes at
+render time — informational only, excluded from the default diff.
+
+The probe still renders a deterministic, parameter-driven test pattern
 (float slider, checkbox, popup, color, angle, point), so parameter plumbing
-is also visible on screen: if Invert doesn't invert, the host lied.
+is visible on screen inside AE as well.
 
 ## Trace destination
 

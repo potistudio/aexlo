@@ -108,6 +108,13 @@ pub fn summarize(events: &[Value]) -> Summary {
 				}
 			}
 
+			"fact" => {
+				summary.insert(
+					format!("fact/{}", event["name"].as_str().unwrap_or("?")),
+					compact(&event["value"]),
+				);
+			}
+
 			"suite" => {
 				let key = format!(
 					"suite/{}/v{}",
@@ -205,15 +212,20 @@ pub fn summarize(events: &[Value]) -> Summary {
 	summary
 }
 
-/// Keys that legitimately differ between hosts/runs and would only add noise
-/// to a default diff. `--all` compares them anyway.
-pub fn is_volatile(key: &str) -> bool {
-	key == "host/exe"
-		|| key == "host/os"
-		|| key == "host/serial_num"
-		|| key.ends_with("/seen")
-		|| key.starts_with("render/in/time/")
-		|| key.starts_with("param/") // harness intentionally nudges params off defaults
+/// Keys that are deterministic *facts* about host behavior — fixed input,
+/// exact output — and therefore comparable across a headless aexlo run and a
+/// GUI After Effects session. Everything else (command order/counts, timing,
+/// render context, parameter scenarios) depends on how the host was driven,
+/// so the default diff treats it as context; `--all` compares it anyway.
+pub fn is_comparable(key: &str) -> bool {
+	key.starts_with("fact/")            // unit checks: one function, one suite, one variable
+		|| key.starts_with("suite/")    // suite availability map
+		|| key.starts_with("utils/")    // callback presence map
+		|| key.starts_with("panic/")    // a probe panic on either side is always a finding
+		|| key == "host/appl_id"
+		|| key == "host/spec_version"
+		|| key == "host/probe_version"  // comparing traces from different probe builds is a mistake
+		|| key.starts_with("host/plugin_data/")
 }
 
 pub enum DiffLine {
@@ -222,13 +234,13 @@ pub enum DiffLine {
 	Changed(String, String, String),
 }
 
-pub fn diff(left: &Summary, right: &Summary, include_volatile: bool) -> (Vec<DiffLine>, usize) {
+pub fn diff(left: &Summary, right: &Summary, include_all: bool) -> (Vec<DiffLine>, usize) {
 	let mut lines = Vec::new();
 	let mut matches = 0;
 
 	let keys: std::collections::BTreeSet<&String> = left.keys().chain(right.keys()).collect();
 	for key in keys {
-		if !include_volatile && is_volatile(key) {
+		if !include_all && !is_comparable(key) {
 			continue;
 		}
 
