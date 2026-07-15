@@ -15,9 +15,13 @@ name = "aexlo_probe"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Same version as the `aexlo` crate so struct layouts match the host exactly.
-after-effects-sys = "0.4.0"
+# Same version as the `aexlo` crate, so `after_effects::sys` struct layouts
+# match the host exactly. The probe deliberately talks to the raw `sys` ABI —
+# it measures the host, not the high-level wrapper.
+after-effects = "0.4.0"
 serde_json = "1.0"
 
 [build-dependencies]
-embed-resource = "3.0"
+# Generates and embeds the PiPL resource (Windows: `16000 PiPL` via winres;
+# macOS: .rsrc next to the target dir).
+pipl = "0.1.1"

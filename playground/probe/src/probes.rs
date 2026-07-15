@@ -8,7 +8,7 @@
 
 use std::ffi::c_void;
 
-use after_effects_sys as ae;
+use after_effects::sys as ae;
 use serde_json::json;
 
 use crate::trace::trace;

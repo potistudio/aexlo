@@ -100,8 +100,8 @@ fn parse(bytes: &[u8]) -> anyhow::Result<()> {
 
 fn describe(key: &str, payload: &[u8]) -> String {
 	match key {
-		// Pascal strings (length-prefixed).
-		"name" | "catg" | "eMNA" | "eURL" => {
+		// Pascal strings (length-prefixed); mi64/ma64 are the Mac entry points.
+		"name" | "catg" | "eMNA" | "eURL" | "mi64" | "ma64" => {
 			let len = payload.first().copied().unwrap_or(0) as usize;
 			format!(
 				"\"{}\"",

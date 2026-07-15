@@ -11,7 +11,7 @@ vends, callback results, parameter values at render time, and world layouts
 with pixel hashes. Load the same binary into real AE and into aexlo, then
 diff the two traces to see exactly where the emulation diverges.
 
-```
+```text
 ┌───────────────┐  load   ┌─────────────────┐  writes  trace-ae.jsonl ─┐
 │ After Effects │ ──────► │                 │ ───────►                 │  playground diff
 ├───────────────┤         │  AexloProbe.aex │                          ├─────────────────►
@@ -87,18 +87,21 @@ is also visible on screen: if Invert doesn't invert, the host lied.
 
 ## Layout
 
-```
+```text
 playground/
-  probe/     Rust cdylib → the .aex. build.rs generates + embeds the PiPL
-             resource (no PiPLtool needed). Also an rlib for --in-process.
+  probe/     Rust cdylib → the .aex. build.rs embeds the PiPL resource via
+             the `pipl` crate. Also an rlib for --in-process.
   harness/   `playground` CLI: run / report / diff / package / pipl.
   dist/      packaged AexloProbe.aex (gitignored build output).
 ```
 
 ## Notes
 
-- The probe uses `after-effects-sys 0.4.0` — the same bindings as aexlo — so
-  struct layouts are identical on both sides of the ABI.
+- The probe depends on `after-effects 0.4.0` — the same crate as aexlo — but
+  deliberately talks to its raw `sys` re-export instead of the high-level
+  wrapper: the probe measures the host, and a wrapper in between would make
+  it measure the wrapper. Sharing the crate version keeps struct layouts
+  identical on both sides of the ABI.
 - Legacy render path only for now (`PF_OutFlag2_SUPPORTS_SMART_RENDER` is not
   claimed); SmartRender/GPU probing is a natural next step.
 - macOS packaging (`.plugin` bundle + rsrc PiPL) is not wired up yet; the

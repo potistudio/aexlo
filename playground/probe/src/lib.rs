@@ -18,7 +18,7 @@ mod probes;
 mod render;
 mod trace;
 
-use after_effects_sys as ae;
+use after_effects::sys as ae;
 use serde_json::json;
 
 use trace::trace;

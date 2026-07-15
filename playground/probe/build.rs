@@ -1,141 +1,44 @@
-//! Generates and embeds the PiPL resource that real After Effects requires to
-//! recognize a .aex on Windows.
+//! Generates and embeds the PiPL resource via the `pipl` crate — the same
+//! machinery the `after-effects` crate's own examples use. On Windows it
+//! compiles a `16000 PiPL` resource into the DLL (which real After Effects
+//! requires to recognize a .aex); on macOS it drops a `.rsrc` next to the
+//! target dir.
 //!
-//! The binary layout mirrors what the AE SDK's PiPLtool emits (see
-//! `refs/AE SDK/Effect/SDK_Noise/Win/SDK_NoisePiPL.rc` for a known-good
-//! sample): a small header followed by TLV properties, all little-endian.
 //! `playground harness pipl` parses the embedded resource back out of the
-//! built DLL, so a layout regression is caught before AE ever sees it.
+//! built DLL, so a regression here is caught before AE ever sees it.
+//!
+//! Keep the values in sync with `src/lib.rs`: AE cross-checks the PiPL
+//! against what GLOBAL_SETUP writes into out_data and complains on mismatch.
 
-use std::path::PathBuf;
-
-// ---- PiPL metadata -------------------------------------------------------
-// Keep in sync with the constants in `src/lib.rs`: AE cross-checks the PiPL
-// against what GLOBAL_SETUP writes into out_data and complains on mismatch.
-
-const EFFECT_NAME: &str = "Aexlo Probe";
-const MATCH_NAME: &str = "AEXLO Probe";
-const CATEGORY: &str = "aexlo";
-const ENTRY_POINT: &str = "EffectMain";
-const SUPPORT_URL: &str = "https://github.com/potistudio/aexlo-rs";
-
-/// PF_VERSION(1, 0, 0, PF_Stage_RELEASE, 1) — mirrors `PROBE_PF_VERSION` in lib.rs.
-const EFFECT_VERSION: u32 = (1 << 19) | (3 << 9) | 1;
-/// Mirrors `OUT_FLAGS` in lib.rs (none).
-const OUT_FLAGS: u32 = 0;
-/// Mirrors `OUT_FLAGS2` in lib.rs (PF_OutFlag2_SUPPORTS_THREADED_RENDERING).
-const OUT_FLAGS2: u32 = 0x0800_0000;
-/// PF_PLUG_IN_VERSION / PF_PLUG_IN_SUBVERS from after-effects-sys 0.4.0.
-const SPEC_VERSION: (u16, u16) = (13, 29);
+use pipl::*;
 
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 
-	if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
-		// macOS .plugin bundles carry their PiPL in a resource file, not in the
-		// binary; packaging for real AE on macOS is not wired up yet.
-		return;
-	}
-
-	let rc_path = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("aexlo_probe_pipl.rc");
-	std::fs::write(&rc_path, render_rc(&build_pipl())).unwrap();
-	embed_resource::compile(&rc_path, embed_resource::NONE)
-		.manifest_optional()
-		.unwrap();
-}
-
-// ---- PiPL binary construction --------------------------------------------
-
-fn fourcc(tag: &str) -> u32 {
-	let b = tag.as_bytes();
-	assert_eq!(b.len(), 4);
-	u32::from_be_bytes([b[0], b[1], b[2], b[3]])
-}
-
-/// Length-prefixed (Pascal) string, zero-padded to a 4-byte boundary.
-fn pascal(s: &str) -> Vec<u8> {
-	assert!(s.len() <= 255);
-	let mut v = vec![s.len() as u8];
-	v.extend_from_slice(s.as_bytes());
-	while v.len() % 4 != 0 {
-		v.push(0);
-	}
-	v
-}
-
-/// NUL-terminated C string, zero-padded to a 4-byte boundary.
-fn cstr(s: &str) -> Vec<u8> {
-	let mut v = s.as_bytes().to_vec();
-	v.push(0);
-	while v.len() % 4 != 0 {
-		v.push(0);
-	}
-	v
-}
-
-fn u32v(x: u32) -> Vec<u8> {
-	x.to_le_bytes().to_vec()
-}
-
-/// Two packed u16s (used for version pairs: major, then minor).
-fn u16pair(a: u16, b: u16) -> Vec<u8> {
-	let mut v = a.to_le_bytes().to_vec();
-	v.extend_from_slice(&b.to_le_bytes());
-	v
-}
-
-fn build_pipl() -> Vec<u8> {
-	let properties: Vec<(&str, Vec<u8>)> = vec![
-		("kind", u32v(fourcc("eFKT"))), // AE Effect
-		("name", pascal(EFFECT_NAME)),
-		("catg", pascal(CATEGORY)),
-		("8664", cstr(ENTRY_POINT)), // CodeWin64X86
-		("ePVR", u16pair(2, 0)),     // AE_PiPL_Version
-		("eSVR", u16pair(SPEC_VERSION.0, SPEC_VERSION.1)),
-		("eVER", u32v(EFFECT_VERSION)),
-		("eINF", u32v(0)), // AE_Effect_Info_Flags
-		("eGLO", u32v(OUT_FLAGS)),
-		("eGL2", u32v(OUT_FLAGS2)),
-		("eMNA", pascal(MATCH_NAME)),
-		("aeFL", u32v(0)), // AE_Reserved_Info
-		("eURL", pascal(SUPPORT_URL)),
-	];
-
-	// Header: u16 version, u32 reserved, u32 property count (10 bytes, unaligned
-	// on purpose — this is exactly what PiPLtool emits).
-	let mut data = Vec::new();
-	data.extend_from_slice(&1u16.to_le_bytes());
-	data.extend_from_slice(&0u32.to_le_bytes());
-	data.extend_from_slice(&(properties.len() as u32).to_le_bytes());
-
-	for (key, payload) in properties {
-		assert_eq!(payload.len() % 4, 0, "PiPL payload for '{key}' must be 4-byte aligned");
-		data.extend_from_slice(&fourcc("8BIM").to_le_bytes());
-		data.extend_from_slice(&fourcc(key).to_le_bytes());
-		data.extend_from_slice(&0u32.to_le_bytes());
-		data.extend_from_slice(&(payload.len() as u32).to_le_bytes());
-		data.extend_from_slice(&payload);
-	}
-
-	data
-}
-
-/// Emit the blob as a `.rc` raw-data resource, 16-bit words to sidestep the
-/// resource compiler's string-encoding rules entirely.
-fn render_rc(data: &[u8]) -> String {
-	assert_eq!(data.len() % 2, 0);
-
-	let words: Vec<String> = data
-		.chunks_exact(2)
-		.map(|pair| format!("0x{:04X}", u16::from_le_bytes([pair[0], pair[1]])))
-		.collect();
-
-	let mut rc = String::from("// Auto-generated by build.rs — do not edit.\n16000 PiPL DISCARDABLE\nBEGIN\n");
-	for line in words.chunks(8) {
-		rc.push('\t');
-		rc.push_str(&line.join(", "));
-		rc.push_str(",\n");
-	}
-	rc.push_str("END\n");
-	rc
+	plugin_build(vec![
+		Property::Kind(PIPLType::AEEffect),
+		Property::Name("Aexlo Probe"),
+		Property::Category("aexlo"),
+		Property::CodeWin64X86("EffectMain"),
+		Property::CodeMacIntel64("EffectMain"),
+		Property::CodeMacARM64("EffectMain"),
+		Property::AE_PiPL_Version { major: 2, minor: 0 },
+		// PF_PLUG_IN_VERSION / PF_PLUG_IN_SUBVERS from after-effects-sys 0.4.0.
+		Property::AE_Effect_Spec_Version { major: 13, minor: 29 },
+		// Mirrors PROBE_PF_VERSION in lib.rs: PF_VERSION(1, 0, 0, RELEASE, 1).
+		Property::AE_Effect_Version {
+			version: 1,
+			subversion: 0,
+			bugversion: 0,
+			stage: Stage::Release,
+			build: 1,
+		},
+		Property::AE_Effect_Info_Flags(0),
+		// Mirrors OUT_FLAGS / OUT_FLAGS2 in lib.rs.
+		Property::AE_Effect_Global_OutFlags(OutFlags::empty()),
+		Property::AE_Effect_Global_OutFlags_2(OutFlags2::SupportsThreadedRendering),
+		Property::AE_Effect_Match_Name("AEXLO Probe"),
+		Property::AE_Reserved_Info(0),
+		Property::AE_Effect_Support_URL("https://github.com/potistudio/aexlo-rs"),
+	]);
 }

@@ -4,7 +4,7 @@
 //! host-side parameter plumbing is visible both in the trace (exact values)
 //! and on screen (the picture changes when a control changes).
 
-use after_effects_sys as ae;
+use after_effects::sys as ae;
 use serde_json::json;
 
 use crate::inspect::{self, fixed_to_f64};

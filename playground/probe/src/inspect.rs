@@ -3,7 +3,7 @@
 //! Everything here only *reads* what the host handed us; pointers are logged
 //! as null/non-null so traces stay comparable across hosts and runs.
 
-use after_effects_sys as ae;
+use after_effects::sys as ae;
 use serde_json::{Value, json};
 
 /// Human-readable name for a `PF_Cmd` code.
