@@ -10,6 +10,7 @@ repository = "https://github.com/potistudio/aexlo-rs"
 # Installs as `aexlo` so `cargo install --path cli` gives an `aexlo` command.
 [[bin]]
 name = "aexlo"
+path = "src/main.rs"
 
 [dependencies]
 aexlo = { workspace = true }
