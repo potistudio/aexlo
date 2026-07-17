@@ -36,7 +36,6 @@
 // crate-wide keeps the FFI surface readable without per-item annotations.
 #![allow(non_snake_case)]
 
-// Internal modules — not part of the public API.
 mod core;
 mod gpu;
 mod host;
@@ -46,14 +45,7 @@ mod utils;
 
 pub(crate) mod suites;
 
-// ============================================================================
-// Public API
-// ============================================================================
-
-/// Error types for aexlo operations.
 pub use core::error::{AexloError, Result};
-
-/// The core plugin loader and executor.
 pub use instance::PluginInstance;
 
 /// Entry point ABI for driving an in-process effect via
@@ -67,8 +59,8 @@ pub use instance::PluginEntryPoint;
 /// These are dev-tooling, not plugin hosting; they live in their own module
 /// (see `src/preview.rs`) and are re-exported here for the macro's benefit.
 pub use preview::{
-	PreviewMode, ViewerLock, acquire_viewer_lock, ensure_live_viewer, open_in_viewer, preview_mode, preview_path,
-	preview_requested, viewer_is_running,
+	acquire_viewer_lock, ensure_live_viewer, open_in_viewer, preview_mode, preview_path, preview_requested,
+	viewer_is_running, PreviewMode, ViewerLock,
 };
 
 /// `#[aexlo::preview]` — render a plugin in-process and drop a preview PNG.
@@ -82,4 +74,4 @@ pub use core::diagnostics::{Diagnostic, DiagnosticBuilder};
 
 /// Safe pixel/layer wrappers, re-exported explicitly so additions to the
 /// `wrapper` crate don't silently widen this crate's public API.
-pub use wrapper::{Depth8, Depth16, Depth32, Layer, LayerError, Pixel, PixelDepth};
+pub use wrapper::{Depth16, Depth32, Depth8, Layer, LayerError, Pixel, PixelDepth};
