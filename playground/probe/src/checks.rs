@@ -58,6 +58,9 @@ unsafe fn variable_checks(in_data: *mut ae::PF_InData) {
 
 // ---- ANSI callbacks --------------------------------------------------------
 
+// The literal `3.14159265` is deliberate sprintf `%f` test input, not an attempt
+// to use PI — don't rewrite it to `std::f64::consts::PI`.
+#[allow(clippy::approx_constant)]
 unsafe fn ansi_checks(in_data: *mut ae::PF_InData) {
 	let Some(u) = (unsafe { (*in_data).utils.as_ref() }) else {
 		fact("ansi.available", json!(false));

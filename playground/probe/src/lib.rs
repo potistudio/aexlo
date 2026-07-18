@@ -48,6 +48,12 @@ const SEQUENCE_MAGIC: [u8; 8] = *b"AXPROBE1";
 
 /// `PluginDataEntryFunction2`: self-description protocol used by aexlo (and
 /// modern AE) in place of parsing the PiPL resource.
+///
+/// # Safety
+///
+/// Called by the host across the FFI boundary. The host-name/version pointers
+/// may be null (handled), but `in_ptr` and the callback must be the valid
+/// values the host passed in.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PluginDataEntryFunction2(
 	in_ptr: ae::PF_PluginDataPtr,
@@ -95,6 +101,12 @@ pub unsafe extern "C" fn PluginDataEntryFunction2(
 /// The AE effect entry point. Every command is logged on the way in (with an
 /// `PF_InData` snapshot) and on the way out (with the error code and the
 /// out_data fields the handler touched).
+///
+/// # Safety
+///
+/// Called by the host across the FFI boundary; every pointer argument must be
+/// the valid `PF_*` structure the host passes for `cmd`, as the AE SDK
+/// specifies.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn EffectMain(
 	cmd: ae::PF_Cmd,

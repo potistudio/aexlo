@@ -115,9 +115,7 @@ unsafe extern "C" fn new_world_sys(
 		4
 	} else if fmt == PF_PixelFormat_ARGB64 as u32 {
 		8
-	} else if fmt == PF_PixelFormat_ARGB128 as u32 {
-		16
-	} else if fmt == PF_PixelFormat_GPU_BGRA128 as u32 {
+	} else if fmt == PF_PixelFormat_ARGB128 as u32 || fmt == PF_PixelFormat_GPU_BGRA128 as u32 {
 		16
 	} else {
 		log::warn!("Unsupported pixel format: {}. so the depth is set to 8", pixel_format);

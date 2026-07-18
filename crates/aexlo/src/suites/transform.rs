@@ -244,6 +244,9 @@ impl RawWorld {
 /// `UPPER` is treated as the even rows (0, 2, 4, ...) and `LOWER` the odd
 /// rows; `FRAME` (and any other value) processes every row.
 #[inline]
+// `PF_Field_*` is `u32` on macOS, `i32` elsewhere; the casts are redundant here
+// but required there.
+#[allow(clippy::unnecessary_cast)]
 fn skip_row_for_field(y: i32, field: PF_Field) -> bool {
 	if field == PF_Field_UPPER as i32 {
 		y.rem_euclid(2) != 0
@@ -516,6 +519,9 @@ fn composite_pixel(src_a: f64, src_c: [f64; 3], dst_a: f64, dst_c: [f64; 3], mod
 /// honoring `PF_MaskFlag_LUMINANCE` (use luma instead of alpha) and
 /// `PF_MaskFlag_INVERTED`.
 #[allow(non_upper_case_globals)]
+// `PF_MaskFlag_*` is `u32` on macOS, `i32` elsewhere; the casts are redundant
+// here but required there.
+#[allow(clippy::unnecessary_cast)]
 fn mask_value(mask: RawWorld, offset: PF_Point, what_is_mask: PF_MaskFlags, x: i32, y: i32) -> f64 {
 	let p = unsafe { mask.read(x - offset.h, y - offset.v) };
 	let v = if what_is_mask & PF_MaskFlag_LUMINANCE as i32 != 0 {
@@ -1023,6 +1029,9 @@ unsafe extern "C" fn transfer_rect_sys(
 	}
 
 	let opacity = mode.opacity as f64 / 255.0;
+	// `PF_MF_Alpha_STRAIGHT` is `u32` on macOS, `i32` elsewhere; the cast is
+	// redundant here but required there.
+	#[allow(clippy::unnecessary_cast)]
 	let premultiplied = m_flags & PF_MF_Alpha_STRAIGHT as i32 == 0;
 	let rgb_only = mode.rgb_only != 0;
 	let xfer = mode.xfer;
@@ -1121,6 +1130,9 @@ unsafe extern "C" fn transform_world_sys(
 		.collect();
 
 	let opacity = mode.opacity as f64 / 255.0;
+	// `PF_MF_Alpha_STRAIGHT` is `u32` on macOS, `i32` elsewhere; the cast is
+	// redundant here but required there.
+	#[allow(clippy::unnecessary_cast)]
 	let premultiplied = m_flags & PF_MF_Alpha_STRAIGHT as i32 == 0;
 	let rgb_only = mode.rgb_only != 0;
 	let xfer = mode.xfer;
@@ -1197,6 +1209,9 @@ pub const fn create_world_transform_suite_1() -> PF_WorldTransformSuite1 {
 }
 
 #[cfg(test)]
+// PF_* constants are `u32` on macOS, `i32` elsewhere; `as i32` in these tests is
+// redundant here but required there.
+#[allow(clippy::unnecessary_cast)]
 mod tests {
 	use super::*;
 

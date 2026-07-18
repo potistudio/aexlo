@@ -155,6 +155,9 @@ stub_log!(gaussian_kernel_stub,
 	_kernel: *mut c_void
 );
 
+// `PF_Err_NONE` is `u32` on macOS and `i32` elsewhere, so `as i32` is redundant
+// here (Windows/Linux) but required on macOS. Silence the platform-specific lint.
+#[allow(clippy::unnecessary_cast)]
 unsafe extern "C" fn iterate_stub(
 	in_data: *mut PF_InData,
 	progress_base: A_long,

@@ -2,7 +2,6 @@ use crate::core::constants::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
 use after_effects_sys::*;
 use std::ptr::null_mut;
 
-const AE_VERSION_26_2_1: PF_SpecVersion = PF_SpecVersion { major: 13, minor: 28 };
 const AE_VERSION_26_3_0: PF_SpecVersion = PF_SpecVersion { major: 13, minor: 29 };
 
 pub struct InDataBuilder {

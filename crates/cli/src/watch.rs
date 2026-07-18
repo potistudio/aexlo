@@ -165,11 +165,7 @@ pub(crate) fn build_cdylib(manifest: &Path) -> Result<PathBuf> {
 	let mut cdylib: Option<PathBuf> = None;
 	for message in cargo_metadata::Message::parse_stream(reader) {
 		if let cargo_metadata::Message::CompilerArtifact(artifact) = message.context("parsing cargo output")?
-			&& artifact
-				.target
-				.kind
-				.iter()
-				.any(|k| *k == cargo_metadata::TargetKind::CDyLib)
+			&& artifact.target.kind.contains(&cargo_metadata::TargetKind::CDyLib)
 		{
 			for file in artifact.filenames {
 				let path = file.into_std_path_buf();

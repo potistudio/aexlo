@@ -180,7 +180,7 @@ fn print_speedups(rows: &[Measurement]) {
 	let plugins: Vec<&String> = {
 		let mut seen = Vec::new();
 		for row in rows {
-			if !seen.iter().any(|p: &&String| *p == &row.plugin) {
+			if !seen.contains(&&row.plugin) {
 				seen.push(&row.plugin);
 			}
 		}
@@ -203,11 +203,11 @@ fn print_speedups(rows: &[Measurement]) {
 fn write_outputs(rows: &[Measurement], resolution: Resolution) {
 	let prefix = std::env::var("AEXLO_BENCH_OUT").unwrap_or_else(|_| "target/aexlo-bench/summary".to_string());
 	let prefix = PathBuf::from(prefix);
-	if let Some(dir) = prefix.parent() {
-		if let Err(err) = std::fs::create_dir_all(dir) {
-			eprintln!("aexlo-bench: could not create {}: {err}", dir.display());
-			return;
-		}
+	if let Some(dir) = prefix.parent()
+		&& let Err(err) = std::fs::create_dir_all(dir)
+	{
+		eprintln!("aexlo-bench: could not create {}: {err}", dir.display());
+		return;
 	}
 
 	let csv_path = with_extension(&prefix, "csv");

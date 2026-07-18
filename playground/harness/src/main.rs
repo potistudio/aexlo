@@ -330,7 +330,7 @@ fn pipl_cmd(_args: &[String]) -> anyhow::Result<()> {
 	#[cfg(windows)]
 	{
 		let dll = build_probe(flag(_args, "--release"))?;
-		return pipl::dump(&dll);
+		pipl::dump(&dll)
 	}
 
 	#[cfg(not(windows))]

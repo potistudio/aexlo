@@ -206,11 +206,12 @@ unsafe extern "C" fn get_data(
 	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
 	let size = data_sizeLu as usize;
 	let mut store = STORE.lock().unwrap();
-	if let Some(Value::Data(bytes)) = store.get(&k) {
-		if bytes.len() == size && !bufPV.is_null() {
-			unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), bufPV as *mut u8, size) };
-			return 0;
-		}
+	if let Some(Value::Data(bytes)) = store.get(&k)
+		&& bytes.len() == size
+		&& !bufPV.is_null()
+	{
+		unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), bufPV as *mut u8, size) };
+		return 0;
 	}
 	// Not found (or size mismatch): fall back to the default, writing it back to
 	// the store as the SDK specifies.
