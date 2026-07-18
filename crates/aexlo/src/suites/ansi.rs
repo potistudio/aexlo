@@ -382,10 +382,90 @@ mod tests {
 		);
 	}
 
-	#[test]
-	fn sprintf_test() {
-		//TODO: Implement tests for sprintf_sys, which is more complex due to variadic arguments and format parsing.
+	/// Run `sprintf_sys` with the given format and variadic args, asserting it
+	/// succeeds, and return the string written into the output buffer.
+	///
+	/// A macro rather than a function because the argument list is variadic.
+	macro_rules! sprintf {
+		($fmt:expr $(, $arg:expr)* $(,)?) => {{
+			let fmt = CString::new($fmt).unwrap();
+			let mut buffer = [0 as A_char; 256];
+			let err = unsafe { sprintf_sys(buffer.as_mut_ptr(), fmt.as_ptr() $(, $arg)*) };
+			assert_eq!(err, PF_Err_NONE as PF_Err, "sprintf_sys returned error {err}");
+			unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_str().unwrap().to_owned()
+		}};
 	}
+
+	#[test]
+	fn sprintf_no_specifier_copies_verbatim() {
+		assert_eq!(sprintf!("Hello, world!"), "Hello, world!");
+	}
+
+	#[test]
+	fn sprintf_single_int() {
+		assert_eq!(sprintf!("%d", 42i32), "42");
+	}
+
+	#[test]
+	fn sprintf_several_ints() {
+		assert_eq!(sprintf!("%d + %d = %d", 2i32, 3i32, 5i32), "2 + 3 = 5");
+	}
+
+	#[test]
+	fn sprintf_negative_int() {
+		assert_eq!(sprintf!("%d", -7i32), "-7");
+	}
+
+	#[test]
+	fn sprintf_string() {
+		let s = CString::new("aexlo").unwrap();
+		assert_eq!(sprintf!("%s", s.as_ptr()), "aexlo");
+	}
+
+	#[test]
+	fn sprintf_null_string_arg() {
+		assert_eq!(sprintf!("%s", std::ptr::null::<A_char>()), "(null)");
+	}
+
+	#[test]
+	fn sprintf_mixed_specifiers() {
+		let name = CString::new("frame").unwrap();
+		assert_eq!(sprintf!("%s=%d", name.as_ptr(), 7i32), "frame=7");
+	}
+
+	#[test]
+	fn sprintf_literal_percent() {
+		assert_eq!(sprintf!("100%% done"), "100% done");
+	}
+
+	#[test]
+	fn sprintf_unsupported_specifier_passthrough() {
+		// Only %d/%s/%% are handled; anything else is emitted verbatim.
+		assert_eq!(sprintf!("%q"), "%q");
+	}
+
+	#[test]
+	fn sprintf_trailing_percent() {
+		assert_eq!(sprintf!("done%"), "done%");
+	}
+
+	#[test]
+	fn sprintf_null_buffer_is_bad_callback_param() {
+		let fmt = CString::new("%d").unwrap();
+		let err = unsafe { sprintf_sys(std::ptr::null_mut(), fmt.as_ptr(), 1i32) };
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as PF_Err);
+	}
+
+	#[test]
+	fn sprintf_null_format_is_bad_callback_param() {
+		let mut buffer = [0 as A_char; 256];
+		let err = unsafe { sprintf_sys(buffer.as_mut_ptr(), std::ptr::null()) };
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as PF_Err);
+	}
+
+	// Note: passing fewer args than the format has specifiers (e.g. `sprintf!("%d")`)
+	// is genuine C-variadic UB — the reader pulls a nonexistent arg — so it is
+	// intentionally not exercised here.
 
 	#[test]
 	fn strcpy_test() {
