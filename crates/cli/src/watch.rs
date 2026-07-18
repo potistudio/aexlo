@@ -119,14 +119,23 @@ pub(crate) fn build_and_render(manifest: &Path, generation: u64) -> Result<(Vec<
 /// copy once it drops the instance).
 pub(crate) fn build_and_load(manifest: &Path, generation: u64) -> Result<(PluginInstance, PathBuf)> {
 	let artifact = build_cdylib(manifest)?;
+	stage_and_load(&artifact, generation)
+}
 
-	// Load a uniquely named copy each time: reopening the same path can hand back
-	// a stale, still-mapped image instead of the freshly built one.
+/// Copy `artifact` to a uniquely named temp file and load *that*, returning the
+/// instance plus the staged path (so the caller can remove the copy once it
+/// drops the instance).
+///
+/// The unique-copy dance matters on every (re)load: reopening the same path can
+/// hand back a stale, still-mapped image instead of the current file — whether
+/// the file changed because we just rebuilt it (`aexlo dev`) or because someone
+/// else did (`aexlo preview --watch`).
+pub(crate) fn stage_and_load(artifact: &Path, generation: u64) -> Result<(PluginInstance, PathBuf)> {
 	let ext = artifact.extension().and_then(|s| s.to_str()).unwrap_or("dylib");
-	let staged = std::env::temp_dir().join(format!("aexlo-watch-{generation}.{ext}"));
-	std::fs::copy(&artifact, &staged).with_context(|| format!("staging {}", artifact.display()))?;
+	let staged = std::env::temp_dir().join(format!("aexlo-stage-{generation}.{ext}"));
+	std::fs::copy(artifact, &staged).with_context(|| format!("staging {}", artifact.display()))?;
 
-	let fx = PluginInstance::try_load(&staged).context("loading freshly built plugin")?;
+	let fx = PluginInstance::try_load(&staged).context("loading plugin")?;
 	Ok((fx, staged))
 }
 

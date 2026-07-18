@@ -10,7 +10,9 @@
 //! ```
 
 mod dev;
+mod preview;
 mod view;
+mod viewer;
 mod watch;
 mod web;
 
@@ -44,6 +46,13 @@ COMMANDS:
                               it into a <canvas>. Requires --bin. Good for
                               headless/remote hosts.
         --port <n>            Port for --web  [default: OS-assigned]
+    preview <plugin>   Interactively preview a *built* plugin in the browser:
+                       serve it and expose its parameters as live controls.
+                       No compiler in the loop — point it at a finished
+                       .plugin/.aex/.dll (the `preview` to `dev`'s watch loop).
+        --watch              Reload the artifact when the file changes on disk
+                              (e.g. rebuilt by another toolchain)
+        --port <n>           Port for the preview server  [default: OS-assigned]
     view   <png>       Live image window: reload a PNG whenever it changes
                        (spawned automatically by a `dev`-driven #[aexlo::preview];
                        pair manually with your own re-runner otherwise)
@@ -88,6 +97,7 @@ fn run() -> Result<()> {
 		"render" => cmd_render(args),
 		"view" => cmd_view(args),
 		"dev" => cmd_dev(args),
+		"preview" => cmd_preview(args),
 		other => {
 			print!("{USAGE}");
 			bail!("unknown command '{other}'");
@@ -274,6 +284,34 @@ fn cmd_dev(args: impl Iterator<Item = String>) -> Result<()> {
 	} else {
 		dev::run(&manifest, filter.as_deref())
 	}
+}
+
+fn cmd_preview(args: impl Iterator<Item = String>) -> Result<()> {
+	let mut plugin: Option<String> = None;
+	let mut port: u16 = 0;
+	let mut watch = false;
+
+	let mut args = args.peekable();
+	while let Some(arg) = args.next() {
+		match arg.as_str() {
+			"--watch" => watch = true,
+			"--port" => {
+				port = next_value(&mut args, &arg)?
+					.parse()
+					.with_context(|| "--port expects a number 0-65535".to_string())?;
+			}
+			other if other.starts_with('-') => bail!("unknown option '{other}'"),
+			_ => {
+				if plugin.replace(arg).is_some() {
+					bail!("preview: expected a single <plugin>");
+				}
+			}
+		}
+	}
+
+	let plugin = plugin.context("preview: missing <plugin>")?;
+	let path = resolve_plugin(&plugin);
+	preview::run(&path, port, watch)
 }
 
 /// Resolve `-p <package>` (or, if absent, the crate in the current directory)
