@@ -106,16 +106,22 @@ unsafe extern "C" fn new_world_sys(
 	let width = widthL.max(0);
 	let height = heightL.max(0);
 
-	#[allow(non_upper_case_globals)]
-	let depth = match pixel_format as u32 {
-		PF_PixelFormat_ARGB32 => 4,
-		PF_PixelFormat_ARGB64 => 8,
-		PF_PixelFormat_ARGB128 => 16,
-		PF_PixelFormat_GPU_BGRA128 => 16,
-		_ => {
-			log::warn!("Unsupported pixel format: {}. so the depth is set to 8", pixel_format);
-			8 // Default to 8 bytes per pixel for unsupported formats
-		}
+	// Compare as u32 on both sides: bindgen gives the PF_PixelFormat_* constants
+	// a platform-dependent sign (i32 here on Windows), so a `match` on a cast
+	// scrutinee would mismatch the pattern types. Normalizing both to u32 keeps
+	// this signedness-agnostic.
+	let fmt = pixel_format as u32;
+	let depth = if fmt == PF_PixelFormat_ARGB32 as u32 {
+		4
+	} else if fmt == PF_PixelFormat_ARGB64 as u32 {
+		8
+	} else if fmt == PF_PixelFormat_ARGB128 as u32 {
+		16
+	} else if fmt == PF_PixelFormat_GPU_BGRA128 as u32 {
+		16
+	} else {
+		log::warn!("Unsupported pixel format: {}. so the depth is set to 8", pixel_format);
+		8 // Default to 8 bytes per pixel for unsupported formats
 	};
 
 	#[cfg(target_os = "macos")]
