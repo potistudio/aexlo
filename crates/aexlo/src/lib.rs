@@ -7,10 +7,11 @@
 //!
 //! ```no_run
 //! use aexlo::PluginInstance;
+//! use std::path::Path;
 //!
 //! # fn main() -> aexlo::Result<()> {
 //! // `try_load` loads the library, runs GLOBAL_SETUP and PARAMS_SETUP.
-//! let mut instance = PluginInstance::try_load(std::path::Path::new("SDK_Noise"))?;
+//! let mut instance = PluginInstance::try_load(Path::new("ExamplePlugin"))?;
 //!
 //! // Query plugin info (PF_Cmd_ABOUT).
 //! let message = instance.about()?;

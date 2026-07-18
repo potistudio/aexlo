@@ -9,7 +9,7 @@ use thiserror::Error;
 /// The main error type for aexlo operations.
 #[derive(Debug, Error)]
 pub enum AexloError {
-	/// Error occurred while loading the plugin DLL/dylib.
+	/// Error occurred while loading the plugin file.
 	#[error("Failed to load plugin: {0}")]
 	PluginLoad(#[from] dlopen2::Error),
 
@@ -17,12 +17,12 @@ pub enum AexloError {
 	#[error("Plugin not found: {path}")]
 	PluginNotFound { path: String },
 
-	/// Invalid path configuration (missing directory or filename).
+	/// Invalid path configuration (missing directory or file).
 	#[error("Invalid path: {message}")]
 	InvalidPath { message: String },
 
 	/// The plugin container is not loaded.
-	#[error("Plugin container is not loaded. Call load() before calling the plugin.")]
+	#[error("Plugin container is not loaded.")]
 	ContainerNotLoaded,
 
 	/// The plugin returned a non-zero `PF_Err` code during execution.
@@ -31,10 +31,6 @@ pub enum AexloError {
 	/// hosts like [`render_frame`](crate::PluginInstance::render_frame) chain
 	/// GPU → smart → legacy fallbacks and the final error alone doesn't say
 	/// which stage rejected the call.
-	///
-	/// The raw code is widened to `i64` so this variant has the same shape on
-	/// every platform (the underlying `PF_Err` is `u32` on macOS and `i32`
-	/// elsewhere), keeping downstream `match` arms portable.
 	#[error("Plugin rejected {command} with error code: {code}")]
 	PluginExecutionFailed { command: String, code: i64 },
 
