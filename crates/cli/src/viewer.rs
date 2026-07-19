@@ -150,7 +150,8 @@ impl Viewer {
 /// instance.
 fn apply_param(fx: &mut PluginInstance, index: usize, raw: &str) -> Result<()> {
 	let value = crate::parse_param_value(fx, index, raw)?;
-	fx.set_param(index, value).with_context(|| format!("setting parameter #{index}"))
+	fx.set_param(index, value)
+		.with_context(|| format!("setting parameter #{index}"))
 }
 
 /// Store a freshly rendered frame and bump the draw sequence.
@@ -307,15 +308,13 @@ fn serve(server: &Server, state: &Mutex<State>, set_tx: &mpsc::Sender<SetParam>)
 				resp.add_header(header("Content-Type", "application/octet-stream"));
 				request.respond(resp)
 			}
-			"/set" => {
-				match parse_set(query) {
-					Some(set) => {
-						let _ = set_tx.send(set);
-						request.respond(Response::from_string("ok"))
-					}
-					None => request.respond(Response::from_string("bad set").with_status_code(400)),
+			"/set" => match parse_set(query) {
+				Some(set) => {
+					let _ = set_tx.send(set);
+					request.respond(Response::from_string("ok"))
 				}
-			}
+				None => request.respond(Response::from_string("bad set").with_status_code(400)),
+			},
 			_ => request.respond(Response::from_string("not found").with_status_code(404)),
 		};
 	}

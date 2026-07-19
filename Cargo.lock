@@ -174,6 +174,7 @@ name = "aexlo-cli"
 version = "0.0.1"
 dependencies = [
  "aexlo",
+ "aexlo-bench",
  "anyhow",
  "cargo_metadata",
  "image",

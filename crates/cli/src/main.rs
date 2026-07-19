@@ -9,6 +9,7 @@
 //! aexlo params <plugin>
 //! ```
 
+mod bench;
 mod dev;
 mod preview;
 mod view;
@@ -50,9 +51,28 @@ COMMANDS:
                        serve it and expose its parameters as live controls.
                        No compiler in the loop — point it at a finished
                        .plugin/.aex/.dll (the `preview` to `dev`'s watch loop).
+        -i, --input <png>    Feed a PNG as the effect's input layer
+                              [default: the plugin's built-in test frame]
         --watch              Reload the artifact when the file changes on disk
                               (e.g. rebuilt by another toolchain)
         --port <n>           Port for the preview server  [default: OS-assigned]
+    bench  <plugin>... Time one or more plugins and rank them by throughput
+                       (megapixels/second), then optionally export the numbers.
+                       Same measurements as `cargo bench -p aexlo-bench`, driven
+                       by flags instead of AEXLO_BENCH_* variables.
+        -r, --resolution <spec>  Frame size to measure: a name (512, 720p, 1080p,
+                              4k) or <W>x<H>. Repeatable, or comma-separated
+                              [default: 1080p]
+        -n, --samples <n>    Timed renders per measurement  [default: 30]
+        --warmup <n>         Untimed renders first, to pay setup costs [default: 5]
+        --mode <m>           Force a render path: auto, cpu, or gpu
+                              [default: cpu and gpu for GPU-capable plugins]
+        -s, --set <p>=<v>    Set parameter <p> (name or index) to a number
+                              before timing (repeatable)
+        -i, --input <png>    Input frame, resized to each resolution
+                              [default: a synthetic gradient]
+        --csv  <path>        Write the results as CSV
+        --json <path>        Write the results as JSON
     view   <png>       Live image window: reload a PNG whenever it changes
                        (spawned automatically by a `dev`-driven #[aexlo::preview];
                        pair manually with your own re-runner otherwise)
@@ -95,6 +115,7 @@ fn run() -> Result<()> {
 		"about" => cmd_about(args),
 		"params" => cmd_params(args),
 		"render" => cmd_render(args),
+		"bench" => cmd_bench(args),
 		"view" => cmd_view(args),
 		"dev" => cmd_dev(args),
 		"preview" => cmd_preview(args),
@@ -129,16 +150,22 @@ fn resolve_plugin(arg: &str) -> PathBuf {
 /// its cdylib first. This is what lets `render`/`about`/`params` take either
 /// a prebuilt `.plugin`/`.aex`/`.dll` or a crate's source directory directly.
 fn load(plugin_arg: &str) -> Result<PluginInstance> {
+	let path = resolve_artifact(plugin_arg)?;
+	PluginInstance::try_load(&path).with_context(|| format!("loading plugin {}", path.display()))
+}
+
+/// Resolve a plugin argument to an artifact on disk, building it first when the
+/// argument is a crate directory. This is the path half of [`load`], split out
+/// for `bench`, which loads each plugin itself (once per measurement).
+fn resolve_artifact(plugin_arg: &str) -> Result<PathBuf> {
 	let path = resolve_plugin(plugin_arg);
 	if path.is_dir() {
 		let manifest = path.join("Cargo.toml");
 		if manifest.exists() {
-			let artifact = watch::build_cdylib(&manifest)?;
-			return PluginInstance::try_load(&artifact)
-				.with_context(|| format!("loading built plugin {}", artifact.display()));
+			return watch::build_cdylib(&manifest);
 		}
 	}
-	PluginInstance::try_load(&path).with_context(|| format!("loading plugin {}", path.display()))
+	Ok(path)
 }
 
 fn cmd_about(mut args: impl Iterator<Item = String>) -> Result<()> {
@@ -232,6 +259,19 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 	Ok(())
 }
 
+fn cmd_bench(args: impl Iterator<Item = String>) -> Result<()> {
+	let options = bench::parse_args(args, |spec| {
+		let path = resolve_artifact(spec)?;
+		if path.exists() {
+			return Ok(path);
+		}
+		// Last resort: a bare name may be one of the bundled bench fixtures, so
+		// `aexlo bench SDK_Noise` works like the `cargo bench` harness does.
+		bench::resolve_fixture(spec).with_context(|| format!("no plugin found for '{spec}'"))
+	})?;
+	bench::run(options)
+}
+
 fn cmd_view(mut args: impl Iterator<Item = String>) -> Result<()> {
 	let path = args.next().context("view: missing <png> path")?;
 	view::run(Path::new(&path))
@@ -288,12 +328,14 @@ fn cmd_dev(args: impl Iterator<Item = String>) -> Result<()> {
 
 fn cmd_preview(args: impl Iterator<Item = String>) -> Result<()> {
 	let mut plugin: Option<String> = None;
+	let mut input: Option<PathBuf> = None;
 	let mut port: u16 = 0;
 	let mut watch = false;
 
 	let mut args = args.peekable();
 	while let Some(arg) = args.next() {
 		match arg.as_str() {
+			"-i" | "--input" => input = Some(PathBuf::from(next_value(&mut args, &arg)?)),
 			"--watch" => watch = true,
 			"--port" => {
 				port = next_value(&mut args, &arg)?
@@ -311,7 +353,7 @@ fn cmd_preview(args: impl Iterator<Item = String>) -> Result<()> {
 
 	let plugin = plugin.context("preview: missing <plugin>")?;
 	let path = resolve_plugin(&plugin);
-	preview::run(&path, port, watch)
+	preview::run(&path, input.as_deref(), port, watch)
 }
 
 /// Resolve `-p <package>` (or, if absent, the crate in the current directory)
@@ -407,7 +449,7 @@ fn bad(raw: &str, expected: &str) -> String {
 }
 
 /// Load a PNG as an RGBA8 buffer plus its dimensions.
-fn load_input(path: &Path) -> Result<(Vec<u8>, u32, u32)> {
+pub(crate) fn load_input(path: &Path) -> Result<(Vec<u8>, u32, u32)> {
 	let img = image::open(path)
 		.with_context(|| format!("opening input {}", path.display()))?
 		.to_rgba8();

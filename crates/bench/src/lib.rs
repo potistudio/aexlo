@@ -28,8 +28,11 @@
 //! AEXLO_BENCH_PLUGINS=DeepGlow2 AEXLO_BENCH_PARAMS="Radius=100,500,1000" cargo bench -p aexlo-bench
 //! ```
 
+pub mod report;
+
 use aexlo::{Depth8, Layer, ParamValue, PluginInstance, Result};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 /// A named frame size to sweep the render benchmarks over.
 #[derive(Clone, Copy, Debug)]
@@ -73,6 +76,36 @@ pub const ALL_RESOLUTIONS: &[Resolution] = &[
 		height: 2160,
 	},
 ];
+
+/// Parse a resolution spec: either a name from [`ALL_RESOLUTIONS`] (matched
+/// case-insensitively, e.g. `1080p`) or an explicit `<width>x<height>`.
+///
+/// Explicit sizes need a `&'static str` label, so the spec is leaked. Callers
+/// are CLI/env driven, where the number of distinct specs is bounded by the
+/// command line, making the leak a one-off per run.
+pub fn parse_resolution(spec: &str) -> std::result::Result<Resolution, String> {
+	let spec = spec.trim();
+	if let Some(found) = ALL_RESOLUTIONS.iter().find(|r| r.name.eq_ignore_ascii_case(spec)) {
+		return Ok(*found);
+	}
+
+	let (width, height) = spec
+		.split_once(['x', 'X'])
+		.ok_or_else(|| format!("unknown resolution '{spec}' (try a name like 1080p, or 1920x1080)"))?;
+	let width: u32 = width.trim().parse().map_err(|_| format!("invalid width in '{spec}'"))?;
+	let height: u32 = height
+		.trim()
+		.parse()
+		.map_err(|_| format!("invalid height in '{spec}'"))?;
+	if width == 0 || height == 0 {
+		return Err(format!("resolution '{spec}' must be non-zero in both axes"));
+	}
+	Ok(Resolution {
+		name: Box::leak(format!("{width}x{height}").into_boxed_str()),
+		width,
+		height,
+	})
+}
 
 /// The curated default plugin set, used when `AEXLO_BENCH_PLUGINS` is unset:
 /// a trivial effect, a noise generator, a heavy GPU-capable glow, and a CUDA
@@ -234,16 +267,27 @@ pub fn synthetic_input(width: u32, height: u32) -> Vec<u8> {
 /// otherwise falls back to [`synthetic_input`]. A load/decode failure warns and
 /// falls back rather than aborting the run.
 pub fn bench_input(width: u32, height: u32) -> Vec<u8> {
-	if let Some(path) = std::env::var_os("AEXLO_BENCH_INPUT") {
-		match image::open(&path) {
+	let configured = std::env::var_os("AEXLO_BENCH_INPUT");
+	input_frame(configured.as_deref().map(Path::new), width, height)
+}
+
+/// The input frame for a `width x height` render, from an explicit path.
+///
+/// `None` (or an image that fails to load) yields [`synthetic_input`]; a real
+/// image is resized to the requested size so the resolution sweep still applies.
+/// This is the caller-driven twin of [`bench_input`], for front-ends that take
+/// the input path as an argument rather than from the environment.
+pub fn input_frame(path: Option<&Path>, width: u32, height: u32) -> Vec<u8> {
+	if let Some(path) = path {
+		match image::open(path) {
 			Ok(img) => {
 				let resized = img.resize_exact(width, height, image::imageops::FilterType::Triangle);
 				return resized.to_rgba8().into_raw();
 			}
 			Err(err) => {
 				eprintln!(
-					"aexlo-bench: AEXLO_BENCH_INPUT {} failed to load ({err}); using synthetic input",
-					Path::new(&path).display()
+					"aexlo-bench: input {} failed to load ({err}); using synthetic input",
+					path.display()
 				);
 			}
 		}
@@ -254,7 +298,21 @@ pub fn bench_input(width: u32, height: u32) -> Vec<u8> {
 /// Build the configured input frame (see [`bench_input`]) and install it on
 /// `instance` as an 8-bit input layer.
 pub fn set_bench_input(instance: &mut PluginInstance, width: u32, height: u32) -> std::result::Result<(), String> {
-	let pixels = bench_input(width, height);
+	set_input_frame(instance, None, width, height)
+}
+
+/// Install a `width x height` input layer built from `path` (see [`input_frame`]).
+pub fn set_input_frame(
+	instance: &mut PluginInstance,
+	path: Option<&Path>,
+	width: u32,
+	height: u32,
+) -> std::result::Result<(), String> {
+	let pixels = match path {
+		Some(_) => input_frame(path, width, height),
+		// Preserve the env-driven default for callers that pass no explicit path.
+		None => bench_input(width, height),
+	};
 	let layer = Layer::<Depth8>::from_raw(pixels, width, height).map_err(|err| format!("{err}"))?;
 	instance.set_input(layer);
 	Ok(())
@@ -337,9 +395,14 @@ pub fn param_config_label(config: &ParamConfig) -> String {
 
 /// Resolve a parameter name to its 1-based index, matching declared names
 /// case-insensitively.
+///
+/// A key that is just a number is taken as the index itself, so front-ends can
+/// accept `--set 3=0.5` for parameters the plugin left unnamed. Declared names
+/// win, so a parameter literally named `3` is still reachable by name.
 pub fn resolve_param_index(instance: &PluginInstance, name: &str) -> Option<usize> {
 	let name = name.trim();
-	(1..instance.param_count()).find(|&i| param_name(instance, i).eq_ignore_ascii_case(name))
+	let by_name = (1..instance.param_count()).find(|&i| param_name(instance, i).eq_ignore_ascii_case(name));
+	by_name.or_else(|| name.parse::<usize>().ok().filter(|&i| i < instance.param_count()))
 }
 
 /// Set parameter `name` to numeric `value`, coercing to the parameter's declared
@@ -431,6 +494,99 @@ pub fn bench_modes(instance: &PluginInstance) -> Vec<RenderMode> {
 	} else {
 		vec![RenderMode::Auto]
 	}
+}
+
+//==== Timing ==========================================================
+
+/// The timings from one measured `(plugin, mode, resolution, params)` point.
+///
+/// Samples are kept sorted so the order statistics are cheap; the median is the
+/// headline number (robust against the occasional scheduler hiccup).
+#[derive(Clone, Debug)]
+pub struct Timing {
+	/// Per-iteration render times, ascending.
+	pub samples: Vec<Duration>,
+}
+
+impl Timing {
+	/// Median render time. Panics if `samples` is empty, which [`measure`] never
+	/// produces (it requires `samples >= 1`).
+	pub fn median(&self) -> Duration {
+		self.samples[self.samples.len() / 2]
+	}
+
+	/// Fastest observed render -- the closest thing to a noise-free measurement.
+	pub fn min(&self) -> Duration {
+		self.samples[0]
+	}
+
+	pub fn mean(&self) -> Duration {
+		let total: Duration = self.samples.iter().sum();
+		total / self.samples.len() as u32
+	}
+
+	/// Median throughput in megapixels/second for a frame of `pixels` pixels.
+	pub fn mpx_per_s(&self, pixels: u64) -> f64 {
+		pixels as f64 / self.median().as_secs_f64() / 1.0e6
+	}
+}
+
+/// How to measure one plugin: what to render, how to configure it, and how many
+/// times to time it.
+#[derive(Clone, Copy, Debug)]
+pub struct MeasureOptions<'a> {
+	pub resolution: Resolution,
+	/// Parameters to apply before timing; empty means plugin defaults.
+	pub config: &'a ParamConfig,
+	/// Input image, resized to `resolution`. `None` falls back to
+	/// `AEXLO_BENCH_INPUT`, then to a synthetic gradient.
+	pub input: Option<&'a Path>,
+	/// Timed iterations. Must be at least 1.
+	pub samples: usize,
+	/// Untimed iterations run first, to pay first-frame setup costs.
+	pub warmup: usize,
+}
+
+/// Load a fresh instance, configure it, warm it up, then time `samples` renders.
+///
+/// Each call loads the plugin from scratch so one measurement can't inherit
+/// state (caches, allocated worlds) from another. Errors are strings because
+/// every failure here is a "skip this point and keep going" for the caller.
+pub fn measure(
+	path: &Path,
+	mode: RenderMode,
+	options: MeasureOptions<'_>,
+) -> std::result::Result<(Timing, Caps), String> {
+	if options.samples == 0 {
+		return Err("samples must be at least 1".to_string());
+	}
+
+	let mut instance = PluginInstance::try_load(path).map_err(|e| format!("load failed: {e:?}"))?;
+	let _ = instance.about();
+	let caps = capabilities(&instance);
+
+	if !apply_param_config(&mut instance, options.config) {
+		return Err("parameter setup failed".to_string());
+	}
+
+	let (width, height) = (options.resolution.width, options.resolution.height);
+	set_input_frame(&mut instance, options.input, width, height).map_err(|e| format!("set_input failed: {e}"))?;
+
+	// Warmup also validates that the mode works before any timing is recorded.
+	for _ in 0..options.warmup {
+		mode.render(&mut instance)
+			.map_err(|e| format!("render failed: {e:?}"))?;
+	}
+
+	let mut samples = Vec::with_capacity(options.samples);
+	for _ in 0..options.samples {
+		let start = Instant::now();
+		mode.render(&mut instance)
+			.map_err(|e| format!("render failed: {e:?}"))?;
+		samples.push(start.elapsed());
+	}
+	samples.sort();
+	Ok((Timing { samples }, caps))
 }
 
 //==== Capabilities (#8) ===============================================

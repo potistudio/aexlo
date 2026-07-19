@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use aexlo::PluginInstance;
+use aexlo::{Depth8, Layer, PluginInstance};
 use anyhow::{Context, Result, bail};
 use notify::{RecursiveMode, Watcher};
 
@@ -21,10 +21,35 @@ use crate::watch::{render_instance, stage_and_load};
 /// Debounce so an external rebuild's non-atomic write isn't loaded half-finished.
 const DEBOUNCE: Duration = Duration::from_millis(120);
 
-pub fn run(artifact: &Path, port: u16, watch: bool) -> Result<()> {
+/// A decoded `--input` PNG, kept as raw pixels so a fresh [`Layer`] can be built
+/// for each instance the watch loop loads (the file is read exactly once).
+struct Input {
+	rgba: Vec<u8>,
+	w: u32,
+	h: u32,
+}
+
+impl Input {
+	fn layer(&self) -> Result<Layer<Depth8>> {
+		Layer::<Depth8>::from_raw(self.rgba.clone(), self.w, self.h)
+			.map_err(|e| anyhow::anyhow!("building input layer: {e}"))
+	}
+}
+
+pub fn run(artifact: &Path, input: Option<&Path>, port: u16, watch: bool) -> Result<()> {
 	if artifact.is_dir() {
 		bail!("preview needs a built plugin artifact — use `aexlo dev` to watch a crate's source");
 	}
+
+	// Decode up front: a bad path should fail before we open a browser tab.
+	let input = match input {
+		Some(path) => {
+			let (rgba, w, h) = crate::load_input(path)?;
+			println!("aexlo preview: input {} ({w}×{h})", path.display());
+			Some(Input { rgba, w, h })
+		}
+		None => None,
+	};
 
 	let viewer = viewer::start(port)?;
 	println!("aexlo preview: serving {} (Ctrl+C to quit)", viewer.url);
@@ -41,7 +66,7 @@ pub fn run(artifact: &Path, port: u16, watch: bool) -> Result<()> {
 
 	// Load once on startup.
 	attempt += 1;
-	reload(artifact, attempt, &viewer, &mut instance, &mut staged);
+	reload(artifact, input.as_ref(), attempt, &viewer, &mut instance, &mut staged);
 
 	// Only wire up the file watcher when asked; without `--watch`, `preview`
 	// serves the artifact exactly as loaded (parameter edits still re-render it).
@@ -86,7 +111,7 @@ pub fn run(artifact: &Path, port: u16, watch: bool) -> Result<()> {
 		{
 			pending = None;
 			attempt += 1;
-			reload(artifact, attempt, &viewer, &mut instance, &mut staged);
+			reload(artifact, input.as_ref(), attempt, &viewer, &mut instance, &mut staged);
 		}
 
 		// Apply any parameter edits, then re-render once for the whole batch.
@@ -109,13 +134,21 @@ pub fn run(artifact: &Path, port: u16, watch: bool) -> Result<()> {
 /// good frame stays on screen and the browser dot goes red.
 fn reload(
 	artifact: &Path,
+	input: Option<&Input>,
 	attempt: u64,
 	viewer: &Viewer,
 	instance: &mut Option<PluginInstance>,
 	staged: &mut Option<PathBuf>,
 ) {
 	viewer.begin_attempt(attempt);
-	match stage_and_load(artifact, attempt) {
+	match stage_and_load(artifact, attempt).and_then(|(mut fx, new_staged)| {
+		// Install the input layer before the first render, so the freshly loaded
+		// instance never shows a frame built from the default test image.
+		if let Some(input) = input {
+			fx.set_input(input.layer()?);
+		}
+		Ok((fx, new_staged))
+	}) {
 		Ok((mut fx, new_staged)) => match render_instance(&mut fx) {
 			Ok((rgba, w, h)) => {
 				viewer.publish_reload(&fx, rgba, w, h);
