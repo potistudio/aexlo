@@ -139,13 +139,6 @@ unsafe extern "C" fn copy_sys(
 	PF_Err_NONE as PF_Err
 }
 
-stub_log!(fill_stub,
-	_effect_ref: PF_ProgPtr,
-	_color: *const PF_Pixel,
-	_dst_rect: *const PF_Rect,
-	_world: *mut PF_EffectWorld
-);
-
 stub_log!(gaussian_kernel_stub,
 	_effect_ref: PF_ProgPtr,
 	_kRadius: A_FpLong,
@@ -288,20 +281,6 @@ unsafe extern "C" fn iterate_stub(
 	error_capsule.load(Ordering::Relaxed) as PF_Err
 }
 
-stub_log!(premultiply_stub,
-	_effect_ref: PF_ProgPtr,
-	_forward: A_long,
-	_dst: *mut PF_EffectWorld
-);
-
-stub_log!(premultiply_color_stub,
-	_effect_ref: PF_ProgPtr,
-	_src: *mut PF_EffectWorld,
-	_color: *const PF_Pixel,
-	_forward: A_long,
-	_dst: *mut PF_EffectWorld
-);
-
 stub_log!(new_world_stub,
 	_effect_ref: PF_ProgPtr,
 	_width: A_long,
@@ -313,39 +292,6 @@ stub_log!(new_world_stub,
 stub_log!(dispose_world_stub,
 	_effect_ref: PF_ProgPtr,
 	_world: *mut PF_EffectWorld
-);
-
-stub_log!(iterate_origin_stub,
-	_in_data: *mut PF_InData,
-	_progress_base: A_long,
-	_progress_final: A_long,
-	_src: *mut PF_EffectWorld,
-	_area: *const PF_Rect,
-	_origin: *const PF_Point,
-	_refcon: *mut c_void,
-	_pix_fn: ::std::option::Option<
-		unsafe extern "C" fn(
-			refcon: *mut c_void,
-			x: A_long,
-			y: A_long,
-			in_: *mut PF_Pixel,
-			out: *mut PF_Pixel,
-		) -> PF_Err,
-	>,
-	_dst: *mut PF_EffectWorld
-);
-
-stub_log!(iterate_lut_stub,
-	_in_data: *mut PF_InData,
-	_progress_base: A_long,
-	_progress_final: A_long,
-	_src: *mut PF_EffectWorld,
-	_area: *const PF_Rect,
-	_a_lut0: *mut A_u_char,
-	_r_lut0: *mut A_u_char,
-	_g_lut0: *mut A_u_char,
-	_b_lut0: *mut A_u_char,
-	_dst: *mut PF_EffectWorld
 );
 
 stub_log!(transfer_rect_stub,
@@ -390,39 +336,6 @@ unsafe extern "C" fn app_stub(_effect_ref: PF_ProgPtr, _selector: A_long, _args:
 	PF_Err_NONE as PF_Err
 }
 
-stub_log!(iterate_origin_non_clip_src_stub,
-	_in_data: *mut PF_InData,
-	_progress_base: A_long,
-	_progress_final: A_long,
-	_src: *mut PF_EffectWorld,
-	_area: *const PF_Rect,
-	_origin: *const PF_Point,
-	_refcon: *mut c_void,
-	_pix_fn: ::std::option::Option<
-		unsafe extern "C" fn(
-			refcon: *mut c_void,
-			x: A_long,
-			y: A_long,
-			in_: *mut PF_Pixel,
-			out: *mut PF_Pixel,
-		) -> PF_Err,
-	>,
-	_dst: *mut PF_EffectWorld
-);
-
-stub_log!(iterate_generic_stub,
-	_iterationsL: A_long,
-	_refconPV: *mut c_void,
-	_fn_func: ::std::option::Option<
-		unsafe extern "C" fn(
-			refconPV: *mut c_void,
-			thread_indexL: A_long,
-			i: A_long,
-			iterationsL: A_long,
-		) -> PF_Err,
-	>
-);
-
 stub_log!(subpixel_sample16_stub,
 	_effect_ref: PF_ProgPtr,
 	_x: PF_Fixed,
@@ -437,110 +350,6 @@ stub_log!(area_sample16_stub,
 	_y: PF_Fixed,
 	_params: *const PF_SampPB,
 	_dst_pixel: *mut PF_Pixel16
-);
-
-stub_log!(fill16_stub,
-	_effect_ref: PF_ProgPtr,
-	_color: *const PF_Pixel16,
-	_dst_rect: *const PF_Rect,
-	_world: *mut PF_EffectWorld
-);
-
-stub_log!(premultiply_color16_stub,
-	_effect_ref: PF_ProgPtr,
-	_src: *mut PF_EffectWorld,
-	_color: *const PF_Pixel16,
-	_forward: A_long,
-	_dst: *mut PF_EffectWorld
-);
-
-stub_log!(iterate16_stub,
-	_in_data: *mut PF_InData,
-	_progress_base: A_long,
-	_progress_final: A_long,
-	_src: *mut PF_EffectWorld,
-	_area: *const PF_Rect,
-	_refcon: *mut c_void,
-	_pix_fn: ::std::option::Option<
-		unsafe extern "C" fn(
-			refcon: *mut c_void,
-			x: A_long,
-			y: A_long,
-			in_: *mut PF_Pixel16,
-			out: *mut PF_Pixel16,
-		) -> PF_Err,
-	>,
-	_dst: *mut PF_EffectWorld
-);
-
-stub_log!(iterate_origin16_stub,
-	_in_data: *mut PF_InData,
-	_progress_base: A_long,
-	_progress_final: A_long,
-	_src: *mut PF_EffectWorld,
-	_area: *const PF_Rect,
-	_origin: *const PF_Point,
-	_refcon: *mut c_void,
-	_pix_fn: ::std::option::Option<
-		unsafe extern "C" fn(
-			refcon: *mut c_void,
-			x: A_long,
-			y: A_long,
-			in_: *mut PF_Pixel16,
-			out: *mut PF_Pixel16,
-		) -> PF_Err,
-	>,
-	_dst: *mut PF_EffectWorld
-);
-
-stub_log!(iterate_origin_non_clip_src16_stub,
-	_in_data: *mut PF_InData,
-	_progress_base: A_long,
-	_progress_final: A_long,
-	_src: *mut PF_EffectWorld,
-	_area: *const PF_Rect,
-	_origin: *const PF_Point,
-	_refcon: *mut c_void,
-	_pix_fn: ::std::option::Option<
-		unsafe extern "C" fn(
-			refcon: *mut c_void,
-			x: A_long,
-			y: A_long,
-			in_: *mut PF_Pixel16,
-			out: *mut PF_Pixel16,
-		) -> PF_Err,
-	>,
-	_dst: *mut PF_EffectWorld
-);
-
-/// # Safety
-///
-/// This function is unsafe because it handles raw pointers and performs unchecked operations.
-pub unsafe extern "C" fn get_pixel_data8_sys(
-	worldP: *mut PF_EffectWorld,
-	_pixelsP0: PF_PixelPtr,
-	pixPP: *mut *mut PF_Pixel8,
-) -> PF_Err {
-	diag!("Utility/get_pixel_data8",
-		"worldP" => format!("{:x}", worldP as usize),
-		"pixelsP0" => format!("{:x}", _pixelsP0 as usize),
-		"pixPP" => format!("{:?}", pixPP),
-	);
-
-	if !pixPP.is_null() && !worldP.is_null() {
-		// SAFETY: The caller guarantees valid pointers.
-		unsafe {
-			*pixPP = (*worldP).data as *mut PF_Pixel8;
-		}
-	}
-
-	PF_Err_NONE as PF_Err
-}
-
-stub_log!(get_pixel_data16_stub,
-	_worldP: *mut PF_EffectWorld,
-	_pixelsP0: PF_PixelPtr,
-	_pixPP: *mut *mut PF_Pixel16
 );
 
 // ============================================================================
@@ -615,15 +424,15 @@ pub fn create_utility_callbacks() -> Box<_PF_UtilCallbacks> {
 		blend: Some(blend_stub),
 		convolve: Some(convolve_stub),
 		copy: Some(copy_sys),
-		fill: Some(fill_stub),
+		fill: Some(crate::suites::fill_matte::fill_8_sys),
 		gaussian_kernel: Some(gaussian_kernel_stub),
 		iterate: Some(iterate_stub),
-		premultiply: Some(premultiply_stub),
-		premultiply_color: Some(premultiply_color_stub),
+		premultiply: Some(crate::suites::fill_matte::premultiply_sys),
+		premultiply_color: Some(crate::suites::fill_matte::premultiply_color_8_sys),
 		new_world: Some(new_world_stub),
 		dispose_world: Some(dispose_world_stub),
-		iterate_origin: Some(iterate_origin_stub),
-		iterate_lut: Some(iterate_lut_stub),
+		iterate_origin: Some(crate::suites::iterate::iterate_origin_8_sys),
+		iterate_lut: Some(crate::suites::iterate::iterate_lut_sys),
 		transfer_rect: Some(transfer_rect_stub),
 		transform_world: Some(transform_world_stub),
 		host_new_handle: Some(crate::suites::handle::host_new_handle_impl),
@@ -633,30 +442,32 @@ pub fn create_utility_callbacks() -> Box<_PF_UtilCallbacks> {
 		get_callback_addr: Some(get_callback_addr_stub),
 		app: Some(app_stub),
 		ansi: crate::suites::SUITE_CONTAINER.ansi, // Use existing ANSI callbacks
+		// The legacy colorCB block has the same layout as PF_ColorCallbacksSuite1,
+		// so it shares the suite's 8-bpc implementations.
 		colorCB: PF_ColorCallbacks {
-			RGBtoHLS: None,
-			HLStoRGB: None,
-			RGBtoYIQ: None,
-			YIQtoRGB: None,
-			Luminance: None,
-			Hue: None,
-			Lightness: None,
-			Saturation: None,
+			RGBtoHLS: Some(crate::suites::color_callbacks::rgb_to_hls_8_sys),
+			HLStoRGB: Some(crate::suites::color_callbacks::hls_to_rgb_8_sys),
+			RGBtoYIQ: Some(crate::suites::color_callbacks::rgb_to_yiq_8_sys),
+			YIQtoRGB: Some(crate::suites::color_callbacks::yiq_to_rgb_8_sys),
+			Luminance: Some(crate::suites::color_callbacks::luminance_8_sys),
+			Hue: Some(crate::suites::color_callbacks::hue_8_sys),
+			Lightness: Some(crate::suites::color_callbacks::lightness_8_sys),
+			Saturation: Some(crate::suites::color_callbacks::saturation_8_sys),
 		},
 		get_platform_data: Some(get_platform_data_impl),
 		host_get_handle_size: Some(crate::suites::handle::host_get_handle_size_impl),
-		iterate_origin_non_clip_src: Some(iterate_origin_non_clip_src_stub),
-		iterate_generic: Some(iterate_generic_stub),
+		iterate_origin_non_clip_src: Some(crate::suites::iterate::iterate_origin_non_clip_src_8_sys),
+		iterate_generic: Some(crate::suites::iterate::iterate_generic_sys),
 		host_resize_handle: Some(crate::suites::handle::host_resize_handle_impl),
 		subpixel_sample16: Some(subpixel_sample16_stub),
 		area_sample16: Some(area_sample16_stub),
-		fill16: Some(fill16_stub),
-		premultiply_color16: Some(premultiply_color16_stub),
-		iterate16: Some(iterate16_stub),
-		iterate_origin16: Some(iterate_origin16_stub),
-		iterate_origin_non_clip_src16: Some(iterate_origin_non_clip_src16_stub),
-		get_pixel_data8: Some(get_pixel_data8_sys),
-		get_pixel_data16: Some(get_pixel_data16_stub),
+		fill16: Some(crate::suites::fill_matte::fill_16_sys),
+		premultiply_color16: Some(crate::suites::fill_matte::premultiply_color_16_sys),
+		iterate16: Some(crate::suites::iterate::iterate_16_sys),
+		iterate_origin16: Some(crate::suites::iterate::iterate_origin_16_sys),
+		iterate_origin_non_clip_src16: Some(crate::suites::iterate::iterate_origin_non_clip_src_16_sys),
+		get_pixel_data8: Some(crate::suites::pixel_data::get_pixel_data_8_sys),
+		get_pixel_data16: Some(crate::suites::pixel_data::get_pixel_data_16_sys),
 		reserved: [0; 1],
 	})
 }

@@ -18,6 +18,9 @@
 mod ae_app;
 mod angle_param;
 pub mod ansi;
+pub mod color_callbacks;
+mod color_param;
+pub mod fill_matte;
 pub mod gpu_device;
 pub mod handle;
 pub mod interface;
@@ -25,6 +28,9 @@ pub mod iterate;
 pub mod macros;
 pub mod param_utils;
 pub mod persistent_data;
+pub mod pixel_data;
+mod pixel_norm;
+mod point_param;
 pub mod transform;
 pub mod ui;
 pub mod utility;
@@ -66,9 +72,18 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	world_transform: transform::create_world_transform_suite_1(),
 	world: world::create_world_suite(),
 	iterate8: iterate::create_iterate_8_suite_2(),
+	iterate16: iterate::create_iterate_16_suite_2(),
+	iterate_float: iterate::create_iterate_float_suite_2(),
 	utility: utility::create_utility_suite(),
 	aegp_interface: interface::create_aegp_pf_interface_suite(),
 	angle_param: angle_param::create_angle_param_suite(),
+	color_param: color_param::create_color_param_suite_1(),
+	point_param: point_param::create_point_param_suite_1(),
+	color_callbacks8: color_callbacks::create_color_callbacks_suite_1(),
+	color_callbacks16: color_callbacks::create_color_callbacks_16_suite_1(),
+	color_callbacks_float: color_callbacks::create_color_callbacks_float_suite_1(),
+	fill_matte: fill_matte::create_fill_matte_suite_2(),
+	pixel_data: pixel_data::create_pixel_data_suite_2(),
 	ae_app: ae_app::create_ae_app_suite_v6(),
 	gpu_device: gpu_device::create_gpu_device_suite_1(),
 	param_utils: param_utils::create_param_utils_suite_3(),
@@ -89,9 +104,18 @@ pub struct SuiteContainer {
 	pub world_transform: PF_WorldTransformSuite1,
 	pub world: PF_WorldSuite2,
 	pub iterate8: PF_Iterate8Suite2,
+	pub iterate16: PF_iterate16Suite2,
+	pub iterate_float: PF_iterateFloatSuite2,
 	pub utility: PF_UtilitySuite,
 	pub aegp_interface: AEGP_PFInterfaceSuite1,
 	pub angle_param: PF_AngleParamSuite1,
+	pub color_param: PF_ColorParamSuite1,
+	pub point_param: PF_PointParamSuite1,
+	pub color_callbacks8: PF_ColorCallbacksSuite1,
+	pub color_callbacks16: PF_ColorCallbacks16Suite1,
+	pub color_callbacks_float: PF_ColorCallbacksFloatSuite1,
+	pub fill_matte: PF_FillMatteSuite2,
+	pub pixel_data: PF_PixelDataSuite2,
 	pub ae_app: PFAppSuite6,
 	pub gpu_device: PF_GPUDeviceSuite1,
 	pub param_utils: PF_ParamUtilsSuite3,
@@ -145,11 +169,22 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("PF Handle Suite", 2) => dispatch_static!(suite, suite_name, version, handle),
 		("PF World Transform Suite", 1) => dispatch_static!(suite, suite_name, version, world_transform),
 		("PF World Suite", 2) => dispatch_static!(suite, suite_name, version, world),
-		// Iterate8 suites are append-only, so the v2 table also satisfies v1 requests.
+		// Iterate suites are append-only, so the v2 tables also satisfy v1 requests.
 		("PF Iterate8 Suite", 1..=2) => dispatch_static!(suite, suite_name, version, iterate8),
+		("PF iterate16 Suite", 1..=2) => dispatch_static!(suite, suite_name, version, iterate16),
+		("PF iterateFloat Suite", 1..=2) => dispatch_static!(suite, suite_name, version, iterate_float),
 		("PF Utility Suite", 1..=18) => dispatch_static!(suite, suite_name, version, utility),
 		("AEGP PF Interface Suite", 1) => dispatch_static!(suite, suite_name, version, aegp_interface),
 		("PF AngleParamSuite", 1) => dispatch_static!(suite, suite_name, version, angle_param),
+		("PF ColorParamSuite", 1) => dispatch_static!(suite, suite_name, version, color_param),
+		("PF PointParamSuite", 1) => dispatch_static!(suite, suite_name, version, point_param),
+		("PF Color Suite", 1) => dispatch_static!(suite, suite_name, version, color_callbacks8),
+		("PF Color16 Suite", 1) => dispatch_static!(suite, suite_name, version, color_callbacks16),
+		("PF ColorFloat Suite", 1) => dispatch_static!(suite, suite_name, version, color_callbacks_float),
+		("PF Fill Matte Suite", 2) => dispatch_static!(suite, suite_name, version, fill_matte),
+		// PixelData suites are append-only (v2 adds the GPU accessor), so the v2
+		// table also satisfies v1 requests.
+		("PF Pixel Data Suite", 1..=2) => dispatch_static!(suite, suite_name, version, pixel_data),
 		// AE suites are append-only across versions, so a v6 table safely satisfies
 		// older requests (v1..). Plugins that request v1 (e.g. via AEFX_AcquireSuite in
 		// their localization path) get a null-deref on a null out_data if we reject it,
@@ -196,4 +231,52 @@ pub unsafe extern "C" fn rusty_release_suite(name: *const ::std::os::raw::c_char
 	// Every suite is a process-wide shared static (see the module docs); nothing
 	// is allocated per acquire, so releasing one is a no-op.
 	PF_Err_NONE as PF_Err
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::ffi::CString;
+
+	fn acquire(name: &str, version: i32) -> (PF_Err, *const c_void) {
+		let cname = CString::new(name).unwrap();
+		let mut out: *const c_void = std::ptr::null();
+		let err = unsafe { rusty_acquire_suite(cname.as_ptr(), version, &mut out) };
+		(err, out)
+	}
+
+	#[test]
+	fn acquire_serves_every_registered_suite() {
+		for (name, version) in [
+			("PF ANSI Suite", 1),
+			("PF Iterate8 Suite", 2),
+			("PF iterate16 Suite", 1),
+			("PF iterate16 Suite", 2),
+			("PF iterateFloat Suite", 2),
+			("PF AngleParamSuite", 1),
+			("PF ColorParamSuite", 1),
+			("PF PointParamSuite", 1),
+			("PF Color Suite", 1),
+			("PF Color16 Suite", 1),
+			("PF ColorFloat Suite", 1),
+			("PF Fill Matte Suite", 2),
+			("PF Pixel Data Suite", 1),
+			("PF Pixel Data Suite", 2),
+		] {
+			let (err, ptr) = acquire(name, version);
+			assert_eq!(err, PF_Err_NONE as PF_Err, "'{name}' v{version} should be served");
+			assert!(!ptr.is_null(), "'{name}' v{version} returned a null suite");
+		}
+	}
+
+	#[test]
+	fn acquire_rejects_unknown_suites_and_versions() {
+		let (err, ptr) = acquire("PF Nonexistent Suite", 1);
+		assert_ne!(err, PF_Err_NONE as PF_Err);
+		assert!(ptr.is_null());
+
+		// Fill Matte is only served at its known v2 layout.
+		let (err, _) = acquire("PF Fill Matte Suite", 3);
+		assert_ne!(err, PF_Err_NONE as PF_Err);
+	}
 }
