@@ -60,7 +60,7 @@ cargo build
 
 ## Implementation Progress
 
-⣿⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 14% (5/35)
+⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀ 43% (15/35)
 
 > ○ fully implemented / △ only partially implemented / × not implemented
 
@@ -68,15 +68,15 @@ cargo build
 | ------------------ | -------------------------------- | ----------------- | ----------------- |
 | ○ ANSI             | △ AE App                         | × AE Adv App      | × Cache On Load   |
 | × Batch Sampling   | △ AngleParam                     | × AE Adv Item     | × Channel         |
-| × Color            | × ColorParam                     | × AE Adv Time     | △ GPU Device      |
-| × Color16          | × Effect Custom UI Overlay Theme |                   | × Plugin Helper   |
-| × ColorFloat       | × Effect Custom UI               |                   | × Plugin Helper 2 |
-| × Fill Matte       | × Effect UI                      |                   |                   |
+| ○ Color            | ○ ColorParam                     | × AE Adv Time     | △ GPU Device      |
+| ○ Color16          | × Effect Custom UI Overlay Theme |                   | × Plugin Helper   |
+| ○ ColorFloat       | × Effect Custom UI               |                   | × Plugin Helper 2 |
+| ○ Fill Matte       | × Effect UI                      |                   |                   |
 | ○ Handle           | ○ Param Utils                    |                   |                   |
-| △ Iterate8         | × Path Data                      |                   |                   |
-| × Iterate16        | × Path Query                     |                   |                   |
-| × IterateFloat     | × PointParam                     |                   |                   |
-| × Pixel Data       |                                  |                   |                   |
+| ○ Iterate8         | × Path Data                      |                   |                   |
+| ○ Iterate16        | × Path Query                     |                   |                   |
+| ○ IterateFloat     | ○ PointParam                     |                   |                   |
+| ○ Pixel Data       |                                  |                   |                   |
 | × Pixel Format     |                                  |                   |                   |
 | × Sampling8        |                                  |                   |                   |
 | × Sampling16       |                                  |                   |                   |

@@ -1,3 +1,35 @@
+use std::path::PathBuf;
+
+/// Locate a bundled plugin fixture by file stem (e.g. `"nothing"`, `"FillColor"`).
+///
+/// Most of `fixtures/plugins/windows` are personal, gitignored symlinks into the
+/// developer's local After Effects plugin installs (see `fixtures/plugins/.gitignore`) --
+/// only a handful of small real binaries are checked in directly, and even those vary
+/// by machine. Tests that need a specific named fixture call this and skip (rather than
+/// panic) when it resolves to `None`, so the suite stays green on a machine that doesn't
+/// have that particular plugin.
+pub fn fixture(stem: &str) -> Option<PathBuf> {
+	let (platform_dir, extension) = if cfg!(target_os = "windows") {
+		("windows", "aex")
+	} else {
+		("macos", "plugin")
+	};
+
+	let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+		.join("../..")
+		.join("fixtures/plugins")
+		.join(platform_dir)
+		.join(format!("{stem}.{extension}"));
+
+	path.exists().then_some(path)
+}
+
+/// Absolute path to the workspace's shared `input.png`, used as a realistic
+/// non-uniform input frame across the pixel/param/GPU e2e tests.
+pub fn sample_input_path() -> PathBuf {
+	PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../input.png")
+}
+
 #[cfg(test)]
 mod tests {
 	use std::path::PathBuf;

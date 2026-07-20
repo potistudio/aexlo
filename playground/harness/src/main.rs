@@ -17,6 +17,9 @@ mod summary;
 #[cfg(windows)]
 mod pipl;
 
+#[cfg(test)]
+mod runtime_facts_test;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
