@@ -31,3 +31,8 @@ harness = false
 [[bench]]
 name = "summary"
 harness = false
+
+# Pure CPU pixel-conversion micro-bench; needs no plugin.
+[[bench]]
+name = "rgba"
+harness = false
