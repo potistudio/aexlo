@@ -1408,8 +1408,8 @@ impl Drop for PluginInstance {
 			log::warn!("PF_Cmd_GPU_DEVICE_SETDOWN failed during drop: {err:?}");
 		}
 
-		// Without an entry point nothing was ever set up, so there is nothing to
-		// tear down (and call_plugin would just error).
+		// The entry point is missing only when `try_load` failed to resolve it,
+		// in which case the plugin was never set up.
 		if self.entry_point.is_none() {
 			return;
 		}
