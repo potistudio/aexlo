@@ -61,8 +61,8 @@ pub use instance::PluginEntryPoint;
 /// These are dev-tooling, not plugin hosting; they live in their own module
 /// (see `src/preview.rs`) and are re-exported here for the macro's benefit.
 pub use preview::{
-	acquire_viewer_lock, ensure_live_viewer, open_in_viewer, preview_mode, preview_path, preview_requested,
-	viewer_is_running, PreviewMode, ViewerLock,
+	acquire_viewer_lock, ensure_live_viewer, open_in_viewer, open_preview, preview_mode, preview_path, preview_requested,
+	save_preview, viewer_is_running, PreviewMode, ViewerLock,
 };
 
 /// `#[aexlo::preview]` — render a plugin in-process and drop a preview PNG.

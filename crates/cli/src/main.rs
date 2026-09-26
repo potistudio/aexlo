@@ -248,10 +248,9 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 		instance.render_frame().context("render failed")?;
 	}
 
-	// save_preview encodes with mtpng (multithreaded), reusing the library's
+	// aexlo::save_preview encodes with mtpng (multithreaded), reusing the library's
 	// only PNG-encode path instead of pulling in a second encoder.
-	instance
-		.save_preview(&output)
+	aexlo::save_preview(&instance, &output)
 		.with_context(|| format!("writing {}", output.display()))?;
 
 	let (w, h) = instance.output_size();

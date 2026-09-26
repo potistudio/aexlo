@@ -604,50 +604,6 @@ impl PluginInstance {
 		Ok(())
 	}
 
-	/// Encode the current output frame to an 8-bit RGBA PNG at `path`.
-	///
-	/// Full fidelity, no terminal/protocol dependence -- the point of a preview
-	/// is to *see* the render, so this never degrades quality. The frame must be
-	/// rendered first (call a `render_*` method before this).
-	pub fn save_preview(&self, path: impl AsRef<Path>) -> Result<()> {
-		let path = path.as_ref();
-		let (w, h) = self.output_size();
-
-		let mut pixels = vec![0u8; w as usize * h as usize * 4];
-		self.write_output_rgba(&mut pixels)?;
-
-		let file = std::fs::File::create(path)
-			.map_err(|e| AexloError::Unexpected(format!("creating preview {}: {e}", path.display())))?;
-
-		let options = mtpng::encoder::Options::new();
-		let mut encoder = mtpng::encoder::Encoder::new(file, &options);
-		let mut header = mtpng::Header::new();
-
-		header
-			.set_size(w, h)
-			.and_then(|()| header.set_color(mtpng::ColorType::TruecolorAlpha, 8))
-			.and_then(|()| encoder.write_header(&header))
-			.and_then(|()| encoder.write_image_rows(&pixels))
-			.and_then(|()| encoder.finish().map(drop))
-			.map_err(|e| AexloError::Unexpected(format!("encoding preview PNG {}: {e}", path.display())))?;
-
-		Ok(())
-	}
-
-	/// Save the current frame to a temp PNG and open it in the OS image viewer,
-	/// returning the path written.
-	///
-	/// The dev-loop one-liner: render, then eyeball the result in a real viewer
-	/// at full quality. Spawns the viewer without waiting, so it never blocks a
-	/// test or `--watch` cycle.
-	pub fn open_preview(&self) -> Result<PathBuf> {
-		let path = std::env::temp_dir().join(format!("aexlo-preview-{}.png", std::process::id()));
-		self.save_preview(&path)?;
-		crate::preview::open_in_viewer(&path)?;
-
-		Ok(path)
-	}
-
 	//---- Setter / Getter =================================
 
 	/// Get a pointer to the instance's persistent output world (`PF_LayerDef`/`PF_EffectWorld`).

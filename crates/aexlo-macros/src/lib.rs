@@ -89,7 +89,7 @@ pub fn preview(attr: TokenStream, item: TokenStream) -> TokenStream {
 				module_path!(),
 				#name_str,
 			);
-			__aexlo_fx.save_preview(&__path)?;
+			::aexlo::save_preview(&__aexlo_fx, &__path)?;
 			eprintln!("aexlo::preview: wrote {}", __path.display());
 
 			// AEXLO_PREVIEW: unset = save only, `live` = keep an `aexlo view`
