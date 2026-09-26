@@ -60,12 +60,14 @@ where
 		}
 
 		let converted = pixels
-			.chunks_exact(4)
-			.map(|chunk| Pixel::<Depth8> {
-				red: chunk[0],
-				green: chunk[1],
-				blue: chunk[2],
-				alpha: chunk[3],
+			.as_chunks::<4>()
+			.0
+			.iter()
+			.map(|&[red, green, blue, alpha]| Pixel::<Depth8> {
+				red,
+				green,
+				blue,
+				alpha,
 			})
 			.collect();
 
@@ -213,11 +215,8 @@ impl Layer<Depth8> {
 			});
 		}
 
-		for (chunk, pixel) in buffer.chunks_exact_mut(4).zip(self.pixels.iter()) {
-			chunk[0] = pixel.red;
-			chunk[1] = pixel.green;
-			chunk[2] = pixel.blue;
-			chunk[3] = pixel.alpha;
+		for (chunk, pixel) in buffer.as_chunks_mut::<4>().0.iter_mut().zip(self.pixels.iter()) {
+			*chunk = [pixel.red, pixel.green, pixel.blue, pixel.alpha];
 		}
 
 		Ok(())
