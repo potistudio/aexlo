@@ -1,4 +1,5 @@
 use crate::core::error::{AexloError, Result};
+use crate::core::in_data::{CallBindings, EffectState, HostInfo as InDataHost, RenderContext};
 use crate::host::smart_render::SmartRenderData;
 use crate::utils;
 
@@ -129,7 +130,10 @@ unsafe extern "C" fn receive_plugin_data(
 	PF_Err_NONE as after_effects_sys::A_Err
 }
 
-/// Represents a loaded After Effects plugin instance, managing its library, entry point, parameters, and execution state.
+/// Independent instance of an After Effects Plug-in.
+/// It is created by loading a plug-in with [`PluginInstance::try_load`] or by driving an in-process entry point with [`PluginInstance::from_entry`].
+/// Manages its library, entry point, parameters, and execution state.
+/// All operations related to the plug-in should be invoked from this.
 pub struct PluginInstance {
 	raw_library: Option<Library>,
 	entry_point: Option<PluginEntryPoint>,
@@ -155,8 +159,12 @@ pub struct PluginInstance {
 	/// Basic Suite pointer.
 	pica: Box<after_effects_sys::SPBasicSuite>,
 
-	/// InData structure.
-	pub(crate) in_data: after_effects_sys::PF_InData,
+	/// Host-wide constants composed into every `PF_InData`.
+	host_info: InDataHost,
+	/// Plugin-owned handles carried across commands.
+	effect_state: EffectState,
+	/// Frame the next command operates on.
+	pub(crate) render_context: RenderContext,
 	out_data: after_effects_sys::PF_OutData,
 
 	/// Instance-specific parameters from the host (non-global storage).
@@ -453,8 +461,7 @@ impl PluginInstance {
 			// The plugin derives its GPU dispatch size from `in_data`; keep it aligned
 			// with the output frame so the whole image is rendered, not a stale
 			// sub-rectangle.
-			self.in_data.width = out_w as i32;
-			self.in_data.height = out_h as i32;
+			self.render_context.set_size(out_w as i32, out_h as i32);
 
 			// Present both worlds as f32 BGRA (16 bytes/pixel, no row padding).
 			self.input_world.width = in_w as i32;
@@ -609,14 +616,7 @@ impl PluginInstance {
 			.build();
 		self.world.data = self.output_layer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
 
-		self.in_data.width = width as i32;
-		self.in_data.height = height as i32;
-		self.in_data.extent_hint = after_effects_sys::PF_UnionableRect {
-			left: 0,
-			top: 0,
-			right: width as i32,
-			bottom: height as i32,
-		};
+		self.render_context.set_size(width as i32, height as i32);
 
 		self.smart_render_data.set_output_rect(width as i32, height as i32);
 	}
@@ -954,7 +954,6 @@ impl PluginInstance {
 		self.params.push(param);
 		self.popup_choices.push(choices);
 		self.params_dirty = true;
-		self.in_data.num_params = self.params.len() as i32;
 		log::debug!(
 			"PluginInstance: added param #{} (type: {:?})",
 			self.params.len(),
@@ -1035,13 +1034,15 @@ impl PluginInstance {
 				resolved_binary_path: None,
 				utility_callbacks,
 				pica,
-				in_data: crate::core::helpers::InDataBuilder::new()
-					// Match the output world / default layers so the frame size the plugin
-					// sees is consistent across in_data, the checkout rects, and the worlds.
-					.with_size(WIDTH as i32, HEIGHT as i32)
-					.with_callbacks(interact_callbacks)
-					// .with_global_data(unsafe { crate::suites::handle::host_new_handle_impl(0x498) })
-					.build(),
+				host_info: InDataHost::new(interact_callbacks),
+				effect_state: EffectState::default(),
+				// Match the output world / default layers so the frame size the plugin
+				// sees is consistent across in_data, the checkout rects, and the worlds.
+				render_context: {
+					let mut ctx = RenderContext::default();
+					ctx.set_size(WIDTH as i32, HEIGHT as i32);
+					ctx
+				},
 				out_data: crate::core::helpers::OutDataBuilder::new().build(),
 				params: Vec::new(),
 				popup_choices: Vec::new(),
@@ -1090,14 +1091,8 @@ impl PluginInstance {
 		wrapper::Layer::<wrapper::Depth8>::new(width, height, vec![fill; (width * height) as usize]).unwrap()
 	}
 
-	/// Point `in_data`/`world` raw pointers at this instance's own owned buffers, now
-	/// that `self` has a stable address to reference.
+	/// Point `world` raw pointers at this instance's own owned buffers.
 	fn wire_self_pointers(&mut self) {
-		self.in_data.utils = self.utility_callbacks.as_mut() as *mut _;
-		self.in_data.pica_basicP = self.pica.as_mut() as *mut _;
-		// effect_ref will be set dynamically before each plugin call
-		self.in_data.effect_ref = std::ptr::null_mut();
-		self.in_data.num_params = self.params.len() as i32;
 		self.world.data = self.output_layer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
 		self.input_world = self.input_layer.as_sys();
 	}
@@ -1163,7 +1158,7 @@ impl PluginInstance {
 	/// stale pointer is cleared so the plugin allocates from scratch rather than
 	/// treating garbage as a flattened blob to resurrect.
 	fn setup_sequence(&mut self) -> Result<()> {
-		self.in_data.sequence_data = null_mut();
+		self.effect_state.sequence_data = null_mut();
 		self.out_data.sequence_data = null_mut();
 		self.call_plugin(RawCommand::SequenceSetup, null_mut())
 	}
@@ -1317,12 +1312,13 @@ impl PluginInstance {
 	/// Invoke the resolved entry point with `self.cmd`, updating `self` before and
 	/// after the call so the next invocation sees a consistent state.
 	///
-	/// Before calling: points `in_data.effect_ref` at `self` (so suite callbacks
-	/// can recover the instance via [`Self::get_instance_ptr`]), and rebuilds the
-	/// cached param pointer list if `params` was mutated since the last call.
+	/// Before calling: composes a fresh `PF_InData` from the host info, effect
+	/// state and render context, with `effect_ref` pointing at `self` (so suite
+	/// callbacks can recover the instance via [`Self::get_instance_ptr`]), and
+	/// rebuilds the cached param pointer list if `params` was mutated.
 	///
-	/// After calling: copies a non-null `out_data.global_data`/`sequence_data` back
-	/// into `in_data`, so plugin-allocated state persists across subsequent commands.
+	/// After calling: adopts a non-null `out_data.global_data`/`sequence_data`
+	/// into the effect state, so plugin-allocated state persists across commands.
 	///
 	/// `extra_data` is the command-specific extra struct (e.g. `PF_PreRenderExtra`
 	/// for `SmartPreRender`), or null for commands that don't take one.
@@ -1334,9 +1330,7 @@ impl PluginInstance {
 	/// non-`PF_Err_NONE` code.
 	fn call_plugin(&mut self, command: RawCommand, extra_data: *mut ::std::os::raw::c_void) -> Result<()> {
 		let entry_point = self.entry_point.ok_or(AexloError::ContainerNotLoaded)?;
-
-		// Update effect_ref to point to self before calling the plugin
-		self.in_data.effect_ref = self as *mut _ as PF_ProgPtr;
+		let effect_ref = self as *mut _ as PF_ProgPtr;
 
 		let entry_point_name = self.entry_point_name.as_deref().unwrap_or(DEFAULT_ENTRY_POINT_NAME);
 
@@ -1349,10 +1343,22 @@ impl PluginInstance {
 			self.params_dirty = false;
 		}
 
+		let mut in_data = crate::core::in_data::compose(
+			&self.host_info,
+			&self.effect_state,
+			&self.render_context,
+			CallBindings {
+				effect_ref,
+				utils: self.utility_callbacks.as_mut() as *mut _,
+				pica: self.pica.as_mut() as *mut _,
+				num_params: self.params.len() as i32,
+			},
+		);
+
 		let result = unsafe {
 			entry_point(
 				command,
-				&mut self.in_data,
+				&mut in_data,
 				&mut self.out_data,
 				self.params_ptr_cache.as_mut_ptr(),
 				&mut self.world,
@@ -1363,13 +1369,7 @@ impl PluginInstance {
 		#[cfg(target_os = "macos")]
 		let result = result as u32;
 
-		if !self.out_data.global_data.is_null() {
-			self.in_data.global_data = self.out_data.global_data;
-		}
-
-		if !self.out_data.sequence_data.is_null() {
-			self.in_data.sequence_data = self.out_data.sequence_data;
-		}
+		self.effect_state.absorb(&self.out_data);
 
 		//* ---- Check for errors ---------------------- *//
 		#[allow(non_upper_case_globals)]
@@ -1475,7 +1475,7 @@ mod tests {
 		fx.set_render_size(640, 360);
 
 		assert_eq!(fx.output_size(), (640, 360));
-		assert_eq!((fx.in_data.width, fx.in_data.height), (640, 360));
+		assert_eq!((fx.render_context.width, fx.render_context.height), (640, 360));
 		assert_eq!((fx.world.width, fx.world.height), (640, 360));
 		// The world must point at the freshly sized output layer's pixels.
 		assert_eq!(fx.world.data as *const _, fx.output_layer.pixels().as_ptr());
