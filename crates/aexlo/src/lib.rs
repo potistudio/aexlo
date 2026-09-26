@@ -41,6 +41,7 @@ mod core;
 mod gpu;
 mod host;
 mod instance;
+mod param_value;
 mod preview;
 mod utils;
 
@@ -68,7 +69,7 @@ pub use preview::{
 pub use aexlo_macros::preview;
 
 /// Parameter value type for reading and writing plugin parameters.
-pub use instance::ParamValue;
+pub use param_value::ParamValue;
 
 /// Diagnostic utilities (feature-gated).
 pub use core::diagnostics::{Diagnostic, DiagnosticBuilder};
