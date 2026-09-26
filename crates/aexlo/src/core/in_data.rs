@@ -4,7 +4,7 @@
 //! than keeping one mutable struct around, the host keeps its three sources
 //! separately and assembles the struct right before each call:
 //!
-//! - [`HostInfo`]: fixed for the host's lifetime (version, app id, callbacks).
+//! - [`HostInfo`]: the host's identity (version, app id, callbacks); immutable.
 //! - [`EffectState`]: plugin-owned state carried across commands (`global_data`,
 //!   `sequence_data`).
 //! - [`RenderContext`]: the frame being processed (size, time, downsampling).
@@ -15,14 +15,17 @@ use std::ptr::null_mut;
 
 const AE_VERSION_26_3_0: PF_SpecVersion = PF_SpecVersion { major: 13, minor: 29 };
 
-/// Values that describe the host itself and never change after load.
+/// Values that describe the host itself.
+///
+/// Fields are private and there are no setters: once built, the only thing
+/// outside this module can do is hand it to [`compose`].
 #[derive(Clone, Copy)]
 pub(crate) struct HostInfo {
-	pub version: PF_SpecVersion,
-	pub serial_num: A_long,
-	pub appl_id: A_long,
-	pub what_cpu: A_long,
-	pub inter: PF_InteractCallbacks,
+	version: PF_SpecVersion,
+	serial_num: A_long,
+	appl_id: A_long,
+	what_cpu: A_long,
+	inter: PF_InteractCallbacks,
 }
 
 impl HostInfo {
