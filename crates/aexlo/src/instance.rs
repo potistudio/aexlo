@@ -1404,16 +1404,15 @@ impl Drop for PluginInstance {
 	/// Failures are only logged, because panicking in `drop` would abort the
 	/// process and the plugin is about to be unloaded anyway.
 	fn drop(&mut self) {
-		if let Err(err) = self.gpu_device_setdown() {
-			log::warn!("PF_Cmd_GPU_DEVICE_SETDOWN failed during drop: {err:?}");
-		}
-
 		// The entry point is missing only when `try_load` failed to resolve it,
 		// in which case the plugin was never set up.
 		if self.entry_point.is_none() {
 			return;
 		}
 
+		if let Err(err) = self.gpu_device_setdown() {
+			log::warn!("PF_Cmd_GPU_DEVICE_SETDOWN failed during drop: {err:?}");
+		}
 		if let Err(err) = self.call_plugin(RawCommand::SequenceSetdown, null_mut()) {
 			log::warn!("PF_Cmd_SEQUENCE_SETDOWN failed during drop: {err:?}");
 		}
