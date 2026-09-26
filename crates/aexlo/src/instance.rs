@@ -1,8 +1,8 @@
 use crate::core::error::{AexloError, Result};
 use crate::core::in_data::{CallBindings, EffectState, HostInfo as InDataHost, RenderContext};
 use crate::host::smart_render::SmartRenderData;
-use crate::utils;
 use crate::param_value::ParamValue;
+use crate::utils;
 
 use crate::gpu::GPU_BYTES_PER_PIXEL;
 use after_effects::{ParamType, RawCommand};
@@ -413,10 +413,9 @@ impl PluginInstance {
 			let out_h = self.output_layer.height() as usize;
 			out_len = out_w * out_h * GPU_BYTES_PER_PIXEL;
 
-			// The plugin derives its GPU dispatch size from `in_data`; keep it aligned
-			// with the output frame so the whole image is rendered, not a stale
-			// sub-rectangle.
-			self.render_context.set_size(out_w as i32, out_h as i32);
+			// `in_data.width/height` describe the source layer, as in After Effects;
+			// the output extent comes from the output world itself.
+			self.render_context.set_size(in_w as i32, in_h as i32);
 
 			// Present both worlds as f32 BGRA (16 bytes/pixel, no row padding).
 			self.input_world.width = in_w as i32;
@@ -556,9 +555,9 @@ impl PluginInstance {
 		self.render()
 	}
 
-	/// Set the output frame size, resizing the output world and updating every
-	/// place the plugin sees the frame dimensions (`in_data`, the smart-render
-	/// output request rects).
+	/// Set the output frame size, resizing the output world and the smart-render
+	/// output request rects. `in_data.width/height` keep describing the input
+	/// layer (see [`Self::set_input`]).
 	///
 	/// Call this before rendering. Global/params/sequence setup runs at the
 	/// default size ([`Self::output_size`] after load), which plugins tolerate --
@@ -571,19 +570,17 @@ impl PluginInstance {
 			.build();
 		self.world.data = self.output_layer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
 
-		self.render_context.set_size(width as i32, height as i32);
-
 		self.smart_render_data.set_output_rect(width as i32, height as i32);
-	}
-
-	/// Get input layer dimensions in pixels (width, height).
-	pub fn input_size(&self) -> (u32, u32) {
-		(self.input_layer.width(), self.input_layer.height())
 	}
 
 	/// Replace the input layer, keeping the `PF_Param_LAYER` parameter (index 0) in sync.
 	pub fn set_input(&mut self, input: wrapper::Layer<wrapper::Depth8>) {
 		self.input_layer = input;
+
+		// In After Effects `in_data.width/height` (and `extent_hint`) are the
+		// source layer's size, independent of the output world.
+		self.render_context
+			.set_size(self.input_layer.width() as i32, self.input_layer.height() as i32);
 
 		// The GPU input buffer (if any) now holds stale pixels.
 		self.gpu_input_uploaded = false;
@@ -888,6 +885,11 @@ impl PluginInstance {
 //* ---- External Methods --------------------------------------------------- */
 impl PluginInstance {
 	// ---- Getter ------------------------------------------
+	/// Get input layer dimensions in pixels (width, height).
+	pub fn input_size(&self) -> (u32, u32) {
+		(self.input_layer.width(), self.input_layer.height())
+	}
+
 	/// Get output dimensions in pixel (width, height).
 	pub fn output_size(&self) -> (u32, u32) {
 		(self.output_layer.width(), self.output_layer.height())
@@ -1417,11 +1419,26 @@ mod tests {
 		fx.set_render_size(640, 360);
 
 		assert_eq!(fx.output_size(), (640, 360));
-		assert_eq!(fx.render_context.size(), (640, 360));
 		assert_eq!((fx.world.width, fx.world.height), (640, 360));
 		// The world must point at the freshly sized output layer's pixels.
 		assert_eq!(fx.world.data as *const _, fx.output_layer.pixels().as_ptr());
 		assert_eq!(fx.world.rowbytes, 640 * 4);
+	}
+
+	#[test]
+	fn in_data_size_follows_input_not_output() {
+		let mut fx = bare_instance();
+		let (in_w, in_h) = fx.input_size();
+		fx.set_render_size(640, 360);
+		assert_eq!(fx.render_context.size(), (in_w as i32, in_h as i32));
+
+		fx.set_input(PluginInstance::build_layer(
+			320,
+			240,
+			wrapper::Pixel::<wrapper::Depth8>::black(),
+		));
+		assert_eq!(fx.render_context.size(), (320, 240));
+		assert_eq!(fx.output_size(), (640, 360));
 	}
 
 	#[test]
