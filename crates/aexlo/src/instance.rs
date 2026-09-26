@@ -885,7 +885,7 @@ impl PluginInstance {
 	}
 }
 
-// ==== External Methods ===================================
+//* ---- External Methods --------------------------------------------------- */
 impl PluginInstance {
 	// ---- Getter ------------------------------------------
 	/// Get output dimensions in pixel (width, height).
@@ -969,7 +969,7 @@ impl PluginInstance {
 	// -----------------------------------------------------
 }
 
-//* ---- Internal Methods ------------------------------- */
+//* ---- Internal Methods --------------------------------------------------- */
 impl PluginInstance {
 	/// Create a new PluginInstance with default values.
 	fn new(path: &Path) -> Self {
@@ -1153,25 +1153,19 @@ impl PluginInstance {
 		lib: &Library,
 		pica: &after_effects_sys::SPBasicSuite,
 	) -> Result<(PluginEntryPoint, String)> {
-		if let Some(name) = Self::query_declared_entry_point(lib, pica) {
-			match unsafe { lib.symbol::<PluginEntryPoint>(name.as_str()) } {
-				Ok(symbol) => {
-					log::info!(
-						"Resolved entry point '{}' via {}.",
-						name.blue(),
-						PLUGIN_DATA_ENTRY_SYMBOL
-					);
-					return Ok((symbol, name));
-				}
-				Err(err) => log::debug!("Declared entry point '{}' not resolvable: {}", name, err),
-			}
-		}
+		let declared = Self::query_declared_entry_point(lib, pica);
+		let candidates = declared
+			.as_deref()
+			.into_iter()
+			.chain(FALLBACK_ENTRY_POINT_CANDIDATES.iter().copied());
 
 		let mut last_error = None;
-
-		for candidate in FALLBACK_ENTRY_POINT_CANDIDATES {
+		for candidate in candidates {
 			match unsafe { lib.symbol::<PluginEntryPoint>(candidate) } {
-				Ok(symbol) => return Ok((symbol, candidate.to_string())),
+				Ok(symbol) => {
+					log::info!("Resolved entry point '{}'.", candidate.blue());
+					return Ok((symbol, candidate.to_string()));
+				}
 				Err(err) => {
 					log::debug!("Entry point symbol '{}' not resolved: {}", candidate, err);
 					last_error = Some(err);
@@ -1179,13 +1173,7 @@ impl PluginInstance {
 			}
 		}
 
-		if let Some(err) = last_error {
-			Err(err.into())
-		} else {
-			Err(AexloError::InvalidPath {
-				message: "No entry point candidates configured".to_string(),
-			})
-		}
+		Err(last_error.expect("FALLBACK_ENTRY_POINT_CANDIDATES is non-empty").into())
 	}
 
 	/// Resolve `artifact_path` -- the plugin as it exists on disk -- to the concrete
@@ -1368,9 +1356,11 @@ impl Drop for PluginInstance {
 		if let Err(err) = self.gpu_device_setdown() {
 			log::warn!("PF_Cmd_GPU_DEVICE_SETDOWN failed during drop: {err:?}");
 		}
+
 		if let Err(err) = self.call_plugin(RawCommand::SequenceSetdown, null_mut()) {
 			log::warn!("PF_Cmd_SEQUENCE_SETDOWN failed during drop: {err:?}");
 		}
+
 		if let Err(err) = self.call_plugin(RawCommand::GlobalSetdown, null_mut()) {
 			log::warn!("PF_Cmd_GLOBAL_SETDOWN failed during drop: {err:?}");
 		}
