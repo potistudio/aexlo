@@ -41,10 +41,13 @@ impl HostInfo {
 }
 
 /// Plugin-allocated handles that persist across commands.
+///
+/// Only the plugin (via [`EffectState::absorb`]) or an explicit
+/// [`EffectState::reset_sequence`] can change them.
 #[derive(Clone, Copy)]
 pub(crate) struct EffectState {
-	pub global_data: PF_Handle,
-	pub sequence_data: PF_Handle,
+	global_data: PF_Handle,
+	sequence_data: PF_Handle,
 }
 
 impl Default for EffectState {
@@ -66,22 +69,30 @@ impl EffectState {
 			self.sequence_data = out_data.sequence_data;
 		}
 	}
+
+	/// Drop the sequence handle so the next `SEQUENCE_SETUP` allocates from scratch.
+	pub fn reset_sequence(&mut self) {
+		self.sequence_data = null_mut();
+	}
 }
 
 /// The frame the next command operates on.
+///
+/// Changed only through its methods, so derived fields such as `extent_hint`
+/// can't drift out of sync with the size.
 #[derive(Clone, Copy)]
 pub(crate) struct RenderContext {
-	pub width: A_long,
-	pub height: A_long,
-	pub extent_hint: PF_UnionableRect,
-	pub current_time: A_long,
-	pub time_step: A_long,
-	pub local_time_step: A_long,
-	pub time_scale: A_u_long,
-	pub field: PF_Field,
-	pub downsample_x: PF_RationalScale,
-	pub downsample_y: PF_RationalScale,
-	pub pixel_aspect_ratio: PF_RationalScale,
+	width: A_long,
+	height: A_long,
+	extent_hint: PF_UnionableRect,
+	current_time: A_long,
+	time_step: A_long,
+	local_time_step: A_long,
+	time_scale: A_u_long,
+	field: PF_Field,
+	downsample_x: PF_RationalScale,
+	downsample_y: PF_RationalScale,
+	pixel_aspect_ratio: PF_RationalScale,
 }
 
 impl Default for RenderContext {
@@ -112,6 +123,11 @@ impl Default for RenderContext {
 }
 
 impl RenderContext {
+	/// Frame size in pixels (width, height).
+	pub fn size(&self) -> (A_long, A_long) {
+		(self.width, self.height)
+	}
+
 	/// Set the frame size and cover it entirely with `extent_hint`.
 	pub fn set_size(&mut self, width: i32, height: i32) {
 		self.width = width;

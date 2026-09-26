@@ -1158,7 +1158,7 @@ impl PluginInstance {
 	/// stale pointer is cleared so the plugin allocates from scratch rather than
 	/// treating garbage as a flattened blob to resurrect.
 	fn setup_sequence(&mut self) -> Result<()> {
-		self.effect_state.sequence_data = null_mut();
+		self.effect_state.reset_sequence();
 		self.out_data.sequence_data = null_mut();
 		self.call_plugin(RawCommand::SequenceSetup, null_mut())
 	}
@@ -1475,7 +1475,7 @@ mod tests {
 		fx.set_render_size(640, 360);
 
 		assert_eq!(fx.output_size(), (640, 360));
-		assert_eq!((fx.render_context.width, fx.render_context.height), (640, 360));
+		assert_eq!(fx.render_context.size(), (640, 360));
 		assert_eq!((fx.world.width, fx.world.height), (640, 360));
 		// The world must point at the freshly sized output layer's pixels.
 		assert_eq!(fx.world.data as *const _, fx.output_layer.pixels().as_ptr());
