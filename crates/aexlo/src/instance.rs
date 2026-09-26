@@ -1398,13 +1398,11 @@ impl PluginInstance {
 }
 
 impl Drop for PluginInstance {
-	/// Best-effort teardown mirroring After Effects' shutdown order: release the
-	/// plugin's GPU data, then `PF_Cmd_SEQUENCE_SETDOWN`, then
-	/// `PF_Cmd_GLOBAL_SETDOWN`, so plugin-allocated state (sequence/global
-	/// handles, license threads, GPU pipelines) is freed instead of leaking.
+	/// Tears the plugin down in the same order as After Effects so that the
+	/// state it allocated is released.
 	///
-	/// Failures are logged, never propagated — panicking in `drop` would abort,
-	/// and a half-torn-down plugin is about to be unloaded anyway.
+	/// Failures are only logged, because panicking in `drop` would abort the
+	/// process and the plugin is about to be unloaded anyway.
 	fn drop(&mut self) {
 		if let Err(err) = self.gpu_device_setdown() {
 			log::warn!("PF_Cmd_GPU_DEVICE_SETDOWN failed during drop: {err:?}");
