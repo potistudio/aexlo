@@ -2,6 +2,7 @@
 name = "aexlo"
 version = { workspace = true }
 edition = { workspace = true }
+rust-version = { workspace = true }
 description = "Run After Effects plugin without Adobe dependency."
 authors = { workspace = true }
 license = { workspace = true }

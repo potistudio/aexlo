@@ -6,6 +6,7 @@ license = { workspace = true }
 authors = { workspace = true }
 repository = "https://github.com/potistudio/aexlo-rs"
 edition = { workspace = true }
+rust-version = { workspace = true }
 
 [lib]
 proc-macro = true

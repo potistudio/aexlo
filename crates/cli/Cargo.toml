@@ -2,6 +2,7 @@
 name = "aexlo-cli"
 version = { workspace = true }
 edition = { workspace = true }
+rust-version = { workspace = true }
 description = "Command-line front-end for the aexlo After Effects plugin loader."
 authors = { workspace = true }
 license = { workspace = true }
