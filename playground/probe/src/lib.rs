@@ -189,7 +189,7 @@ unsafe fn dispatch(
 	let none = ae::PF_Err_NONE as ae::PF_Err;
 
 	#[allow(non_upper_case_globals)]
-	match cmd {
+	match cmd as _ {
 		ae::PF_Cmd_GLOBAL_SETUP => unsafe {
 			(*out_data).my_version = PROBE_PF_VERSION as ae::A_u_long;
 			(*out_data).out_flags = OUT_FLAGS;

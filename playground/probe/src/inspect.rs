@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 /// Human-readable name for a `PF_Cmd` code.
 pub fn cmd_name(cmd: ae::PF_Cmd) -> &'static str {
 	#[allow(non_upper_case_globals)]
-	match cmd {
+	match cmd as _ {
 		ae::PF_Cmd_ABOUT => "ABOUT",
 		ae::PF_Cmd_GLOBAL_SETUP => "GLOBAL_SETUP",
 		ae::PF_Cmd_GLOBAL_SETDOWN => "GLOBAL_SETDOWN",
@@ -126,7 +126,7 @@ pub unsafe fn snapshot_world(world: *const ae::PF_LayerDef, with_hash: bool) -> 
 		return json!(null);
 	}
 	let w = unsafe { &*world };
-	let deep = w.world_flags & ae::PF_WorldFlag_DEEP != 0;
+	let deep = w.world_flags & ae::PF_WorldFlag_DEEP as ae::PF_WorldFlags != 0;
 
 	let mut value = json!({
 		"width": w.width,
@@ -153,7 +153,7 @@ pub unsafe fn world_pixels_fnv1a(w: &ae::PF_LayerDef) -> Option<u64> {
 		return None;
 	}
 
-	let bytes_per_pixel = if w.world_flags & ae::PF_WorldFlag_DEEP != 0 {
+	let bytes_per_pixel = if w.world_flags & ae::PF_WorldFlag_DEEP as ae::PF_WorldFlags != 0 {
 		8
 	} else {
 		4

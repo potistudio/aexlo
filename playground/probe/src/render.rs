@@ -241,7 +241,7 @@ unsafe fn sample_input(input: *const ae::PF_LayerDef, x: i32, y: i32) -> Option<
 	let y = y.clamp(0, w.height - 1) as usize;
 	let row = unsafe { (w.data as *const u8).add(y * w.rowbytes as usize) };
 
-	if w.world_flags & ae::PF_WorldFlag_DEEP != 0 {
+	if w.world_flags & ae::PF_WorldFlag_DEEP as ae::PF_WorldFlags != 0 {
 		let px = unsafe { &*(row as *const ae::PF_Pixel16).add(x) };
 		let to8 = |v: u16| ((v as u32 * 255) / 32768).min(255) as u8;
 		Some(ae::PF_Pixel {
@@ -262,7 +262,7 @@ unsafe fn fill_pattern(output: *mut ae::PF_LayerDef, input: *const ae::PF_LayerD
 		return;
 	}
 
-	let deep = out.world_flags & ae::PF_WorldFlag_DEEP != 0;
+	let deep = out.world_flags & ae::PF_WorldFlag_DEEP as ae::PF_WorldFlags != 0;
 	let (width, height) = (out.width, out.height);
 
 	for y in 0..height {

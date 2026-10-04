@@ -26,7 +26,7 @@ use std::process::Command;
 use anyhow::Context;
 use colored::Colorize;
 
-use aexlo::{Depth8, Layer, ParamValue, PluginInstance};
+use aexlo::{Depth8, Layer, ParamValue};
 
 const USAGE: &str = "\
 playground - aexlo probe-plugin harness
@@ -122,7 +122,7 @@ fn run(args: &[String]) -> anyhow::Result<()> {
 
 	let mut instance = if in_process {
 		println!("{}", "loading probe in-process (breakpoint-friendly)".dimmed());
-		unsafe { aexlo::Host::get().from_entry_raw(aexlo_probe::EffectMain as usize) }?
+		unsafe { aexlo::Host::get().from_entry_raw(aexlo_probe::EffectMain as *const () as usize) }?
 	} else {
 		let dll = build_probe(release)?;
 		println!("{} {}", "loading".dimmed(), dll.display());
