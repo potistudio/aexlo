@@ -54,7 +54,7 @@ fn bitonic_pixel_sorter_gpu_render_produces_real_output() {
 		// Read the raw input bytes back out before handing the layer to the
 		// instance, so we can compare the GPU render against them below.
 		let px = input.pixels();
-		for (dst, src) in input_rgba.chunks_exact_mut(4).zip(px.iter()) {
+		for (dst, src) in input_rgba.as_chunks_mut::<4>().0.iter_mut().zip(px.iter()) {
 			dst.copy_from_slice(&[src.red, src.green, src.blue, src.alpha]);
 		}
 	}
@@ -72,7 +72,7 @@ fn bitonic_pixel_sorter_gpu_render_produces_real_output() {
 	let output = read_output_rgba(&instance);
 	let first = &output[0..4];
 	assert!(
-		output.chunks_exact(4).any(|px| px != first),
+		output.as_chunks::<4>().0.iter().any(|px| px != first),
 		"GPU render should not produce a flat color"
 	);
 	assert_ne!(

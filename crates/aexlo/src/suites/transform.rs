@@ -1227,7 +1227,7 @@ mod tests {
 		fn new(width: i32, height: i32, fill: PF_Pixel8) -> Self {
 			let rowbytes = width * PIXEL_SIZE as i32;
 			let mut buf = vec![0u8; (rowbytes * height).max(0) as usize];
-			for chunk in buf.chunks_exact_mut(PIXEL_SIZE as usize) {
+			for chunk in buf.as_chunks_mut::<{ PIXEL_SIZE as usize }>().0 {
 				chunk[0] = fill.alpha;
 				chunk[1] = fill.red;
 				chunk[2] = fill.green;

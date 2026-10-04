@@ -20,3 +20,11 @@ pipl = "0.1.1"
 # In-process preview harness: drive the plugin via `Host::from_entry_raw`
 # in a `#[test]`, no cdylib/bundle/dlopen. See `src/lib.rs` `mod preview`.
 aexlo = { workspace = true }
+
+# `ae::define_effect!` expands to cfgs and patterns this crate does not own.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(catch_panics)', 'cfg(does_dialog)', 'cfg(threaded_rendering)', 'cfg(with_premiere)'] }
+
+[lints.clippy]
+drop_non_drop = "allow"
+question_mark = "allow"

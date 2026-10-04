@@ -84,7 +84,7 @@ fn fill_color_produces_exact_uniform_output() {
 
 	let expected_pixel = [10u8, 200, 30, 255];
 	assert!(
-		output.chunks_exact(4).all(|px| px == expected_pixel),
+		output.as_chunks::<4>().0.iter().all(|px| *px == expected_pixel),
 		"expected every pixel to equal {expected_pixel:?}, first pixel was {:?}",
 		&output[0..4]
 	);

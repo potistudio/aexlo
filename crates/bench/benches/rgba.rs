@@ -16,8 +16,8 @@ fn layer_bytes(layer: &Layer<Depth8>) -> &[u8] {
 }
 
 fn write_rotate(src: &[u8], buffer: &mut [u8]) {
-	for (dst, s) in buffer.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
-		let v = u32::from_le_bytes(s.try_into().unwrap()).rotate_right(8);
+	for (dst, s) in buffer.as_chunks_mut::<4>().0.iter_mut().zip(src.as_chunks::<4>().0) {
+		let v = u32::from_le_bytes(*s).rotate_right(8);
 		dst.copy_from_slice(&v.to_le_bytes());
 	}
 }

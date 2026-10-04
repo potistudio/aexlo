@@ -1,9 +1,9 @@
 //! Unit-level host checks: one function, one suite, one variable at a time.
 //!
 //! Every check feeds a host service *fixed inputs* and records the exact
-//! output as a `fact` event. Facts are deterministic by construction - no
-//! dependence on comp size, current time, or how the host schedules commands
-//! - so a fact that differs between real After Effects and aexlo is a real
+//! output as a `fact` event. Facts are deterministic by construction (no
+//! dependence on comp size, current time, or how the host schedules commands),
+//! so a fact that differs between real After Effects and aexlo is a real
 //! behavioral divergence, never scenario noise. The harness diffs facts by
 //! default and treats everything else in the trace as context.
 //!

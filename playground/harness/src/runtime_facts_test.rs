@@ -20,7 +20,6 @@
 //!   regression is caught -- they are expected to start failing, on purpose,
 //!   the day each gap gets a real implementation.
 
-use aexlo::PluginInstance;
 use serde_json::{Value, json};
 
 use crate::summary::{self, Summary};
@@ -40,7 +39,7 @@ fn run_probe_and_summarize() -> Summary {
 	// SAFETY: single-threaded at this point, matching `playground run`'s own use of this var.
 	unsafe { std::env::set_var("AEXLO_PROBE_TRACE", &trace_path) };
 
-	let _instance = unsafe { aexlo::Host::get().from_entry_raw(aexlo_probe::EffectMain as usize) }
+	let _instance = unsafe { aexlo::Host::get().from_entry_raw(aexlo_probe::EffectMain as *const () as usize) }
 		.expect("failed to load aexlo-probe in-process");
 
 	let events = summary::load_events(&trace_path).expect("failed to read probe trace");

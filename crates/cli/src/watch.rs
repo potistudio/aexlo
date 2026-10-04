@@ -194,7 +194,9 @@ pub(crate) fn is_relevant(path: &Path) -> bool {
 
 /// Pack RGBA8 into minifb's `0x00RRGGBB` buffer (alpha ignored).
 fn rgba_to_argb(rgba: &[u8]) -> Vec<u32> {
-	rgba.chunks_exact(4)
+	rgba.as_chunks::<4>()
+		.0
+		.iter()
 		.map(|px| (px[0] as u32) << 16 | (px[1] as u32) << 8 | px[2] as u32)
 		.collect()
 }

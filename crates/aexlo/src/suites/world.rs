@@ -111,6 +111,7 @@ unsafe extern "C" fn new_world_sys(
 	// scrutinee would mismatch the pattern types. Normalizing both to u32 keeps
 	// this signedness-agnostic.
 	let fmt = pixel_format as u32;
+	#[allow(clippy::unnecessary_cast)] // u32 only on some platforms.
 	let depth = if fmt == PF_PixelFormat_ARGB32 as u32 {
 		4
 	} else if fmt == PF_PixelFormat_ARGB64 as u32 {

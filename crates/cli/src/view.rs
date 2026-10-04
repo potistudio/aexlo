@@ -107,7 +107,9 @@ fn load_png(path: &Path) -> Result<(Vec<u32>, usize, usize)> {
 		.to_rgba8();
 	let (w, h) = img.dimensions();
 	let buf = img
-		.chunks_exact(4)
+		.as_chunks::<4>()
+		.0
+		.iter()
 		.map(|px| (px[0] as u32) << 16 | (px[1] as u32) << 8 | px[2] as u32)
 		.collect();
 	Ok((buf, w as usize, h as usize))

@@ -124,6 +124,7 @@ impl Default for RenderContext {
 
 impl RenderContext {
 	/// Frame size in pixels (width, height).
+	#[cfg(test)]
 	pub fn size(&self) -> (A_long, A_long) {
 		(self.width, self.height)
 	}

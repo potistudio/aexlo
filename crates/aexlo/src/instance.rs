@@ -507,7 +507,7 @@ impl PluginInstance {
 	/// Unpack `PF_PixelFormat_GPU_BGRA128` staging data (BGRA float) back into an
 	/// 8-bit ARGB layer, clamping and rounding each channel.
 	fn unpack_bgra_f32_to_layer(staging: &[f32], layer: &mut wrapper::Layer<wrapper::Depth8>) {
-		for (pixel, bgra) in layer.pixels_mut().iter_mut().zip(staging.chunks_exact(4)) {
+		for (pixel, bgra) in layer.pixels_mut().iter_mut().zip(staging.as_chunks::<4>().0) {
 			pixel.blue = (bgra[0].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
 			pixel.green = (bgra[1].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
 			pixel.red = (bgra[2].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
