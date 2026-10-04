@@ -1,18 +1,18 @@
-//! `PF_GPUDeviceSuite1` — exposes aexlo's GPU device (Metal or CUDA) to
+//! `PF_GPUDeviceSuite1` - exposes aexlo's GPU device (Metal or CUDA) to
 //! GPU-capable plugins.
 //!
 //! The entry points a smart-GPU effect needs during render are implemented
 //! against the active backend's real resources:
 //!
-//! * [`get_device_count`] — one device (the system default).
-//! * [`get_device_info`] — hands back the device/queue/context pointers
+//! * [`get_device_count`] - one device (the system default).
+//! * [`get_device_info`] - hands back the device/queue/context pointers
 //!   (`MTLDevice`/`MTLCommandQueue` on Metal; `CUdevice`/`cudaStream_t`/`CUcontext`
 //!   on CUDA).
-//! * [`get_gpu_world_data`] — maps a checked-out world to its backing buffer
+//! * [`get_gpu_world_data`] - maps a checked-out world to its backing buffer
 //!   (an `MTLBuffer` object on Metal, a raw `CUdeviceptr` on CUDA).
-//! * [`allocate_device_memory`] / [`free_device_memory`] — scratch allocations
+//! * [`allocate_device_memory`] / [`free_device_memory`] - scratch allocations
 //!   for effects that route intermediates through the suite.
-//! * [`get_gpu_world_size`] / [`get_gpu_world_device_index`] — trivial queries.
+//! * [`get_gpu_world_size`] / [`get_gpu_world_device_index`] - trivial queries.
 //!
 //! The remaining host-memory/world-management calls are stubs. Each stub fails
 //! loudly rather than returning uninitialised out-parameters, so an unexpected

@@ -1,4 +1,4 @@
-//! `aexlo dev --bin [-p <package>]` — a live preview window.
+//! `aexlo dev --bin [-p <package>]` - a live preview window.
 //!
 //! Watches a plugin crate's sources; on every save it rebuilds the cdylib,
 //! `try_load`s the fresh artifact, renders a frame, and blits it into a single
@@ -25,7 +25,7 @@ pub fn run(manifest: &Path) -> Result<()> {
 
 	let (init_w, init_h) = (1280usize, 720usize);
 	let mut window = Window::new(
-		"aexlo dev --bin — building…",
+		"aexlo dev --bin - building…",
 		init_w,
 		init_h,
 		// Float above the editor so the live preview stays visible while you work.
@@ -75,17 +75,17 @@ pub fn run(manifest: &Path) -> Result<()> {
 		{
 			pending = None;
 			generation += 1;
-			window.set_title("aexlo dev --bin — building…");
+			window.set_title("aexlo dev --bin - building…");
 
 			match build_and_render(manifest, generation) {
 				Ok((rgba, w, h)) => {
 					framebuf = rgba_to_argb(&rgba);
 					frame_dims = (w as usize, h as usize);
-					window.set_title(&format!("aexlo dev --bin — {w}×{h} — build #{generation}"));
+					window.set_title(&format!("aexlo dev --bin - {w}×{h} - build #{generation}"));
 					println!("aexlo dev --bin: build #{generation} → rendered {w}×{h}");
 				}
 				Err(err) => {
-					window.set_title("aexlo dev --bin — build failed (see terminal)");
+					window.set_title("aexlo dev --bin - build failed (see terminal)");
 					eprintln!("\n─── build/render failed ───\n{err:#}\n");
 				}
 			}
@@ -127,7 +127,7 @@ pub(crate) fn build_and_load(manifest: &Path, generation: u64) -> Result<(Plugin
 /// drops the instance).
 ///
 /// The unique-copy dance matters on every (re)load: reopening the same path can
-/// hand back a stale, still-mapped image instead of the current file — whether
+/// hand back a stale, still-mapped image instead of the current file - whether
 /// the file changed because we just rebuilt it (`aexlo dev`) or because someone
 /// else did (`aexlo preview --watch`).
 pub(crate) fn stage_and_load(artifact: &Path, generation: u64) -> Result<(PluginInstance, PathBuf)> {

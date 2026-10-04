@@ -37,7 +37,7 @@ fn print_banner() {
 
 /// Resolves the path to a prebuilt After Effects plugin bundle checked into
 /// the workspace's shared `fixtures/plugins/` directory. These are real,
-/// compiled plugin binaries used across examples — not mock objects in the
+/// compiled plugin binaries used across examples - not mock objects in the
 /// unit-test sense.
 fn resolve_plugin_fixture_path(plugin_name: &str) -> PathBuf {
 	let (platform_dir, extension) = if cfg!(target_os = "windows") {

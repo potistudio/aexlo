@@ -1,4 +1,4 @@
-//! `aexlo` — a command-line front-end for the aexlo plugin loader.
+//! `aexlo` - a command-line front-end for the aexlo plugin loader.
 //!
 //! Load a real After Effects plugin (`.plugin` bundle on macOS, `.aex`/`.dll`
 //! on Windows) outside of After Effects, inspect it, and render frames to PNG.
@@ -24,7 +24,7 @@ use aexlo::{Depth8, Layer, ParamValue, PluginInstance};
 use anyhow::{Context, Result, bail};
 
 const USAGE: &str = "\
-aexlo — run After Effects plugins without After Effects
+aexlo - run After Effects plugins without After Effects
 
 USAGE:
     aexlo <COMMAND> <plugin> [OPTIONS]
@@ -41,7 +41,7 @@ COMMANDS:
                               crate in the current directory
         --bin                 Skip the test harness: rebuild the crate's cdylib and
                               dlopen + render it directly on save (faster, but no
-                              println!/dbg!/debugger support — no filter, either)
+                              println!/dbg!/debugger support - no filter, either)
         --web                 Preview in the browser instead of a native window:
                               serve the frame over a local HTTP server and stream
                               it into a <canvas>. Requires --bin. Good for
@@ -49,7 +49,7 @@ COMMANDS:
         --port <n>            Port for --web  [default: OS-assigned]
     preview <plugin>   Interactively preview a *built* plugin in the browser:
                        serve it and expose its parameters as live controls.
-                       No compiler in the loop — point it at a finished
+                       No compiler in the loop - point it at a finished
                        .plugin/.aex/.dll (the `preview` to `dev`'s watch loop).
         -i, --input <png>    Feed a PNG as the effect's input layer
                               [default: the plugin's built-in test frame]
@@ -85,7 +85,7 @@ RENDER OPTIONS:
         --legacy           Force the legacy render path
 
 <plugin> is a path to the plugin artifact, or a crate directory (with a
-Cargo.toml) to build its cdylib and render that — a one-shot alternative to
+Cargo.toml) to build its cdylib and render that - a one-shot alternative to
 `dev --bin`. A bare artifact name (no separator) is also tried with the
 platform's extension, e.g. `SDK_Noise` -> `SDK_Noise.plugin`.
 ";
@@ -146,7 +146,7 @@ fn resolve_plugin(arg: &str) -> PathBuf {
 	direct
 }
 
-/// Load a plugin artifact, or — if `plugin_arg` is a crate directory — build
+/// Load a plugin artifact, or - if `plugin_arg` is a crate directory - build
 /// its cdylib first. This is what lets `render`/`about`/`params` take either
 /// a prebuilt `.plugin`/`.aex`/`.dll` or a crate's source directory directly.
 fn load(plugin_arg: &str) -> Result<PluginInstance> {
@@ -250,8 +250,7 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 
 	// aexlo::save_preview encodes with mtpng (multithreaded), reusing the library's
 	// only PNG-encode path instead of pulling in a second encoder.
-	aexlo::save_preview(&instance, &output)
-		.with_context(|| format!("writing {}", output.display()))?;
+	aexlo::save_preview(&instance, &output).with_context(|| format!("writing {}", output.display()))?;
 
 	let (w, h) = instance.output_size();
 	println!("rendered {}x{} -> {}", w, h, output.display());
@@ -312,7 +311,7 @@ fn cmd_dev(args: impl Iterator<Item = String>) -> Result<()> {
 
 	if bin_mode {
 		if filter.is_some() {
-			bail!("dev --bin: no test filter — it doesn't run the test harness");
+			bail!("dev --bin: no test filter - it doesn't run the test harness");
 		}
 
 		if web_mode {
@@ -373,7 +372,7 @@ fn resolve_manifest(package: Option<&str>) -> Result<PathBuf> {
 	} else {
 		metadata
 			.root_package()
-			.context("no crate in the current directory — pass -p <package>")?
+			.context("no crate in the current directory - pass -p <package>")?
 	};
 	Ok(pkg.manifest_path.clone().into_std_path_buf())
 }

@@ -1,4 +1,4 @@
-//! `PF_ParamUtilsSuite3` — parameter UI and keyframe queries.
+//! `PF_ParamUtilsSuite3` - parameter UI and keyframe queries.
 //!
 //! aexlo drives a single, static frame with no timeline, so the keyframe/state
 //! entry points report "no keyframes" / "states identical" rather than pretending

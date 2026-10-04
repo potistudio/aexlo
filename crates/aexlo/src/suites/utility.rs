@@ -375,7 +375,7 @@ pub struct AEGPUtilitySuiteCompatV11 {
 // `*const c_void`); the table is populated once at init and only ever read
 // afterwards, so sharing a single instance across threads is sound.
 unsafe impl Sync for AEGPUtilitySuiteCompatV11 {}
-// SAFETY: same reasoning — the raw pointers are `'static` and immutable after
+// SAFETY: same reasoning - the raw pointers are `'static` and immutable after
 // construction, so moving/initializing the table on another thread is sound.
 // (Required for `LazyLock<AEGPUtilitySuiteCompatV11>` to be `Sync`.)
 unsafe impl Send for AEGPUtilitySuiteCompatV11 {}

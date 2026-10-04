@@ -178,7 +178,7 @@ impl Drop for DiagnosticBuilder<'_> {
 /// Emit a [`Diagnostic`] record for a host callback.
 ///
 /// Expands to nothing when the `diagnostics` feature is off, so the argument
-/// expressions (typically `format!` calls) are never evaluated — callbacks like
+/// expressions (typically `format!` calls) are never evaluated - callbacks like
 /// `checkout_output` or `PF_GetPixelFormat` run per frame, and eagerly building
 /// their argument strings costs real time in release builds.
 ///

@@ -464,7 +464,7 @@ mod tests {
 	}
 
 	// Note: passing fewer args than the format has specifiers (e.g. `sprintf!("%d")`)
-	// is genuine C-variadic UB — the reader pulls a nonexistent arg — so it is
+	// is genuine C-variadic UB - the reader pulls a nonexistent arg - so it is
 	// intentionally not exercised here.
 
 	#[test]

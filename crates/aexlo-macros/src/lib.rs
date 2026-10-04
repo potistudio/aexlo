@@ -70,7 +70,7 @@ pub fn preview(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 	quote! {
 		#[test]
-		#[ignore = "aexlo preview — run via `aexlo dev`/`cargo test -- --ignored`, not plain `cargo test`"]
+		#[ignore = "aexlo preview - run via `aexlo dev`/`cargo test -- --ignored`, not plain `cargo test`"]
 		fn #name() -> ::aexlo::Result<()> {
 			// In-process: `EffectMain` is already resident, so hand its address
 			// to aexlo. `from_entry_raw` (not `from_entry`) so a plugin built

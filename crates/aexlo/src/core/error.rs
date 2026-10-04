@@ -27,7 +27,7 @@ pub enum AexloError {
 
 	/// The plugin returned a non-zero `PF_Err` code during execution.
 	///
-	/// `command` names the `PF_Cmd_*` that failed — essential context, since
+	/// `command` names the `PF_Cmd_*` that failed - essential context, since
 	/// hosts like [`render_frame`](crate::PluginInstance::render_frame) chain
 	/// GPU → smart → legacy fallbacks and the final error alone doesn't say
 	/// which stage rejected the call.

@@ -1,5 +1,5 @@
 //! Reads the PiPL resource back out of the built probe DLL and prints its
-//! parsed properties — a preflight check that real After Effects will accept
+//! parsed properties - a preflight check that real After Effects will accept
 //! what `playground/probe/build.rs` generated.
 
 use std::path::Path;
@@ -31,7 +31,7 @@ fn read_pipl_resource(dll: &Path) -> anyhow::Result<Vec<u8>> {
 		anyhow::ensure!(module != 0, "LoadLibraryExW failed for {}", dll.display());
 
 		let result = (|| {
-			// Resource id 16000, custom type "PiPL" — what AE looks for.
+			// Resource id 16000, custom type "PiPL" - what AE looks for.
 			let resource = FindResourceA(module, 16000 as _, c"PiPL".as_ptr() as *const u8);
 			anyhow::ensure!(resource != 0, "no PiPL resource (id 16000) found");
 
@@ -94,7 +94,7 @@ fn parse(bytes: &[u8]) -> anyhow::Result<()> {
 		);
 	}
 
-	println!("\nPiPL parses cleanly — safe to hand to After Effects.");
+	println!("\nPiPL parses cleanly - safe to hand to After Effects.");
 	Ok(())
 }
 

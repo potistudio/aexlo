@@ -3,28 +3,28 @@ use after_effects::ParamType;
 /// A parameter value for an After Effects plugin.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParamValue {
-	/// `PF_Param_FLOAT_SLIDER` — a floating-point slider value.
+	/// `PF_Param_FLOAT_SLIDER` - a floating-point slider value.
 	Float(f64),
 
-	/// `PF_Param_FIX_SLIDER` — a fixed-point slider value (surfaced as `f32`).
+	/// `PF_Param_FIX_SLIDER` - a fixed-point slider value (surfaced as `f32`).
 	Fixed(f32),
 
-	/// `PF_Param_SLIDER` — an integer slider value.
+	/// `PF_Param_SLIDER` - an integer slider value.
 	Slider(i32),
 
-	/// `PF_Param_CHECKBOX` — a boolean toggle.
+	/// `PF_Param_CHECKBOX` - a boolean toggle.
 	Checkbox(bool),
 
-	/// `PF_Param_POPUP` — the selected 1-based choice index.
+	/// `PF_Param_POPUP` - the selected 1-based choice index.
 	Popup(i32),
 
-	/// `PF_Param_ANGLE` — an angle in degrees.
+	/// `PF_Param_ANGLE` - an angle in degrees.
 	Angle(f32),
 
-	/// `PF_Param_POINT` — a 2D point, in pixels.
+	/// `PF_Param_POINT` - a 2D point, in pixels.
 	Point { x: f32, y: f32 },
 
-	/// `PF_Param_COLOR` — an 8-bit RGBA color.
+	/// `PF_Param_COLOR` - an 8-bit RGBA color.
 	Color { red: u8, green: u8, blue: u8, alpha: u8 },
 }
 
@@ -45,4 +45,3 @@ impl ParamValue {
 		}
 	}
 }
-

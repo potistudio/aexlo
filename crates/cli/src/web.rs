@@ -1,4 +1,4 @@
-//! `aexlo dev --bin --web` — live, interactive preview in the browser.
+//! `aexlo dev --bin --web` - live, interactive preview in the browser.
 //!
 //! Same build-on-save render loop as [`crate::watch`], but instead of blitting
 //! into a minifb window it drives the shared [`crate::viewer`]: the latest frame

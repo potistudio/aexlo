@@ -1,4 +1,4 @@
-//! aexlo-probe — an instrumented After Effects effect plugin.
+//! aexlo-probe - an instrumented After Effects effect plugin.
 //!
 //! The probe is the measuring instrument; the host is the variable. Load the
 //! same binary into real After Effects and into aexlo, and it verifies host
@@ -6,7 +6,7 @@
 //! `checks.rs` feeds a host service fixed inputs and records the exact output
 //! as a `fact`. Facts are deterministic by construction, so
 //! `cargo run -p playground -- diff` compares them across hosts without any
-//! scenario noise — command order, timing, and GUI-driven behavior are logged
+//! scenario noise - command order, timing, and GUI-driven behavior are logged
 //! too, but only as context.
 //!
 //! Renders a deterministic, parameter-driven test pattern so plumbing
@@ -36,7 +36,7 @@ pub const CATEGORY: &str = "aexlo";
 /// PF_VERSION(1, 0, 0, PF_Stage_RELEASE, 1)
 const PROBE_PF_VERSION: u32 = (1 << 19) | (3 << 9) | 1;
 const OUT_FLAGS: ae::PF_OutFlags = 0;
-/// PF_OutFlag2_SUPPORTS_THREADED_RENDERING — also probes multi-frame
+/// PF_OutFlag2_SUPPORTS_THREADED_RENDERING - also probes multi-frame
 /// rendering: concurrent RENDERs show up as interleaved `tid`s in the trace.
 const OUT_FLAGS2: ae::PF_OutFlags2 = 0x0800_0000;
 
@@ -249,7 +249,7 @@ unsafe fn dispatch(
 unsafe fn write_about(in_data: *mut ae::PF_InData, out_data: *mut ae::PF_OutData) {
 	let mut path = trace().path().display().to_string();
 	path.truncate(180);
-	let message = format!("Aexlo Probe v{} — trace: {}", trace::PROBE_VERSION, path);
+	let message = format!("Aexlo Probe v{} - trace: {}", trace::PROBE_VERSION, path);
 
 	let sprintf = unsafe { (*in_data).utils.as_ref().and_then(|u| u.ansi.sprintf) };
 	if let Some(sprintf) = sprintf {

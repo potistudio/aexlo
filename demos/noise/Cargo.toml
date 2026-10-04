@@ -2,7 +2,7 @@
 name = "aexlo_demo_noise"
 version = "1.0.0"
 edition = "2024"
-description = "Development demo using aexlo — fills the output with per-pixel noise"
+description = "Development demo using aexlo - fills the output with per-pixel noise"
 authors = ["potistudio <potistudio@proton.me>"]
 publish = false
 

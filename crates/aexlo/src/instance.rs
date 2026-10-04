@@ -98,7 +98,7 @@ pub struct PluginInstance {
 	/// The dynamic library actually `dlopen`ed (resolved from
 	/// `binary_file_path`, e.g. the binary inside a `.plugin` bundle), or `None`
 	/// for in-process entry points. Reported to the plugin through
-	/// `get_platform_data` (`PF_PlatData_EXE_FILE_PATH_W`, ...) — per instance,
+	/// `get_platform_data` (`PF_PlatData_EXE_FILE_PATH_W`, ...) - per instance,
 	/// so loading a second plugin doesn't clobber the first one's path.
 	resolved_binary_path: Option<PathBuf>,
 
@@ -655,7 +655,7 @@ impl PluginInstance {
 	///
 	/// Indices follow the plugin's own parameter order — the same space used by
 	/// [`Self::get_param`], [`Self::param_values`], and [`Self::param_by_index`]:
-	/// index 0 is the implicit input layer (not settable), real parameters start
+	/// index 0 is the implicit input layer (not settabl-), real parameters start
 	/// at 1.
 	pub fn set_param(&mut self, index: usize, value: ParamValue) -> Result<()> {
 		if index == 0 || index >= self.params.len() {
@@ -684,7 +684,7 @@ impl PluginInstance {
 			// `PF_FixedSliderDef::value` is a `PF_Fixed` (16.16 fixed point), the
 			// same encoding as ANGLE/POINT — not Q31.
 			ParamValue::Fixed(v) => target.u.fd.value = utils::f32_to_fixed16(v),
-			ParamValue::Slider(v) => target.u.sd.value = v,
+			ParamValue::Slider(v) => target.-.sd.value = v,
 			ParamValue::Checkbox(v) => target.u.bd.value = v as i32,
 			ParamValue::Popup(v) => target.u.pd.value = v,
 			ParamValue::Angle(deg) => target.u.ad.value = utils::f32_to_fixed16(deg),
@@ -715,7 +715,7 @@ impl PluginInstance {
 	///
 	/// This is where an effect reacts to an edit — adjusting dependent parameters
 	/// or requesting a UI refresh (typically by raising `PF_OutFlag_SEND_UPDATE_PARAMS_UI`,
-	/// after which the host follows up with [`Self::update_params_ui`]).
+	/// after which the host follows up with [`Sel-::update_params_ui`]).
 	pub fn user_changed_param(&mut self, index: usize) -> Result<()> {
 		let mut extra = after_effects_sys::PF_UserChangedParamExtra {
 			param_index: index as after_effects_sys::PF_ParamIndex,
@@ -730,7 +730,7 @@ impl PluginInstance {
 	/// showing, hiding, collapsing, or disabling controls via
 	/// [`PF_ParamUtilsSuite3::PF_UpdateParamUI`](crate::suites). Cosmetic only — the
 	/// plugin must not change parameter values in response to this command.
-	pub fn update_params_ui(&mut self) -> Result<()> {
+	pub fn update_params_ui(&mut self) -> Result<()> {-
 		self.call_plugin(RawCommand::UpdateParamsUi, null_mut())
 	}
 

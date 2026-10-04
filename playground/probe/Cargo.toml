@@ -16,7 +16,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Same version as the `aexlo` crate, so `after_effects::sys` struct layouts
-# match the host exactly. The probe deliberately talks to the raw `sys` ABI —
+# match the host exactly. The probe deliberately talks to the raw `sys` ABI -
 # it measures the host, not the high-level wrapper.
 after-effects = "0.4.0"
 serde_json = "1.0"

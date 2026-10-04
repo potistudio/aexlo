@@ -2,8 +2,8 @@
 //!
 //! A raw trace is host-shaped noise (AE sends UPDATE_PARAMS_UI dozens of
 //! times; command order varies). `summarize` boils a trace down to a flat
-//! `key -> value` map of *behavioral facts* — which suites exist, what the
-//! callbacks returned, what the worlds looked like — so two hosts can be
+//! `key -> value` map of *behavioral facts* - which suites exist, what the
+//! callbacks returned, what the worlds looked like - so two hosts can be
 //! compared key-by-key regardless of scenario differences.
 
 use std::collections::BTreeMap;
@@ -212,8 +212,8 @@ pub fn summarize(events: &[Value]) -> Summary {
 	summary
 }
 
-/// Keys that are deterministic *facts* about host behavior — fixed input,
-/// exact output — and therefore comparable across a headless aexlo run and a
+/// Keys that are deterministic *facts* about host behavior - fixed input,
+/// exact output - and therefore comparable across a headless aexlo run and a
 /// GUI After Effects session. Everything else (command order/counts, timing,
 /// render context, parameter scenarios) depends on how the host was driven,
 /// so the default diff treats it as context; `--all` compares it anyway.

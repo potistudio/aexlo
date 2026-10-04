@@ -4,7 +4,7 @@
 //! Per the SDK these are convenience accessors: `pixelsP0` is an optional
 //! pre-fetched pixel pointer (from `checkout_layer_pixels`) that takes
 //! precedence; otherwise the world's own `data` pointer is returned. The
-//! caller owns knowing the world's actual depth — the worlds this host
+//! caller owns knowing the world's actual depth - the worlds this host
 //! allocates do not tag their depth in `world_flags`, so no cross-checking is
 //! possible here.
 
@@ -55,7 +55,11 @@ macro_rules! define_get_pixel_data {
 
 define_get_pixel_data!(get_pixel_data_8_sys, PF_Pixel8, "PixelDataSuite/get_pixel_data8");
 define_get_pixel_data!(get_pixel_data_16_sys, PF_Pixel16, "PixelDataSuite/get_pixel_data16");
-define_get_pixel_data!(get_pixel_data_float_sys, PF_PixelFloat, "PixelDataSuite/get_pixel_data_float");
+define_get_pixel_data!(
+	get_pixel_data_float_sys,
+	PF_PixelFloat,
+	"PixelDataSuite/get_pixel_data_float"
+);
 
 /// GPU variant: no `pixelsP0` staging pointer, just the world's device pointer.
 pub(crate) unsafe extern "C" fn get_pixel_data_float_gpu_sys(

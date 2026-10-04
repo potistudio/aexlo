@@ -2,7 +2,7 @@
 //!
 //! # Ownership model
 //!
-//! Every suite is a **stateless vtable** — a table of `extern "C"` function
+//! Every suite is a **stateless vtable** - a table of `extern "C"` function
 //! pointers with no per-instance state; any mutable state lives behind the
 //! plugin-provided pointers those callbacks receive, not in the suite struct.
 //! Because of that, a single **process-wide** instance is shared by every
@@ -12,7 +12,7 @@
 //! acquiring one just hands back a pointer into it and releasing it is a
 //! no-op; nothing is allocated or freed. The sole exception is the AEGP Utility
 //! compat suite, whose type-erased pointer slots can't be built in a `const`
-//! context — it lives in its own [`LazyLock`](utility::AEGP_UTILITY_SUITE)
+//! context - it lives in its own [`LazyLock`](utility::AEGP_UTILITY_SUITE)
 //! instead, but is otherwise the same shared-static model.
 
 mod ae_app;
@@ -94,7 +94,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 ///
 /// Every field is a plain table of `extern "C"` function pointers with no
 /// per-instance state, so a single shared `static` instance serves every
-/// [`PluginInstance`](crate::PluginInstance) — see the module-level ownership
+/// [`PluginInstance`](crate::PluginInstance) - see the module-level ownership
 /// notes. Suites live for the program's lifetime; there is nothing to allocate
 /// or free.
 pub struct SuiteContainer {

@@ -1,4 +1,4 @@
-//! aexlo — After Effects Plugin(.aex) Loader and Emulator
+//! aexlo - After Effects Plugin(.aex) Loader and Emulator
 //!
 //! This crate provides functionality to load and execute After Effects plugins (.aex)
 //! outside of After Effects, enabling testing, automation, and custom rendering pipelines.
@@ -25,7 +25,7 @@
 //!
 //! # Features
 //!
-//! - `diagnostics` — Enable detailed diagnostic logging for debugging
+//! - `diagnostics` - Enable detailed diagnostic logging for debugging
 
 // Required for variadic sprintf emulation in ANSI callbacks.
 // This is an implementation detail and should not affect public API stability.
@@ -61,11 +61,11 @@ pub use instance::PluginEntryPoint;
 /// These are dev-tooling, not plugin hosting; they live in their own module
 /// (see `src/preview.rs`) and are re-exported here for the macro's benefit.
 pub use preview::{
-	acquire_viewer_lock, ensure_live_viewer, open_in_viewer, open_preview, preview_mode, preview_path, preview_requested,
-	save_preview, viewer_is_running, PreviewMode, ViewerLock,
+	PreviewMode, ViewerLock, acquire_viewer_lock, ensure_live_viewer, open_in_viewer, open_preview, preview_mode,
+	preview_path, preview_requested, save_preview, viewer_is_running,
 };
 
-/// `#[aexlo::preview]` — render a plugin in-process and drop a preview PNG.
+/// `#[aexlo::preview]` - render a plugin in-process and drop a preview PNG.
 pub use aexlo_macros::preview;
 
 /// Parameter value type for reading and writing plugin parameters.
@@ -76,4 +76,4 @@ pub use core::diagnostics::{Diagnostic, DiagnosticBuilder};
 
 /// Safe pixel/layer wrappers, re-exported explicitly so additions to the
 /// `wrapper` crate don't silently widen this crate's public API.
-pub use wrapper::{Depth16, Depth32, Depth8, Layer, LayerError, Pixel, PixelDepth};
+pub use wrapper::{Depth8, Depth16, Depth32, Layer, LayerError, Pixel, PixelDepth};

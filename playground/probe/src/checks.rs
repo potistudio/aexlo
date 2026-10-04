@@ -1,9 +1,9 @@
 //! Unit-level host checks: one function, one suite, one variable at a time.
 //!
 //! Every check feeds a host service *fixed inputs* and records the exact
-//! output as a `fact` event. Facts are deterministic by construction — no
+//! output as a `fact` event. Facts are deterministic by construction - no
 //! dependence on comp size, current time, or how the host schedules commands
-//! — so a fact that differs between real After Effects and aexlo is a real
+//! - so a fact that differs between real After Effects and aexlo is a real
 //! behavioral divergence, never scenario noise. The harness diffs facts by
 //! default and treats everything else in the trace as context.
 //!
@@ -59,7 +59,7 @@ unsafe fn variable_checks(in_data: *mut ae::PF_InData) {
 // ---- ANSI callbacks --------------------------------------------------------
 
 // The literal `3.14159265` is deliberate sprintf `%f` test input, not an attempt
-// to use PI — don't rewrite it to `std::f64::consts::PI`.
+// to use PI - don't rewrite it to `std::f64::consts::PI`.
 #[allow(clippy::approx_constant)]
 unsafe fn ansi_checks(in_data: *mut ae::PF_InData) {
 	let Some(u) = (unsafe { (*in_data).utils.as_ref() }) else {
@@ -68,7 +68,7 @@ unsafe fn ansi_checks(in_data: *mut ae::PF_InData) {
 	};
 	let a = &u.ansi;
 
-	// Fixed-input math: full f64 precision on purpose — a last-bit difference
+	// Fixed-input math: full f64 precision on purpose - a last-bit difference
 	// between the host's libm and ours is a genuine finding.
 	macro_rules! math1 {
 		($fn:ident, $x:expr) => {
@@ -119,7 +119,7 @@ unsafe fn ansi_checks(in_data: *mut ae::PF_InData) {
 	math1!(asin, 0.5);
 	math1!(acos, 0.5);
 
-	// sprintf formatting matrix: width, precision, alignment, zero-pad —
+	// sprintf formatting matrix: width, precision, alignment, zero-pad -
 	// exactly the territory where an sprintf emulation drifts from the CRT.
 	if let Some(sprintf) = a.sprintf {
 		let case = |name: &str, call: &dyn Fn(*mut i8) -> i32| {
@@ -408,7 +408,7 @@ unsafe fn world_checks(in_data: *mut ae::PF_InData) {
 			json!({ "err": err, "hash": world_hash(&world.world), "px(0,0)": pixel_json(unsafe { sample(&world.world, 0, 0) }) }),
 		);
 
-		// Rect fill: PF_Rect right/bottom are exclusive — is the host faithful?
+		// Rect fill: PF_Rect right/bottom are exclusive - is the host faithful?
 		let color = ae::PF_Pixel {
 			alpha: 200,
 			red: 99,

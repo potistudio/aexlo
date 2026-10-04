@@ -1,4 +1,4 @@
-//! playground — drives the aexlo-probe plugin and compares host behavior.
+//! playground - drives the aexlo-probe plugin and compares host behavior.
 //!
 //! The probe plugin (playground/probe) records everything a host does to a
 //! JSONL trace. This binary runs it under aexlo, packages it for real After
@@ -29,7 +29,7 @@ use colored::Colorize;
 use aexlo::{Depth8, Layer, ParamValue, PluginInstance};
 
 const USAGE: &str = "\
-playground — aexlo probe-plugin harness
+playground - aexlo probe-plugin harness
 
 USAGE:
   playground run [--release] [--in-process] [--trace <file>] [--input <png>]
@@ -205,7 +205,7 @@ fn print_report(path: &Path) -> anyhow::Result<()> {
 		println!("  {} = {value}", key.strip_prefix("fact/").unwrap_or(key));
 	}
 
-	section("Commands (context — how this host drove the plugin)");
+	section("Commands (context - how this host drove the plugin)");
 	for (key, value) in summary.range("cmd/".to_string().."cmd/~".to_string()) {
 		println!("  {key} = {value}");
 	}

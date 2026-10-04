@@ -1,9 +1,9 @@
-//! `aexlo bench` — time one or more plugins and rank them by throughput.
+//! `aexlo bench` - time one or more plugins and rank them by throughput.
 //!
 //! The measurement machinery lives in `aexlo-bench` and is shared with
 //! `cargo bench -p aexlo-bench`; this module is the argument-driven front-end.
 //! The `cargo bench` targets are configured through `AEXLO_BENCH_*` environment
-//! variables, which is fine for CI but awkward interactively — here every knob
+//! variables, which is fine for CI but awkward interactively - here every knob
 //! is a flag, and a plugin path can be a crate directory that gets built first
 //! (the same resolution `render` does).
 

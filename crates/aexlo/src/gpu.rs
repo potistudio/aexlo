@@ -195,7 +195,7 @@ mod imp {
 		/// The targeted plugins commit their render command buffer but deliberately
 		/// do not wait (they expect the host to own queue synchronisation). Because a
 		/// `MTLCommandQueue` executes committed buffers in order, committing one more
-		/// empty buffer and waiting on it flushes all prior GPU work — so the output
+		/// empty buffer and waiting on it flushes all prior GPU work - so the output
 		/// buffer is safe to read back afterwards.
 		pub fn wait_for_completion(&self) {
 			let command_buffer = self.queue.new_command_buffer();
@@ -426,7 +426,7 @@ mod imp {
 		/// Block until all outstanding GPU work has finished.
 		///
 		/// A context synchronize (`cuCtxSynchronize`) waits for *every* stream in
-		/// the context — ours and any the plugin created — so a separate stream
+		/// the context - ours and any the plugin created - so a separate stream
 		/// synchronize beforehand would be pure redundant latency.
 		pub fn wait_for_completion(&self) {
 			if let Err(err) = self.ctx.synchronize() {

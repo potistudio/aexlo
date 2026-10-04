@@ -1,4 +1,4 @@
-//! JSONL trace writer — the probe's single output channel.
+//! JSONL trace writer - the probe's single output channel.
 //!
 //! Every host interaction is appended as one JSON object per line and flushed
 //! immediately, so a host crash cannot swallow the tail of the trace.

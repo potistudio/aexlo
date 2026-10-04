@@ -1,4 +1,4 @@
-//! Generates and embeds the PiPL resource via the `pipl` crate — the same
+//! Generates and embeds the PiPL resource via the `pipl` crate - the same
 //! machinery the `after-effects` crate's own examples use. On Windows it
 //! compiles a `16000 PiPL` resource into the DLL (which real After Effects
 //! requires to recognize a .aex); on macOS it drops a `.rsrc` next to the

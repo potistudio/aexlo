@@ -1,11 +1,11 @@
-//! `aexlo dev [filter] [-p <package>]` — rerun a `#[aexlo::preview]` test on save.
+//! `aexlo dev [filter] [-p <package>]` - rerun a `#[aexlo::preview]` test on save.
 //!
 //! Built-in replacement for pairing `bacon` with `#[aexlo::preview]`: watches
 //! the crate's sources and reruns `cargo test` on every change, with
 //! `AEXLO_PREVIEW=live` set so the test's own `ensure_live_viewer` call pops (or
 //! keeps updating) an `aexlo view` window. Each run is a fresh process driving
-//! the in-process `from_entry` render path — not a `dlopen`'d cdylib like
-//! `aexlo dev --bin` (see `watch.rs`) — so `println!`, `dbg!`, and debugger
+//! the in-process `from_entry` render path - not a `dlopen`'d cdylib like
+//! `aexlo dev --bin` (see `watch.rs`) - so `println!`, `dbg!`, and debugger
 //! attachment all work normally against a single run.
 
 use std::path::Path;

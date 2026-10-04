@@ -1,4 +1,4 @@
-//! Shared interactive preview surface — a tiny local HTTP server that streams
+//! Shared interactive preview surface - a tiny local HTTP server that streams
 //! the latest raw RGBA frame into a `<canvas>` and exposes a plugin's
 //! parameters as live HTML controls.
 //!
@@ -43,7 +43,7 @@ impl Status {
 ///
 /// `attempt` bumps on every (re)load (so the client can show "working…" even
 /// when a load/build fails and the pixels don't change); `frame_seq` bumps on
-/// every new frame — reload *or* parameter edit — so the client refetches
+/// every new frame - reload *or* parameter edit - so the client refetches
 /// `/frame` exactly when there's a new image; `params_gen` bumps only when a
 /// reload may have changed the parameter *set*, so the client rebuilds its
 /// controls (and doesn't fight the value the user is dragging).
@@ -407,7 +407,7 @@ const VIEWER_HTML: &str = r#"<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>aexlo — working…</title>
+<title>aexlo - working…</title>
 <style>
   html, body { margin: 0; height: 100%; background: #14161a; color: #c7ccd4;
     font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -571,10 +571,10 @@ async function tick() {
     const [attempt, frameSeq, paramsGen, status] =
       (await (await fetch('/status')).text()).split(' ');
     dot.className = status;
-    label.textContent = status === 'building' ? `#${attempt} — working…`
-      : status === 'failed' ? `#${attempt} — failed (see terminal)`
+    label.textContent = status === 'building' ? `#${attempt} - working…`
+      : status === 'failed' ? `#${attempt} - failed (see terminal)`
       : `#${attempt} · ${cv.width}×${cv.height}`;
-    document.title = status === 'ok' ? `aexlo — ${cv.width}×${cv.height}` : `aexlo — ${status}`;
+    document.title = status === 'ok' ? `aexlo - ${cv.width}×${cv.height}` : `aexlo - ${status}`;
     if (+paramsGen > 0 && +paramsGen !== builtParams) {
       buildControls(await (await fetch('/params')).json());
       builtParams = +paramsGen;

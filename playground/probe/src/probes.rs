@@ -15,8 +15,8 @@ use crate::trace::trace;
 
 /// Suites to attempt to acquire, mirroring the coverage table in the aexlo
 /// README. Names/versions come straight from the SDK headers via
-/// after-effects-sys (the version constants look odd — kPFHandleSuiteVersion1
-/// really is 2 — but that is faithful to the headers).
+/// after-effects-sys (the version constants look odd - kPFHandleSuiteVersion1
+/// really is 2 - but that is faithful to the headers).
 const SUITES: &[(&[u8], u32)] = &[
 	(ae::kPFANSISuite, ae::kPFANSISuiteVersion1),
 	(ae::kPFHandleSuite, ae::kPFHandleSuiteVersion1),
@@ -106,7 +106,7 @@ pub unsafe fn probe_suites(in_data: *const ae::PF_InData) {
 	}
 }
 
-/// Log which `PF_UtilCallbacks` entries the host filled in at all — a pure
+/// Log which `PF_UtilCallbacks` entries the host filled in at all - a pure
 /// presence map. Calling them with fixed inputs is `checks.rs` territory.
 pub unsafe fn probe_utils(in_data: *const ae::PF_InData) {
 	let utils = unsafe { (*in_data).utils };

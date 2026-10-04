@@ -1,4 +1,4 @@
-//! `aexlo view <png>` — a persistent live image window.
+//! `aexlo view <png>` - a persistent live image window.
 //!
 //! Opens a [`minifb`] window showing a PNG and reloads it whenever the file
 //! changes. It is decoupled from any plugin build, so it survives recompiles:
@@ -23,7 +23,7 @@ pub fn run(path: &Path) -> Result<()> {
 	// lets the running window pick up the change. `_lock` releases on return.
 	let Some(_lock) = aexlo::acquire_viewer_lock(path) else {
 		println!(
-			"aexlo view: already watching {} — leaving it to the running window",
+			"aexlo view: already watching {} - leaving it to the running window",
 			path.display()
 		);
 		return Ok(());
@@ -31,7 +31,7 @@ pub fn run(path: &Path) -> Result<()> {
 
 	let (init_w, init_h) = (1280usize, 720usize);
 	let mut window = Window::new(
-		&format!("aexlo view — {}", path.display()),
+		&format!("aexlo view - {}", path.display()),
 		init_w,
 		init_h,
 		// Float above the editor so the live preview stays visible while you work.
@@ -84,7 +84,7 @@ pub fn run(path: &Path) -> Result<()> {
 				Ok((buf, w, h)) => {
 					framebuf = buf;
 					frame_dims = (w, h);
-					window.set_title(&format!("aexlo view — {w}×{h} — {}", path.display()));
+					window.set_title(&format!("aexlo view - {w}×{h} - {}", path.display()));
 				}
 				// Keep the last good frame; a partial/rewritten file will fire again.
 				Err(err) => eprintln!("aexlo view: {err:#}"),

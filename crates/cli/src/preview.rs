@@ -1,9 +1,9 @@
-//! `aexlo preview <plugin>` — interactively preview a *built* plugin.
+//! `aexlo preview <plugin>` - interactively preview a *built* plugin.
 //!
 //! Loads a finished `.plugin`/`.aex`/`.dll` (no compiler in the loop) and serves
 //! the same interactive surface as `aexlo dev --bin --web` via [`crate::viewer`]:
 //! drag the plugin's parameters and watch the frame re-render. With `--watch` it
-//! also reloads the artifact whenever the file changes on disk — e.g. rebuilt by
+//! also reloads the artifact whenever the file changes on disk - e.g. rebuilt by
 //! another toolchain or by After Effects' own build. This is the `vite preview`
 //! to `dev`'s `vite dev`: same viewer, output instead of source.
 
@@ -38,7 +38,7 @@ impl Input {
 
 pub fn run(artifact: &Path, input: Option<&Path>, port: u16, watch: bool) -> Result<()> {
 	if artifact.is_dir() {
-		bail!("preview needs a built plugin artifact — use `aexlo dev` to watch a crate's source");
+		bail!("preview needs a built plugin artifact - use `aexlo dev` to watch a crate's source");
 	}
 
 	// Decode up front: a bad path should fail before we open a browser tab.
@@ -129,7 +129,7 @@ pub fn run(artifact: &Path, input: Option<&Path>, port: u16, watch: bool) -> Res
 	}
 }
 
-/// (Re)load the artifact from disk, render a frame, and publish it — swapping in
+/// (Re)load the artifact from disk, render a frame, and publish it - swapping in
 /// the new instance and dropping the previous staged copy. On failure the last
 /// good frame stays on screen and the browser dot goes red.
 fn reload(
