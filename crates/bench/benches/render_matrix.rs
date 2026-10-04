@@ -10,7 +10,6 @@
 //! frame size. The plugin's capabilities and parameter settings are dumped once
 //! up front. See the crate docs for all `AEXLO_BENCH_*` knobs.
 
-use aexlo::PluginInstance;
 use aexlo_bench::{
 	apply_param_config, bench_modes, bench_plugins, bench_resolutions, capabilities, param_config_label, param_configs,
 	print_params, set_bench_input,
@@ -31,7 +30,7 @@ fn render_matrix(criterion: &mut Criterion) {
 	for (label, path) in &plugins {
 		// Probe the plugin once to report its capabilities / parameters and
 		// decide which render modes to sweep.
-		let modes = match PluginInstance::try_load(aexlo::Host::get(), path) {
+		let modes = match aexlo::Host::get().try_load(path) {
 			Ok(mut probe) => {
 				let _ = probe.about();
 				println!("aexlo-bench: {label}: {}", capabilities(&probe));
@@ -53,7 +52,7 @@ fn render_matrix(criterion: &mut Criterion) {
 				for config in &configs {
 					// One-time setup, kept out of the timed section: fresh
 					// instance, parameter overrides, input frame, warmup render.
-					let mut instance = match PluginInstance::try_load(aexlo::Host::get(), path) {
+					let mut instance = match aexlo::Host::get().try_load(path) {
 						Ok(instance) => instance,
 						Err(err) => {
 							eprintln!("aexlo-bench: {label}: load failed, skipping: {err:?}");

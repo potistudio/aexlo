@@ -9,7 +9,7 @@ description = "Instrumented AE effect plugin that records host behavior to a JSO
 
 # `cdylib` is the actual .aex payload (rename the built DLL to .aex).
 # `rlib` lets the playground harness drive the same entry point in-process
-# via `PluginInstance::from_entry_raw` for breakpoint-friendly debugging.
+# via `Host::from_entry_raw` for breakpoint-friendly debugging.
 [lib]
 name = "aexlo_probe"
 crate-type = ["cdylib", "rlib"]

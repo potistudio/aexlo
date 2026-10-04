@@ -35,7 +35,7 @@ const HOST_VERSION: &str = "25.2";
 
 /// ABI of an After Effects effect entry point (`EffectMain`): the fixed
 /// `(cmd, in_data, out_data, params, output, extra)` signature every effect
-/// exports. Handed to [`PluginInstance::from_entry`] to drive an in-process
+/// exports. Handed to [`Host::from_entry`] to drive an in-process
 /// effect without `dlopen`.
 pub type PluginEntryPoint = unsafe extern "C" fn(
 	cmd: RawCommand,
@@ -87,7 +87,7 @@ unsafe extern "C" fn receive_plugin_data(
 }
 
 /// Independent instance of an After Effects Plug-in.
-/// It is created by loading a plug-in with [`PluginInstance::try_load`] or by driving an in-process entry point with [`PluginInstance::from_entry`].
+/// It is created by loading a plug-in with [`Host::try_load`] or by driving an in-process entry point with [`Host::from_entry`].
 /// Manages its library, entry point, parameters, and execution state.
 /// All operations related to the plug-in should be invoked from this.
 pub struct PluginInstance {
@@ -166,8 +166,10 @@ pub struct PluginInstance {
 	gpu_data: *mut ::std::os::raw::c_void,
 }
 
-impl PluginInstance {
-	/// Load a plugin from `path`, then run it through global and params setup.
+/// Plugin constructors. Taking a [`Host`] guarantees the process-wide
+/// [`AppHost`](crate::AppHost) is fixed before any plugin code runs.
+impl Host {
+	/// Load a plugin from `path` under this host, then run it through global and params setup.
 	///
 	/// `path` is the plugin artifact exactly as it exists on disk: a bare
 	/// `.aex`/`.dll` file on Windows, or a `.plugin` bundle directory on macOS.
@@ -180,8 +182,8 @@ impl PluginInstance {
 	/// point symbol can be resolved, or if the plugin rejects the
 	/// `PF_Cmd_GLOBAL_SETUP`, `PF_Cmd_PARAMS_SETUP`, or `PF_Cmd_SEQUENCE_SETUP`
 	/// commands.
-	pub fn try_load(_host: Host, path: impl AsRef<Path>) -> Result<Self> {
-		let mut instance = Self::new(path.as_ref());
+	pub fn try_load(self, path: impl AsRef<Path>) -> Result<PluginInstance> {
+		let mut instance = PluginInstance::new(path.as_ref());
 
 		instance.load()?;
 		instance.finalize()?;
@@ -205,8 +207,8 @@ impl PluginInstance {
 	/// # Safety
 	/// `entry` must be a valid AE effect entry point that is ABI-compatible with
 	/// [`PluginEntryPoint`] and stays callable for the lifetime of the instance.
-	pub unsafe fn from_entry(_host: Host, entry: PluginEntryPoint) -> Result<Self> {
-		let mut instance = Self::new(Path::new("<in-process>"));
+	pub unsafe fn from_entry(self, entry: PluginEntryPoint) -> Result<PluginInstance> {
+		let mut instance = PluginInstance::new(Path::new("<in-process>"));
 
 		instance.entry_point = Some(entry);
 		instance.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_string());
@@ -228,11 +230,13 @@ impl PluginInstance {
 	/// # Safety
 	/// `entry_addr` must be the address of a function that is ABI-compatible with
 	/// [`PluginEntryPoint`] and stays callable for the lifetime of the instance.
-	pub unsafe fn from_entry_raw(host: Host, entry_addr: usize) -> Result<Self> {
+	pub unsafe fn from_entry_raw(self, entry_addr: usize) -> Result<PluginInstance> {
 		let entry: PluginEntryPoint = unsafe { std::mem::transmute(entry_addr) };
-		unsafe { Self::from_entry(host, entry) }
+		unsafe { self.from_entry(entry) }
 	}
+}
 
+impl PluginInstance {
 	/// Run the post-load setup shared by every constructor: `GLOBAL_SETUP`,
 	/// `PARAMS_SETUP`, then `SEQUENCE_SETUP`. Independent of where the entry point
 	/// came from (`dlopen`ed or handed in directly).

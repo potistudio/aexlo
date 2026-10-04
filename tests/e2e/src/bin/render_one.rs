@@ -4,7 +4,7 @@
 use std::error::Error;
 use std::path::PathBuf;
 
-use aexlo::{Depth8, Layer, PluginInstance};
+use aexlo::{Depth8, Layer};
 
 fn main() -> Result<(), Box<dyn Error>> {
 	env_logger::init();
@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let input_path = PathBuf::from(args.next().ok_or(usage)?);
 	let output_path = PathBuf::from(args.next().ok_or(usage)?);
 
-	let mut instance = PluginInstance::try_load(aexlo::Host::get(), &plugin_path)?;
+	let mut instance = aexlo::Host::get().try_load(&plugin_path)?;
 	instance.about()?;
 
 	let img = image::open(&input_path)?.to_rgba8();

@@ -42,7 +42,7 @@ fn bitonic_pixel_sorter_gpu_render_produces_real_output() {
 		return;
 	};
 
-	let mut instance = PluginInstance::try_load(aexlo::Host::get(), &plugin_path).expect("failed to load plugin");
+	let mut instance = aexlo::Host::get().try_load(&plugin_path).expect("failed to load plugin");
 	assert!(
 		instance.supports_gpu(),
 		"BitonicPixelSorter is expected to declare GPU render support"
@@ -90,7 +90,7 @@ fn render_frame_prefers_gpu_path_when_supported() {
 		return;
 	};
 
-	let mut via_gpu = PluginInstance::try_load(aexlo::Host::get(), &plugin_path).expect("failed to load plugin");
+	let mut via_gpu = aexlo::Host::get().try_load(&plugin_path).expect("failed to load plugin");
 	via_gpu.set_input(load_sample_input());
 	via_gpu.set_param(4, ParamValue::Float(25.0)).unwrap();
 	via_gpu.set_param(5, ParamValue::Float(75.0)).unwrap();
@@ -103,7 +103,7 @@ fn render_frame_prefers_gpu_path_when_supported() {
 	}
 	let gpu_output = read_output_rgba(&via_gpu);
 
-	let mut via_render_frame = PluginInstance::try_load(aexlo::Host::get(), &plugin_path).expect("failed to load plugin");
+	let mut via_render_frame = aexlo::Host::get().try_load(&plugin_path).expect("failed to load plugin");
 	via_render_frame.set_input(load_sample_input());
 	via_render_frame.set_param(4, ParamValue::Float(25.0)).unwrap();
 	via_render_frame.set_param(5, ParamValue::Float(75.0)).unwrap();

@@ -14,7 +14,7 @@
 //! let host = Host::get();
 //!
 //! // `try_load` loads the library, runs GLOBAL_SETUP and PARAMS_SETUP.
-//! let mut instance = PluginInstance::try_load(host, Path::new("ExamplePlugin"))?;
+//! let mut instance = host.try_load(Path::new("ExamplePlugin"))?;
 //!
 //! // Query plugin info (PF_Cmd_ABOUT).
 //! let message = instance.about()?;
@@ -50,7 +50,7 @@ pub use core::error::{AexloError, Result};
 pub use instance::PluginInstance;
 
 /// Entry point ABI for driving an in-process effect via
-/// [`PluginInstance::from_entry`].
+/// [`Host::from_entry`].
 pub use instance::PluginEntryPoint;
 
 /// Preview helpers used by the [`macro@preview`] attribute macro (and usable

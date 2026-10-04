@@ -16,7 +16,6 @@
 //!
 //! Being `harness = false`, it owns `main` and ignores criterion CLI flags.
 
-use aexlo::PluginInstance;
 use aexlo_bench::report::{
 	Measurement, print_leaderboard, print_speedups, sort_by_throughput, to_csv, to_json, with_extension, write_file,
 };
@@ -61,7 +60,7 @@ fn main() {
 
 	let mut measurements = Vec::new();
 	for (label, path) in &plugins {
-		let modes = match PluginInstance::try_load(aexlo::Host::get(), path) {
+		let modes = match aexlo::Host::get().try_load(path) {
 			Ok(probe) => bench_modes(&probe),
 			Err(err) => {
 				eprintln!("aexlo-bench: {label}: load failed, skipping: {err:?}");

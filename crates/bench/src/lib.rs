@@ -561,7 +561,7 @@ pub fn measure(
 		return Err("samples must be at least 1".to_string());
 	}
 
-	let mut instance = PluginInstance::try_load(aexlo::Host::get(), path).map_err(|e| format!("load failed: {e:?}"))?;
+	let mut instance = aexlo::Host::get().try_load(path).map_err(|e| format!("load failed: {e:?}"))?;
 	let _ = instance.about();
 	let caps = capabilities(&instance);
 

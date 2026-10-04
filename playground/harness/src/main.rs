@@ -122,11 +122,11 @@ fn run(args: &[String]) -> anyhow::Result<()> {
 
 	let mut instance = if in_process {
 		println!("{}", "loading probe in-process (breakpoint-friendly)".dimmed());
-		unsafe { PluginInstance::from_entry_raw(aexlo::Host::get(), aexlo_probe::EffectMain as usize) }?
+		unsafe { aexlo::Host::get().from_entry_raw(aexlo_probe::EffectMain as usize) }?
 	} else {
 		let dll = build_probe(release)?;
 		println!("{} {}", "loading".dimmed(), dll.display());
-		PluginInstance::try_load(aexlo::Host::get(), &dll)?
+		aexlo::Host::get().try_load(&dll)?
 	};
 
 	println!("{} {}", "about:".bold(), instance.about()?);

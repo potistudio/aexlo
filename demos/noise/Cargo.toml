@@ -17,6 +17,6 @@ after-effects = "0.4.0"
 pipl = "0.1.1"
 
 [dev-dependencies]
-# In-process preview harness: drive the plugin via `PluginInstance::from_entry_raw`
+# In-process preview harness: drive the plugin via `Host::from_entry_raw`
 # in a `#[test]`, no cdylib/bundle/dlopen. See `src/lib.rs` `mod preview`.
 aexlo = { workspace = true }

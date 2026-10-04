@@ -9,7 +9,6 @@
 
 use std::path::PathBuf;
 
-use aexlo::PluginInstance;
 use aexlo_bench::report::{
 	Measurement, print_leaderboard, print_speedups, sort_by_throughput, to_csv, to_json, write_file,
 };
@@ -48,7 +47,7 @@ pub fn run(options: Options) -> Result<()> {
 		// GPU-less effect isn't reported as a failed `gpu` row.
 		let modes = match options.mode {
 			Some(mode) => vec![mode],
-			None => match PluginInstance::try_load(aexlo::Host::get(), path) {
+			None => match aexlo::Host::get().try_load(path) {
 				Ok(probe) => bench_modes(&probe),
 				Err(err) => {
 					eprintln!("aexlo bench: {label}: load failed, skipping: {err:?}");
