@@ -1,3 +1,4 @@
+pub mod app;
 pub mod interact;
 pub mod params;
 pub mod smart_render;

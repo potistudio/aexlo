@@ -71,6 +71,13 @@ pub use aexlo_macros::preview;
 /// Parameter value type for reading and writing plugin parameters.
 pub use param_value::ParamValue;
 
+/// Injectable host-application services ("PF AE App Suite"): UI colors, fonts,
+/// language, color picker, progress dialogs, ... Headless by default.
+pub use host::app::{
+	AppColor, AppHost, AppPixelF, AppPoint, FontInfo, HeadlessAppHost, PersonalInfo, ProgressId, reset_app_host,
+	set_app_host,
+};
+
 /// Diagnostic utilities (feature-gated).
 pub use core::diagnostics::{Diagnostic, DiagnosticBuilder};
 
