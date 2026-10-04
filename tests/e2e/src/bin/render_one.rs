@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let input_path = PathBuf::from(args.next().ok_or(usage)?);
 	let output_path = PathBuf::from(args.next().ok_or(usage)?);
 
-	let mut instance = PluginInstance::try_load(&plugin_path)?;
+	let mut instance = PluginInstance::try_load(aexlo::Host::get(), &plugin_path)?;
 	instance.about()?;
 
 	let img = image::open(&input_path)?.to_rgba8();

@@ -6,12 +6,15 @@
 //! # Example
 //!
 //! ```no_run
-//! use aexlo::PluginInstance;
+//! use aexlo::{Host, PluginInstance};
 //! use std::path::Path;
 //!
 //! # fn main() -> aexlo::Result<()> {
+//! // Fix the host services first (`Host::install(my_app_host)?` to customize).
+//! let host = Host::get();
+//!
 //! // `try_load` loads the library, runs GLOBAL_SETUP and PARAMS_SETUP.
-//! let mut instance = PluginInstance::try_load(Path::new("ExamplePlugin"))?;
+//! let mut instance = PluginInstance::try_load(host, Path::new("ExamplePlugin"))?;
 //!
 //! // Query plugin info (PF_Cmd_ABOUT).
 //! let message = instance.about()?;
@@ -70,7 +73,7 @@ pub use param_value::ParamValue;
 /// Injectable host-application services ("PF AE App Suite"): UI colors, fonts,
 /// language, color picker, progress dialogs, ... Headless by default.
 pub use host::app::{
-	AppColor, AppHost, AppPixelF, AppPoint, FontInfo, HeadlessAppHost, PersonalInfo, ProgressId, set_app_host,
+	AppColor, AppHost, AppPixelF, AppPoint, FontInfo, HeadlessAppHost, Host, PersonalInfo, ProgressId,
 };
 
 /// Diagnostic utilities (feature-gated).

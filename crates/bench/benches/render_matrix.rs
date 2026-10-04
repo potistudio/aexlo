@@ -31,7 +31,7 @@ fn render_matrix(criterion: &mut Criterion) {
 	for (label, path) in &plugins {
 		// Probe the plugin once to report its capabilities / parameters and
 		// decide which render modes to sweep.
-		let modes = match PluginInstance::try_load(path) {
+		let modes = match PluginInstance::try_load(aexlo::Host::get(), path) {
 			Ok(mut probe) => {
 				let _ = probe.about();
 				println!("aexlo-bench: {label}: {}", capabilities(&probe));
@@ -53,7 +53,7 @@ fn render_matrix(criterion: &mut Criterion) {
 				for config in &configs {
 					// One-time setup, kept out of the timed section: fresh
 					// instance, parameter overrides, input frame, warmup render.
-					let mut instance = match PluginInstance::try_load(path) {
+					let mut instance = match PluginInstance::try_load(aexlo::Host::get(), path) {
 						Ok(instance) => instance,
 						Err(err) => {
 							eprintln!("aexlo-bench: {label}: load failed, skipping: {err:?}");

@@ -24,7 +24,7 @@ fn load(criterion: &mut Criterion) {
 	for (label, path) in &plugins {
 		// Validate once so a broken artifact is skipped instead of panicking
 		// inside the timed loop, and dump its parameter configuration.
-		match PluginInstance::try_load(path) {
+		match PluginInstance::try_load(aexlo::Host::get(), path) {
 			Ok(instance) => {
 				println!("aexlo-bench: {label}: {}", capabilities(&instance));
 				print_params(label, &instance);
@@ -37,7 +37,7 @@ fn load(criterion: &mut Criterion) {
 
 		group.bench_function(label, |bencher| {
 			bencher.iter(|| {
-				let instance = PluginInstance::try_load(black_box(path.as_path())).unwrap();
+				let instance = PluginInstance::try_load(aexlo::Host::get(), black_box(path.as_path())).unwrap();
 				black_box(instance);
 			});
 		});

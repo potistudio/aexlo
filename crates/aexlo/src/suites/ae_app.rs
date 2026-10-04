@@ -2,7 +2,7 @@
 //!
 //! Every callback marshals its FFI arguments and delegates to the installed
 //! [`AppHost`](crate::host::app::AppHost) (headless by default; see
-//! [`set_app_host`](crate::host::app::set_app_host)). This module owns only the
+//! [`Host::install`](crate::Host::install)). This module owns only the
 //! ABI: pointer checks, string/struct conversion and error codes.
 
 use crate::core::diagnostics::diag;

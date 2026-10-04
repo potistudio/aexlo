@@ -151,7 +151,7 @@ fn resolve_plugin(arg: &str) -> PathBuf {
 /// a prebuilt `.plugin`/`.aex`/`.dll` or a crate's source directory directly.
 fn load(plugin_arg: &str) -> Result<PluginInstance> {
 	let path = resolve_artifact(plugin_arg)?;
-	PluginInstance::try_load(&path).with_context(|| format!("loading plugin {}", path.display()))
+	PluginInstance::try_load(aexlo::Host::get(), &path).with_context(|| format!("loading plugin {}", path.display()))
 }
 
 /// Resolve a plugin argument to an artifact on disk, building it first when the

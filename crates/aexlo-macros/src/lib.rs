@@ -76,7 +76,7 @@ pub fn preview(attr: TokenStream, item: TokenStream) -> TokenStream {
 			// to aexlo. `from_entry_raw` (not `from_entry`) so a plugin built
 			// against a different `after-effects-sys` than aexlo still links.
 			let mut __aexlo_fx = unsafe {
-				::aexlo::PluginInstance::from_entry_raw(crate::#entry_ident as *const () as usize)
+				::aexlo::PluginInstance::from_entry_raw(::aexlo::Host::get(), crate::#entry_ident as *const () as usize)
 			}?;
 
 			{

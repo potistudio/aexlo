@@ -109,10 +109,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 		.unwrap_or_else(|| DEFAULT_PLUGIN_NAME.to_string());
 	let plugin_path = resolve_plugin_fixture_path(&plugin_name);
 
-	// 1. Load plugin with `PluginInstance::try_load()`
+	// 1. Load plugin with `PluginInstance::try_load(aexlo::Host::get(), )`
 	// `try_load()` will return an error if the plugin fails to load for any reason (e.g. file not found, invalid format, missing dependencies).
 	log::info!("Loading plugin from '{}'...", plugin_path.display());
-	let mut instance = PluginInstance::try_load(&plugin_path)?;
+	let mut instance = PluginInstance::try_load(aexlo::Host::get(), &plugin_path)?;
 	log::info!("Plugin loaded {}.", successfully());
 
 	// Call `about()` if you want plugin information from `PF_Cmd_ABOUT`.

@@ -35,7 +35,7 @@ fn bitonic_pixel_sorter_param_set_get_roundtrip() {
 		eprintln!("skipping: fixture 'BitonicPixelSorter' not present locally");
 		return;
 	};
-	let mut instance = PluginInstance::try_load(&plugin_path).expect("failed to load plugin");
+	let mut instance = PluginInstance::try_load(aexlo::Host::get(), &plugin_path).expect("failed to load plugin");
 
 	// [2] Direction (popup), [3] Order (popup), [4] Threshold Min (float), [5] Threshold Max (float).
 	instance.set_param(2, ParamValue::Popup(2)).unwrap();
@@ -58,7 +58,7 @@ fn bitonic_pixel_sorter_set_param_rejects_invalid_calls() {
 		eprintln!("skipping: fixture 'BitonicPixelSorter' not present locally");
 		return;
 	};
-	let mut instance = PluginInstance::try_load(&plugin_path).expect("failed to load plugin");
+	let mut instance = PluginInstance::try_load(aexlo::Host::get(), &plugin_path).expect("failed to load plugin");
 
 	assert!(matches!(
 		instance.set_param(0, ParamValue::Popup(1)),
@@ -88,12 +88,12 @@ fn bitonic_pixel_sorter_direction_param_changes_render_output() {
 		return;
 	};
 
-	let mut horizontal = PluginInstance::try_load(&plugin_path).expect("failed to load plugin");
+	let mut horizontal = PluginInstance::try_load(aexlo::Host::get(), &plugin_path).expect("failed to load plugin");
 	horizontal.set_input(load_sample_input());
 	horizontal.set_param(2, ParamValue::Popup(1)).unwrap(); // Horizontal
 	let horizontal_output = render_rgba(&mut horizontal);
 
-	let mut vertical = PluginInstance::try_load(&plugin_path).expect("failed to load plugin");
+	let mut vertical = PluginInstance::try_load(aexlo::Host::get(), &plugin_path).expect("failed to load plugin");
 	vertical.set_input(load_sample_input());
 	vertical.set_param(2, ParamValue::Popup(2)).unwrap(); // Vertical
 	let vertical_output = render_rgba(&mut vertical);
@@ -114,7 +114,7 @@ fn deep_glow_covers_remaining_param_types_roundtrip() {
 		eprintln!("skipping: fixture 'DeepGlow2' not present locally");
 		return;
 	};
-	let mut instance = PluginInstance::try_load(&plugin_path).expect("failed to load plugin");
+	let mut instance = PluginInstance::try_load(aexlo::Host::get(), &plugin_path).expect("failed to load plugin");
 
 	// [24] Radius (float), [40] Mask Invert (checkbox), [50] Iris Sampling Quality (popup),
 	// [67] Aspect Angle (angle), [84] Color.

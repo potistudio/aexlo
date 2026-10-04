@@ -184,7 +184,7 @@ impl AexloApp {
 		let path = fixture_path(&name);
 		log::info!("Loading plugin '{name}' from {:?}", path);
 
-		match PluginInstance::try_load(&path) {
+		match PluginInstance::try_load(aexlo::Host::get(), &path) {
 			Ok(mut instance) => {
 				if let Err(e) = instance.about() {
 					log::warn!("about() failedor '{name}': {e}");

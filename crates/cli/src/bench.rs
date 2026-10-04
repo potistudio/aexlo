@@ -48,7 +48,7 @@ pub fn run(options: Options) -> Result<()> {
 		// GPU-less effect isn't reported as a failed `gpu` row.
 		let modes = match options.mode {
 			Some(mode) => vec![mode],
-			None => match PluginInstance::try_load(path) {
+			None => match PluginInstance::try_load(aexlo::Host::get(), path) {
 				Ok(probe) => bench_modes(&probe),
 				Err(err) => {
 					eprintln!("aexlo bench: {label}: load failed, skipping: {err:?}");

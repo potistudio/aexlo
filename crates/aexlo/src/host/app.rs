@@ -5,12 +5,14 @@
 //! dialogs. aexlo has no UI of its own, so by default every query is answered by
 //! [`HeadlessAppHost`]. Embedders that do have a UI (or want to pretend to be a
 //! render engine, a localized host, ...) implement [`AppHost`] and install it
-//! with [`set_app_host`].
+//! with [`Host::install`].
 //!
 //! App Suite callbacks carry no effect reference, so the host is process-wide:
 //! one [`AppHost`] serves every [`PluginInstance`](crate::PluginInstance). It is
-//! set at most once, before any plugin runs, so every call (including a
-//! multi-call sequence like a progress dialog) sees the same host.
+//! fixed at most once, and every `PluginInstance` constructor takes a [`Host`]
+//! token that only exists once it is fixed, so "install before loading" is
+//! enforced by the type system: every plugin call (including a multi-call
+//! sequence like a progress dialog) sees the same host.
 
 use std::sync::OnceLock;
 
@@ -172,13 +174,36 @@ impl AppHost for HeadlessAppHost {}
 
 static APP_HOST: OnceLock<Box<dyn AppHost>> = OnceLock::new();
 
-/// Install the process-wide [`AppHost`]. Call it once, before loading plugins.
+/// Proof that the process-wide [`AppHost`] has been fixed.
 ///
-/// Fails with [`AexloError::AppHostAlreadySet`] if a host was already
-/// installed, or if any App Suite call already ran (which fixes the host to
-/// [`HeadlessAppHost`]); either way the existing host stays in effect.
-pub fn set_app_host(host: impl AppHost + 'static) -> Result<()> {
-	APP_HOST.set(Box::new(host)).map_err(|_| AexloError::AppHostAlreadySet)
+/// Every [`PluginInstance`](crate::PluginInstance) constructor requires one,
+/// and the only ways to obtain one ([`Host::install`], [`Host::get`]) fix the
+/// host first. So a plugin can never run before the host is chosen, and the
+/// host can never change once a plugin has run.
+///
+/// Zero-sized and `Copy`: obtain it once and pass it around freely.
+#[derive(Debug, Clone, Copy)]
+pub struct Host {
+	_fixed: (),
+}
+
+impl Host {
+	/// Install `app` as the process-wide [`AppHost`].
+	///
+	/// # Errors
+	/// [`AexloError::AppHostAlreadySet`] if the host was already fixed (by an
+	/// earlier `install` or [`Host::get`]); the existing host stays in effect.
+	pub fn install(app: impl AppHost + 'static) -> Result<Self> {
+		APP_HOST.set(Box::new(app)).map_err(|_| AexloError::AppHostAlreadySet)?;
+		Ok(Self { _fixed: () })
+	}
+
+	/// The host token, fixing the host to [`HeadlessAppHost`] if nothing was
+	/// installed yet. Idempotent; use this when you don't customize the host.
+	pub fn get() -> Self {
+		APP_HOST.get_or_init(|| Box::new(HeadlessAppHost));
+		Self { _fixed: () }
+	}
 }
 
 #[cfg(test)]
@@ -189,8 +214,11 @@ thread_local! {
 		const { std::cell::RefCell::new(None) };
 }
 
-/// Run `f` against the installed host, fixing it to [`HeadlessAppHost`] on
-/// first use if none was set.
+/// Run `f` against the installed host.
+///
+/// Every plugin is constructed with a [`Host`] token, so the host is always
+/// fixed by the time a plugin calls back; the headless fallback only guards
+/// against a plugin calling in some unforeseen way.
 pub(crate) fn with_app_host<R>(f: impl FnOnce(&dyn AppHost) -> R) -> R {
 	#[cfg(test)]
 	if TEST_APP_HOST.with_borrow(Option::is_some) {

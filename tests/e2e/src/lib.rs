@@ -47,7 +47,7 @@ mod tests {
 		let dll_path = plugin_path("E2E_ABOUT_MESSAGE_TEST_CLIENT");
 		assert!(dll_path.exists(), "native library not found: {}", dll_path.display());
 
-		PluginInstance::try_load(&dll_path).expect("failed to load plugin");
+		PluginInstance::try_load(aexlo::Host::get(), &dll_path).expect("failed to load plugin");
 	}
 
 	#[test]
@@ -55,7 +55,7 @@ mod tests {
 		let dll_path = plugin_path("E2E_ABOUT_MESSAGE_TEST_CLIENT");
 		assert!(dll_path.exists(), "native library not found: {}", dll_path.display());
 
-		let mut instance = PluginInstance::try_load(&dll_path).expect("failed to load plugin");
+		let mut instance = PluginInstance::try_load(aexlo::Host::get(), &dll_path).expect("failed to load plugin");
 
 		let message = instance.about().unwrap();
 		assert_eq!(message, "Hello World!");
@@ -66,7 +66,7 @@ mod tests {
 		let dll_path = plugin_path("E2E_POINTER_VALIDATION_TEST_CLIENT");
 		assert!(dll_path.exists(), "native library not found: {}", dll_path.display());
 
-		let mut instance = PluginInstance::try_load(&dll_path).expect("failed to load plugin");
+		let mut instance = PluginInstance::try_load(aexlo::Host::get(), &dll_path).expect("failed to load plugin");
 		instance.about().unwrap();
 	}
 }

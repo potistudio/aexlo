@@ -135,7 +135,7 @@ pub(crate) fn stage_and_load(artifact: &Path, generation: u64) -> Result<(Plugin
 	let staged = std::env::temp_dir().join(format!("aexlo-stage-{generation}.{ext}"));
 	std::fs::copy(artifact, &staged).with_context(|| format!("staging {}", artifact.display()))?;
 
-	let fx = PluginInstance::try_load(&staged).context("loading plugin")?;
+	let fx = PluginInstance::try_load(aexlo::Host::get(), &staged).context("loading plugin")?;
 	Ok((fx, staged))
 }
 

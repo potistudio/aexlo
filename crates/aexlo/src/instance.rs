@@ -1,5 +1,6 @@
 use crate::core::error::{AexloError, Result};
 use crate::core::in_data::{CallBindings, EffectState, HostInfo as InDataHost, RenderContext};
+use crate::host::app::Host;
 use crate::host::smart_render::SmartRenderData;
 use crate::param_value::ParamValue;
 use crate::utils;
@@ -179,7 +180,7 @@ impl PluginInstance {
 	/// point symbol can be resolved, or if the plugin rejects the
 	/// `PF_Cmd_GLOBAL_SETUP`, `PF_Cmd_PARAMS_SETUP`, or `PF_Cmd_SEQUENCE_SETUP`
 	/// commands.
-	pub fn try_load(path: impl AsRef<Path>) -> Result<Self> {
+	pub fn try_load(_host: Host, path: impl AsRef<Path>) -> Result<Self> {
 		let mut instance = Self::new(path.as_ref());
 
 		instance.load()?;
@@ -204,7 +205,7 @@ impl PluginInstance {
 	/// # Safety
 	/// `entry` must be a valid AE effect entry point that is ABI-compatible with
 	/// [`PluginEntryPoint`] and stays callable for the lifetime of the instance.
-	pub unsafe fn from_entry(entry: PluginEntryPoint) -> Result<Self> {
+	pub unsafe fn from_entry(_host: Host, entry: PluginEntryPoint) -> Result<Self> {
 		let mut instance = Self::new(Path::new("<in-process>"));
 
 		instance.entry_point = Some(entry);
@@ -227,9 +228,9 @@ impl PluginInstance {
 	/// # Safety
 	/// `entry_addr` must be the address of a function that is ABI-compatible with
 	/// [`PluginEntryPoint`] and stays callable for the lifetime of the instance.
-	pub unsafe fn from_entry_raw(entry_addr: usize) -> Result<Self> {
+	pub unsafe fn from_entry_raw(host: Host, entry_addr: usize) -> Result<Self> {
 		let entry: PluginEntryPoint = unsafe { std::mem::transmute(entry_addr) };
-		unsafe { Self::from_entry(entry) }
+		unsafe { Self::from_entry(host, entry) }
 	}
 
 	/// Run the post-load setup shared by every constructor: `GLOBAL_SETUP`,
