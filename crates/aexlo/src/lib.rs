@@ -27,10 +27,6 @@
 //!
 //! - `diagnostics` - Enable detailed diagnostic logging for debugging
 
-// Required for variadic sprintf emulation in ANSI callbacks.
-// This is an implementation detail and should not affect public API stability.
-#![feature(c_variadic)]
-// Enforce code quality
 #![warn(clippy::all)]
 // The crate mirrors the After Effects C SDK, whose suite struct fields and entry
 // points (`PF_GetAppName`, `EffectMain`, …) use non-snake-case names. Allowing it
