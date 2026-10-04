@@ -1,5 +1,3 @@
-#![feature(stmt_expr_attributes)]
-
 extern crate env_logger as logger;
 extern crate log;
 
@@ -19,8 +17,8 @@ fn successfully() -> ColoredString {
 	"successfully".green()
 }
 
+#[rustfmt::skip]
 fn print_banner() {
-	#[rustfmt::skip]
 	{
 		println!("\n========  {} --- After Effects Plugin Loader  ========", "aexlo".bold());
 		println!("________  _______      ___    ___ ___       ________");
