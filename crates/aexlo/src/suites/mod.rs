@@ -84,7 +84,9 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	color_callbacks_float: color_callbacks::create_color_callbacks_float_suite_1(),
 	fill_matte: fill_matte::create_fill_matte_suite_2(),
 	pixel_data: pixel_data::create_pixel_data_suite_2(),
-	ae_app: ae_app::create_ae_app_suite_v6(),
+	ae_app4: ae_app::create_ae_app_suite_4(),
+	ae_app5: ae_app::create_ae_app_suite_5(),
+	ae_app6: ae_app::create_ae_app_suite_6(),
 	gpu_device: gpu_device::create_gpu_device_suite_1(),
 	param_utils: param_utils::create_param_utils_suite_3(),
 	persistent_data: persistent_data::create_persistent_data_suite_3(),
@@ -116,7 +118,9 @@ pub struct SuiteContainer {
 	pub color_callbacks_float: PF_ColorCallbacksFloatSuite1,
 	pub fill_matte: PF_FillMatteSuite2,
 	pub pixel_data: PF_PixelDataSuite2,
-	pub ae_app: PFAppSuite6,
+	pub ae_app4: PFAppSuite4,
+	pub ae_app5: PFAppSuite5,
+	pub ae_app6: PFAppSuite6,
 	pub gpu_device: PF_GPUDeviceSuite1,
 	pub param_utils: PF_ParamUtilsSuite3,
 	pub persistent_data: AEGP_PersistentDataSuite3,
@@ -185,11 +189,12 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		// PixelData suites are append-only (v2 adds the GPU accessor), so the v2
 		// table also satisfies v1 requests.
 		("PF Pixel Data Suite", 1..=2) => dispatch_static!(suite, suite_name, version, pixel_data),
-		// AE suites are append-only across versions, so a v6 table safely satisfies
-		// older requests (v1..). Plugins that request v1 (e.g. via AEFX_AcquireSuite in
-		// their localization path) get a null-deref on a null out_data if we reject it,
-		// so accept the whole range rather than only v6.
-		("PF AE App Suite", 1..=6) => dispatch_static!(suite, suite_name, version, ae_app),
+		// The App Suite's wire versions do NOT follow the struct names, and the
+		// layouts are not append-only (v5 inserts `PF_AppGetLanguage` mid-table),
+		// so each wire version must get its own exactly-shaped table.
+		("PF AE App Suite", v) if v == kPFAppSuiteVersion6 as i32 => dispatch_static!(suite, suite_name, version, ae_app6),
+		("PF AE App Suite", v) if v == kPFAppSuiteVersion5 as i32 => dispatch_static!(suite, suite_name, version, ae_app5),
+		("PF AE App Suite", v) if v == kPFAppSuiteVersion4 as i32 => dispatch_static!(suite, suite_name, version, ae_app4),
 		("PF GPU Device Suite", 1) => dispatch_static!(suite, suite_name, version, gpu_device),
 		// ParamUtils suites are append-only, so the v3 table also satisfies v1/v2 requests.
 		("PF Param Utils Suite", 1..=3) => dispatch_static!(suite, suite_name, version, param_utils),
