@@ -34,6 +34,11 @@ pub enum AexloError {
 	#[error("Plugin rejected {command} with error code: {code}")]
 	PluginExecutionFailed { command: String, code: i64 },
 
+	/// [`set_app_host`](crate::set_app_host) was called after a host was
+	/// already installed or an App Suite call already fixed the default.
+	#[error("App host is already set; call set_app_host once, before loading plugins")]
+	AppHostAlreadySet,
+
 	/// Parameter index is out of bounds.
 	#[error("Parameter index {index} out of bounds (max {max})")]
 	ParamIndexOutOfBounds { index: usize, max: usize },

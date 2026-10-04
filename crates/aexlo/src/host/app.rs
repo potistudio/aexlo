@@ -8,9 +8,13 @@
 //! with [`set_app_host`].
 //!
 //! App Suite callbacks carry no effect reference, so the host is process-wide:
-//! one [`AppHost`] serves every [`PluginInstance`](crate::PluginInstance).
+//! one [`AppHost`] serves every [`PluginInstance`](crate::PluginInstance). It is
+//! set at most once, before any plugin runs, so every call (including a
+//! multi-call sequence like a progress dialog) sees the same host.
 
-use std::sync::{Arc, LazyLock, RwLock};
+use std::sync::OnceLock;
+
+use crate::core::error::{AexloError, Result};
 
 /// A 16-bit-per-channel UI color, as reported by `PF_AppGetBgColor` / `PF_AppGetColor`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,21 +170,31 @@ impl HeadlessAppHost {
 
 impl AppHost for HeadlessAppHost {}
 
-static APP_HOST: LazyLock<RwLock<Arc<dyn AppHost>>> = LazyLock::new(|| RwLock::new(Arc::new(HeadlessAppHost)));
+static APP_HOST: OnceLock<Box<dyn AppHost>> = OnceLock::new();
 
-/// Install the process-wide [`AppHost`], replacing the previous one.
-/// Takes effect for every subsequent App Suite call from any plugin.
-pub fn set_app_host(host: impl AppHost + 'static) {
-	*APP_HOST.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(host);
+/// Install the process-wide [`AppHost`]. Call it once, before loading plugins.
+///
+/// Fails with [`AexloError::AppHostAlreadySet`] if a host was already
+/// installed, or if any App Suite call already ran (which fixes the host to
+/// [`HeadlessAppHost`]); either way the existing host stays in effect.
+pub fn set_app_host(host: impl AppHost + 'static) -> Result<()> {
+	APP_HOST.set(Box::new(host)).map_err(|_| AexloError::AppHostAlreadySet)
 }
 
-/// Restore the default [`HeadlessAppHost`].
-pub fn reset_app_host() {
-	set_app_host(HeadlessAppHost);
+#[cfg(test)]
+thread_local! {
+	/// Per-thread override so unit tests can inject a host without touching
+	/// the set-once global (tests run in parallel and cannot reset it).
+	pub(crate) static TEST_APP_HOST: std::cell::RefCell<Option<Box<dyn AppHost>>> =
+		const { std::cell::RefCell::new(None) };
 }
 
-/// The currently installed host. The lock is released before the caller
-/// invokes it, so a host may itself call [`set_app_host`].
-pub(crate) fn app_host() -> Arc<dyn AppHost> {
-	APP_HOST.read().unwrap_or_else(|e| e.into_inner()).clone()
+/// Run `f` against the installed host, fixing it to [`HeadlessAppHost`] on
+/// first use if none was set.
+pub(crate) fn with_app_host<R>(f: impl FnOnce(&dyn AppHost) -> R) -> R {
+	#[cfg(test)]
+	if TEST_APP_HOST.with_borrow(Option::is_some) {
+		return TEST_APP_HOST.with_borrow(|h| f(h.as_deref().unwrap()));
+	}
+	f(APP_HOST.get_or_init(|| Box::new(HeadlessAppHost)).as_ref())
 }
