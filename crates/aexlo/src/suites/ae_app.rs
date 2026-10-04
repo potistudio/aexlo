@@ -1,8 +1,9 @@
+use crate::core::diagnostics::diag;
 use after_effects_sys::{
 	_PF_AppProgressDialog, A_UTF16Char, A_char, A_long, A_short, PF_App_Color, PF_App_ColorType,
 	PF_AppPersonalTextInfo, PF_AppProgressDialogP, PF_Boolean, PF_ContextH, PF_CursorType, PF_Err,
-	PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_EyeDropperSampleMode, PF_FontName, PF_FontStyleSheet,
-	PF_PixelFloat, PF_Point, PF_Rect, PFAppSuite4, PFAppSuite5, PFAppSuite6,
+	PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_EyeDropperSampleMode, PF_FontName, PF_FontStyleSheet, PF_PixelFloat,
+	PF_Point, PF_Rect, PFAppSuite4, PFAppSuite5, PFAppSuite6,
 };
 
 /// Report the host UI language to the plugin.
@@ -20,6 +21,10 @@ use after_effects_sys::{
 /// `lang_tagZ` must be null or point to a writable `A_char` buffer of at least one
 /// element, per the `PF_AppGetLanguage` contract.
 unsafe extern "C" fn get_language(lang_tagZ: *mut A_char) -> PF_Err {
+	diag!("PFAppSuite/PF_AppGetLanguage",
+		"lang_tagZ" => format!("{:#x}", lang_tagZ as usize),
+	);
+
 	if !lang_tagZ.is_null() {
 		unsafe { *lang_tagZ = 0 };
 	}
@@ -40,6 +45,10 @@ unsafe extern "C" fn get_language(lang_tagZ: *mut A_char) -> PF_Err {
 /// `render_enginePB` must be null or point to a writable `PF_Boolean`, per the
 /// `PF_IsRenderEngine` contract.
 unsafe extern "C" fn is_render_engine(render_enginePB: *mut PF_Boolean) -> PF_Err {
+	diag!("PFAppSuite/PF_IsRenderEngine",
+		"render_enginePB" => format!("{:#x}", render_enginePB as usize),
+	);
+
 	if !render_enginePB.is_null() {
 		unsafe { *render_enginePB = 0 };
 	}
@@ -48,29 +57,50 @@ unsafe extern "C" fn is_render_engine(render_enginePB: *mut PF_Boolean) -> PF_Er
 }
 
 /// Neutral mid-gray reported for every UI color: there is no host UI to theme.
-const UI_GRAY: PF_App_Color = PF_App_Color { red: 0x8000, green: 0x8000, blue: 0x8000 };
+const UI_GRAY: PF_App_Color = PF_App_Color {
+	red: 0x8000,
+	green: 0x8000,
+	blue: 0x8000,
+};
 
 /// Report the panel background color (neutral gray; there is no host UI).
 unsafe extern "C" fn get_bg_color(bg_colorP: *mut PF_App_Color) -> PF_Err {
+	diag!("PFAppSuite/PF_AppGetBgColor",
+		"bg_colorP" => format!("{:#x}", bg_colorP as usize),
+	);
+
 	if bg_colorP.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
+
 	unsafe { *bg_colorP = UI_GRAY };
+
 	PF_Err_NONE as PF_Err
 }
 
 /// Report a themed UI color. Every `PF_App_ColorType` maps to the same gray.
 unsafe extern "C" fn get_color(_color_type: PF_App_ColorType, app_colorP: *mut PF_App_Color) -> PF_Err {
+	diag!("PFAppSuite/PF_AppGetColor",
+		"color_type" => _color_type,
+		"app_colorP" => format!("{:#x}", app_colorP as usize),
+	);
+
 	unsafe { get_bg_color(app_colorP) }
 }
 
 /// Report the registered user. We have none, so every string is empty.
 unsafe extern "C" fn get_personal_info(ptiP: *mut PF_AppPersonalTextInfo) -> PF_Err {
+	diag!("PFAppSuite/PF_GetPersonalInfo",
+		"ptiP" => format!("{:#x}", ptiP as usize),
+	);
+
 	if ptiP.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
+
 	// SAFETY: plain `A_char` arrays; all-zero is three empty C strings.
 	unsafe { *ptiP = std::mem::zeroed() };
+
 	PF_Err_NONE as PF_Err
 }
 
@@ -83,21 +113,35 @@ unsafe extern "C" fn get_font_style_sheet(
 	sizePS0: *mut A_short,
 	stylePS0: *mut A_short,
 ) -> PF_Err {
+	diag!("PFAppSuite/PF_GetFontStyleSheet",
+		"sheet" => _sheet,
+		"font_nameP0" => format!("{:#x}", font_nameP0 as usize),
+		"font_numPS0" => format!("{:#x}", font_numPS0 as usize),
+		"sizePS0" => format!("{:#x}", sizePS0 as usize),
+		"stylePS0" => format!("{:#x}", stylePS0 as usize),
+	);
+
 	unsafe {
 		if !font_nameP0.is_null() {
 			*font_nameP0 = std::mem::zeroed();
 		}
+
 		for p in [font_numPS0, sizePS0, stylePS0] {
 			if !p.is_null() {
 				*p = 0;
 			}
 		}
 	}
+
 	PF_Err_NONE as PF_Err
 }
 
 /// Set the mouse cursor. No UI, so nothing to do.
 unsafe extern "C" fn set_cursor(_cursor: PF_CursorType) -> PF_Err {
+	diag!("PFAppSuite/PF_SetCursor",
+		"cursor" => _cursor,
+	);
+
 	PF_Err_NONE as PF_Err
 }
 
@@ -109,34 +153,61 @@ unsafe extern "C" fn color_picker_dialog(
 	_use_ws_to_monitor_xformB: PF_Boolean,
 	new_colorP: *mut PF_PixelFloat,
 ) -> PF_Err {
+	diag!("PFAppSuite/PF_AppColorPickerDialog",
+		"dialog_titleZ0" => format!("{:#x}", _dialog_titleZ0 as usize),
+		"sample_colorP" => format!("{:#x}", sample_colorP as usize),
+		"use_ws_to_monitor_xformB" => _use_ws_to_monitor_xformB,
+		"new_colorP" => format!("{:#x}", new_colorP as usize),
+	);
+
 	if sample_colorP.is_null() || new_colorP.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
+
 	unsafe { *new_colorP = *sample_colorP };
+
 	PF_Err_NONE as PF_Err
 }
 
 /// Report the mouse position. There is no pointer; report the origin.
 unsafe extern "C" fn get_mouse(pointP: *mut PF_Point) -> PF_Err {
+	diag!("PFAppSuite/PF_GetMouse",
+		"pointP" => format!("{:#x}", pointP as usize),
+	);
+
 	if pointP.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
+
 	unsafe { *pointP = PF_Point { h: 0, v: 0 } };
+
 	PF_Err_NONE as PF_Err
 }
 
 /// Request a UI redraw. Nothing is drawn, so this is a no-op.
 unsafe extern "C" fn invalidate_rect(_contextH: PF_ContextH, _rectP0: *const PF_Rect) -> PF_Err {
+	diag!("PFAppSuite/PF_InvalidateRect",
+		"contextH" => format!("{:#x}", _contextH as usize),
+		"rectP0" => format!("{:#x}", _rectP0 as usize),
+	);
+
 	PF_Err_NONE as PF_Err
 }
 
 /// Convert panel-local to screen coordinates. With no window, both spaces
 /// coincide, so the point is copied through.
 unsafe extern "C" fn convert_local_to_global(localP: *const PF_Point, globalP: *mut PF_Point) -> PF_Err {
+	diag!("PFAppSuite/PF_ConvertLocalToGlobal",
+		"localP" => format!("{:#x}", localP as usize),
+		"globalP" => format!("{:#x}", globalP as usize),
+	);
+
 	if localP.is_null() || globalP.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
+
 	unsafe { *globalP = *localP };
+
 	PF_Err_NONE as PF_Err
 }
 
@@ -147,10 +218,26 @@ unsafe extern "C" fn get_color_at_global_point(
 	_mode: PF_EyeDropperSampleMode,
 	outColorP: *mut PF_PixelFloat,
 ) -> PF_Err {
+	diag!("PFAppSuite/PF_GetColorAtGlobalPoint",
+		"globalP" => format!("{:#x}", _globalP as usize),
+		"eyeSize" => _eyeSize,
+		"mode" => _mode,
+		"outColorP" => format!("{:#x}", outColorP as usize),
+	);
+
 	if outColorP.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
-	unsafe { *outColorP = PF_PixelFloat { alpha: 0.0, red: 0.0, green: 0.0, blue: 0.0 } };
+
+	unsafe {
+		*outColorP = PF_PixelFloat {
+			alpha: 0.0,
+			red: 0.0,
+			green: 0.0,
+			blue: 0.0,
+		}
+	};
+
 	PF_Err_NONE as PF_Err
 }
 
@@ -167,10 +254,19 @@ unsafe extern "C" fn create_progress_dialog(
 	_indeterminateB: PF_Boolean,
 	prog_dlgPP: *mut PF_AppProgressDialogP,
 ) -> PF_Err {
+	diag!("PFAppSuite/PF_CreateNewAppProgressDialog",
+		"titleZ" => format!("{:#x}", _titleZ as usize),
+		"cancel_strZ0" => format!("{:#x}", _cancel_strZ0 as usize),
+		"indeterminateB" => _indeterminateB,
+		"prog_dlgPP" => format!("{:#x}", prog_dlgPP as usize),
+	);
+
 	if prog_dlgPP.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
+
 	unsafe { *prog_dlgPP = &PROGRESS_DIALOG_TOKEN as *const u8 as *mut _PF_AppProgressDialog };
+
 	PF_Err_NONE as PF_Err
 }
 
@@ -180,12 +276,22 @@ unsafe extern "C" fn progress_dialog_update(
 	countL: A_long,
 	totalL: A_long,
 ) -> PF_Err {
+	diag!("PFAppSuite/PF_AppProgressDialogUpdate",
+		"prog_dlgP" => format!("{:#x}", _prog_dlgP as usize),
+		"countL" => countL,
+		"totalL" => totalL,
+	);
+
 	log::trace!("App progress dialog: {countL}/{totalL}");
 	PF_Err_NONE as PF_Err
 }
 
 /// Close a progress dialog. The handle is a static token, so nothing to free.
 unsafe extern "C" fn dispose_progress_dialog(_prog_dlgP: PF_AppProgressDialogP) -> PF_Err {
+	diag!("PFAppSuite/PF_DisposeAppProgressDialog",
+		"prog_dlgP" => format!("{:#x}", _prog_dlgP as usize),
+	);
+
 	PF_Err_NONE as PF_Err
 }
 
