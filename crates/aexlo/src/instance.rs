@@ -320,11 +320,13 @@ impl PluginInstance {
 			// A fresh context owns no buffers yet; force an input upload.
 			self.gpu_input_uploaded = false;
 		}
+
 		let Some(ctx) = self.gpu_context.as_ref() else {
 			return Err(AexloError::Unexpected(
 				"No GPU device available for GPU render".to_string(),
 			));
 		};
+
 		let what_gpu = ctx.framework();
 		// The plugin's own GPU-API calls during setup (e.g. cudaMalloc) resolve
 		// against the thread-current context.
@@ -560,7 +562,7 @@ impl PluginInstance {
 		self.render()
 	}
 
-	/// Set the output frame size, resizing the output world and the smart-render
+	/// Set the output frame size in pixels, resizing the output world and the smart-render
 	/// output request rects. `in_data.width/height` keep describing the input
 	/// layer (see [`Self::set_input`]).
 	///
@@ -578,8 +580,8 @@ impl PluginInstance {
 		self.smart_render_data.set_output_rect(width as i32, height as i32);
 	}
 
-	/// Replace the input layer, keeping the `PF_Param_LAYER` parameter (index 0) in sync.
-	pub fn set_input(&mut self, input: wrapper::Layer<wrapper::Depth8>) {
+	/// Replace the input layer.
+	pub fn set_input_layer(&mut self, input: wrapper::Layer<wrapper::Depth8>) {
 		self.input_layer = input;
 
 		// In After Effects `in_data.width/height` (and `extent_hint`) are the
@@ -604,7 +606,7 @@ impl PluginInstance {
 
 	/// Write output pixels directly to an RGBA buffer (zero-allocation).
 	/// The buffer must have exactly `width * height * 4` bytes.
-	pub fn write_output_rgba(&self, buffer: &mut [u8]) -> Result<()> {
+	pub fn write_rendered_pixels(&self, buffer: &mut [u8]) -> Result<()> {
 		self.output_layer.write_rgba_bytes(buffer)?;
 		Ok(())
 	}
@@ -689,7 +691,7 @@ impl PluginInstance {
 			// `PF_FixedSliderDef::value` is a `PF_Fixed` (16.16 fixed point), the
 			// same encoding as ANGLE/POINT — not Q31.
 			ParamValue::Fixed(v) => target.u.fd.value = utils::f32_to_fixed16(v),
-			ParamValue::Slider(v) => target.-.sd.value = v,
+			ParamValue::Slider(v) => target.u.sd.value = v,
 			ParamValue::Checkbox(v) => target.u.bd.value = v as i32,
 			ParamValue::Popup(v) => target.u.pd.value = v,
 			ParamValue::Angle(deg) => target.u.ad.value = utils::f32_to_fixed16(deg),
@@ -735,7 +737,7 @@ impl PluginInstance {
 	/// showing, hiding, collapsing, or disabling controls via
 	/// [`PF_ParamUtilsSuite3::PF_UpdateParamUI`](crate::suites). Cosmetic only — the
 	/// plugin must not change parameter values in response to this command.
-	pub fn update_params_ui(&mut self) -> Result<()> {-
+	pub fn update_params_ui(&mut self) -> Result<()> {
 		self.call_plugin(RawCommand::UpdateParamsUi, null_mut())
 	}
 
@@ -1235,7 +1237,7 @@ impl PluginInstance {
 	/// Returns [`AexloError::PluginExecutionFailed`] if the plugin returns a
 	/// non-`PF_Err_NONE` code.
 	fn call_plugin(&mut self, command: RawCommand, extra_data: *mut ::std::os::raw::c_void) -> Result<()> {
-		let entry_point = self.entry_point.ok_or(AexloError::ContainerNotLoaded)?;
+		let entry_point = self.entry_point.ok_or(AexloError::PluginNotLoaded)?;
 		let effect_ref = self as *mut _ as PF_ProgPtr;
 
 		let entry_point_name = self.entry_point_name.as_deref().unwrap_or(DEFAULT_ENTRY_POINT_NAME);
@@ -1393,7 +1395,7 @@ mod tests {
 		fx.set_render_size(640, 360);
 		assert_eq!(fx.render_context.size(), (in_w as i32, in_h as i32));
 
-		fx.set_input(PluginInstance::build_layer(
+		fx.set_input_layer(PluginInstance::build_layer(
 			320,
 			240,
 			wrapper::Pixel::<wrapper::Depth8>::black(),

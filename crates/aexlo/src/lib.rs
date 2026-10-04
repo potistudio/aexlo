@@ -67,7 +67,6 @@ pub use preview::{
 /// `#[aexlo::preview]` - render a plugin in-process and drop a preview PNG.
 pub use aexlo_macros::preview;
 
-/// Parameter value type for reading and writing plugin parameters.
 pub use param_value::ParamValue;
 
 /// Injectable host-application services ("PF AE App Suite"): UI colors, fonts,

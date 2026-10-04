@@ -145,7 +145,7 @@ fn reload(
 		// Install the input layer before the first render, so the freshly loaded
 		// instance never shows a frame built from the default test image.
 		if let Some(input) = input {
-			fx.set_input(input.layer()?);
+			fx.set_input_layer(input.layer()?);
 		}
 		Ok((fx, new_staged))
 	}) {

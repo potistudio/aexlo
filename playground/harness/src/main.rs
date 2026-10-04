@@ -135,7 +135,7 @@ fn run(args: &[String]) -> anyhow::Result<()> {
 		.with_context(|| format!("failed to open input image {}", input_path.display()))?
 		.to_rgba8();
 	let (width, height) = img.dimensions();
-	instance.set_input(Layer::<Depth8>::from_raw(img.into_raw(), width, height)?);
+	instance.set_input_layer(Layer::<Depth8>::from_raw(img.into_raw(), width, height)?);
 
 	// Nudge every control off its default so parameter plumbing shows up in
 	// the trace and in the picture.

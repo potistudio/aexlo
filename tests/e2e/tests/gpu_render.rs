@@ -20,7 +20,7 @@ fn read_output_rgba(instance: &PluginInstance) -> Vec<u8> {
 	let (width, height) = instance.output_size();
 	let mut buffer = vec![0u8; (width * height * 4) as usize];
 	instance
-		.write_output_rgba(&mut buffer)
+		.write_rendered_pixels(&mut buffer)
 		.expect("write_output_rgba failed");
 	buffer
 }
@@ -58,7 +58,7 @@ fn bitonic_pixel_sorter_gpu_render_produces_real_output() {
 			dst.copy_from_slice(&[src.red, src.green, src.blue, src.alpha]);
 		}
 	}
-	instance.set_input(input);
+	instance.set_input_layer(input);
 
 	match instance.render_gpu() {
 		Ok(()) => {}
@@ -91,7 +91,7 @@ fn render_frame_prefers_gpu_path_when_supported() {
 	};
 
 	let mut via_gpu = aexlo::Host::get().try_load(&plugin_path).expect("failed to load plugin");
-	via_gpu.set_input(load_sample_input());
+	via_gpu.set_input_layer(load_sample_input());
 	via_gpu.set_param(4, ParamValue::Float(25.0)).unwrap();
 	via_gpu.set_param(5, ParamValue::Float(75.0)).unwrap();
 	if let Err(err) = via_gpu.render_gpu() {
@@ -104,7 +104,7 @@ fn render_frame_prefers_gpu_path_when_supported() {
 	let gpu_output = read_output_rgba(&via_gpu);
 
 	let mut via_render_frame = aexlo::Host::get().try_load(&plugin_path).expect("failed to load plugin");
-	via_render_frame.set_input(load_sample_input());
+	via_render_frame.set_input_layer(load_sample_input());
 	via_render_frame.set_param(4, ParamValue::Float(25.0)).unwrap();
 	via_render_frame.set_param(5, ParamValue::Float(75.0)).unwrap();
 	via_render_frame.render_frame().expect("render_frame failed");

@@ -212,7 +212,7 @@ impl AexloApp {
 	fn apply_input(&self, instance: &mut PluginInstance) {
 		if let Some((bytes, w, h)) = &self.input {
 			match Layer::<Depth8>::from_raw(bytes.clone(), *w, *h) {
-				Ok(layer) => instance.set_input(layer),
+				Ok(layer) => instance.set_input_layer(layer),
 				Err(e) => log::warn!("Failed to build input layer: {e}"),
 			}
 		}
@@ -264,7 +264,7 @@ impl AexloApp {
 			self.height = out_h as usize;
 		}
 
-		if let Err(e) = instance.write_output_rgba(&mut self.pixels) {
+		if let Err(e) = instance.write_rendered_pixels(&mut self.pixels) {
 			self.render_error = Some(e.to_string());
 		}
 	}

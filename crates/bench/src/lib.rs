@@ -314,7 +314,7 @@ pub fn set_input_frame(
 		None => bench_input(width, height),
 	};
 	let layer = Layer::<Depth8>::from_raw(pixels, width, height).map_err(|err| format!("{err}"))?;
-	instance.set_input(layer);
+	instance.set_input_layer(layer);
 	Ok(())
 }
 

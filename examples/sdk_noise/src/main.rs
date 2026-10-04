@@ -58,7 +58,7 @@ fn extract_output_rgba(instance: &mut PluginInstance) -> Result<(Vec<u8>, u32, u
 	let (width, height) = instance.output_size();
 	let mut buffer = vec![0u8; (width * height * 4) as usize];
 
-	instance.write_output_rgba(&mut buffer)?;
+	instance.write_rendered_pixels(&mut buffer)?;
 	log::info!("Extracted output layer {}.", "successfully".green());
 
 	log::debug!("First 10 pixels (out of {}):", buffer.len() / 4);
@@ -123,7 +123,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let input_buffer = img.to_rgba8().into_raw();
 	let input_layer = aexlo::Layer::<Depth8>::from_raw(input_buffer, 1920, 1080)?;
 
-	instance.set_input(input_layer);
+	instance.set_input_layer(input_layer);
 
 	log::info!("Rendering...");
 	instance.render()?;

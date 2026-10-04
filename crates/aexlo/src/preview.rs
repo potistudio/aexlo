@@ -200,7 +200,7 @@ pub fn save_preview(instance: &PluginInstance, path: impl AsRef<Path>) -> Result
 	let (w, h) = instance.output_size();
 
 	let mut pixels = vec![0u8; w as usize * h as usize * 4];
-	instance.write_output_rgba(&mut pixels)?;
+	instance.write_rendered_pixels(&mut pixels)?;
 
 	let file = std::fs::File::create(path)
 		.map_err(|e| AexloError::Unexpected(format!("creating preview {}: {e}", path.display())))?;

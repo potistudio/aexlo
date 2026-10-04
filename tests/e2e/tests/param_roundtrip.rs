@@ -21,7 +21,7 @@ fn render_rgba(instance: &mut PluginInstance) -> Vec<u8> {
 	let (width, height) = instance.output_size();
 	let mut buffer = vec![0u8; (width * height * 4) as usize];
 	instance
-		.write_output_rgba(&mut buffer)
+		.write_rendered_pixels(&mut buffer)
 		.expect("write_output_rgba failed");
 	buffer
 }
@@ -89,12 +89,12 @@ fn bitonic_pixel_sorter_direction_param_changes_render_output() {
 	};
 
 	let mut horizontal = aexlo::Host::get().try_load(&plugin_path).expect("failed to load plugin");
-	horizontal.set_input(load_sample_input());
+	horizontal.set_input_layer(load_sample_input());
 	horizontal.set_param(2, ParamValue::Popup(1)).unwrap(); // Horizontal
 	let horizontal_output = render_rgba(&mut horizontal);
 
 	let mut vertical = aexlo::Host::get().try_load(&plugin_path).expect("failed to load plugin");
-	vertical.set_input(load_sample_input());
+	vertical.set_input_layer(load_sample_input());
 	vertical.set_param(2, ParamValue::Popup(2)).unwrap(); // Vertical
 	let vertical_output = render_rgba(&mut vertical);
 

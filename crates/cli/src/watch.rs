@@ -144,7 +144,7 @@ pub(crate) fn render_instance(fx: &mut PluginInstance) -> Result<(Vec<u8>, u32, 
 	fx.render_frame().context("render failed")?;
 	let (w, h) = fx.output_size();
 	let mut rgba = vec![0u8; w as usize * h as usize * 4];
-	fx.write_output_rgba(&mut rgba).context("reading rendered output")?;
+	fx.write_rendered_pixels(&mut rgba).context("reading rendered output")?;
 	Ok((rgba, w, h))
 }
 

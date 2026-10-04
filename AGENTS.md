@@ -1,4 +1,4 @@
-# Agent Guidances
+# Agent Guideline
 
 ## Development
 

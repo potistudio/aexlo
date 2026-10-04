@@ -74,7 +74,7 @@ mod preview {
 		// The noise fill must have written a non-uniform frame: sample a few
 		// pixels and confirm they are not all identical.
 		let mut pixels = vec![0u8; w as usize * h as usize * 4];
-		fx.write_output_rgba(&mut pixels)
+		fx.write_rendered_pixels(&mut pixels)
 			.expect("reading output should succeed");
 		let first = &pixels[0..4];
 		let varied = pixels.as_chunks::<4>().0.iter().any(|px| px != first);

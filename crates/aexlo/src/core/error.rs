@@ -1,4 +1,4 @@
-//! Error types for the aexlo library.
+//! Error types for crate.
 //!
 //! This module defines structured error types using `thiserror`,
 //! providing clear error messages and proper interoperability with
@@ -6,7 +6,7 @@
 
 use thiserror::Error;
 
-/// The main error type for aexlo operations.
+/// The main error type for crate's operations.
 #[derive(Debug, Error)]
 pub enum AexloError {
 	/// Error occurred while loading the plugin file.
@@ -23,9 +23,9 @@ pub enum AexloError {
 
 	/// The plugin container is not loaded.
 	#[error("Plugin container is not loaded.")]
-	ContainerNotLoaded,
+	PluginNotLoaded,
 
-	/// The plugin returned a non-zero `PF_Err` code during execution.
+	/// The plugin returned a non-zero error code during execution.
 	///
 	/// `command` names the `PF_Cmd_*` that failed - essential context, since
 	/// hosts like [`render_frame`](crate::PluginInstance::render_frame) chain

@@ -23,7 +23,7 @@ fn render_rgba(instance: &mut PluginInstance) -> Vec<u8> {
 	let (width, height) = instance.output_size();
 	let mut buffer = vec![0u8; (width * height * 4) as usize];
 	instance
-		.write_output_rgba(&mut buffer)
+		.write_rendered_pixels(&mut buffer)
 		.expect("write_output_rgba failed");
 	buffer
 }
@@ -39,7 +39,7 @@ fn nothing_plugin_is_a_true_passthrough() {
 
 	let mut instance = aexlo::Host::get().try_load(&plugin_path).expect("failed to load plugin");
 	let (input, expected) = load_sample_input();
-	instance.set_input(input);
+	instance.set_input_layer(input);
 
 	let output = render_rgba(&mut instance);
 
@@ -61,7 +61,7 @@ fn fill_color_produces_exact_uniform_output() {
 
 	let mut instance = aexlo::Host::get().try_load(&plugin_path).expect("failed to load plugin");
 	let (input, _) = load_sample_input();
-	instance.set_input(input);
+	instance.set_input_layer(input);
 
 	// Indices follow FillColor's own param order (1 = enable checkbox, 2 = color,
 	// 3 = opacity); the plugin's declared names come through mojibake locally

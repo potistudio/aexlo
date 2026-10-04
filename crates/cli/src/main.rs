@@ -227,7 +227,7 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 	if let Some(path) = &input {
 		let (bytes, w, h) = load_input(path)?;
 		let layer = Layer::<Depth8>::from_raw(bytes, w, h).map_err(|e| anyhow::anyhow!("building input layer: {e}"))?;
-		instance.set_input(layer);
+		instance.set_input_layer(layer);
 	}
 
 	for (index, raw) in &sets {

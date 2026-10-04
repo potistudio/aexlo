@@ -1,3 +1,5 @@
+//! Parameter value type for reading and writing plugin parameters.
+
 use after_effects::ParamType;
 
 /// A parameter value for an After Effects plugin.
