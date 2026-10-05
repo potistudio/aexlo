@@ -511,7 +511,16 @@ impl PluginInstance {
 		}
 
 		self.smart_render_data.configure_gpu(self.gpu_data, 0, framework);
+		let result = self.run_gpu_frame(output_key, out_len);
+		// Later renders default to the CPU; leaving the GPU configuration in
+		// place would hand the next CPU `SMART_RENDER` a GPU frame description.
+		self.smart_render_data.configure_cpu();
+		result
+	}
 
+	/// Phases B and C of [`Self::render_gpu`], with the smart-render inputs
+	/// configured for the GPU.
+	fn run_gpu_frame(&mut self, output_key: usize, out_len: usize) -> Result<()> {
 		// Phase B: pre-render declares regions, then the GPU render runs -- if the
 		// plugin says this frame can render on the GPU. Otherwise After Effects
 		// renders it on the CPU instead, which `render_frame` does on this error.
