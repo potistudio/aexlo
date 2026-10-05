@@ -14,11 +14,15 @@
 //!   for effects that route intermediates through the suite.
 //! * [`get_gpu_world_size`] / [`get_gpu_world_device_index`] - trivial queries.
 //!
-//! The remaining host-memory/world-management calls are stubs. Each stub fails
-//! loudly rather than returning uninitialised out-parameters, so an unexpected
-//! caller degrades gracefully.
+//! * [`allocate_host_memory`] / [`free_host_memory`] - aligned host staging memory.
+//! * [`create_gpu_world`] / [`dispose_gpu_world`] - scratch GPU worlds backed by
+//!   a device buffer, reachable through [`get_gpu_world_data`].
+//! * The purge calls report nothing purged: aexlo keeps no memory caches.
 
+use std::alloc::Layout;
+use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
+use std::sync::{LazyLock, Mutex};
 
 use after_effects_sys::*;
 
@@ -223,25 +227,160 @@ unsafe extern "C" fn release_exclusive_device_access(_effect_ref: PF_ProgPtr, _d
 	PF_Err_NONE as PF_Err
 }
 
-/// Fallback for the suite's host-memory/world-management calls that aexlo does
-/// not service. Each stub fails loudly so an unexpected caller is diagnosable
-/// from the log.
-macro_rules! unsupported_stub {
-	($name:ident ( $($arg:ident : $ty:ty),* $(,)? ) $who:literal) => {
-		unsafe extern "C" fn $name($($arg : $ty),*) -> PF_Err {
-			$( let _ = $arg; )*
-			log::warn!(concat!("STUB: ", $who, " is not implemented"));
-			PF_Err_OUT_OF_MEMORY as PF_Err
-		}
-	};
+/// aexlo keeps no device-memory cache, so there is never anything to purge.
+unsafe extern "C" fn purge_device_memory(
+	_effect_ref: PF_ProgPtr,
+	_device_index: A_u_long,
+	_size: usize,
+	bytes_purgedP0: *mut usize,
+) -> PF_Err {
+	if let Some(out) = unsafe { bytes_purgedP0.as_mut() } {
+		*out = 0;
+	}
+	PF_Err_NONE as PF_Err
 }
 
-unsupported_stub!(purge_device_memory(_e: PF_ProgPtr, _i: A_u_long, _s: usize, _p: *mut usize) "GPUDeviceSuite/PurgeDeviceMemory");
-unsupported_stub!(allocate_host_memory(_e: PF_ProgPtr, _i: A_u_long, _s: usize, _m: *mut *mut c_void) "GPUDeviceSuite/AllocateHostMemory");
-unsupported_stub!(free_host_memory(_e: PF_ProgPtr, _i: A_u_long, _m: *mut c_void) "GPUDeviceSuite/FreeHostMemory");
-unsupported_stub!(purge_host_memory(_e: PF_ProgPtr, _i: A_u_long, _b: usize, _p: *mut usize) "GPUDeviceSuite/PurgeHostMemory");
-unsupported_stub!(create_gpu_world(_e: PF_ProgPtr, _i: A_u_long, _w: A_long, _h: A_long, _par: PF_RationalScale, _f: PF_Field, _pf: PF_PixelFormat, _c: PF_Boolean, _wp: *mut *mut PF_EffectWorld) "GPUDeviceSuite/CreateGPUWorld");
-unsupported_stub!(dispose_gpu_world(_e: PF_ProgPtr, _w: *mut PF_EffectWorld) "GPUDeviceSuite/DisposeGPUWorld");
+/// Alignment of `AllocateHostMemory` blocks: a cache line, enough for any SIMD type.
+const HOST_ALIGN: usize = 64;
+
+/// Live `AllocateHostMemory` blocks and their sizes, so `FreeHostMemory` can
+/// rebuild the layout (the plugin only hands back the pointer).
+static HOST_ALLOCS: LazyLock<Mutex<HashMap<usize, usize>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Allocate `size` bytes of host memory for staging GPU transfers. aexlo's
+/// devices either share memory with the CPU (Metal) or copy through the
+/// driver (CUDA), so ordinary aligned memory serves.
+unsafe extern "C" fn allocate_host_memory(
+	_effect_ref: PF_ProgPtr,
+	_device_index: A_u_long,
+	size: usize,
+	memoryPP: *mut *mut c_void,
+) -> PF_Err {
+	let Some(out) = (unsafe { memoryPP.as_mut() }) else {
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	};
+	let Ok(layout) = Layout::from_size_align(size.max(1), HOST_ALIGN) else {
+		return PF_Err_OUT_OF_MEMORY as PF_Err;
+	};
+	let ptr = unsafe { std::alloc::alloc(layout) };
+	if ptr.is_null() {
+		return PF_Err_OUT_OF_MEMORY as PF_Err;
+	}
+	HOST_ALLOCS
+		.lock()
+		.unwrap_or_else(|e| e.into_inner())
+		.insert(ptr as usize, layout.size());
+	*out = ptr as *mut c_void;
+	PF_Err_NONE as PF_Err
+}
+
+unsafe extern "C" fn free_host_memory(
+	_effect_ref: PF_ProgPtr,
+	_device_index: A_u_long,
+	memoryP: *mut c_void,
+) -> PF_Err {
+	let size = HOST_ALLOCS
+		.lock()
+		.unwrap_or_else(|e| e.into_inner())
+		.remove(&(memoryP as usize));
+	let Some(size) = size else {
+		log::error!("FreeHostMemory: unknown allocation {:#x}", memoryP as usize);
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	};
+	// SAFETY: the block came from `allocate_host_memory` with this exact layout.
+	unsafe { std::alloc::dealloc(memoryP as *mut u8, Layout::from_size_align_unchecked(size, HOST_ALIGN)) };
+	PF_Err_NONE as PF_Err
+}
+
+/// No host-memory cache either; nothing to purge.
+unsafe extern "C" fn purge_host_memory(
+	_effect_ref: PF_ProgPtr,
+	_device_index: A_u_long,
+	_bytes_to_try: usize,
+	bytes_purgedP0: *mut usize,
+) -> PF_Err {
+	if let Some(out) = unsafe { bytes_purgedP0.as_mut() } {
+		*out = 0;
+	}
+	PF_Err_NONE as PF_Err
+}
+
+/// `PF_EffectWorld`s handed out by `CreateGPUWorld` (boxed, so the pointer is
+/// stable), as opposed to the instance-owned input/output worlds that also
+/// carry GPU buffers. Only these may be freed by `DisposeGPUWorld`.
+static CREATED_GPU_WORLDS: LazyLock<Mutex<HashSet<usize>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// Create a `PF_PixelFormat_GPU_BGRA128` world backed by a device buffer the
+/// plugin reaches through `GetGPUWorldData`. Its CPU `data` pointer is null,
+/// as for AE's own GPU worlds.
+#[allow(clippy::too_many_arguments)]
+unsafe extern "C" fn create_gpu_world(
+	effect_ref: PF_ProgPtr,
+	_device_index: A_u_long,
+	width: A_long,
+	height: A_long,
+	pixel_aspect_ratio: PF_RationalScale,
+	_field: PF_Field,
+	pixel_format: PF_PixelFormat,
+	clear_pixB: PF_Boolean,
+	worldPP: *mut *mut PF_EffectWorld,
+) -> PF_Err {
+	let ctx = gpu_context_mut_or_bail!(effect_ref, "CreateGPUWorld");
+	let Some(out) = (unsafe { worldPP.as_mut() }) else {
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	};
+	#[allow(clippy::unnecessary_cast)] // `PF_PixelFormat_*` is `u32` on macOS only.
+	if pixel_format as u32 != PF_PixelFormat_GPU_BGRA128 as u32 || width <= 0 || height <= 0 {
+		log::error!("CreateGPUWorld: unsupported {width}x{height} world of format {pixel_format:#x}");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	let rowbytes = width * crate::gpu::GPU_BYTES_PER_PIXEL as A_long;
+	let byte_len = rowbytes as usize * height as usize;
+	let mut world: PF_EffectWorld = unsafe { std::mem::zeroed() };
+	world.world_flags = PF_WorldFlag_WRITEABLE as PF_WorldFlags;
+	world.rowbytes = rowbytes;
+	world.width = width;
+	world.height = height;
+	world.extent_hint = PF_UnionableRect {
+		left: 0,
+		top: 0,
+		right: width,
+		bottom: height,
+	};
+	world.pix_aspect_ratio = pixel_aspect_ratio;
+	let world = Box::into_raw(Box::new(world));
+	let key = world as usize;
+
+	// Metal buffers start with undefined contents; CUDA ones are zeroed.
+	if !ctx.ensure_buffer(key, byte_len) || (clear_pixB != 0 && !ctx.write_buffer(key, &vec![0; byte_len])) {
+		ctx.release_buffer(key);
+		drop(unsafe { Box::from_raw(world) });
+		return PF_Err_OUT_OF_MEMORY as PF_Err;
+	}
+	CREATED_GPU_WORLDS.lock().unwrap_or_else(|e| e.into_inner()).insert(key);
+	*out = world;
+	PF_Err_NONE as PF_Err
+}
+
+unsafe extern "C" fn dispose_gpu_world(effect_ref: PF_ProgPtr, worldP: *mut PF_EffectWorld) -> PF_Err {
+	let ctx = gpu_context_mut_or_bail!(effect_ref, "DisposeGPUWorld");
+	if !CREATED_GPU_WORLDS
+		.lock()
+		.unwrap_or_else(|e| e.into_inner())
+		.remove(&(worldP as usize))
+	{
+		log::error!(
+			"DisposeGPUWorld: {:#x} was not created by CreateGPUWorld",
+			worldP as usize
+		);
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+	ctx.release_buffer(worldP as usize);
+	// SAFETY: boxed in `create_gpu_world` and removed from the live set above.
+	drop(unsafe { Box::from_raw(worldP) });
+	PF_Err_NONE as PF_Err
+}
 
 /// Build the `PF_GPUDeviceSuite1` vtable.
 ///
@@ -265,5 +404,36 @@ pub const fn create_gpu_device_suite_1() -> PF_GPUDeviceSuite1 {
 		GetGPUWorldData: Some(get_gpu_world_data),
 		GetGPUWorldSize: Some(get_gpu_world_size),
 		GetGPUWorldDeviceIndex: Some(get_gpu_world_device_index),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn host_memory_round_trips_and_rejects_foreign_pointers() {
+		let suite = create_gpu_device_suite_1();
+		let mut mem: *mut c_void = std::ptr::null_mut();
+		unsafe {
+			assert_eq!(
+				suite.AllocateHostMemory.unwrap()(std::ptr::null_mut(), 0, 100, &mut mem),
+				PF_Err_NONE as PF_Err
+			);
+			assert_eq!(mem as usize % HOST_ALIGN, 0);
+			std::ptr::write_bytes(mem as *mut u8, 0xab, 100);
+			assert_eq!(
+				suite.FreeHostMemory.unwrap()(std::ptr::null_mut(), 0, mem),
+				PF_Err_NONE as PF_Err
+			);
+			assert_ne!(
+				suite.FreeHostMemory.unwrap()(std::ptr::null_mut(), 0, mem),
+				PF_Err_NONE as PF_Err
+			);
+
+			let mut purged = 1;
+			suite.PurgeHostMemory.unwrap()(std::ptr::null_mut(), 0, 1 << 20, &mut purged);
+			assert_eq!(purged, 0);
+		}
 	}
 }

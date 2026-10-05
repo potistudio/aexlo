@@ -190,6 +190,12 @@ mod imp {
 			self.raw_allocs.remove(&(ptr as usize)).is_some()
 		}
 
+		/// Drop the buffer backing `world_ptr` and its GPU-world registration.
+		pub fn release_buffer(&mut self, world_ptr: usize) -> bool {
+			unregister_gpu_world(world_ptr);
+			self.buffers.remove(&world_ptr).is_some()
+		}
+
 		/// Block until every command buffer committed on our queue has finished.
 		///
 		/// The targeted plugins commit their render command buffer but deliberately
@@ -423,6 +429,12 @@ mod imp {
 			self.raw_allocs.remove(&(ptr as usize)).is_some()
 		}
 
+		/// Drop the device buffer backing `world_ptr` and its GPU-world registration.
+		pub fn release_buffer(&mut self, world_ptr: usize) -> bool {
+			unregister_gpu_world(world_ptr);
+			self.buffers.remove(&world_ptr).is_some()
+		}
+
 		/// Block until all outstanding GPU work has finished.
 		///
 		/// A context synchronize (`cuCtxSynchronize`) waits for *every* stream in
@@ -496,6 +508,9 @@ mod imp {
 			None
 		}
 		pub fn free_raw(&mut self, _ptr: *mut c_void) -> bool {
+			false
+		}
+		pub fn release_buffer(&mut self, _world_ptr: usize) -> bool {
 			false
 		}
 		pub fn unregister_all_worlds(&self) {}
