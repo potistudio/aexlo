@@ -166,7 +166,8 @@ impl Default for OverlayTheme {
 }
 
 /// Host-application services queried through the App, Adv App, Adv Item, Adv
-/// Time, Plugin Helper and Custom UI Overlay Theme suites.
+/// Time, Plugin Helper and Custom UI Overlay Theme suites, and the
+/// `PF_ABORT`/`PF_PROGRESS` interact callbacks.
 ///
 /// Every method has a headless default, so implementors override only what
 /// they support. Integer arguments (`color_type`, `sheet`, `mode`, `cursor`,
@@ -260,6 +261,22 @@ pub trait AppHost: Send + Sync {
 	/// Close a progress dialog.
 	fn progress_end(&self, id: ProgressId) {
 		let _ = id;
+	}
+
+	// ---- Interact callbacks: PF_ABORT / PF_PROGRESS --------------------------
+
+	/// Whether the render of the effect identified by the raw `PF_ProgPtr`
+	/// should stop (the user cancelled). Plugins poll this during long renders.
+	fn abort_requested(&self, effect: usize) -> bool {
+		let _ = effect;
+		false
+	}
+
+	/// Progress of the effect's render, `current` out of `total`. Return
+	/// `false` to cancel the render.
+	fn render_progress(&self, effect: usize, current: i32, total: i32) -> bool {
+		let _ = (effect, current, total);
+		true
 	}
 
 	// ---- PF AE Adv App Suite ------------------------------------------------

@@ -66,5 +66,14 @@ pub enum AexloError {
 	Unexpected(String),
 }
 
+impl AexloError {
+	/// Whether the plugin stopped because the render was cancelled
+	/// (`PF_Interrupt_CANCEL`, e.g. after [`AppHost::abort_requested`](crate::AppHost::abort_requested)).
+	pub fn is_cancelled(&self) -> bool {
+		matches!(self, AexloError::PluginExecutionFailed { code, .. }
+			if *code == after_effects_sys::PF_Interrupt_CANCEL as i64)
+	}
+}
+
 /// A specialized Result type for aexlo operations.
 pub type Result<T> = std::result::Result<T, AexloError>;

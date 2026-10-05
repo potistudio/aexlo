@@ -600,6 +600,8 @@ impl PluginInstance {
 		if self.supports_gpu() {
 			match self.render_gpu() {
 				Ok(()) => return Ok(()),
+				// A cancelled render is not retried on another path.
+				Err(err) if err.is_cancelled() => return Err(err),
 				Err(err) => {
 					if matches!(err, AexloError::GpuRenderDeclined) {
 						log::debug!("Plugin declined GPU render for this frame; rendering on the CPU.");
@@ -619,6 +621,7 @@ impl PluginInstance {
 		if self.supports_smart_render() {
 			match self.render_pre().and_then(|()| self.render_smart()) {
 				Ok(()) => return Ok(()),
+				Err(err) if err.is_cancelled() => return Err(err),
 				Err(err) => {
 					log::warn!("Smart render failed ({err:?}); falling back to legacy render.");
 				}

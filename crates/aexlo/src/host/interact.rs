@@ -2,6 +2,7 @@ use after_effects_sys::*;
 
 use crate::PluginInstance;
 use crate::core::diagnostics::diag;
+use crate::host::app::with_app_host_ffi;
 
 // ============================================================================
 // Parameter Management
@@ -106,14 +107,27 @@ unsafe extern "C" fn add_param_sys(effect_ref: PF_ProgPtr, _index: PF_ParamIndex
 	PF_Err_NONE as PF_Err
 }
 
-unsafe extern "C" fn abort_stub(_effect_ref: PF_ProgPtr) -> PF_Err {
-	log::warn!("STUB: abort called");
-	0
+/// `PF_ABORT`: `PF_Interrupt_CANCEL` once the host reports the user cancelled.
+unsafe extern "C" fn abort_stub(effect_ref: PF_ProgPtr) -> PF_Err {
+	with_app_host_ffi(|host| {
+		if host.abort_requested(effect_ref as usize) {
+			PF_Interrupt_CANCEL as PF_Err
+		} else {
+			PF_Err_NONE as PF_Err
+		}
+	})
 }
 
-unsafe extern "C" fn progress_stub(_effect_ref: PF_ProgPtr, _current: A_long, _total: A_long) -> PF_Err {
-	log::warn!("STUB: progress called");
-	0
+/// `PF_PROGRESS`: report progress to the host; `PF_Interrupt_CANCEL` if it
+/// cancels the render.
+unsafe extern "C" fn progress_stub(effect_ref: PF_ProgPtr, current: A_long, total: A_long) -> PF_Err {
+	with_app_host_ffi(|host| {
+		if host.render_progress(effect_ref as usize, current, total) {
+			PF_Err_NONE as PF_Err
+		} else {
+			PF_Interrupt_CANCEL as PF_Err
+		}
+	})
 }
 
 /// Accept a custom-UI registration. aexlo has no UI and never sends
@@ -177,5 +191,35 @@ pub fn create_interact_callbacks() -> PF_InteractCallbacks {
 		get_audio_data: Some(get_audio_data_stub),
 		reserved_str: [std::ptr::null_mut(); 3],
 		reserved: [std::ptr::null_mut(); 10],
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::host::app::{AppHost, TEST_APP_HOST};
+
+	struct Cancelling;
+	impl AppHost for Cancelling {
+		fn abort_requested(&self, _: usize) -> bool {
+			true
+		}
+		fn render_progress(&self, _: usize, current: i32, total: i32) -> bool {
+			current * 2 < total
+		}
+	}
+
+	#[test]
+	fn abort_and_progress_follow_the_host() {
+		let cb = create_interact_callbacks();
+		let null = std::ptr::null_mut();
+		unsafe {
+			assert_eq!(cb.abort.unwrap()(null), PF_Err_NONE as PF_Err);
+			TEST_APP_HOST.set(Some(Box::new(Cancelling)));
+			assert_eq!(cb.abort.unwrap()(null), PF_Interrupt_CANCEL as PF_Err);
+			assert_eq!(cb.progress.unwrap()(null, 1, 10), PF_Err_NONE as PF_Err);
+			assert_eq!(cb.progress.unwrap()(null, 6, 10), PF_Interrupt_CANCEL as PF_Err);
+		}
+		TEST_APP_HOST.set(None);
 	}
 }
