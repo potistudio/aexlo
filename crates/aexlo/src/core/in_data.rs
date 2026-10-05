@@ -107,11 +107,15 @@ impl Default for RenderContext {
 				right: 0,
 				bottom: 0,
 			},
-			current_time: 10240,
-			time_step: 1024,
-			local_time_step: 0,
-			time_scale: 0,
-			field: PF_Field_UPPER as PF_Field,
+			// Frame 0 of a 30 fps comp. `time_scale` must be non-zero: plugins
+			// divide by it to get seconds.
+			current_time: 0,
+			time_step: 1,
+			local_time_step: 1,
+			time_scale: 30,
+			// Progressive frames. A field value makes field-aware effects treat
+			// alternate scanlines as separate interlaced fields.
+			field: PF_Field_FRAME as PF_Field,
 			// Rational scales default to 1/1 to avoid division by zero.
 			downsample_x: one,
 			downsample_y: one,
