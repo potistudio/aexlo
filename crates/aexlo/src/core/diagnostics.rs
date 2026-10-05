@@ -177,7 +177,13 @@ impl Drop for DiagnosticBuilder<'_> {
 
 /// Emit a [`Diagnostic`] record for a host callback.
 ///
-/// Expands to nothing when the `diagnostics` feature is off, so the argument
+/// Also reports the call to the dispatching thread's [`Observer`] at
+/// [`ObserveLevel::Calls`](crate::ObserveLevel::Calls), so `$name` must be a
+/// `&'static str` of the form `"Suite/Function"`.
+///
+/// [`Observer`]: crate::Observer
+///
+/// Otherwise expands to nothing when the `diagnostics` feature is off, so the argument
 /// expressions (typically `format!` calls) are never evaluated - callbacks like
 /// `checkout_output` or `PF_GetPixelFormat` run per frame, and eagerly building
 /// their argument strings costs real time in release builds.
@@ -191,6 +197,7 @@ impl Drop for DiagnosticBuilder<'_> {
 /// ```
 macro_rules! diag {
 	($name:expr $(, $arg_name:expr => $arg_value:expr)* $(,)?) => {
+		$crate::observe::suite_call($name);
 		#[cfg(feature = "diagnostics")]
 		{
 			let mut builder = $crate::core::diagnostics::DiagnosticBuilder::new();
@@ -200,6 +207,7 @@ macro_rules! diag {
 		}
 	};
 	($name:expr $(, $arg_name:expr => $arg_value:expr)*; result: $result:expr $(,)?) => {
+		$crate::observe::suite_call($name);
 		#[cfg(feature = "diagnostics")]
 		{
 			let mut builder = $crate::core::diagnostics::DiagnosticBuilder::new();

@@ -5,8 +5,36 @@ pub struct Depth8;
 
 impl PixelDepth for Depth8 {
 	type Depth = u8;
+	const KIND: PixelDepthKind = PixelDepthKind::U8;
+
 	fn max_value() -> Self::Depth {
 		u8::MAX
+	}
+
+	fn to_unit(value: u8) -> f32 {
+		value as f32 / 255.0
+	}
+
+	fn from_unit(value: f32) -> u8 {
+		(value.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
+	}
+
+	fn wrap(layer: Layer<Self>) -> AnyLayer {
+		AnyLayer::U8(layer)
+	}
+
+	fn unwrap_ref(layer: &AnyLayer) -> Option<&Layer<Self>> {
+		match layer {
+			AnyLayer::U8(layer) => Some(layer),
+			_ => None,
+		}
+	}
+
+	fn unwrap_mut(layer: &mut AnyLayer) -> Option<&mut Layer<Self>> {
+		match layer {
+			AnyLayer::U8(layer) => Some(layer),
+			_ => None,
+		}
 	}
 }
 

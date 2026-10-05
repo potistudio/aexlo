@@ -62,6 +62,14 @@ pub enum AexloError {
 	#[error("Layer error: {0}")]
 	Layer(#[from] wrapper::LayerError),
 
+	/// A layer was requested at a depth other than the one it has (see
+	/// [`PluginInstance::read_output`](crate::PluginInstance::read_output)).
+	#[error("Requested a {requested} layer, but it is {actual}")]
+	DepthMismatch {
+		requested: wrapper::PixelDepthKind,
+		actual: wrapper::PixelDepthKind,
+	},
+
 	#[error("Unexpected error: {0}")]
 	Unexpected(String),
 }

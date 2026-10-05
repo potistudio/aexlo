@@ -15,9 +15,7 @@ use after_effects_sys::{
 use crate::core::diagnostics::diag;
 use crate::suites::stream::{StreamValue, stream_value};
 
-// `name` is only read by the diagnostics build.
-#[cfg_attr(not(feature = "diagnostics"), allow(unused_variables))]
-fn no_such_keyframe(name: &str, streamH: AEGP_StreamRefH) -> A_Err {
+fn no_such_keyframe(name: &'static str, streamH: AEGP_StreamRefH) -> A_Err {
 	diag!(name, "streamH" => format!("{:#x}", streamH as usize));
 	if unsafe { stream_value(streamH) }.is_none() {
 		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
@@ -25,7 +23,7 @@ fn no_such_keyframe(name: &str, streamH: AEGP_StreamRefH) -> A_Err {
 	PF_Err_INVALID_INDEX as A_Err
 }
 
-fn unsupported(name: &str) -> A_Err {
+fn unsupported(name: &'static str) -> A_Err {
 	diag!(name);
 	log::warn!("{name}: aexlo has no timeline to add keyframes to");
 	A_Err_GENERIC as A_Err

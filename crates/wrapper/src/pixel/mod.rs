@@ -2,9 +2,76 @@ mod float32;
 mod uint16;
 mod uint8;
 
-pub trait PixelDepth {
-	type Depth: Default + Copy + Clone + PartialEq + Send + Sync;
+use crate::layer::{AnyLayer, Layer};
+
+/// The channel depth of a pixel buffer, as a value (see [`PixelDepth::KIND`]).
+///
+/// After Effects calls these 8, 16 and 32 bits per channel (bpc): 8 and 16 bpc
+/// are integers (16 bpc is 15-bit, white is `32768`), 32 bpc is float.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum PixelDepthKind {
+	U8,
+	U16,
+	F32,
+}
+
+impl PixelDepthKind {
+	/// Bits per channel: 8, 16 or 32.
+	pub fn bits(self) -> u32 {
+		match self {
+			Self::U8 => 8,
+			Self::U16 => 16,
+			Self::F32 => 32,
+		}
+	}
+
+	/// The depth with `bits` bits per channel, if it is one of 8, 16 or 32.
+	pub fn from_bits(bits: u32) -> Option<Self> {
+		match bits {
+			8 => Some(Self::U8),
+			16 => Some(Self::U16),
+			32 => Some(Self::F32),
+			_ => None,
+		}
+	}
+
+	/// Bytes per ARGB pixel: 4, 8 or 16.
+	pub fn bytes_per_pixel(self) -> usize {
+		self.bits() as usize / 2
+	}
+}
+
+impl core::fmt::Display for PixelDepthKind {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		write!(f, "{} bpc", self.bits())
+	}
+}
+
+pub trait PixelDepth: Sized + Send + Sync + 'static {
+	type Depth: Default + Copy + Clone + PartialEq + Send + Sync + core::fmt::Debug;
+
+	/// This depth as a value.
+	const KIND: PixelDepthKind;
+
+	/// The channel value of full intensity (`255`, `32768` or `1.0`).
 	fn max_value() -> Self::Depth;
+
+	/// A channel value normalized to `[0, 1]` (float channels pass through
+	/// unclamped, so out-of-range and non-finite values survive).
+	fn to_unit(value: Self::Depth) -> f32;
+
+	/// A normalized channel value at this depth, rounded and clamped for
+	/// integer depths.
+	fn from_unit(value: f32) -> Self::Depth;
+
+	#[doc(hidden)]
+	fn wrap(layer: Layer<Self>) -> AnyLayer;
+
+	#[doc(hidden)]
+	fn unwrap_ref(layer: &AnyLayer) -> Option<&Layer<Self>>;
+
+	#[doc(hidden)]
+	fn unwrap_mut(layer: &mut AnyLayer) -> Option<&mut Layer<Self>>;
 }
 
 /// A single ARGB pixel parameterized over its channel depth.
@@ -55,6 +122,26 @@ impl<T: PixelDepth> Pixel<T> {
 			red: T::Depth::default(),
 			green: T::Depth::default(),
 			blue: T::Depth::default(),
+		}
+	}
+
+	/// The pixel as normalized `[r, g, b, a]`.
+	pub fn to_unit(&self) -> [f32; 4] {
+		[
+			T::to_unit(self.red),
+			T::to_unit(self.green),
+			T::to_unit(self.blue),
+			T::to_unit(self.alpha),
+		]
+	}
+
+	/// A pixel from normalized `[r, g, b, a]`.
+	pub fn from_unit([red, green, blue, alpha]: [f32; 4]) -> Self {
+		Pixel {
+			alpha: T::from_unit(alpha),
+			red: T::from_unit(red),
+			green: T::from_unit(green),
+			blue: T::from_unit(blue),
 		}
 	}
 }

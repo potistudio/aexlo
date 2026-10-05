@@ -1,11 +1,40 @@
 use super::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Depth32;
 
 impl PixelDepth for Depth32 {
 	type Depth = f32;
+	const KIND: PixelDepthKind = PixelDepthKind::F32;
+
 	fn max_value() -> Self::Depth {
 		1.0
+	}
+
+	fn to_unit(value: f32) -> f32 {
+		value
+	}
+
+	fn from_unit(value: f32) -> f32 {
+		value
+	}
+
+	fn wrap(layer: Layer<Self>) -> AnyLayer {
+		AnyLayer::F32(layer)
+	}
+
+	fn unwrap_ref(layer: &AnyLayer) -> Option<&Layer<Self>> {
+		match layer {
+			AnyLayer::F32(layer) => Some(layer),
+			_ => None,
+		}
+	}
+
+	fn unwrap_mut(layer: &mut AnyLayer) -> Option<&mut Layer<Self>> {
+		match layer {
+			AnyLayer::F32(layer) => Some(layer),
+			_ => None,
+		}
 	}
 }
 

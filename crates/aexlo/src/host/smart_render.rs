@@ -206,6 +206,9 @@ pub(crate) struct SmartRenderData {
 
 	input: Box<after_effects_sys::PF_SmartRenderInput>,
 	callbacks: Box<after_effects_sys::PF_SmartRenderCallbacks>,
+
+	/// Bits per channel of CPU renders: the depth of the instance's worlds.
+	cpu_bitdepth: i16,
 }
 
 impl SmartRenderData {
@@ -262,6 +265,7 @@ impl SmartRenderData {
 				checkin_layer_pixels: Some(checkin_layer_pixels_stub),
 				checkout_output: Some(checkout_output_sys),
 			}),
+			cpu_bitdepth: 8,
 		}
 	}
 
@@ -355,7 +359,17 @@ impl SmartRenderData {
 		self.input.what_gpu != PF_GPU_Framework_NONE as PF_GPU_Framework
 	}
 
-	/// Reset the pre-render and render inputs to CPU (8-bit, no GPU framework).
+	/// Set the depth CPU renders advertise (8, 16 or 32), applying it now unless
+	/// a GPU render is configured.
+	pub fn set_cpu_bitdepth(&mut self, bits: i16) {
+		self.cpu_bitdepth = bits;
+		if !self.is_gpu() {
+			self.pre_input.bitdepth = bits;
+			self.input.bitdepth = bits;
+		}
+	}
+
+	/// Reset the pre-render and render inputs to CPU (the instance's depth, no GPU framework).
 	///
 	/// Used when GPU render is unavailable or fails, so a subsequent CPU
 	/// smart-render fallback does not leave the plugin believing it should still
@@ -363,12 +377,12 @@ impl SmartRenderData {
 	pub fn configure_cpu(&mut self) {
 		self.pre_input.what_gpu = PF_GPU_Framework_NONE as PF_GPU_Framework;
 		self.pre_input.device_index = 0;
-		self.pre_input.bitdepth = 8;
+		self.pre_input.bitdepth = self.cpu_bitdepth;
 		self.pre_input.gpu_data = null();
 
 		self.input.what_gpu = PF_GPU_Framework_NONE as PF_GPU_Framework;
 		self.input.device_index = 0;
-		self.input.bitdepth = 8;
+		self.input.bitdepth = self.cpu_bitdepth;
 		self.input.gpu_data = null();
 	}
 }

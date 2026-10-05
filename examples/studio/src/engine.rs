@@ -615,7 +615,7 @@ impl Worker {
 			linked.insert(index);
 		}
 		for stale in slot.linked.difference(&linked) {
-			let _ = fx.set_layer_param(*stale, None);
+			let _ = fx.clear_layer_param(*stale);
 		}
 		slot.linked = linked;
 

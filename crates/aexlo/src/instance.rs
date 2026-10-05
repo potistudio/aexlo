@@ -1,8 +1,10 @@
 use crate::core::error::{AexloError, Result};
 use crate::core::in_data::{CallBindings, EffectState, HostInfo as InDataHost, RenderContext};
 use crate::host::app::Host;
+use crate::host::host_layer::HostLayer;
 use crate::host::layer_param::LinkedLayer;
 use crate::host::smart_render::SmartRenderData;
+use crate::observe::{CommandEvent, CommandPhase, Installed, ObserveLevel, Observer};
 use crate::param_value::ParamValue;
 use crate::utils;
 
@@ -12,7 +14,7 @@ use after_effects_sys::{
 	PF_ArbParamsExtra, PF_Arbitrary_COPY_FUNC, PF_Arbitrary_DISPOSE_FUNC, PF_Arbitrary_NEW_FUNC, PF_ArbitraryH,
 	PF_Err_INVALID_CALLBACK, PF_Err_NONE, PF_GPU_Framework, PF_GPU_Framework_NONE, PF_GPUDeviceSetdownExtra,
 	PF_GPUDeviceSetdownInput, PF_GPUDeviceSetupExtra, PF_GPUDeviceSetupInput, PF_GPUDeviceSetupOutput,
-	PF_OutFlag2_SUPPORTS_GPU_RENDER_F32, PF_OutFlags2, PF_ParamDef, PF_ParamDefUnion, PF_ParamType, PF_Pixel,
+	PF_OutFlag2_SUPPORTS_GPU_RENDER_F32, PF_OutFlags, PF_OutFlags2, PF_ParamDef, PF_ParamDefUnion, PF_ParamType,
 	PF_ProgPtr,
 };
 use colored::Colorize;
@@ -23,11 +25,17 @@ use std::{
 	path::{Path, PathBuf},
 	ptr::NonNull,
 	ptr::null_mut,
+	sync::Arc,
+	time::Instant,
 };
+use wrapper::{AnyLayer, Layer, PixelDepth, PixelDepthKind};
 
 use crate::core::constants::{DEFAULT_HEIGHT as HEIGHT, DEFAULT_WIDTH as WIDTH};
 
 const DEFAULT_ENTRY_POINT_NAME: &str = "EffectMain";
+
+/// Normalized `[r, g, b, a]` of the fresh output world AE hands a plugin.
+const OPAQUE_BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
 /// Entry point names to try if the plugin doesn't implement `PluginDataEntryFunction2`.
 const FALLBACK_ENTRY_POINT_CANDIDATES: &[&str] = &[DEFAULT_ENTRY_POINT_NAME, "EntryPointFunc"];
@@ -125,6 +133,8 @@ pub struct PluginInstance {
 	/// Frame the next command operates on.
 	pub(crate) render_context: RenderContext,
 	out_data: after_effects_sys::PF_OutData,
+	/// `out_flags` as declared at `PF_Cmd_GLOBAL_SETUP`.
+	global_out_flags: PF_OutFlags,
 	/// `out_flags2` as declared at `PF_Cmd_GLOBAL_SETUP`.
 	global_out_flags2: PF_OutFlags2,
 
@@ -145,8 +155,10 @@ pub struct PluginInstance {
 	/// to `params` may reallocate its backing buffer and invalidate old pointers.
 	params_ptr_cache: Vec<*mut PF_ParamDef>,
 
-	pub(crate) input_layer: wrapper::Layer<wrapper::Depth8>,
-	pub(crate) output_layer: wrapper::Layer<wrapper::Depth8>,
+	/// The effect's own layer. Its depth is the project depth: the output
+	/// follows it (see [`Self::set_input_layer`]).
+	pub(crate) input_layer: HostLayer,
+	pub(crate) output_layer: HostLayer,
 
 	smart_render_data: SmartRenderData,
 
@@ -194,6 +206,9 @@ pub struct PluginInstance {
 	/// created for us at setup (see [`Self::setup_arbitrary_params`]); handed
 	/// back through `PF_Arbitrary_DISPOSE_FUNC` on drop.
 	owned_arb_values: Vec<usize>,
+
+	/// Who is told about commands and calls (see [`Self::set_observer`]).
+	observer: Option<Installed>,
 }
 
 /// Plugin constructors. Taking a [`Host`] guarantees the process-wide
@@ -492,7 +507,7 @@ impl PluginInstance {
 			// (an input size change goes through `set_input`, which clears the flag,
 			// so a reallocated buffer always gets fresh pixels).
 			if !self.gpu_input_uploaded {
-				Self::pack_layer_to_bgra_f32(&self.input_layer, &mut self.gpu_upload_staging);
+				Self::pack_layer_to_bgra_f32(self.input_layer.layer(), &mut self.gpu_upload_staging);
 				if !ctx.write_buffer(input_key, bytemuck::cast_slice(&self.gpu_upload_staging)) {
 					return Err(AexloError::Unexpected(
 						"Failed to upload input pixels to the GPU".to_string(),
@@ -547,44 +562,57 @@ impl PluginInstance {
 			ctx.wait_for_completion();
 		}
 
-		// Phase C: read the rendered BGRA float output back into the 8-bit layer,
+		// Phase C: read the rendered BGRA float output back into the output layer,
 		// reusing the instance's staging buffer.
 		if let Some(ctx) = self.gpu_context.as_ref() {
 			self.gpu_readback_staging
 				.resize(out_len / std::mem::size_of::<f32>(), 0.0);
 			if ctx.read_buffer(output_key, bytemuck::cast_slice_mut(&mut self.gpu_readback_staging)) {
-				Self::unpack_bgra_f32_to_layer(&self.gpu_readback_staging, &mut self.output_layer);
+				Self::unpack_bgra_f32_to_layer(&self.gpu_readback_staging, self.output_layer.layer_mut());
 			}
 		}
 
 		Ok(())
 	}
 
-	/// Pack an 8-bit ARGB layer into `PF_PixelFormat_GPU_BGRA128` staging data:
-	/// BGRA channel order, each channel normalised to `[0, 1]` float.
+	/// Pack an ARGB layer of any depth into `PF_PixelFormat_GPU_BGRA128` staging
+	/// data: BGRA channel order, each channel normalised to `[0, 1]` float.
 	///
 	/// Writes into the caller-provided `staging` buffer (cleared first) so a
 	/// render loop can reuse one allocation across frames.
-	fn pack_layer_to_bgra_f32(layer: &wrapper::Layer<wrapper::Depth8>, staging: &mut Vec<f32>) {
-		let pixels = layer.pixels();
+	fn pack_layer_to_bgra_f32(layer: &AnyLayer, staging: &mut Vec<f32>) {
+		fn pack<D: PixelDepth>(layer: &Layer<D>, staging: &mut Vec<f32>) {
+			staging.reserve(layer.len() * 4);
+			for pixel in layer.pixels() {
+				staging.push(D::to_unit(pixel.blue));
+				staging.push(D::to_unit(pixel.green));
+				staging.push(D::to_unit(pixel.red));
+				staging.push(D::to_unit(pixel.alpha));
+			}
+		}
 		staging.clear();
-		staging.reserve(pixels.len() * 4);
-		for pixel in pixels {
-			staging.push(pixel.blue as f32 / 255.0);
-			staging.push(pixel.green as f32 / 255.0);
-			staging.push(pixel.red as f32 / 255.0);
-			staging.push(pixel.alpha as f32 / 255.0);
+		match layer {
+			AnyLayer::U8(l) => pack(l, staging),
+			AnyLayer::U16(l) => pack(l, staging),
+			AnyLayer::F32(l) => pack(l, staging),
 		}
 	}
 
 	/// Unpack `PF_PixelFormat_GPU_BGRA128` staging data (BGRA float) back into an
-	/// 8-bit ARGB layer, clamping and rounding each channel.
-	fn unpack_bgra_f32_to_layer(staging: &[f32], layer: &mut wrapper::Layer<wrapper::Depth8>) {
-		for (pixel, bgra) in layer.pixels_mut().iter_mut().zip(staging.as_chunks::<4>().0) {
-			pixel.blue = (bgra[0].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
-			pixel.green = (bgra[1].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
-			pixel.red = (bgra[2].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
-			pixel.alpha = (bgra[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+	/// ARGB layer of any depth, clamping and rounding integer channels.
+	fn unpack_bgra_f32_to_layer(staging: &[f32], layer: &mut AnyLayer) {
+		fn unpack<D: PixelDepth>(staging: &[f32], layer: &mut Layer<D>) {
+			for (pixel, bgra) in layer.pixels_mut().iter_mut().zip(staging.as_chunks::<4>().0) {
+				pixel.blue = D::from_unit(bgra[0]);
+				pixel.green = D::from_unit(bgra[1]);
+				pixel.red = D::from_unit(bgra[2]);
+				pixel.alpha = D::from_unit(bgra[3]);
+			}
+		}
+		match layer {
+			AnyLayer::U8(l) => unpack(staging, l),
+			AnyLayer::U16(l) => unpack(staging, l),
+			AnyLayer::F32(l) => unpack(staging, l),
 		}
 	}
 
@@ -650,12 +678,13 @@ impl PluginInstance {
 	/// default size ([`Self::output_size`] after load), which plugins tolerate --
 	/// After Effects itself resizes freely between renders.
 	pub fn set_render_size(&mut self, width: u32, height: u32) {
-		self.output_layer = Self::build_layer(width, height, wrapper::Pixel::<wrapper::Depth8>::black());
+		let kind = self.output_layer.kind();
+		self.output_layer = HostLayer::new(AnyLayer::filled(kind, width, height, OPAQUE_BLACK));
 
 		self.world = crate::core::helpers::LayerDefBuilder::new()
 			.with_size(width as i32, height as i32)
 			.build();
-		self.world.data = self.output_layer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
+		self.sync_output_world();
 
 		self.smart_render_data.set_output_rect(width as i32, height as i32);
 	}
@@ -684,12 +713,19 @@ impl PluginInstance {
 
 	/// Replace the input layer.
 	///
+	/// The layer's depth is the depth of the whole render, as the project depth
+	/// is in After Effects: when it differs from the current one the output is
+	/// reallocated (black, same size) at the new depth, and smart render
+	/// advertises it. Check [`Self::supports_depth`] first; a plugin handed a
+	/// depth it never declared typically errors or renders garbage.
+	///
 	/// Point parameters still at their default are re-resolved against the new
 	/// layer size (AE declares point defaults as layer percentages), so e.g. a
 	/// "centre" stays centred; edited points keep their pixel values.
-	pub fn set_input_layer(&mut self, input: wrapper::Layer<wrapper::Depth8>) {
+	pub fn set_input_layer<D: PixelDepth>(&mut self, input: Layer<D>) {
 		let (old_w, old_h) = self.input_size();
-		self.input_layer = input;
+		let depth_changed = D::KIND != self.output_layer.kind();
+		self.input_layer = HostLayer::new(AnyLayer::new(input));
 		let (new_w, new_h) = self.input_size();
 		if (old_w, old_h) != (new_w, new_h) {
 			for param in &mut self.params {
@@ -717,13 +753,86 @@ impl PluginInstance {
 				ld: self.input_layer.as_sys(),
 			};
 		}
+
+		if depth_changed {
+			let (w, h) = self.output_size();
+			self.output_layer = HostLayer::new(AnyLayer::filled(D::KIND, w, h, OPAQUE_BLACK));
+			self.sync_output_world();
+			self.smart_render_data.set_cpu_bitdepth(D::KIND.bits() as i16);
+		}
 	}
 
 	/// Write output pixels directly to an RGBA buffer (zero-allocation).
-	/// The buffer must have exactly `width * height * 4` bytes.
+	/// The buffer must have exactly `width * height * 4` bytes. Deeper output
+	/// is quantized to 8 bits per channel.
 	pub fn write_rendered_pixels(&self, buffer: &mut [u8]) -> Result<()> {
-		self.output_layer.write_rgba_bytes(buffer)?;
+		self.output_layer.layer().write_rgba8(buffer)?;
 		Ok(())
+	}
+
+	/// The depth of the input layer, which is the depth of the render.
+	pub fn input_depth(&self) -> PixelDepthKind {
+		self.input_layer.kind()
+	}
+
+	/// The depth of the output world. It follows the input layer's depth.
+	pub fn output_depth(&self) -> PixelDepthKind {
+		self.output_layer.kind()
+	}
+
+	/// The rendered output at whatever depth it is.
+	pub fn output(&self) -> &AnyLayer {
+		self.output_layer.layer()
+	}
+
+	/// A copy of the rendered output as a `Layer<D>`.
+	///
+	/// # Errors
+	/// [`AexloError::DepthMismatch`] when `D` is not [`Self::output_depth`];
+	/// convert with [`Layer::convert`] after reading it at its own depth.
+	pub fn read_output<D: PixelDepth>(&self) -> Result<Layer<D>> {
+		self.output_layer
+			.layer()
+			.get::<D>()
+			.cloned()
+			.ok_or(AexloError::DepthMismatch {
+				requested: D::KIND,
+				actual: self.output_layer.kind(),
+			})
+	}
+
+	/// Whether the plugin declared it can render at `depth`: 8 bpc always,
+	/// 16 bpc with `PF_OutFlag_DEEP_COLOR_AWARE`, 32 bpc with
+	/// `PF_OutFlag2_FLOAT_COLOR_AWARE`.
+	///
+	/// Only meaningful once global setup has run (i.e. after [`Host::try_load`]).
+	pub fn supports_depth(&self, depth: PixelDepthKind) -> bool {
+		match depth {
+			PixelDepthKind::U8 => true,
+			PixelDepthKind::U16 => {
+				self.global_out_flags & after_effects_sys::PF_OutFlag_DEEP_COLOR_AWARE as PF_OutFlags != 0
+			}
+			PixelDepthKind::F32 => {
+				self.global_out_flags2 & after_effects_sys::PF_OutFlag2_FLOAT_COLOR_AWARE as PF_OutFlags2 != 0
+			}
+		}
+	}
+
+	/// `out_flags` as the plugin declared them at `PF_Cmd_GLOBAL_SETUP`.
+	pub fn out_flags(&self) -> i32 {
+		self.global_out_flags
+	}
+
+	/// `out_flags2` as the plugin declared them at `PF_Cmd_GLOBAL_SETUP`.
+	pub fn out_flags2(&self) -> i32 {
+		self.global_out_flags2
+	}
+
+	/// Tell `observer` about every command sent to the plugin from now on and,
+	/// at [`ObserveLevel::Calls`], every suite function it calls back on the
+	/// dispatching thread. `None` removes it.
+	pub fn set_observer(&mut self, observer: Option<Arc<dyn Observer>>, level: ObserveLevel) {
+		self.observer = observer.map(|observer| Installed { observer, level });
 	}
 
 	//---- Setter / Getter =================================
@@ -747,6 +856,20 @@ impl PluginInstance {
 	/// Get the number of parameters.
 	pub fn param_count(&self) -> usize {
 		self.params.len()
+	}
+
+	/// Indices of the parameters whose declared name is `name`, compared
+	/// case-insensitively and ignoring surrounding whitespace. Several
+	/// parameters may share a name; index 0 (the input layer) never matches.
+	pub fn param_indices(&self, name: &str) -> Vec<usize> {
+		let name = name.trim();
+		(1..self.params.len())
+			.filter(|&i| {
+				crate::host::params::param_name(&self.params[i])
+					.trim()
+					.eq_ignore_ascii_case(name)
+			})
+			.collect()
 	}
 
 	/// Borrow the instance's GPU context (Metal or CUDA), if GPU rendering is active.
@@ -1033,7 +1156,7 @@ impl PluginInstance {
 	/// [`AexloError::ParamIndexOutOfBounds`] for index 0 (the input layer, see
 	/// [`Self::set_input_layer`]) or an out-of-range index, and
 	/// [`AexloError::ParamTypeMismatch`] if the parameter is not a layer.
-	pub fn set_layer_param(&mut self, index: usize, layer: Option<wrapper::Layer<wrapper::Depth8>>) -> Result<()> {
+	pub fn set_layer_param<D: PixelDepth>(&mut self, index: usize, layer: Option<Layer<D>>) -> Result<()> {
 		if index == 0 || index >= self.params.len() {
 			return Err(AexloError::ParamIndexOutOfBounds {
 				index,
@@ -1054,7 +1177,7 @@ impl PluginInstance {
 		let unlinked = self.linked_layers.remove(&index).map_or(current, |l| l.unlinked);
 		let def = match layer {
 			Some(layer) => {
-				let linked = LinkedLayer::new(layer, unlinked);
+				let linked = LinkedLayer::new(AnyLayer::new(layer), unlinked);
 				let def = linked.param_def();
 				self.linked_layers.insert(index, linked);
 				def
@@ -1063,6 +1186,12 @@ impl PluginInstance {
 		};
 		self.params[index].u = PF_ParamDefUnion { ld: def };
 		Ok(())
+	}
+
+	/// Unlink the layer parameter at `index` (its "None" choice); the same as
+	/// [`Self::set_layer_param`] with `None`, without naming a depth.
+	pub fn clear_layer_param(&mut self, index: usize) -> Result<()> {
+		self.set_layer_param::<wrapper::Depth8>(index, None)
 	}
 
 	/// Whether the plugin's iterate callbacks (`PF_Iterate*Suite`, the legacy
@@ -1085,7 +1214,7 @@ impl PluginInstance {
 	}
 
 	/// The layer linked to the layer parameter at `index`, if any.
-	pub fn layer_param(&self, index: usize) -> Option<&wrapper::Layer<wrapper::Depth8>> {
+	pub fn layer_param(&self, index: usize) -> Option<&AnyLayer> {
 		self.linked_layers.get(&index).map(LinkedLayer::layer)
 	}
 
@@ -1227,8 +1356,12 @@ impl PluginInstance {
 		let utility_callbacks = crate::host::utility::create_utility_callbacks();
 		let pica = Self::build_pica_suite();
 
-		let input_layer = Self::build_layer(WIDTH, HEIGHT, wrapper::Pixel::<wrapper::Depth8>::green());
-		let output_layer = Self::build_layer(WIDTH, HEIGHT, wrapper::Pixel::<wrapper::Depth8>::black());
+		let input_layer = HostLayer::new(AnyLayer::new(Self::build_layer(
+			WIDTH,
+			HEIGHT,
+			wrapper::Pixel::<wrapper::Depth8>::green(),
+		)));
+		let output_layer = HostLayer::new(AnyLayer::filled(PixelDepthKind::U8, WIDTH, HEIGHT, OPAQUE_BLACK));
 
 		{
 			let mut instance_placeholder = PluginInstance {
@@ -1249,6 +1382,7 @@ impl PluginInstance {
 					ctx
 				},
 				out_data: crate::core::helpers::OutDataBuilder::new().build(),
+				global_out_flags: 0,
 				global_out_flags2: 0,
 				params: Vec::new(),
 				popup_choices: Vec::new(),
@@ -1277,6 +1411,7 @@ impl PluginInstance {
 				layer_checkouts: HashMap::new(),
 				parallel_iterate: true,
 				owned_arb_values: Vec::new(),
+				observer: None,
 			};
 
 			instance_placeholder.wire_self_pointers();
@@ -1314,15 +1449,22 @@ impl PluginInstance {
 			ctx.unregister_all_worlds();
 		}
 		self.input_world = self.input_layer.as_sys();
-		let (w, h) = (self.output_layer.width() as i32, self.output_layer.height() as i32);
-		self.world.width = w;
-		self.world.height = h;
-		self.world.rowbytes = w * std::mem::size_of::<PF_Pixel>() as i32;
-		self.world.data = self.output_layer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
+		self.sync_output_world();
+	}
+
+	/// Describe `output_layer` in the output world: size, stride, depth flag
+	/// and pixels. The rest of the world (extent hint, ...) is left alone.
+	fn sync_output_world(&mut self) {
+		let layer = self.output_layer.as_sys();
+		self.world.width = layer.width;
+		self.world.height = layer.height;
+		self.world.rowbytes = layer.rowbytes;
+		self.world.world_flags = layer.world_flags;
+		self.world.data = layer.data;
 	}
 
 	fn wire_self_pointers(&mut self) {
-		self.world.data = self.output_layer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
+		self.sync_output_world();
 		self.input_world = self.input_layer.as_sys();
 	}
 
@@ -1366,6 +1508,7 @@ impl PluginInstance {
 	/// Call the plugin with `PF_Cmd_GLOBAL_SETUP` command.
 	fn setup_global(&mut self) -> Result<()> {
 		self.call_plugin(RawCommand::GlobalSetup, null_mut())?;
+		self.global_out_flags = self.out_data.out_flags;
 		// The capabilities declared here are what count. `out_data` is shared
 		// by every later command, and plugins overwrite its flags in some of
 		// them (the SDK samples set `out_flags2` in GPU device setup), so it
@@ -1642,6 +1785,23 @@ impl PluginInstance {
 			},
 		);
 
+		let observer = self.observer.clone();
+		let started = observer.as_ref().map(|installed| {
+			installed.observer.command(&CommandEvent {
+				command: command as i32,
+				name: crate::observe::command_name(command as i32),
+				phase: CommandPhase::Begin,
+				duration: None,
+				error: None,
+			});
+			Instant::now()
+		});
+		let calls = observer
+			.as_ref()
+			.filter(|installed| installed.level >= ObserveLevel::Calls)
+			.map(|installed| installed.observer.clone());
+		let calls_guard = crate::observe::enter_calls(calls);
+
 		let result = crate::suites::iterate::with_parallel_iterate(self.parallel_iterate, || unsafe {
 			entry_point(
 				command,
@@ -1652,6 +1812,18 @@ impl PluginInstance {
 				extra_data,
 			)
 		});
+
+		drop(calls_guard);
+		if let (Some(installed), Some(started)) = (&observer, started) {
+			let code = result as i64;
+			installed.observer.command(&CommandEvent {
+				command: command as i32,
+				name: crate::observe::command_name(command as i32),
+				phase: CommandPhase::End,
+				duration: Some(started.elapsed()),
+				error: (code != PF_Err_NONE as i64).then_some(code as i32),
+			});
+		}
 
 		#[cfg(target_os = "macos")]
 		let result = result as u32;
@@ -1807,7 +1979,7 @@ mod tests {
 		assert_eq!(fx.output_size(), (640, 360));
 		assert_eq!((fx.world.width, fx.world.height), (640, 360));
 		// The world must point at the freshly sized output layer's pixels.
-		assert_eq!(fx.world.data as *const _, fx.output_layer.pixels().as_ptr());
+		assert_eq!(fx.world.data as *const u8, fx.output_layer.layer().data_ptr());
 		assert_eq!(fx.world.rowbytes, 640 * 4);
 	}
 

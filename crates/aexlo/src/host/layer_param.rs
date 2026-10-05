@@ -5,14 +5,15 @@
 use after_effects_sys::{A_long, PF_LayerDef, PF_LayerDefault_MYSELF};
 
 use crate::gpu::GPU_BYTES_PER_PIXEL;
+use crate::host::host_layer::HostLayer;
 
 /// A layer linked to a layer parameter, with the worlds handed to the plugin.
 ///
 /// The worlds are boxed so their addresses stay stable: smart-render checkouts
 /// hand them out by pointer, and GPU buffers are keyed by the GPU world's address.
 pub(crate) struct LinkedLayer {
-	layer: wrapper::Layer<wrapper::Depth8>,
-	/// 8-bit world over `layer`'s pixels, for CPU renders and `checkout_param`.
+	layer: HostLayer,
+	/// World over `layer`'s pixels at its own depth, for CPU renders and `checkout_param`.
 	cpu_world: Box<PF_LayerDef>,
 	/// `PF_PixelFormat_GPU_BGRA128` view of the same layer for GPU renders; its
 	/// pixels live in a device buffer keyed by this world's address.
@@ -24,7 +25,8 @@ pub(crate) struct LinkedLayer {
 }
 
 impl LinkedLayer {
-	pub(crate) fn new(mut layer: wrapper::Layer<wrapper::Depth8>, unlinked: PF_LayerDef) -> Self {
+	pub(crate) fn new(layer: wrapper::AnyLayer, unlinked: PF_LayerDef) -> Self {
+		let mut layer = HostLayer::new(layer);
 		let mut cpu_world = layer.as_sys();
 		// `PF_LayerDefault_NONE` marks an unlinked layer parameter, which plugins
 		// test for; anything else reads as "a layer is selected".
@@ -40,8 +42,8 @@ impl LinkedLayer {
 		}
 	}
 
-	pub(crate) fn layer(&self) -> &wrapper::Layer<wrapper::Depth8> {
-		&self.layer
+	pub(crate) fn layer(&self) -> &wrapper::AnyLayer {
+		self.layer.layer()
 	}
 
 	/// The definition to store in the parameter (what `checkout_param` returns).

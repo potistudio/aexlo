@@ -41,6 +41,7 @@ mod gpu;
 mod host;
 mod instance;
 mod mask;
+mod observe;
 mod param_value;
 mod preview;
 mod utils;
@@ -88,4 +89,10 @@ pub use core::diagnostics::{Diagnostic, DiagnosticBuilder};
 
 /// Safe pixel/layer wrappers, re-exported explicitly so additions to the
 /// `wrapper` crate don't silently widen this crate's public API.
-pub use wrapper::{Depth8, Depth16, Depth32, Layer, LayerError, Pixel, PixelDepth};
+pub use wrapper::{AnyLayer, Depth8, Depth16, Depth32, Layer, LayerError, Pixel, PixelDepth, PixelDepthKind};
+
+/// Observation hooks ([`PluginInstance::set_observer`]).
+pub use observe::{
+	AllocationEvent, AllocationKind, CheckoutEvent, CheckoutKind, CommandEvent, CommandPhase, LogObserver, ObserveLevel, Observer,
+	SuiteCallEvent, command_name,
+};

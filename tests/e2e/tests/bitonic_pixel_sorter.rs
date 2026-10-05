@@ -272,7 +272,7 @@ fn trigger_source_layer_selects_the_sorted_band() {
 		);
 	}
 
-	instance.set_layer_param(TRIGGER_SOURCE, None).unwrap();
+	instance.clear_layer_param(TRIGGER_SOURCE).unwrap();
 	assert_eq!(render_cpu(&mut instance), baseline);
 }
 
@@ -281,11 +281,11 @@ fn trigger_source_layer_selects_the_sorted_band() {
 fn set_layer_param_rejects_non_layer_params() {
 	let Some(mut instance) = load() else { return };
 	assert!(matches!(
-		instance.set_layer_param(MODE, None),
+		instance.clear_layer_param(MODE),
 		Err(AexloError::ParamTypeMismatch { index: MODE, .. })
 	));
 	assert!(matches!(
-		instance.set_layer_param(0, None),
+		instance.clear_layer_param(0),
 		Err(AexloError::ParamIndexOutOfBounds { index: 0, .. })
 	));
 }

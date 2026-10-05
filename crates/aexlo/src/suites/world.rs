@@ -51,6 +51,28 @@ pub(super) fn allocated_format(world: &PF_EffectWorld) -> Option<u32> {
 	WORLD_FORMATS.lock().ok()?.get(&(world.data as usize)).copied()
 }
 
+/// Record the pixel format of a host-owned world (the instance's input and
+/// output, linked layers) by its `data` address: `ARGB64` for 16 bpc,
+/// `ARGB128` for 32 bpc. 8 bpc needs no tag (`ARGB32` is the default).
+#[allow(clippy::unnecessary_cast)] // `PF_PixelFormat_*` is `u32` on macOS only.
+pub(crate) fn tag_host_world(data: usize, kind: wrapper::PixelDepthKind) {
+	let format = match kind {
+		wrapper::PixelDepthKind::U8 => return,
+		wrapper::PixelDepthKind::U16 => PF_PixelFormat_ARGB64 as u32,
+		wrapper::PixelDepthKind::F32 => PF_PixelFormat_ARGB128 as u32,
+	};
+	if let Ok(mut formats) = WORLD_FORMATS.lock() {
+		formats.insert(data, format);
+	}
+}
+
+/// Forget a tag set by [`tag_host_world`].
+pub(crate) fn untag_host_world(data: usize) {
+	if let Ok(mut formats) = WORLD_FORMATS.lock() {
+		formats.remove(&data);
+	}
+}
+
 /// Allocate a zeroed, writeable `width` x `height` world of `bytes_per_pixel`
 /// pixels, remembering `format` for [`allocated_format`]. Release it with
 /// [`free_world`].
