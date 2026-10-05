@@ -116,8 +116,11 @@ unsafe extern "C" fn progress_stub(_effect_ref: PF_ProgPtr, _current: A_long, _t
 	0
 }
 
+/// Accept a custom-UI registration. aexlo has no UI and never sends
+/// `PF_Cmd_EVENT`, so the registration has nothing to drive; succeeding lets
+/// plugins with custom controls (e.g. status readouts) set up normally.
 unsafe extern "C" fn register_ui_stub(_effect_ref: PF_ProgPtr, _custom_info: *mut PF_CustomUIInfo) -> PF_Err {
-	log::warn!("STUB: register_ui called");
+	log::debug!("register_ui: custom UI accepted (headless host, no events are sent)");
 	PF_Err_NONE as PF_Err
 }
 
