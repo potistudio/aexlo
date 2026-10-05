@@ -83,6 +83,9 @@ RENDER OPTIONS:
     -s, --set    <i>=<v>   Set parameter #<i> to <v> before rendering (repeatable)
         --smart            Force the smart-render path
         --legacy           Force the legacy render path
+        --serial-iterate   Run the plugin's iterate callbacks on one thread
+                           (for plugins whose pixel callbacks call suites,
+                           e.g. ones built on the Rust after-effects crate)
 
 <plugin> is a path to the plugin artifact, or a crate directory (with a
 Cargo.toml) to build its cdylib and render that - a one-shot alternative to
@@ -200,6 +203,7 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 	let mut sets: Vec<(usize, String)> = Vec::new();
 	let mut force_smart = false;
 	let mut force_legacy = false;
+	let mut serial_iterate = false;
 
 	let mut args = args.peekable();
 	while let Some(arg) = args.next() {
@@ -209,6 +213,7 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 			"-s" | "--set" => sets.push(parse_set(&next_value(&mut args, &arg)?)?),
 			"--smart" => force_smart = true,
 			"--legacy" => force_legacy = true,
+			"--serial-iterate" => serial_iterate = true,
 			other if other.starts_with('-') => bail!("unknown option '{other}'"),
 			_ => {
 				if plugin.replace(arg).is_some() {
@@ -223,6 +228,7 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 	}
 	let plugin = plugin.context("render: missing <plugin>")?;
 	let mut instance = load(&plugin)?;
+	instance.set_parallel_iterate(!serial_iterate);
 
 	if let Some(path) = &input {
 		let (bytes, w, h) = load_input(path)?;
@@ -241,7 +247,10 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 	}
 
 	if force_smart {
-		instance.render_smart().context("smart render failed")?;
+		instance
+			.render_pre()
+			.and_then(|()| instance.render_smart())
+			.context("smart render failed")?;
 	} else if force_legacy {
 		instance.render().context("legacy render failed")?;
 	} else {
