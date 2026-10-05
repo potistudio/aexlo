@@ -25,6 +25,7 @@ mod cache_on_load;
 mod channel;
 pub mod color_callbacks;
 mod color_param;
+mod effect;
 mod effect_ui;
 mod ffi;
 pub mod fill_matte;
@@ -33,6 +34,7 @@ pub mod handle;
 mod helper;
 pub mod interface;
 pub mod iterate;
+mod keyframe;
 pub mod macros;
 pub mod param_utils;
 mod path;
@@ -42,6 +44,7 @@ mod pixel_format;
 mod pixel_norm;
 mod point_param;
 pub mod sampling;
+mod stream;
 pub mod transform;
 pub mod utility;
 pub mod world;
@@ -120,6 +123,10 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	path_query: path::create_path_query_suite_1(),
 	path_data: path::create_path_data_suite_1(),
 	persistent_data: persistent_data::create_persistent_data_suite_3(),
+	stream2: stream::create_stream_suite_2(),
+	stream4: stream::create_stream_suite_4(),
+	keyframe: keyframe::create_keyframe_suite_4(),
+	effect: effect::create_effect_suite_2(),
 };
 
 /// Process-wide storage for the stateless suite vtables handed to plugins.
@@ -176,6 +183,10 @@ pub struct SuiteContainer {
 	pub path_query: PF_PathQuerySuite1,
 	pub path_data: PF_PathDataSuite1,
 	pub persistent_data: AEGP_PersistentDataSuite3,
+	pub stream2: AEGP_StreamSuite2,
+	pub stream4: AEGP_StreamSuite4,
+	pub keyframe: AEGP_KeyframeSuite4,
+	pub effect: AEGP_EffectSuite2,
 }
 
 /// Hand back a pointer to one of the shared [`SUITE_CONTAINER`] vtables.
@@ -281,6 +292,16 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("AEGP Persistent Data Suite", 3) => {
 			dispatch_static!(suite, suite_name, version, persistent_data)
 		}
+		// Stream Suite wire versions 7 and 9 are AEGP_StreamSuite2 and 4; they
+		// differ only in their stream value structs.
+		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion2 as i32 => {
+			dispatch_static!(suite, suite_name, version, stream2)
+		}
+		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion4 as i32 => {
+			dispatch_static!(suite, suite_name, version, stream4)
+		}
+		("AEGP Keyframe Suite", 4) => dispatch_static!(suite, suite_name, version, keyframe),
+		("AEGP Effect Suite", 2) => dispatch_static!(suite, suite_name, version, effect),
 		("AEGP Utility Suite", 1..=18) => {
 			// Lives in its own LazyLock rather than SUITE_CONTAINER (see AEGP_UTILITY_SUITE).
 			// SAFETY: `suite` was null-checked at the top of this function.
@@ -368,6 +389,10 @@ mod tests {
 			("PF Cache On Load Suite", 1),
 			("AE Plugin Helper Suite", 1),
 			("AE Plugin Helper Suite2", 2),
+			("AEGP Stream Suite", 7),
+			("AEGP Stream Suite", 9),
+			("AEGP Keyframe Suite", 4),
+			("AEGP Effect Suite", 2),
 		] {
 			let (err, ptr) = acquire(name, version);
 			assert_eq!(err, PF_Err_NONE as PF_Err, "'{name}' v{version} should be served");
