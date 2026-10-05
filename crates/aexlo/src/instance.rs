@@ -9,6 +9,7 @@ use crate::utils;
 use crate::gpu::GPU_BYTES_PER_PIXEL;
 use after_effects::{ParamType, RawCommand};
 use after_effects_sys::{
+	PF_ArbParamsExtra, PF_Arbitrary_COPY_FUNC, PF_Arbitrary_DISPOSE_FUNC, PF_Arbitrary_NEW_FUNC, PF_ArbitraryH,
 	PF_Err_INVALID_CALLBACK, PF_Err_NONE, PF_GPU_Framework, PF_GPU_Framework_NONE, PF_GPUDeviceSetdownExtra,
 	PF_GPUDeviceSetdownInput, PF_GPUDeviceSetupExtra, PF_GPUDeviceSetupInput, PF_GPUDeviceSetupOutput,
 	PF_OutFlag2_SUPPORTS_GPU_RENDER_F32, PF_OutFlags2, PF_ParamDef, PF_ParamDefUnion, PF_ParamType, PF_Pixel,
@@ -18,7 +19,7 @@ use colored::Colorize;
 use dlopen2::raw::Library;
 use std::{
 	collections::HashMap,
-	ffi::{CStr, CString},
+	ffi::{CStr, CString, c_void},
 	path::{Path, PathBuf},
 	ptr::NonNull,
 	ptr::null_mut,
@@ -188,6 +189,11 @@ pub struct PluginInstance {
 	/// Whether iterate callbacks may run on worker threads (see
 	/// [`Self::set_parallel_iterate`]).
 	parallel_iterate: bool,
+
+	/// Indices of the arbitrary-data parameters whose value handle the plugin
+	/// created for us at setup (see [`Self::setup_arbitrary_params`]); handed
+	/// back through `PF_Arbitrary_DISPOSE_FUNC` on drop.
+	owned_arb_values: Vec<usize>,
 }
 
 /// Plugin constructors. Taking a [`Host`] guarantees the process-wide
@@ -267,6 +273,7 @@ impl PluginInstance {
 	fn finalize(&mut self) -> Result<()> {
 		self.setup_global()?;
 		self.setup_params()?;
+		self.setup_arbitrary_params();
 		self.setup_sequence()?;
 
 		Ok(())
@@ -1215,6 +1222,7 @@ impl PluginInstance {
 				linked_layers: HashMap::new(),
 				layer_checkouts: HashMap::new(),
 				parallel_iterate: true,
+				owned_arb_values: Vec::new(),
 			};
 
 			instance_placeholder.wire_self_pointers();
@@ -1315,6 +1323,70 @@ impl PluginInstance {
 	/// Call the plugin with `PF_Cmd_PARAMS_SETUP` command.
 	fn setup_params(&mut self) -> Result<()> {
 		self.call_plugin(RawCommand::ParamsSetup, null_mut())
+	}
+
+	/// Give every arbitrary-data parameter a value, as After Effects does when
+	/// the effect is applied: the plugin allocates it through
+	/// `PF_Cmd_ARBITRARY_CALLBACK` (`PF_Arbitrary_NEW_FUNC`, or a
+	/// `PF_Arbitrary_COPY_FUNC` of the default). Plugins dereference the value
+	/// handle they check out, so leaving it null crashes them.
+	fn setup_arbitrary_params(&mut self) {
+		for index in 0..self.params.len() {
+			if self.params[index].param_type != ParamType::ArbitraryData as PF_ParamType {
+				continue;
+			}
+			// SAFETY: the parameter was verified to be arbitrary data above.
+			let arb = unsafe { self.params[index].u.arb_d };
+			if !arb.value.is_null() {
+				continue;
+			}
+
+			let mut value: PF_ArbitraryH = null_mut();
+			let mut extra: PF_ArbParamsExtra = unsafe { std::mem::zeroed() };
+			extra.which_function = PF_Arbitrary_NEW_FUNC as _;
+			extra.id = arb.id;
+			extra.u.new_func_params.refconPV = arb.refconPV;
+			extra.u.new_func_params.arbPH = &mut value;
+			let created = self.call_plugin(RawCommand::ArbitraryCallback, &mut extra as *mut _ as *mut c_void);
+
+			if (created.is_err() || value.is_null()) && !arb.dephault.is_null() {
+				let mut extra: PF_ArbParamsExtra = unsafe { std::mem::zeroed() };
+				extra.which_function = PF_Arbitrary_COPY_FUNC as _;
+				extra.id = arb.id;
+				extra.u.copy_func_params.refconPV = arb.refconPV;
+				extra.u.copy_func_params.src_arbH = arb.dephault;
+				extra.u.copy_func_params.dst_arbPH = &mut value;
+				if let Err(err) = self.call_plugin(RawCommand::ArbitraryCallback, &mut extra as *mut _ as *mut c_void) {
+					log::warn!("arbitrary param #{index}: copying the default failed: {err:?}");
+				}
+			}
+
+			if value.is_null() {
+				// Legitimate for arbs that only carry a custom UI.
+				log::debug!("arbitrary param #{index}: the plugin created no value");
+				continue;
+			}
+			self.params[index].u.arb_d.value = value;
+			self.owned_arb_values.push(index);
+		}
+	}
+
+	/// Hand the arbitrary-data values created by [`Self::setup_arbitrary_params`]
+	/// back to the plugin (`PF_Arbitrary_DISPOSE_FUNC`).
+	fn dispose_arbitrary_params(&mut self) {
+		for index in std::mem::take(&mut self.owned_arb_values) {
+			// SAFETY: only arbitrary-data parameters are recorded as owned.
+			let arb = unsafe { self.params[index].u.arb_d };
+			let mut extra: PF_ArbParamsExtra = unsafe { std::mem::zeroed() };
+			extra.which_function = PF_Arbitrary_DISPOSE_FUNC as _;
+			extra.id = arb.id;
+			extra.u.dispose_func_params.refconPV = arb.refconPV;
+			extra.u.dispose_func_params.arbH = arb.value;
+			if let Err(err) = self.call_plugin(RawCommand::ArbitraryCallback, &mut extra as *mut _ as *mut c_void) {
+				log::warn!("arbitrary param #{index}: disposing the value failed: {err:?}");
+			}
+			self.params[index].u.arb_d.value = null_mut();
+		}
 	}
 
 	/// Call the plugin with `PF_Cmd_SEQUENCE_SETUP` command.
@@ -1582,6 +1654,8 @@ impl Drop for PluginInstance {
 		if let Err(err) = self.call_plugin(RawCommand::SequenceSetdown, null_mut()) {
 			log::warn!("PF_Cmd_SEQUENCE_SETDOWN failed during drop: {err:?}");
 		}
+
+		self.dispose_arbitrary_params();
 
 		if let Err(err) = self.call_plugin(RawCommand::GlobalSetdown, null_mut()) {
 			log::warn!("PF_Cmd_GLOBAL_SETDOWN failed during drop: {err:?}");
