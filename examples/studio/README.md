@@ -39,8 +39,7 @@ Use `--release`: debug builds composite several times slower.
 - **Viewer**: zoom (scroll or pinch), pan (Alt-drag or middle-drag), select
   and move layers, scale from corners, rotate from the knob, edit mask and
   path points and tangents (hold Alt mid-drag to move one tangent alone),
-  drag shape items
-  and effect points.
+  drag shape items and effect points.
 - **Files**: projects save as JSON; export the current frame as PNG, the
   comp as a PNG sequence, or as MP4 when `ffmpeg` is on `PATH`. Undo/redo
   covers every edit; a drag is one step.
