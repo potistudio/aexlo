@@ -1,7 +1,6 @@
 use crate::core::diagnostics::*;
 use crate::suites::macros::stub_log;
 use after_effects_sys::*;
-use rayon::prelude::*;
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicI32, Ordering};
 
@@ -224,7 +223,7 @@ unsafe extern "C" fn iterate_stub(
 	let error_capsule = AtomicI32::new(PF_Err_NONE as i32);
 
 	if let Some(func) = pix_fn {
-		(0..height).into_par_iter().for_each(|y_offset| {
+		crate::suites::iterate::for_each_index(0..height, |y_offset| {
 			if error_capsule.load(Ordering::Relaxed) != PF_Err_NONE as i32 {
 				return;
 			}

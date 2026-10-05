@@ -184,6 +184,10 @@ pub struct PluginInstance {
 	/// Smart-render checkout ids mapped to the layer parameter they checked
 	/// out, recorded by `checkout_layer` during pre-render.
 	layer_checkouts: HashMap<after_effects_sys::A_long, usize>,
+
+	/// Whether iterate callbacks may run on worker threads (see
+	/// [`Self::set_parallel_iterate`]).
+	parallel_iterate: bool,
 }
 
 /// Plugin constructors. Taking a [`Host`] guarantees the process-wide
@@ -1022,6 +1026,25 @@ impl PluginInstance {
 		Ok(())
 	}
 
+	/// Whether the plugin's iterate callbacks (`PF_Iterate*Suite`, the legacy
+	/// `utils->iterate*` and `iterate_generic`) may run on worker threads.
+	///
+	/// On by default, as in After Effects. Turn it off for plugins whose pixel
+	/// callbacks rely on running on the thread that called iterate -- notably
+	/// plugins built on the Rust `after-effects` crate that acquire suites
+	/// inside the callback (its suite pointer lives in a thread-local set on
+	/// entry to `EffectMain`, so such a call panics on a worker thread and
+	/// aborts the process). Every callback then runs in order on the calling
+	/// thread.
+	pub fn set_parallel_iterate(&mut self, parallel: bool) {
+		self.parallel_iterate = parallel;
+	}
+
+	/// See [`Self::set_parallel_iterate`].
+	pub fn parallel_iterate(&self) -> bool {
+		self.parallel_iterate
+	}
+
 	/// The layer linked to the layer parameter at `index`, if any.
 	pub fn layer_param(&self, index: usize) -> Option<&wrapper::Layer<wrapper::Depth8>> {
 		self.linked_layers.get(&index).map(LinkedLayer::layer)
@@ -1191,6 +1214,7 @@ impl PluginInstance {
 				mask_paths: Vec::new(),
 				linked_layers: HashMap::new(),
 				layer_checkouts: HashMap::new(),
+				parallel_iterate: true,
 			};
 
 			instance_placeholder.wire_self_pointers();
@@ -1492,7 +1516,7 @@ impl PluginInstance {
 			},
 		);
 
-		let result = unsafe {
+		let result = crate::suites::iterate::with_parallel_iterate(self.parallel_iterate, || unsafe {
 			entry_point(
 				command,
 				&mut in_data,
@@ -1501,7 +1525,7 @@ impl PluginInstance {
 				&mut self.world,
 				extra_data,
 			)
-		};
+		});
 
 		#[cfg(target_os = "macos")]
 		let result = result as u32;

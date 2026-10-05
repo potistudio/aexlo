@@ -7,6 +7,16 @@
 //! and propagates the first callback error, mirroring how After Effects splits
 //! iteration across cores.
 //!
+//! # Serial iteration
+//!
+//! Some plugins assume their pixel callbacks run on the thread that called
+//! iterate: plugins built on the Rust `after-effects` crate acquire suites
+//! through a pointer kept in a thread-local set on entry to `EffectMain`, so a
+//! suite call inside a callback panics on any other thread. For those,
+//! [`PluginInstance::set_parallel_iterate`](crate::PluginInstance::set_parallel_iterate)
+//! runs every callback on the calling thread instead; [`for_each_index`] is the
+//! one place that decides.
+//!
 //! # `iterate_origin` semantics
 //!
 //! `origin` is the position of the *source* world inside the *destination*
@@ -26,8 +36,36 @@
 use crate::core::diagnostics::DiagnosticBuilder;
 use after_effects_sys::*;
 use rayon::prelude::*;
+use std::cell::Cell;
+use std::ops::Range;
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicI64, Ordering};
+
+thread_local! {
+	/// Whether iterate callbacks requested from this thread may run on worker
+	/// threads. Set for the duration of each plugin command by
+	/// [`with_parallel_iterate`].
+	static PARALLEL_ITERATE: Cell<bool> = const { Cell::new(true) };
+}
+
+/// Run `f` (a plugin command) with iterate callbacks requested from this
+/// thread allowed (`true`) or not (`false`) to run on worker threads.
+pub(crate) fn with_parallel_iterate<R>(parallel: bool, f: impl FnOnce() -> R) -> R {
+	let previous = PARALLEL_ITERATE.replace(parallel);
+	let result = f();
+	PARALLEL_ITERATE.set(previous);
+	result
+}
+
+/// Call `f` once per index in `range`: across rayon workers, or in order on
+/// this thread when the running command asked for serial iteration.
+pub(crate) fn for_each_index(range: Range<A_long>, f: impl Fn(A_long) + Send + Sync) {
+	if PARALLEL_ITERATE.get() {
+		range.into_par_iter().for_each(f);
+	} else {
+		range.for_each(f);
+	}
+}
 
 /// Per-pixel callback shape shared by every iterate entry point, generic over
 /// the pixel depth `P` (`PF_Pixel`, `PF_Pixel16` or `PF_PixelFloat`).
@@ -145,12 +183,13 @@ unsafe fn iterate_pixels<P>(
 	// staging it through an `i64` sidesteps the platform-dependent atomic type.
 	let error_capsule = AtomicI64::new(PF_Err_NONE as i64);
 
-	// Parallel iteration using rayon: rows in parallel, pixels within a row serially.
+	// Rows in parallel (unless serial iteration was requested), pixels within a
+	// row serially.
 	if let Some(func) = pix_fn {
 		let src_max_x = src_world.width - 1;
 		let src_max_y = src_world.height - 1;
 
-		(0..height).into_par_iter().for_each(|y_offset| {
+		for_each_index(0..height, |y_offset| {
 			// Check for early exit on error (relaxed ordering is sufficient for "eventual" stop)
 			if error_capsule.load(Ordering::Relaxed) != PF_Err_NONE as i64 {
 				return;
@@ -415,7 +454,7 @@ pub(crate) unsafe extern "C" fn iterate_generic_sys(
 
 	let error_capsule = AtomicI64::new(PF_Err_NONE as i64);
 
-	(0..iterationsL).into_par_iter().for_each(|i| {
+	for_each_index(0..iterationsL, |i| {
 		if error_capsule.load(Ordering::Relaxed) != PF_Err_NONE as i64 {
 			return;
 		}
@@ -478,6 +517,34 @@ pub const fn create_iterate_float_suite_2() -> PF_iterateFloatSuite2 {
 
 #[cfg(test)]
 mod tests {
+	use std::collections::HashSet;
+	use std::sync::Mutex;
+	use std::thread::ThreadId;
+
+	unsafe extern "C" fn record_thread(refcon: *mut c_void, _thread: A_long, _i: A_long, _n: A_long) -> PF_Err {
+		let seen = unsafe { &*(refcon as *const Mutex<HashSet<ThreadId>>) };
+		seen.lock().unwrap().insert(std::thread::current().id());
+		// Give the pool a chance to spread work when running in parallel.
+		std::thread::sleep(std::time::Duration::from_micros(200));
+		PF_Err_NONE as PF_Err
+	}
+
+	#[test]
+	fn serial_iteration_stays_on_the_calling_thread() {
+		let seen = Mutex::new(HashSet::new());
+		let refcon = &seen as *const _ as *mut c_void;
+		with_parallel_iterate(false, || unsafe { iterate_generic_sys(256, refcon, Some(record_thread)) });
+		assert_eq!(*seen.lock().unwrap(), HashSet::from([std::thread::current().id()]));
+
+		// The switch is scoped to the command.
+		assert!(PARALLEL_ITERATE.get());
+		seen.lock().unwrap().clear();
+		unsafe { iterate_generic_sys(256, refcon, Some(record_thread)) };
+		if rayon::current_num_threads() > 1 {
+			assert!(seen.lock().unwrap().len() > 1, "parallel iteration used a single thread");
+		}
+	}
+
 	use super::*;
 	use std::sync::atomic::AtomicI64;
 
