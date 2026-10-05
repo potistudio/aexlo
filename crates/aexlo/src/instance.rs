@@ -590,8 +590,21 @@ impl PluginInstance {
 	}
 
 	/// Replace the input layer.
+	///
+	/// Point parameters still at their default are re-resolved against the new
+	/// layer size (AE declares point defaults as layer percentages), so e.g. a
+	/// "centre" stays centred; edited points keep their pixel values.
 	pub fn set_input_layer(&mut self, input: wrapper::Layer<wrapper::Depth8>) {
+		let (old_w, old_h) = self.input_size();
 		self.input_layer = input;
+		let (new_w, new_h) = self.input_size();
+		if (old_w, old_h) != (new_w, new_h) {
+			for param in &mut self.params {
+				if crate::host::params::point_at_default(param, old_w, old_h) {
+					crate::host::params::resolve_point_default(param, new_w, new_h);
+				}
+			}
+		}
 
 		// In After Effects `in_data.width/height` (and `extent_hint`) are the
 		// source layer's size, independent of the output world.
