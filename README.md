@@ -9,8 +9,9 @@ It loads and renders `.aex` plugins by re-implementing the AE Plugin SDK —
 the same interface After Effects itself exposes to plugins.
 
 By default, host-dependent features (such as UI and application callbacks)
-are left unimplemented, giving you full control over what to override
-and how to integrate plugins into your own application.
+are answered by a headless host, giving you full control over what to override
+and how to integrate plugins into your own application: implement `AppHost`
+and install it with `Host::install` before loading plugins.
 
 ## Why
 
@@ -60,29 +61,33 @@ cargo build
 
 ## Implementation Progress
 
-⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀ 43% (15/35)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 91% (32/35)
 
 > ○ fully implemented / △ only partially implemented / × not implemented
 
 | CB Suites          | Effect Suites                    | Adv Effect Suites | Others            |
 | ------------------ | -------------------------------- | ----------------- | ----------------- |
-| ○ ANSI             | △ AE App                         | × AE Adv App      | × Cache On Load   |
-| × Batch Sampling   | △ AngleParam                     | × AE Adv Item     | × Channel         |
-| ○ Color            | ○ ColorParam                     | × AE Adv Time     | △ GPU Device      |
-| ○ Color16          | × Effect Custom UI Overlay Theme |                   | × Plugin Helper   |
-| ○ ColorFloat       | × Effect Custom UI               |                   | × Plugin Helper 2 |
-| ○ Fill Matte       | × Effect UI                      |                   |                   |
+| ○ ANSI             | ○ AE App                         | ○ AE Adv App      | ○ Cache On Load   |
+| ○ Batch Sampling   | ○ AngleParam                     | ○ AE Adv Item     | △ Channel         |
+| ○ Color            | ○ ColorParam                     | ○ AE Adv Time     | ○ GPU Device      |
+| ○ Color16          | △ Effect Custom UI Overlay Theme |                   | ○ Plugin Helper   |
+| ○ ColorFloat       | △ Effect Custom UI               |                   | ○ Plugin Helper 2 |
+| ○ Fill Matte       | ○ Effect UI                      |                   |                   |
 | ○ Handle           | ○ Param Utils                    |                   |                   |
-| ○ Iterate8         | × Path Data                      |                   |                   |
-| ○ Iterate16        | × Path Query                     |                   |                   |
+| ○ Iterate8         | ○ Path Data                      |                   |                   |
+| ○ Iterate16        | ○ Path Query                     |                   |                   |
 | ○ IterateFloat     | ○ PointParam                     |                   |                   |
 | ○ Pixel Data       |                                  |                   |                   |
-| × Pixel Format     |                                  |                   |                   |
-| × Sampling8        |                                  |                   |                   |
-| × Sampling16       |                                  |                   |                   |
-| × SamplingFloat    |                                  |                   |                   |
+| ○ Pixel Format     |                                  |                   |                   |
+| ○ Sampling8        |                                  |                   |                   |
+| ○ Sampling16       |                                  |                   |                   |
+| ○ SamplingFloat    |                                  |                   |                   |
 | ○ World            |                                  |                   |                   |
 | ○ World Transform  |                                  |                   |                   |
+
+△ Effect Custom UI / Overlay Theme: aexlo never sends `PF_Cmd_EVENT`, so there is
+no drawing context; theme values are served, drawing calls draw nothing.
+△ Channel: layers are plain 2D images and report no auxiliary channels.
 
 ## License
 
