@@ -35,6 +35,7 @@ pub mod interface;
 pub mod iterate;
 pub mod macros;
 pub mod param_utils;
+mod path;
 pub mod persistent_data;
 pub mod pixel_data;
 mod pixel_format;
@@ -116,6 +117,8 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	helper2: helper::create_helper_suite_2(),
 	gpu_device: gpu_device::create_gpu_device_suite_1(),
 	param_utils: param_utils::create_param_utils_suite_3(),
+	path_query: path::create_path_query_suite_1(),
+	path_data: path::create_path_data_suite_1(),
 	persistent_data: persistent_data::create_persistent_data_suite_3(),
 };
 
@@ -170,6 +173,8 @@ pub struct SuiteContainer {
 	pub helper2: PF_HelperSuite2,
 	pub gpu_device: PF_GPUDeviceSuite1,
 	pub param_utils: PF_ParamUtilsSuite3,
+	pub path_query: PF_PathQuerySuite1,
+	pub path_data: PF_PathDataSuite1,
 	pub persistent_data: AEGP_PersistentDataSuite3,
 }
 
@@ -271,6 +276,8 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("PF GPU Device Suite", 1) => dispatch_static!(suite, suite_name, version, gpu_device),
 		// ParamUtils suites are append-only, so the v3 table also satisfies v1/v2 requests.
 		("PF Param Utils Suite", 1..=3) => dispatch_static!(suite, suite_name, version, param_utils),
+		("PF Path Query Suite", 1) => dispatch_static!(suite, suite_name, version, path_query),
+		("PF Path Data Suite", 1) => dispatch_static!(suite, suite_name, version, path_data),
 		("AEGP Persistent Data Suite", 3) => {
 			dispatch_static!(suite, suite_name, version, persistent_data)
 		}

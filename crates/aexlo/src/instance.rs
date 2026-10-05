@@ -170,6 +170,9 @@ pub struct PluginInstance {
 
 	/// Pixel formats (FourCCs) registered through the "PF Pixel Format Suite".
 	supported_pixel_formats: Vec<u32>,
+
+	/// Masks on the effect's layer, served through the Path Query/Data suites.
+	mask_paths: Vec<crate::MaskPath>,
 }
 
 /// Plugin constructors. Taking a [`Host`] guarantees the process-wide
@@ -890,6 +893,18 @@ impl PluginInstance {
 	pub(crate) fn clear_supported_pixel_formats(&mut self) {
 		self.supported_pixel_formats.clear();
 	}
+
+	/// The masks on the effect's layer (see [`Self::set_mask_paths`]).
+	pub fn mask_paths(&self) -> &[crate::MaskPath] {
+		&self.mask_paths
+	}
+
+	/// Replace the masks on the effect's layer. Plugins see them through the
+	/// "PF Path Query Suite" / "PF Path Data Suite" (e.g. for `PF_Param_PATH`
+	/// parameters, which reference a mask by [`MaskPath::id`](crate::MaskPath::id)).
+	pub fn set_mask_paths(&mut self, paths: Vec<crate::MaskPath>) {
+		self.mask_paths = paths;
+	}
 	// -----------------------------------------------------
 
 	/// Add a parameter to this instance's parameter storage.
@@ -1019,6 +1034,7 @@ impl PluginInstance {
 				gpu_data: null_mut(),
 				options_button_name: None,
 				supported_pixel_formats: Vec::new(),
+				mask_paths: Vec::new(),
 			};
 
 			instance_placeholder.wire_self_pointers();

@@ -40,6 +40,7 @@ mod core;
 mod gpu;
 mod host;
 mod instance;
+mod mask;
 mod param_value;
 mod preview;
 mod utils;
@@ -68,6 +69,10 @@ pub use preview::{
 pub use aexlo_macros::preview;
 
 pub use param_value::ParamValue;
+
+/// Layer masks served through the Path Query/Data suites
+/// ([`PluginInstance::set_mask_paths`]).
+pub use mask::{MaskMode, MaskPath, MaskVertex};
 
 /// Injectable host-application services (App, Adv App/Item/Time, Plugin
 /// Helper and Custom UI Overlay Theme suites): UI colors, fonts, language,
