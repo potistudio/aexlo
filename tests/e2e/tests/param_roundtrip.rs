@@ -26,8 +26,8 @@ fn render_rgba(instance: &mut PluginInstance) -> Vec<u8> {
 	buffer
 }
 
-/// `BitonicPixelSorter.aex` has a small, well-typed param list (two popups,
-/// two float sliders) -- set each to a non-default value and confirm
+/// `BitonicPixelSorter.aex` leads with a small, well-typed run of params (two
+/// popups, two float sliders) -- set each to a non-default value and confirm
 /// `get_param` reflects exactly what was set.
 #[test]
 fn bitonic_pixel_sorter_param_set_get_roundtrip() {
@@ -37,7 +37,7 @@ fn bitonic_pixel_sorter_param_set_get_roundtrip() {
 	};
 	let mut instance = aexlo::Host::get().try_load(&plugin_path).expect("failed to load plugin");
 
-	// [2] Direction (popup), [3] Order (popup), [4] Threshold Min (float), [5] Threshold Max (float).
+	// [2] Mode (popup), [3] Order (popup), [4] Threshold Min (float), [5] Threshold Max (float).
 	instance.set_param(2, ParamValue::Popup(2)).unwrap();
 	instance.set_param(3, ParamValue::Popup(1)).unwrap();
 	instance.set_param(4, ParamValue::Float(10.0)).unwrap();
@@ -71,7 +71,7 @@ fn bitonic_pixel_sorter_set_param_rejects_invalid_calls() {
 		Err(AexloError::ParamIndexOutOfBounds { index, .. }) if index == out_of_bounds
 	));
 
-	// Index 2 is a Popup param; feeding it a Float must be rejected as a type mismatch.
+	// Index 2 (Mode) is a Popup param; feeding it a Float must be rejected as a type mismatch.
 	assert!(matches!(
 		instance.set_param(2, ParamValue::Float(1.0)),
 		Err(AexloError::ParamTypeMismatch { index: 2, .. })
@@ -90,12 +90,12 @@ fn bitonic_pixel_sorter_direction_param_changes_render_output() {
 
 	let mut horizontal = aexlo::Host::get().try_load(&plugin_path).expect("failed to load plugin");
 	horizontal.set_input_layer(load_sample_input());
-	horizontal.set_param(2, ParamValue::Popup(1)).unwrap(); // Horizontal
+	horizontal.set_param(12, ParamValue::Popup(1)).unwrap(); // Direction = Horizontal
 	let horizontal_output = render_rgba(&mut horizontal);
 
 	let mut vertical = aexlo::Host::get().try_load(&plugin_path).expect("failed to load plugin");
 	vertical.set_input_layer(load_sample_input());
-	vertical.set_param(2, ParamValue::Popup(2)).unwrap(); // Vertical
+	vertical.set_param(12, ParamValue::Popup(2)).unwrap(); // Direction = Vertical
 	let vertical_output = render_rgba(&mut vertical);
 
 	assert_ne!(
