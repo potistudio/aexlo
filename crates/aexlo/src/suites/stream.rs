@@ -1,5 +1,5 @@
-//! `AEGP Stream Suite`, served at wire versions 7 (`AEGP_StreamSuite2`) and 9
-//! (`AEGP_StreamSuite4`), plus the `AEGP_StreamRefH` handles it hands out.
+//! `AEGP Stream Suite`, served at wire versions 7 (`AEGP_StreamSuite2`), 9
+//! (`AEGP_StreamSuite4`) and 10 (`AEGP_StreamSuite5`), plus the `AEGP_StreamRefH` handles it hands out.
 //!
 //! The only streams aexlo can offer are an effect's own parameters: a stream
 //! handle is the effect's `PF_ProgPtr` plus a parameter index (the same index
@@ -9,9 +9,9 @@
 //! (which need the AEGP Memory Suite) and every write are refused with
 //! `A_Err_GENERIC`.
 //!
-//! The two table versions differ only in their value structs
-//! (`AEGP_StreamValue` vs `AEGP_StreamValue2`), whose unions share the members
-//! written here.
+//! The table versions differ only in their value structs (`AEGP_StreamValue`
+//! vs `AEGP_StreamValue2`, whose unions share the members written here) and,
+//! from v5, a UTF-16 `AEGP_SetExpression`.
 
 use after_effects::ParamType;
 use after_effects_sys::*;
@@ -570,6 +570,16 @@ unsafe extern "C" fn set_expression(
 	unsupported("AEGP_SetExpression")
 }
 
+/// From v5 the expression text is UTF-16.
+unsafe extern "C" fn set_expression_utf16(
+	_aegp_plugin_id: AEGP_PluginID,
+	_streamH: AEGP_StreamRefH,
+	_expressionP: *const A_UTF16Char,
+) -> A_Err {
+	diag!("AEGP_StreamSuite/AEGP_SetExpression");
+	unsupported("AEGP_SetExpression")
+}
+
 unsafe extern "C" fn duplicate_stream_ref(
 	_aegp_plugin_id: AEGP_PluginID,
 	streamH: AEGP_StreamRefH,
@@ -639,6 +649,34 @@ pub(super) const fn create_stream_suite_4() -> AEGP_StreamSuite4 {
 		AEGP_SetExpressionState: Some(set_expression_state),
 		AEGP_GetExpression: Some(get_expression),
 		AEGP_SetExpression: Some(set_expression),
+		AEGP_DuplicateStreamRef: Some(duplicate_stream_ref),
+	}
+}
+
+/// Builds the `AEGP_StreamSuite5` vtable (wire version 10).
+pub(super) const fn create_stream_suite_5() -> AEGP_StreamSuite5 {
+	AEGP_StreamSuite5 {
+		AEGP_IsStreamLegal: Some(is_stream_legal),
+		AEGP_CanVaryOverTime: Some(can_vary_over_time),
+		AEGP_GetValidInterpolations: Some(get_valid_interpolations),
+		AEGP_GetNewLayerStream: Some(get_new_layer_stream),
+		AEGP_GetEffectNumParamStreams: Some(get_effect_num_param_streams),
+		AEGP_GetNewEffectStreamByIndex: Some(get_new_effect_stream_by_index),
+		AEGP_GetNewMaskStream: Some(get_new_mask_stream),
+		AEGP_DisposeStream: Some(dispose_stream),
+		AEGP_GetStreamName: Some(get_stream_name_v2),
+		AEGP_GetStreamUnitsText: Some(get_stream_units_text),
+		AEGP_GetStreamProperties: Some(get_stream_properties),
+		AEGP_IsStreamTimevarying: Some(is_stream_timevarying),
+		AEGP_GetStreamType: Some(get_stream_type),
+		AEGP_GetNewStreamValue: Some(get_new_stream_value_v2),
+		AEGP_DisposeStreamValue: Some(dispose_stream_value_v2),
+		AEGP_SetStreamValue: Some(set_stream_value_v2),
+		AEGP_GetLayerStreamValue: Some(get_layer_stream_value_v2),
+		AEGP_GetExpressionState: Some(get_expression_state),
+		AEGP_SetExpressionState: Some(set_expression_state),
+		AEGP_GetExpression: Some(get_expression),
+		AEGP_SetExpression: Some(set_expression_utf16),
 		AEGP_DuplicateStreamRef: Some(duplicate_stream_ref),
 	}
 }

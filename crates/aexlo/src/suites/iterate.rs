@@ -1,6 +1,7 @@
 //! Parallel per-pixel iteration for the `PF_Iterate8Suite2`, `PF_iterate16Suite2`
 //! and `PF_iterateFloatSuite2` vtables (plus the matching legacy
-//! `PF_UtilCallbacks` entries).
+//! `PF_UtilCallbacks` entries), and the generic iteration of
+//! `AEGP_IterateSuite1`.
 //!
 //! All entry points funnel into one generic engine, [`iterate_pixels`], that is
 //! monomorphized per pixel depth. The engine walks rows in parallel with rayon
@@ -473,6 +474,20 @@ pub(crate) unsafe extern "C" fn iterate_generic_sys(
 	error_capsule.load(Ordering::Relaxed) as PF_Err
 }
 
+/// `AEGP_GetNumThreads`: how many threads `AEGP_IterateGeneric` may call back
+/// on (1 under serial iteration), so plugins can size per-thread buffers.
+unsafe extern "C" fn aegp_get_num_threads_sys(num_threadsPL: *mut A_long) -> A_Err {
+	let Some(out) = (unsafe { num_threadsPL.as_mut() }) else {
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	};
+	*out = if PARALLEL_ITERATE.get() {
+		rayon::current_num_threads() as A_long
+	} else {
+		1
+	};
+	PF_Err_NONE as A_Err
+}
+
 // ============================================================================
 // Factory Functions
 // ============================================================================
@@ -512,6 +527,15 @@ pub const fn create_iterate_float_suite_2() -> PF_iterateFloatSuite2 {
 		iterate: Some(iterate_float_sys),
 		iterate_origin: Some(iterate_origin_float_sys),
 		iterate_origin_non_clip_src: Some(iterate_origin_non_clip_src_float_sys),
+	}
+}
+
+/// Builds the `AEGP_IterateSuite1` vtable. `AEGP_IterateGeneric` has the same
+/// contract as the PF suites' `iterate_generic`.
+pub const fn create_aegp_iterate_suite_1() -> AEGP_IterateSuite1 {
+	AEGP_IterateSuite1 {
+		AEGP_GetNumThreads: Some(aegp_get_num_threads_sys),
+		AEGP_IterateGeneric: Some(iterate_generic_sys),
 	}
 }
 

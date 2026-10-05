@@ -133,6 +133,11 @@ impl RenderContext {
 		(self.width, self.height)
 	}
 
+	/// The frame's time as `(current_time, time_step, time_scale)`.
+	pub fn time(&self) -> (A_long, A_long, A_u_long) {
+		(self.current_time, self.time_step, self.time_scale)
+	}
+
 	/// Set the frame size and cover it entirely with `extent_hint`.
 	pub fn set_size(&mut self, width: i32, height: i32) {
 		self.width = width;

@@ -1,15 +1,20 @@
-//! `AEGP Effect Suite` (version 2) and the `AEGP_EffectRefH` handles it takes.
+//! `AEGP Effect Suite` (versions 2 and 4) and the `AEGP_EffectRefH` handles it
+//! takes.
 //!
 //! aexlo hosts exactly one effect per [`PluginInstance`] and has no layers, so
 //! an effect handle is just the effect's `PF_ProgPtr` in a box: it is minted
 //! by `AEGP_GetNewEffectForEffect` (PF Interface Suite), read by this suite and
 //! the Stream Suite, and freed by `AEGP_DisposeEffect`. Everything that needs a
 //! layer or the installed-effect registry is refused with `A_Err_GENERIC`.
+//!
+//! v4 adds a command to `AEGP_EffectCallGeneric` and appends the effect-mask
+//! calls; aexlo's effects have no effect masks.
 
 use after_effects_sys::{
-	A_Err, A_Err_GENERIC, A_Time, A_char, A_long, AEGP_EffectFlags, AEGP_EffectFlags_ACTIVE, AEGP_EffectIndex,
-	AEGP_EffectRefH, AEGP_EffectSuite2, AEGP_InstalledEffectKey, AEGP_LayerH, AEGP_PluginID, PF_Err_BAD_CALLBACK_PARAM,
-	PF_Err_INVALID_INDEX, PF_Err_NONE, PF_ParamDef, PF_ParamDefUnion, PF_ParamIndex, PF_ParamType, PF_ProgPtr,
+	A_Err, A_Err_GENERIC, A_Time, A_char, A_long, A_u_long, AEGP_EffectFlags, AEGP_EffectFlags_ACTIVE,
+	AEGP_EffectIndex, AEGP_EffectRefH, AEGP_EffectSuite2, AEGP_EffectSuite4, AEGP_InstalledEffectKey, AEGP_LayerH,
+	AEGP_MaskIDVal, AEGP_PluginID, AEGP_StreamRefH, PF_Cmd, PF_Err_BAD_CALLBACK_PARAM, PF_Err_INVALID_INDEX,
+	PF_Err_NONE, PF_ParamDef, PF_ParamDefUnion, PF_ParamIndex, PF_ParamType, PF_ProgPtr,
 };
 use std::os::raw::c_void;
 
@@ -145,6 +150,17 @@ unsafe extern "C" fn effect_call_generic(
 	unsupported("AEGP_EffectCallGeneric")
 }
 
+unsafe extern "C" fn effect_call_generic_cmd(
+	_aegp_plugin_id: AEGP_PluginID,
+	_effect_refH: AEGP_EffectRefH,
+	_timePT: *const A_Time,
+	_effect_cmd: PF_Cmd,
+	_effect_extraPV: *mut c_void,
+) -> A_Err {
+	diag!("AEGP_EffectSuite4/AEGP_EffectCallGeneric");
+	unsupported("AEGP_EffectCallGeneric")
+}
+
 unsafe extern "C" fn dispose_effect(effect_refH: AEGP_EffectRefH) -> A_Err {
 	diag!("AEGP_EffectSuite2/AEGP_DisposeEffect",
 		"effect_refH" => format!("{:#x}", effect_refH as usize),
@@ -225,6 +241,60 @@ unsafe extern "C" fn duplicate_effect(
 	PF_Err_NONE as A_Err
 }
 
+unsafe extern "C" fn num_effect_mask(effect_refH: AEGP_EffectRefH, num_masksPL: *mut A_u_long) -> A_Err {
+	diag!("AEGP_EffectSuite4/AEGP_NumEffectMask",
+		"effect_refH" => format!("{:#x}", effect_refH as usize),
+	);
+
+	if unsafe { effect_ref_of(effect_refH) }.is_none() {
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	}
+	let Some(out) = (unsafe { num_masksPL.as_mut() }) else {
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	};
+	*out = 0;
+	PF_Err_NONE as A_Err
+}
+
+unsafe extern "C" fn get_effect_mask_id(
+	effect_refH: AEGP_EffectRefH,
+	_mask_indexL: A_u_long,
+	_id_valP: *mut AEGP_MaskIDVal,
+) -> A_Err {
+	diag!("AEGP_EffectSuite4/AEGP_GetEffectMaskID",
+		"effect_refH" => format!("{:#x}", effect_refH as usize),
+	);
+
+	if unsafe { effect_ref_of(effect_refH) }.is_none() {
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	}
+	PF_Err_INVALID_INDEX as A_Err
+}
+
+unsafe extern "C" fn add_effect_mask(
+	_effect_refH: AEGP_EffectRefH,
+	_id_val: AEGP_MaskIDVal,
+	_streamPH0: *mut AEGP_StreamRefH,
+) -> A_Err {
+	diag!("AEGP_EffectSuite4/AEGP_AddEffectMask");
+	unsupported("AEGP_AddEffectMask")
+}
+
+unsafe extern "C" fn remove_effect_mask(_effect_refH: AEGP_EffectRefH, _id_val: AEGP_MaskIDVal) -> A_Err {
+	diag!("AEGP_EffectSuite4/AEGP_RemoveEffectMask");
+	unsupported("AEGP_RemoveEffectMask")
+}
+
+unsafe extern "C" fn set_effect_mask(
+	_effect_refH: AEGP_EffectRefH,
+	_mask_indexL: A_u_long,
+	_id_val: AEGP_MaskIDVal,
+	_streamPH0: *mut AEGP_StreamRefH,
+) -> A_Err {
+	diag!("AEGP_EffectSuite4/AEGP_SetEffectMask");
+	unsupported("AEGP_SetEffectMask")
+}
+
 /// Builds the `AEGP_EffectSuite2` vtable.
 pub(super) const fn create_effect_suite_2() -> AEGP_EffectSuite2 {
 	AEGP_EffectSuite2 {
@@ -245,6 +315,34 @@ pub(super) const fn create_effect_suite_2() -> AEGP_EffectSuite2 {
 		AEGP_GetEffectMatchName: Some(get_effect_match_name),
 		AEGP_GetEffectCategory: Some(get_effect_category),
 		AEGP_DuplicateEffect: Some(duplicate_effect),
+	}
+}
+
+/// Builds the `AEGP_EffectSuite4` vtable.
+pub(super) const fn create_effect_suite_4() -> AEGP_EffectSuite4 {
+	AEGP_EffectSuite4 {
+		AEGP_GetLayerNumEffects: Some(get_layer_num_effects),
+		AEGP_GetLayerEffectByIndex: Some(get_layer_effect_by_index),
+		AEGP_GetInstalledKeyFromLayerEffect: Some(get_installed_key_from_layer_effect),
+		AEGP_GetEffectParamUnionByIndex: Some(get_effect_param_union_by_index),
+		AEGP_GetEffectFlags: Some(get_effect_flags),
+		AEGP_SetEffectFlags: Some(set_effect_flags),
+		AEGP_ReorderEffect: Some(reorder_effect),
+		AEGP_EffectCallGeneric: Some(effect_call_generic_cmd),
+		AEGP_DisposeEffect: Some(dispose_effect),
+		AEGP_ApplyEffect: Some(apply_effect),
+		AEGP_DeleteLayerEffect: Some(delete_layer_effect),
+		AEGP_GetNumInstalledEffects: Some(get_num_installed_effects),
+		AEGP_GetNextInstalledEffect: Some(get_next_installed_effect),
+		AEGP_GetEffectName: Some(get_effect_name),
+		AEGP_GetEffectMatchName: Some(get_effect_match_name),
+		AEGP_GetEffectCategory: Some(get_effect_category),
+		AEGP_DuplicateEffect: Some(duplicate_effect),
+		AEGP_NumEffectMask: Some(num_effect_mask),
+		AEGP_GetEffectMaskID: Some(get_effect_mask_id),
+		AEGP_AddEffectMask: Some(add_effect_mask),
+		AEGP_RemoveEffectMask: Some(remove_effect_mask),
+		AEGP_SetEffectMask: Some(set_effect_mask),
 	}
 }
 
@@ -275,6 +373,23 @@ mod tests {
 			assert_eq!(suite.AEGP_DisposeEffect.unwrap()(handle), PF_Err_NONE as A_Err);
 		}
 		assert_eq!(flags, AEGP_EffectFlags_ACTIVE as AEGP_EffectFlags);
+	}
+
+	#[test]
+	fn effects_have_no_masks() {
+		let suite = create_effect_suite_4();
+		let handle = new_effect_handle(0x1234 as PF_ProgPtr);
+		let mut n: A_u_long = 9;
+		let mut id: AEGP_MaskIDVal = 0;
+		unsafe {
+			assert_eq!(suite.AEGP_NumEffectMask.unwrap()(handle, &mut n), PF_Err_NONE as A_Err);
+			assert_eq!(
+				suite.AEGP_GetEffectMaskID.unwrap()(handle, 0, &mut id),
+				PF_Err_INVALID_INDEX as A_Err
+			);
+			assert_eq!(suite.AEGP_DisposeEffect.unwrap()(handle), PF_Err_NONE as A_Err);
+		}
+		assert_eq!(n, 0);
 	}
 
 	#[test]

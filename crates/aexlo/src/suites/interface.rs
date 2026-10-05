@@ -1,9 +1,10 @@
 //! `AEGP_PFInterfaceSuite1`: bridges from an effect to the AEGP object model.
 //!
-//! aexlo has no AEGP layers or cameras to hand out, so those getters report
-//! null handles -- the SDK's own answer for "no camera" -- rather than leaving
-//! the plugin's out-params uninitialised. The effect itself does exist: its
-//! handle feeds the Effect and Stream suites (see [`effect`](super::effect)).
+//! aexlo has no cameras to hand out, so the camera getter reports a null
+//! handle -- the SDK's own answer for "no camera" -- rather than leaving the
+//! plugin's out-params uninitialised. The effect and its layer do exist: their
+//! handles feed the Effect, Stream and Layer suites (see [`effect`](super::effect)
+//! and [`layer`](super::layer)).
 //! Everything that can be computed is: effect time maps 1:1 to comp time (the
 //! layer starts at comp time 0), and the camera geometry is After Effects'
 //! default comp camera (50 mm preset) for the effect's layer.
@@ -13,20 +14,24 @@ use after_effects_sys::{
 	AEGP_PFInterfaceSuite1, AEGP_PluginID, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_ProgPtr,
 };
 
-use super::effect;
+use super::{effect, layer};
 use crate::PluginInstance;
 use crate::core::diagnostics::diag;
 
-unsafe extern "C" fn get_effect_layer_sys(_effect_pp_ref: PF_ProgPtr, layerPH: *mut AEGP_LayerH) -> A_Err {
+unsafe extern "C" fn get_effect_layer_sys(effect_pp_ref: PF_ProgPtr, layerPH: *mut AEGP_LayerH) -> A_Err {
 	diag!("AEGP_PFInterfaceSuite1/AEGP_GetEffectLayer",
-		"effect_pp_ref" => format!("{:#x}", _effect_pp_ref as usize),
+		"effect_pp_ref" => format!("{:#x}", effect_pp_ref as usize),
 		"layerPH" => format!("{:#x}", layerPH as usize),
 	);
 
 	let Some(out) = (unsafe { layerPH.as_mut() }) else {
 		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
 	};
-	*out = std::ptr::null_mut();
+	if effect_pp_ref.is_null() {
+		*out = std::ptr::null_mut();
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	}
+	*out = layer::layer_handle(effect_pp_ref);
 	PF_Err_NONE as A_Err
 }
 
@@ -173,16 +178,21 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn layer_is_null_and_time_maps_through() {
+	fn layer_is_the_effect_and_time_maps_through() {
 		let suite = create_aegp_pf_interface_suite();
-		let mut layer: AEGP_LayerH = 1 as AEGP_LayerH;
+		let effect_ref = 0x40 as PF_ProgPtr;
+		let mut layer: AEGP_LayerH = std::ptr::null_mut();
 		let mut time = A_Time { value: -1, scale: 0 };
 		unsafe {
-			suite.AEGP_GetEffectLayer.unwrap()(std::ptr::null_mut(), &mut layer);
+			suite.AEGP_GetEffectLayer.unwrap()(effect_ref, &mut layer);
 			suite.AEGP_ConvertEffectToCompTime.unwrap()(std::ptr::null_mut(), 12, 30, &mut time);
 		}
-		assert!(layer.is_null());
+		assert_eq!(layer, layer::layer_handle(effect_ref));
 		assert_eq!((time.value, time.scale), (12, 30));
+
+		let err = unsafe { suite.AEGP_GetEffectLayer.unwrap()(std::ptr::null_mut(), &mut layer) };
+		assert_ne!(err, PF_Err_NONE as A_Err);
+		assert!(layer.is_null());
 	}
 
 	#[test]
@@ -196,7 +206,7 @@ mod tests {
 				PF_Err_NONE as A_Err
 			);
 			assert_eq!(effect::effect_ref_of(handle), Some(effect_ref));
-			let dispose = crate::suites::SUITE_CONTAINER.effect.AEGP_DisposeEffect.unwrap();
+			let dispose = crate::suites::SUITE_CONTAINER.effect2.AEGP_DisposeEffect.unwrap();
 			assert_eq!(dispose(handle), PF_Err_NONE as A_Err);
 		}
 

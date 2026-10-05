@@ -25,6 +25,8 @@ mod cache_on_load;
 mod channel;
 pub mod color_callbacks;
 mod color_param;
+mod color_settings;
+mod comp;
 mod effect;
 mod effect_ui;
 mod ffi;
@@ -35,6 +37,7 @@ mod helper;
 pub mod interface;
 pub mod iterate;
 mod keyframe;
+mod layer;
 pub mod macros;
 pub mod param_utils;
 mod path;
@@ -88,6 +91,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	iterate8: iterate::create_iterate_8_suite_2(),
 	iterate16: iterate::create_iterate_16_suite_2(),
 	iterate_float: iterate::create_iterate_float_suite_2(),
+	aegp_iterate: iterate::create_aegp_iterate_suite_1(),
 	utility: utility::create_utility_suite(),
 	aegp_interface: interface::create_aegp_pf_interface_suite(),
 	angle_param: angle_param::create_angle_param_suite(),
@@ -125,8 +129,18 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	persistent_data: persistent_data::create_persistent_data_suite_3(),
 	stream2: stream::create_stream_suite_2(),
 	stream4: stream::create_stream_suite_4(),
+	stream5: stream::create_stream_suite_5(),
 	keyframe: keyframe::create_keyframe_suite_4(),
-	effect: effect::create_effect_suite_2(),
+	effect2: effect::create_effect_suite_2(),
+	effect4: effect::create_effect_suite_4(),
+	color_settings: color_settings::create_color_settings_suite_2(),
+	light: layer::create_light_suite_1(),
+	comp: comp::create_comp_suite_10(),
+	layer5: layer::create_layer_suite_5(),
+	layer6: layer::create_layer_suite_6(),
+	layer7: layer::create_layer_suite_7(),
+	layer8: layer::create_layer_suite_8(),
+	layer9: layer::create_layer_suite_9(),
 };
 
 /// Process-wide storage for the stateless suite vtables handed to plugins.
@@ -148,6 +162,7 @@ pub struct SuiteContainer {
 	pub iterate8: PF_Iterate8Suite2,
 	pub iterate16: PF_iterate16Suite2,
 	pub iterate_float: PF_iterateFloatSuite2,
+	pub aegp_iterate: AEGP_IterateSuite1,
 	pub utility: PF_UtilitySuite,
 	pub aegp_interface: AEGP_PFInterfaceSuite1,
 	pub angle_param: PF_AngleParamSuite1,
@@ -185,8 +200,18 @@ pub struct SuiteContainer {
 	pub persistent_data: AEGP_PersistentDataSuite3,
 	pub stream2: AEGP_StreamSuite2,
 	pub stream4: AEGP_StreamSuite4,
+	pub stream5: AEGP_StreamSuite5,
 	pub keyframe: AEGP_KeyframeSuite4,
-	pub effect: AEGP_EffectSuite2,
+	pub effect2: AEGP_EffectSuite2,
+	pub effect4: AEGP_EffectSuite4,
+	pub color_settings: AEGP_ColorSettingsSuite2,
+	pub light: AEGP_LightSuite1,
+	pub comp: AEGP_CompSuite10,
+	pub layer5: AEGP_LayerSuite5,
+	pub layer6: AEGP_LayerSuite6,
+	pub layer7: AEGP_LayerSuite7,
+	pub layer8: AEGP_LayerSuite8,
+	pub layer9: AEGP_LayerSuite9,
 }
 
 /// Hand back a pointer to one of the shared [`SUITE_CONTAINER`] vtables.
@@ -245,6 +270,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("PF Iterate8 Suite", 1..=2) => dispatch_static!(suite, suite_name, version, iterate8),
 		("PF iterate16 Suite", 1..=2) => dispatch_static!(suite, suite_name, version, iterate16),
 		("PF iterateFloat Suite", 1..=2) => dispatch_static!(suite, suite_name, version, iterate_float),
+		("AEGP Iterate Suite", 1) => dispatch_static!(suite, suite_name, version, aegp_iterate),
 		("PF Utility Suite", 1..=18) => dispatch_static!(suite, suite_name, version, utility),
 		("AEGP PF Interface Suite", 1) => dispatch_static!(suite, suite_name, version, aegp_interface),
 		("PF AngleParamSuite", 1) => dispatch_static!(suite, suite_name, version, angle_param),
@@ -292,16 +318,45 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("AEGP Persistent Data Suite", 3) => {
 			dispatch_static!(suite, suite_name, version, persistent_data)
 		}
-		// Stream Suite wire versions 7 and 9 are AEGP_StreamSuite2 and 4; they
-		// differ only in their stream value structs.
+		// Stream Suite wire versions 7, 9 and 10 are AEGP_StreamSuite2, 4 and 5;
+		// they differ only in their stream value structs and expression text.
 		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion2 as i32 => {
 			dispatch_static!(suite, suite_name, version, stream2)
 		}
 		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion4 as i32 => {
 			dispatch_static!(suite, suite_name, version, stream4)
 		}
+		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion5 as i32 => {
+			dispatch_static!(suite, suite_name, version, stream5)
+		}
 		("AEGP Keyframe Suite", 4) => dispatch_static!(suite, suite_name, version, keyframe),
-		("AEGP Effect Suite", 2) => dispatch_static!(suite, suite_name, version, effect),
+		// Effect Suite v4 adds a command to EffectCallGeneric (so it is not a
+		// drop-in for v2) and appends the effect-mask calls.
+		("AEGP Effect Suite", 2) => dispatch_static!(suite, suite_name, version, effect2),
+		("AEGP Effect Suite", 4) => dispatch_static!(suite, suite_name, version, effect4),
+		("PF Color Settings Suite", v) if v == kAEGPColorSettingsSuiteVersion2 as i32 => {
+			dispatch_static!(suite, suite_name, version, color_settings)
+		}
+		("AEGP Light Suite", 1) => dispatch_static!(suite, suite_name, version, light),
+		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion10 as i32 => {
+			dispatch_static!(suite, suite_name, version, comp)
+		}
+		// Layer Suite v6 switches names to UTF-16 handles; later versions append.
+		("AEGP Layer Suite", v) if v == kAEGPLayerSuiteVersion5 as i32 => {
+			dispatch_static!(suite, suite_name, version, layer5)
+		}
+		("AEGP Layer Suite", v) if v == kAEGPLayerSuiteVersion6 as i32 => {
+			dispatch_static!(suite, suite_name, version, layer6)
+		}
+		("AEGP Layer Suite", v) if v == kAEGPLayerSuiteVersion7 as i32 => {
+			dispatch_static!(suite, suite_name, version, layer7)
+		}
+		("AEGP Layer Suite", v) if v == kAEGPLayerSuiteVersion8 as i32 => {
+			dispatch_static!(suite, suite_name, version, layer8)
+		}
+		("AEGP Layer Suite", v) if v == kAEGPLayerSuiteVersion9 as i32 => {
+			dispatch_static!(suite, suite_name, version, layer9)
+		}
 		("AEGP Utility Suite", 1..=18) => {
 			// Lives in its own LazyLock rather than SUITE_CONTAINER (see AEGP_UTILITY_SUITE).
 			// SAFETY: `suite` was null-checked at the top of this function.
@@ -391,8 +446,19 @@ mod tests {
 			("AE Plugin Helper Suite2", 2),
 			("AEGP Stream Suite", 7),
 			("AEGP Stream Suite", 9),
+			("AEGP Stream Suite", 10),
 			("AEGP Keyframe Suite", 4),
 			("AEGP Effect Suite", 2),
+			("AEGP Effect Suite", 4),
+			("AEGP Iterate Suite", 1),
+			("AEGP Layer Suite", 11),
+			("AEGP Layer Suite", 12),
+			("AEGP Layer Suite", 13),
+			("AEGP Layer Suite", 14),
+			("AEGP Layer Suite", 15),
+			("AEGP Comp Suite", 21),
+			("AEGP Light Suite", 1),
+			("PF Color Settings Suite", 3),
 		] {
 			let (err, ptr) = acquire(name, version);
 			assert_eq!(err, PF_Err_NONE as PF_Err, "'{name}' v{version} should be served");
