@@ -5,37 +5,15 @@
 //! [`Host::install`](crate::Host::install)). This module owns only the
 //! ABI: pointer checks, string/struct conversion and error codes.
 
+use super::ffi::{read_c_str, write_c_str};
 use crate::core::diagnostics::diag;
-use crate::host::app::{AppHost, AppPixelF, AppPoint, ProgressId, with_app_host};
+use crate::host::app::{AppPixelF, AppPoint, ProgressId, with_app_host_ffi as with_host};
 use after_effects_sys::{
 	_PF_AppProgressDialog, A_UTF16Char, A_char, A_long, A_short, PF_App_Color, PF_App_ColorType,
 	PF_AppPersonalTextInfo, PF_AppProgressDialogP, PF_Boolean, PF_ContextH, PF_CursorType, PF_Err,
-	PF_Err_BAD_CALLBACK_PARAM, PF_Err_INTERNAL_STRUCT_DAMAGED, PF_Err_NONE, PF_EyeDropperSampleMode, PF_FontName,
-	PF_FontStyleSheet, PF_Interrupt_CANCEL, PF_PixelFloat, PF_Point, PF_Rect, PFAppSuite4, PFAppSuite5, PFAppSuite6,
+	PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_EyeDropperSampleMode, PF_FontName, PF_FontStyleSheet,
+	PF_Interrupt_CANCEL, PF_PixelFloat, PF_Point, PF_Rect, PFAppSuite4, PFAppSuite5, PFAppSuite6,
 };
-use std::ffi::CStr;
-use std::panic::{AssertUnwindSafe, catch_unwind};
-
-/// Run `f` against the installed host, turning a panic into
-/// `PF_Err_INTERNAL_STRUCT_DAMAGED` so it never unwinds across the FFI boundary.
-fn with_host(f: impl FnOnce(&dyn AppHost) -> PF_Err) -> PF_Err {
-	catch_unwind(AssertUnwindSafe(|| with_app_host(f))).unwrap_or_else(|_| {
-		log::error!("AppHost panicked; reporting PF_Err_INTERNAL_STRUCT_DAMAGED");
-		PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err
-	})
-}
-
-/// Copy `src` into a fixed `A_char` buffer as a NUL-terminated C string,
-/// truncating to `dst.len() - 1` bytes.
-fn write_c_str(dst: &mut [A_char], src: &str) {
-	let n = src.len().min(dst.len().saturating_sub(1));
-	for (d, s) in dst.iter_mut().zip(&src.as_bytes()[..n]) {
-		*d = *s as A_char;
-	}
-	if let Some(end) = dst.get_mut(n) {
-		*end = 0;
-	}
-}
 
 /// Read a nullable NUL-terminated UTF-16 string.
 ///
@@ -231,8 +209,7 @@ unsafe extern "C" fn color_picker_dialog(
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 	with_host(|host| {
-		let title = (!dialog_titleZ0.is_null())
-			.then(|| unsafe { CStr::from_ptr(dialog_titleZ0) }.to_string_lossy().into_owned());
+		let title = unsafe { read_c_str(dialog_titleZ0) };
 		let sample = from_ffi_pixel(unsafe { &*sample_colorP });
 		match host.pick_color(title.as_deref(), sample, use_ws_to_monitor_xformB != 0) {
 			Some(c) => {
@@ -442,7 +419,8 @@ pub(super) const fn create_ae_app_suite_6() -> PFAppSuite6 {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::host::app::{AppColor, HeadlessAppHost, PersonalInfo, TEST_APP_HOST};
+	use crate::host::app::{AppColor, AppHost, HeadlessAppHost, PersonalInfo, TEST_APP_HOST};
+	use std::ffi::CStr;
 
 	struct TestHost;
 	impl AppHost for TestHost {

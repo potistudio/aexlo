@@ -15,14 +15,20 @@
 //! context - it lives in its own [`LazyLock`](utility::AEGP_UTILITY_SUITE)
 //! instead, but is otherwise the same shared-static model.
 
+mod adv_app;
+mod adv_item;
+mod adv_time;
 mod ae_app;
 mod angle_param;
 pub mod ansi;
 pub mod color_callbacks;
 mod color_param;
+mod effect_ui;
+mod ffi;
 pub mod fill_matte;
 pub mod gpu_device;
 pub mod handle;
+mod helper;
 pub mod interface;
 pub mod iterate;
 pub mod macros;
@@ -32,7 +38,6 @@ pub mod pixel_data;
 mod pixel_norm;
 mod point_param;
 pub mod transform;
-pub mod ui;
 pub mod utility;
 pub mod world;
 
@@ -65,9 +70,10 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 		acos: Some(ansi::acos_sys),
 		unused_longA: [0; 1],
 	},
-	effect_ui: PF_EffectUISuite1 {
-		PF_SetOptionsButtonName: Some(ui::SetOptionButtonName_sys),
-	},
+	effect_ui: effect_ui::create_effect_ui_suite_1(),
+	effect_custom_ui1: effect_ui::create_effect_custom_ui_suite_1(),
+	effect_custom_ui2: effect_ui::create_effect_custom_ui_suite_2(),
+	overlay_theme: effect_ui::create_overlay_theme_suite_1(),
 	handle: handle::create_handle_suite(),
 	world_transform: transform::create_world_transform_suite_1(),
 	world: world::create_world_suite(),
@@ -87,6 +93,15 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	ae_app4: ae_app::create_ae_app_suite_4(),
 	ae_app5: ae_app::create_ae_app_suite_5(),
 	ae_app6: ae_app::create_ae_app_suite_6(),
+	adv_app1: adv_app::create_adv_app_suite_1(),
+	adv_app2: adv_app::create_adv_app_suite_2(),
+	adv_item: adv_item::create_adv_item_suite_1(),
+	adv_time1: adv_time::create_adv_time_suite_1(),
+	adv_time2: adv_time::create_adv_time_suite_2(),
+	adv_time3: adv_time::create_adv_time_suite_3(),
+	adv_time4: adv_time::create_adv_time_suite_4(),
+	helper1: helper::create_helper_suite_1(),
+	helper2: helper::create_helper_suite_2(),
 	gpu_device: gpu_device::create_gpu_device_suite_1(),
 	param_utils: param_utils::create_param_utils_suite_3(),
 	persistent_data: persistent_data::create_persistent_data_suite_3(),
@@ -102,6 +117,9 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 pub struct SuiteContainer {
 	pub ansi: PF_ANSICallbacksBlock,
 	pub effect_ui: PF_EffectUISuite1,
+	pub effect_custom_ui1: PF_EffectCustomUISuite1,
+	pub effect_custom_ui2: PF_EffectCustomUISuite2,
+	pub overlay_theme: PF_EffectCustomUIOverlayThemeSuite1,
 	pub handle: PF_HandleSuite1,
 	pub world_transform: PF_WorldTransformSuite1,
 	pub world: PF_WorldSuite2,
@@ -121,6 +139,15 @@ pub struct SuiteContainer {
 	pub ae_app4: PFAppSuite4,
 	pub ae_app5: PFAppSuite5,
 	pub ae_app6: PFAppSuite6,
+	pub adv_app1: PF_AdvAppSuite1,
+	pub adv_app2: PF_AdvAppSuite2,
+	pub adv_item: PF_AdvItemSuite1,
+	pub adv_time1: PF_AdvTimeSuite1,
+	pub adv_time2: PF_AdvTimeSuite2,
+	pub adv_time3: PF_AdvTimeSuite3,
+	pub adv_time4: PF_AdvTimeSuite4,
+	pub helper1: PF_HelperSuite1,
+	pub helper2: PF_HelperSuite2,
 	pub gpu_device: PF_GPUDeviceSuite1,
 	pub param_utils: PF_ParamUtilsSuite3,
 	pub persistent_data: AEGP_PersistentDataSuite3,
@@ -170,6 +197,11 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		// Static suites: pointers into the shared SUITE_CONTAINER.
 		("PF ANSI Suite", 1) => dispatch_static!(suite, suite_name, version, ansi),
 		("PF Effect UI Suite", 1) => dispatch_static!(suite, suite_name, version, effect_ui),
+		("PF Effect Custom UI Suite", 1) => dispatch_static!(suite, suite_name, version, effect_custom_ui1),
+		("PF Effect Custom UI Suite", 2) => dispatch_static!(suite, suite_name, version, effect_custom_ui2),
+		("PF Effect Custom UI Overlay Theme Suite", 1) => {
+			dispatch_static!(suite, suite_name, version, overlay_theme)
+		}
 		("PF Handle Suite", 2) => dispatch_static!(suite, suite_name, version, handle),
 		("PF World Transform Suite", 1) => dispatch_static!(suite, suite_name, version, world_transform),
 		("PF World Suite", 2) => dispatch_static!(suite, suite_name, version, world),
@@ -195,6 +227,17 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("PF AE App Suite", v) if v == kPFAppSuiteVersion6 as i32 => dispatch_static!(suite, suite_name, version, ae_app6),
 		("PF AE App Suite", v) if v == kPFAppSuiteVersion5 as i32 => dispatch_static!(suite, suite_name, version, ae_app5),
 		("PF AE App Suite", v) if v == kPFAppSuiteVersion4 as i32 => dispatch_static!(suite, suite_name, version, ae_app4),
+		// Adv App v2 only appends `PF_AppendInfoText`; Adv Time versions differ
+		// in their preference struct, so each gets an exactly-shaped table.
+		("PF AE Adv App Suite", 1) => dispatch_static!(suite, suite_name, version, adv_app1),
+		("PF AE Adv App Suite", 2) => dispatch_static!(suite, suite_name, version, adv_app2),
+		("PF AE Adv Item Suite", 1) => dispatch_static!(suite, suite_name, version, adv_item),
+		("PF AE Adv Time Suite", 1) => dispatch_static!(suite, suite_name, version, adv_time1),
+		("PF AE Adv Time Suite", 2) => dispatch_static!(suite, suite_name, version, adv_time2),
+		("PF AE Adv Time Suite", 3) => dispatch_static!(suite, suite_name, version, adv_time3),
+		("PF AE Adv Time Suite", 4) => dispatch_static!(suite, suite_name, version, adv_time4),
+		("AE Plugin Helper Suite", 1) => dispatch_static!(suite, suite_name, version, helper1),
+		("AE Plugin Helper Suite2", 1..=2) => dispatch_static!(suite, suite_name, version, helper2),
 		("PF GPU Device Suite", 1) => dispatch_static!(suite, suite_name, version, gpu_device),
 		// ParamUtils suites are append-only, so the v3 table also satisfies v1/v2 requests.
 		("PF Param Utils Suite", 1..=3) => dispatch_static!(suite, suite_name, version, param_utils),

@@ -164,6 +164,9 @@ pub struct PluginInstance {
 	/// (compiled pipelines, etc.), handed back to the plugin during GPU render and
 	/// released by `PF_Cmd_GPU_DEVICE_SETDOWN`.
 	gpu_data: *mut ::std::os::raw::c_void,
+
+	/// Label the plugin gave its Options button via `PF_SetOptionsButtonName`.
+	options_button_name: Option<String>,
 }
 
 /// Plugin constructors. Taking a [`Host`] guarantees the process-wide
@@ -857,6 +860,16 @@ impl PluginInstance {
 	pub fn output_size(&self) -> (u32, u32) {
 		(self.output_layer.width(), self.output_layer.height())
 	}
+
+	/// The label the plugin set for its Options button
+	/// (`PF_EffectUISuite1::PF_SetOptionsButtonName`), if any.
+	pub fn options_button_name(&self) -> Option<&str> {
+		self.options_button_name.as_deref()
+	}
+
+	pub(crate) fn set_options_button_name(&mut self, name: String) {
+		self.options_button_name = Some(name);
+	}
 	// -----------------------------------------------------
 
 	/// Add a parameter to this instance's parameter storage.
@@ -984,6 +997,7 @@ impl PluginInstance {
 				gpu_readback_staging: Vec::new(),
 				gpu_input_uploaded: false,
 				gpu_data: null_mut(),
+				options_button_name: None,
 			};
 
 			instance_placeholder.wire_self_pointers();

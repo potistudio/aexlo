@@ -69,10 +69,13 @@ pub use aexlo_macros::preview;
 
 pub use param_value::ParamValue;
 
-/// Injectable host-application services ("PF AE App Suite"): UI colors, fonts,
-/// language, color picker, progress dialogs, ... Headless by default.
+/// Injectable host-application services (App, Adv App/Item/Time, Plugin
+/// Helper and Custom UI Overlay Theme suites): UI colors, fonts, language,
+/// color picker, progress dialogs, Info panel, time display, tools, ...
+/// Headless by default.
 pub use host::app::{
-	AppColor, AppHost, AppPixelF, AppPoint, FontInfo, HeadlessAppHost, Host, PersonalInfo, ProgressId,
+	AppColor, AppHost, AppPixel8, AppPixelF, AppPoint, FontInfo, HeadlessAppHost, Host, InfoLine, OverlayTheme,
+	PersonalInfo, ProgressId, TimeDisplayMode, TimeDisplayPref,
 };
 
 /// Diagnostic utilities (feature-gated).
