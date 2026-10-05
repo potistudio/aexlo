@@ -65,6 +65,10 @@ fn render_gpu(instance: &mut PluginInstance) -> Option<Vec<u8>> {
 	}
 }
 
+/// A mode's name, its parameters, and how many pixels CPU and GPU may differ
+/// in (`None` when the paths use different algorithms).
+type ModeCase = (&'static str, Vec<(usize, ParamValue)>, Option<usize>);
+
 fn changed_pixels(a: &[u8], b: &[u8]) -> usize {
 	a.chunks(4).zip(b.chunks(4)).filter(|(p, q)| p != q).count()
 }
@@ -151,7 +155,7 @@ fn centre_default_is_the_input_frame_centre() {
 /// analytic domain sort on the GPU, so only their footprint is checked.
 #[test]
 fn every_mode_sorts_on_cpu_and_gpu() {
-	let modes: [(&str, Vec<(usize, ParamValue)>, Option<usize>); 6] = [
+	let modes: [ModeCase; 6] = [
 		("axis", vec![(MODE, ParamValue::Popup(1))], Some(0)),
 		(
 			"free angle",

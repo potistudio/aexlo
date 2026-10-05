@@ -1,5 +1,10 @@
 use std::path::PathBuf;
 
+/// Fixtures whose pixel callbacks must run on the thread that called iterate
+/// (see `PluginInstance::set_parallel_iterate`): they acquire suites inside
+/// the callback through the Rust after-effects crate's thread-local.
+const SERIAL_ITERATE: &[&str] = &["AOD_MobiusTransform"];
+
 /// Loads and renders every plugin fixture under the workspace's shared
 /// `fixtures/plugins/` directory, one subprocess per plugin (via the
 /// `render_one` helper binary) so a crash in one real, third-party plugin
@@ -40,12 +45,12 @@ fn all_fixtures_render_test() {
 		let name = plugin.file_stem().unwrap().to_string_lossy().to_string();
 		let output_path = output_dir.join(format!("{name}.png"));
 
-		let status = std::process::Command::new(&render_one)
-			.arg(plugin)
-			.arg(&input_path)
-			.arg(&output_path)
-			.status()
-			.expect("failed to spawn render_one");
+		let mut command = std::process::Command::new(&render_one);
+		command.arg(plugin).arg(&input_path).arg(&output_path);
+		if SERIAL_ITERATE.contains(&name.as_str()) {
+			command.arg("--serial-iterate");
+		}
+		let status = command.status().expect("failed to spawn render_one");
 
 		if !status.success() {
 			failures.push(format!("{name}: {status}"));

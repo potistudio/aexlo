@@ -10,13 +10,19 @@ fn main() -> Result<(), Box<dyn Error>> {
 	env_logger::init();
 
 	let mut args = std::env::args().skip(1);
-	let usage = "usage: render_one <plugin_path> <input_png> <output_png>";
+	let usage = "usage: render_one <plugin_path> <input_png> <output_png> [--serial-iterate]";
 
 	let plugin_path = PathBuf::from(args.next().ok_or(usage)?);
 	let input_path = PathBuf::from(args.next().ok_or(usage)?);
 	let output_path = PathBuf::from(args.next().ok_or(usage)?);
+	let serial_iterate = match args.next().as_deref() {
+		None => false,
+		Some("--serial-iterate") => true,
+		Some(_) => return Err(usage.into()),
+	};
 
 	let mut instance = aexlo::Host::get().try_load(&plugin_path)?;
+	instance.set_parallel_iterate(!serial_iterate);
 	instance.about()?;
 
 	let img = image::open(&input_path)?.to_rgba8();
