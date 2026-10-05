@@ -21,6 +21,8 @@ mod adv_time;
 mod ae_app;
 mod angle_param;
 pub mod ansi;
+mod cache_on_load;
+mod channel;
 pub mod color_callbacks;
 mod color_param;
 mod effect_ui;
@@ -35,6 +37,7 @@ pub mod macros;
 pub mod param_utils;
 pub mod persistent_data;
 pub mod pixel_data;
+mod pixel_format;
 mod pixel_norm;
 mod point_param;
 pub mod sampling;
@@ -95,6 +98,10 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	sampling16: sampling::create_sampling_16_suite_1(),
 	sampling_float: sampling::create_sampling_float_suite_1(),
 	pixel_data: pixel_data::create_pixel_data_suite_2(),
+	pixel_format1: pixel_format::create_pixel_format_suite_1(),
+	pixel_format2: pixel_format::create_pixel_format_suite_2(),
+	cache_on_load: cache_on_load::create_cache_on_load_suite_1(),
+	channel: channel::create_channel_suite_1(),
 	ae_app4: ae_app::create_ae_app_suite_4(),
 	ae_app5: ae_app::create_ae_app_suite_5(),
 	ae_app6: ae_app::create_ae_app_suite_6(),
@@ -145,6 +152,10 @@ pub struct SuiteContainer {
 	pub sampling16: PF_Sampling16Suite1,
 	pub sampling_float: PF_SamplingFloatSuite1,
 	pub pixel_data: PF_PixelDataSuite2,
+	pub pixel_format1: PF_PixelFormatSuite,
+	pub pixel_format2: PF_PixelFormatSuite2,
+	pub cache_on_load: PF_CacheOnLoadSuite1,
+	pub channel: PF_ChannelSuite1,
 	pub ae_app4: PFAppSuite4,
 	pub ae_app5: PFAppSuite5,
 	pub ae_app6: PFAppSuite6,
@@ -234,6 +245,12 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		// PixelData suites are append-only (v2 adds the GPU accessor), so the v2
 		// table also satisfies v1 requests.
 		("PF Pixel Data Suite", 1..=2) => dispatch_static!(suite, suite_name, version, pixel_data),
+		// v1 is Premiere's full `PF_PixelFormatSuite`; v2 is AE's two-entry
+		// registration-only table. Same name, unrelated layouts.
+		("PF Pixel Format Suite", 1) => dispatch_static!(suite, suite_name, version, pixel_format1),
+		("PF Pixel Format Suite", 2) => dispatch_static!(suite, suite_name, version, pixel_format2),
+		("PF Cache On Load Suite", 1) => dispatch_static!(suite, suite_name, version, cache_on_load),
+		("PF AE Channel Suite", 1) => dispatch_static!(suite, suite_name, version, channel),
 		// The App Suite's wire versions do NOT follow the struct names, and the
 		// layouts are not append-only (v5 inserts `PF_AppGetLanguage` mid-table),
 		// so each wire version must get its own exactly-shaped table.

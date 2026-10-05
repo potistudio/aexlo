@@ -167,6 +167,9 @@ pub struct PluginInstance {
 
 	/// Label the plugin gave its Options button via `PF_SetOptionsButtonName`.
 	options_button_name: Option<String>,
+
+	/// Pixel formats (FourCCs) registered through the "PF Pixel Format Suite".
+	supported_pixel_formats: Vec<u32>,
 }
 
 /// Plugin constructors. Taking a [`Host`] guarantees the process-wide
@@ -870,6 +873,23 @@ impl PluginInstance {
 	pub(crate) fn set_options_button_name(&mut self, name: String) {
 		self.options_button_name = Some(name);
 	}
+
+	/// Pixel formats (`PF_PixelFormat` / `PrPixelFormat` FourCCs) the plugin
+	/// registered via the "PF Pixel Format Suite", in registration order. 8-bit
+	/// ARGB is implied and only listed if registered explicitly.
+	pub fn supported_pixel_formats(&self) -> &[u32] {
+		&self.supported_pixel_formats
+	}
+
+	pub(crate) fn add_supported_pixel_format(&mut self, format: u32) {
+		if !self.supported_pixel_formats.contains(&format) {
+			self.supported_pixel_formats.push(format);
+		}
+	}
+
+	pub(crate) fn clear_supported_pixel_formats(&mut self) {
+		self.supported_pixel_formats.clear();
+	}
 	// -----------------------------------------------------
 
 	/// Add a parameter to this instance's parameter storage.
@@ -998,6 +1018,7 @@ impl PluginInstance {
 				gpu_input_uploaded: false,
 				gpu_data: null_mut(),
 				options_button_name: None,
+				supported_pixel_formats: Vec::new(),
 			};
 
 			instance_placeholder.wire_self_pointers();
