@@ -37,6 +37,7 @@ pub mod persistent_data;
 pub mod pixel_data;
 mod pixel_norm;
 mod point_param;
+pub mod sampling;
 pub mod transform;
 pub mod utility;
 pub mod world;
@@ -89,6 +90,10 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	color_callbacks16: color_callbacks::create_color_callbacks_16_suite_1(),
 	color_callbacks_float: color_callbacks::create_color_callbacks_float_suite_1(),
 	fill_matte: fill_matte::create_fill_matte_suite_2(),
+	batch_sampling: sampling::create_batch_sampling_suite_1(),
+	sampling8: sampling::create_sampling_8_suite_1(),
+	sampling16: sampling::create_sampling_16_suite_1(),
+	sampling_float: sampling::create_sampling_float_suite_1(),
 	pixel_data: pixel_data::create_pixel_data_suite_2(),
 	ae_app4: ae_app::create_ae_app_suite_4(),
 	ae_app5: ae_app::create_ae_app_suite_5(),
@@ -135,6 +140,10 @@ pub struct SuiteContainer {
 	pub color_callbacks16: PF_ColorCallbacks16Suite1,
 	pub color_callbacks_float: PF_ColorCallbacksFloatSuite1,
 	pub fill_matte: PF_FillMatteSuite2,
+	pub batch_sampling: PF_BatchSamplingSuite1,
+	pub sampling8: PF_Sampling8Suite1,
+	pub sampling16: PF_Sampling16Suite1,
+	pub sampling_float: PF_SamplingFloatSuite1,
 	pub pixel_data: PF_PixelDataSuite2,
 	pub ae_app4: PFAppSuite4,
 	pub ae_app5: PFAppSuite5,
@@ -218,6 +227,10 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("PF Color16 Suite", 1) => dispatch_static!(suite, suite_name, version, color_callbacks16),
 		("PF ColorFloat Suite", 1) => dispatch_static!(suite, suite_name, version, color_callbacks_float),
 		("PF Fill Matte Suite", 2) => dispatch_static!(suite, suite_name, version, fill_matte),
+		("PF Batch Sampling Suite", 1) => dispatch_static!(suite, suite_name, version, batch_sampling),
+		("PF Sampling8 Suite", 1) => dispatch_static!(suite, suite_name, version, sampling8),
+		("PF Sampling16 Suite", 1) => dispatch_static!(suite, suite_name, version, sampling16),
+		("PF SamplingFloat Suite", 1) => dispatch_static!(suite, suite_name, version, sampling_float),
 		// PixelData suites are append-only (v2 adds the GPU accessor), so the v2
 		// table also satisfies v1 requests.
 		("PF Pixel Data Suite", 1..=2) => dispatch_static!(suite, suite_name, version, pixel_data),
