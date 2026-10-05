@@ -128,6 +128,7 @@ unsafe extern "C" fn does_key_exist(
 	value_keyZ: *const A_char,
 	existsPB: *mut A_Boolean,
 ) -> A_Err {
+	log::debug!("AEGP_DoesKeyExist [{}] {}", unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
 	let exists = {
 		let store = STORE.lock().unwrap();
 		store.contains_key(&(unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) }))
@@ -204,6 +205,7 @@ unsafe extern "C" fn get_data(
 	bufPV: *mut std::os::raw::c_void,
 ) -> A_Err {
 	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 	let size = data_sizeLu as usize;
 	let mut store = STORE.lock().unwrap();
 	if let Some(Value::Data(bytes)) = store.get(&k)
@@ -237,6 +239,7 @@ unsafe extern "C" fn get_string(
 	actual_buf_sizeLu0: *mut A_u_long,
 ) -> A_Err {
 	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 	let mut store = STORE.lock().unwrap();
 	if let Some(Value::Str(bytes)) = store.get(&k) {
 		unsafe { write_str(bytes, bufZ, buf_sizeLu, actual_buf_sizeLu0) };
@@ -256,6 +259,7 @@ unsafe extern "C" fn get_long(
 	valuePL: *mut A_long,
 ) -> A_Err {
 	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 	let mut store = STORE.lock().unwrap();
 	let value = match store.get(&k) {
 		Some(Value::Long(v)) => *v,
@@ -278,6 +282,7 @@ unsafe extern "C" fn get_fp_long(
 	valuePF: *mut A_FpLong,
 ) -> A_Err {
 	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 	let mut store = STORE.lock().unwrap();
 	let value = match store.get(&k) {
 		Some(Value::FpLong(v)) => *v,
@@ -311,6 +316,7 @@ unsafe extern "C" fn set_data(
 	dataPV: *const std::os::raw::c_void,
 ) -> A_Err {
 	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 	let bytes = if dataPV.is_null() {
 		Vec::new()
 	} else {
@@ -327,6 +333,7 @@ unsafe extern "C" fn set_string(
 	strZ: *const A_char,
 ) -> A_Err {
 	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 	STORE
 		.lock()
 		.unwrap()
@@ -341,6 +348,7 @@ unsafe extern "C" fn set_long(
 	valueL: A_long,
 ) -> A_Err {
 	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 	STORE.lock().unwrap().insert(k, Value::Long(valueL));
 	0
 }
@@ -352,6 +360,7 @@ unsafe extern "C" fn set_fp_long(
 	valueF: A_FpLong,
 ) -> A_Err {
 	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 	STORE.lock().unwrap().insert(k, Value::FpLong(valueF));
 	0
 }
@@ -362,6 +371,7 @@ unsafe extern "C" fn delete_entry(
 	value_keyZ: *const A_char,
 ) -> A_Err {
 	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 	STORE.lock().unwrap().remove(&k);
 	0
 }
