@@ -660,6 +660,28 @@ impl PluginInstance {
 		self.smart_render_data.set_output_rect(width as i32, height as i32);
 	}
 
+	/// Set the time the next commands operate on: `current_time / time_scale`
+	/// seconds into the comp, one frame being `time_step / time_scale` seconds
+	/// (so frame `n` of a 30 fps comp is `set_time(n, 1, 30)`).
+	///
+	/// The layer and comp the plugin sees through the AEGP suites run at the
+	/// same frame rate. Plugins start at frame 0 of a 30 fps comp.
+	///
+	/// # Panics
+	/// If `time_step` or `time_scale` is not positive: plugins divide by both.
+	pub fn set_time(&mut self, current_time: i32, time_step: i32, time_scale: u32) {
+		assert!(
+			time_step > 0 && time_scale > 0,
+			"time_step and time_scale must be positive"
+		);
+		self.render_context.set_time(current_time, time_step, time_scale);
+	}
+
+	/// The time set by [`Self::set_time`], as `(current_time, time_step, time_scale)`.
+	pub fn time(&self) -> (i32, i32, u32) {
+		self.render_context.time()
+	}
+
 	/// Replace the input layer.
 	///
 	/// Point parameters still at their default are re-resolved against the new
@@ -806,6 +828,11 @@ impl PluginInstance {
 				};
 			}
 			ParamValue::Path(id) => target.u.path_d.path_id = id,
+			ParamValue::Point3D { x, y, z } => {
+				target.u.point3d_d.x_value = x;
+				target.u.point3d_d.y_value = y;
+				target.u.point3d_d.z_value = z;
+			}
 		}
 
 		Ok(())
@@ -878,6 +905,11 @@ impl PluginInstance {
 					})
 				}
 				t if t == ParamType::Path as PF_ParamType => Some(ParamValue::Path(param.u.path_d.path_id)),
+				t if t == ParamType::Point3D as PF_ParamType => Some(ParamValue::Point3D {
+					x: param.u.point3d_d.x_value,
+					y: param.u.point3d_d.y_value,
+					z: param.u.point3d_d.z_value,
+				}),
 				_ => None,
 			}
 		}
@@ -1133,6 +1165,28 @@ impl PluginInstance {
 	/// be empty when the plugin left it blank.
 	pub fn param_name(&self, index: usize) -> Option<String> {
 		self.params.get(index).map(crate::host::params::param_name)
+	}
+
+	/// The declared type of the parameter at `index` (same index space as
+	/// [`Self::set_param`]; index 0 is the input layer), or `None` if out of bounds.
+	pub fn param_kind(&self, index: usize) -> Option<crate::ParamKind> {
+		self.params.get(index).map(|p| crate::ParamKind::from_sdk(p.param_type))
+	}
+
+	/// Whether the plugin hid the parameter at `index` (`PF_PUI_INVISIBLE`),
+	/// at setup or later through `PF_UpdateParamUI`.
+	pub fn param_hidden(&self, index: usize) -> bool {
+		self.params.get(index).is_some_and(|p| {
+			p.ui_flags & after_effects_sys::PF_PUI_INVISIBLE as after_effects_sys::PF_ParamUIFlags != 0
+		})
+	}
+
+	/// Whether the plugin disabled (greyed out) the parameter at `index`
+	/// (`PF_PUI_DISABLED`).
+	pub fn param_disabled(&self, index: usize) -> bool {
+		self.params
+			.get(index)
+			.is_some_and(|p| p.ui_flags & after_effects_sys::PF_PUI_DISABLED as after_effects_sys::PF_ParamUIFlags != 0)
 	}
 
 	/// Apply a plugin's `PF_UpdateParamUI` request: copy the UI-only fields from
@@ -1678,6 +1732,44 @@ mod tests {
 	/// An instance with no plugin loaded: params[0] is the implicit input layer.
 	fn bare_instance() -> PluginInstance {
 		PluginInstance::new(Path::new("<test>"))
+	}
+
+	#[test]
+	fn param_kind_covers_value_less_params() {
+		let mut fx = bare_instance();
+		fx.add_instance_param(param_of_type(ParamType::GroupStart));
+		let mut button = param_of_type(ParamType::Button);
+		button.ui_flags = after_effects_sys::PF_PUI_INVISIBLE as after_effects_sys::PF_ParamUIFlags;
+		fx.add_instance_param(button);
+
+		assert_eq!(fx.param_kind(0), Some(crate::ParamKind::Layer));
+		assert_eq!(fx.param_kind(1), Some(crate::ParamKind::GroupStart));
+		assert_eq!(fx.param_kind(2), Some(crate::ParamKind::Button));
+		assert_eq!(fx.param_kind(3), None);
+		assert!(!fx.param_hidden(1));
+		assert!(fx.param_hidden(2));
+	}
+
+	#[test]
+	fn point3d_round_trips() {
+		let mut fx = bare_instance();
+		fx.add_instance_param(param_of_type(ParamType::Point3D));
+		let value = ParamValue::Point3D {
+			x: 1.5,
+			y: -2.0,
+			z: 300.25,
+		};
+		fx.set_param(1, value.clone()).unwrap();
+		assert_eq!(fx.get_param(1), Some(value));
+		assert!(fx.set_param(1, ParamValue::Point { x: 0.0, y: 0.0 }).is_err());
+	}
+
+	#[test]
+	fn set_time_reaches_in_data() {
+		let mut fx = bare_instance();
+		assert_eq!(fx.time(), (0, 1, 30));
+		fx.set_time(48, 1, 24);
+		assert_eq!(fx.time(), (48, 1, 24));
 	}
 
 	#[test]

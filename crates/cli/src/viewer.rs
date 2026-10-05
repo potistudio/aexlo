@@ -235,6 +235,9 @@ fn params_json(fx: &PluginInstance) -> String {
 			ParamValue::Checkbox(v) => out.push_str(&format!("\"kind\":\"checkbox\",\"value\":{v}")),
 			ParamValue::Point { x, y } => out.push_str(&format!("\"kind\":\"point\",\"x\":{x},\"y\":{y}")),
 			ParamValue::Path(id) => out.push_str(&format!("\"kind\":\"path\",\"value\":{id}")),
+			ParamValue::Point3D { x, y, z } => {
+				out.push_str(&format!("\"kind\":\"point3d\",\"x\":{x},\"y\":{y},\"z\":{z}"))
+			}
 			ParamValue::Color {
 				red,
 				green,
@@ -536,6 +539,13 @@ function buildControls(params) {
       const push = () => set(p.index, x.value + ',' + y.value);
       x.oninput = push; y.oninput = push;
       wrap.append(x, y); row.append(wrap);
+    } else if (p.kind === 'point3d') {
+      row = labelled(p);
+      const wrap = el('div', 'pt');
+      const x = numInput(p.x), y = numInput(p.y), z = numInput(p.z);
+      const push = () => set(p.index, x.value + ',' + y.value + ',' + z.value);
+      x.oninput = push; y.oninput = push; z.oninput = push;
+      wrap.append(x, y, z); row.append(wrap);
     } else if (p.kind === 'color') {
       row = labelled(p);
       const wrap = el('div', 'pt');

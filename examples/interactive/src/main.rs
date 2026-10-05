@@ -416,6 +416,12 @@ fn param_widget(ui: &mut egui::Ui, control: &mut ParamControl) -> bool {
 				changed
 			}
 			ParamValue::Path(id) => ui.add(egui::DragValue::new(id).prefix("mask ")).changed(),
+			ParamValue::Point3D { x, y, z } => {
+				let cx = ui.add(egui::DragValue::new(x).speed(1.0).prefix("x ")).changed();
+				let cy = ui.add(egui::DragValue::new(y).speed(1.0).prefix("y ")).changed();
+				let cz = ui.add(egui::DragValue::new(z).speed(1.0).prefix("z ")).changed();
+				cx || cy || cz
+			}
 		}
 	})
 	.inner

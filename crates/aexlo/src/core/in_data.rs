@@ -138,6 +138,15 @@ impl RenderContext {
 		(self.current_time, self.time_step, self.time_scale)
 	}
 
+	/// Move to `current_time` in a comp whose frames are `time_step / time_scale`
+	/// seconds long. The effect isn't time-remapped, so its local step matches.
+	pub fn set_time(&mut self, current_time: A_long, time_step: A_long, time_scale: A_u_long) {
+		self.current_time = current_time;
+		self.time_step = time_step;
+		self.local_time_step = time_step;
+		self.time_scale = time_scale;
+	}
+
 	/// Set the frame size and cover it entirely with `extent_hint`.
 	pub fn set_size(&mut self, width: i32, height: i32) {
 		self.width = width;

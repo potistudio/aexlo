@@ -425,6 +425,17 @@ pub(crate) fn parse_param_value(instance: &PluginInstance, index: usize, raw: &s
 		}
 		ParamValue::Color { .. } => parse_color(raw)?,
 		ParamValue::Path(_) => ParamValue::Path(raw.parse().with_context(|| bad(raw, "a mask id"))?),
+		ParamValue::Point3D { .. } => {
+			let parts: Vec<f64> = raw
+				.split(',')
+				.map(|v| v.trim().parse())
+				.collect::<Result<_, _>>()
+				.with_context(|| bad(raw, "'x,y,z'"))?;
+			let [x, y, z] = parts[..] else {
+				bail!("{}", bad(raw, "'x,y,z'"));
+			};
+			ParamValue::Point3D { x, y, z }
+		}
 	};
 	Ok(value)
 }
@@ -490,5 +501,6 @@ fn describe(value: &ParamValue) -> String {
 			alpha,
 		} => format!("color    {red},{green},{blue},{alpha}"),
 		ParamValue::Path(id) => format!("path     {id}"),
+		ParamValue::Point3D { x, y, z } => format!("point3d  {x},{y},{z}"),
 	}
 }

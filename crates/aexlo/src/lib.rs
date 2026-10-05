@@ -68,7 +68,7 @@ pub use preview::{
 /// `#[aexlo::preview]` - render a plugin in-process and drop a preview PNG.
 pub use aexlo_macros::preview;
 
-pub use param_value::ParamValue;
+pub use param_value::{ParamKind, ParamValue};
 
 /// Layer masks served through the Path Query/Data suites
 /// ([`PluginInstance::set_mask_paths`]).
