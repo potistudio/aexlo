@@ -1,6 +1,7 @@
 use crate::core::error::{AexloError, Result};
 use crate::core::in_data::{CallBindings, EffectState, HostInfo as InDataHost, RenderContext};
 use crate::host::app::Host;
+use crate::host::layer_param::LinkedLayer;
 use crate::host::smart_render::SmartRenderData;
 use crate::param_value::ParamValue;
 use crate::utils;
@@ -16,6 +17,7 @@ use after_effects_sys::{
 use colored::Colorize;
 use dlopen2::raw::Library;
 use std::{
+	collections::HashMap,
 	ffi::{CStr, CString},
 	path::{Path, PathBuf},
 	ptr::NonNull,
@@ -173,6 +175,13 @@ pub struct PluginInstance {
 
 	/// Masks on the effect's layer, served through the Path Query/Data suites.
 	mask_paths: Vec<crate::MaskPath>,
+
+	/// Layers linked to the plugin's own `PF_Param_LAYER` parameters, by index.
+	linked_layers: HashMap<usize, LinkedLayer>,
+
+	/// Smart-render checkout ids mapped to the layer parameter they checked
+	/// out, recorded by `checkout_layer` during pre-render.
+	layer_checkouts: HashMap<after_effects_sys::A_long, usize>,
 }
 
 /// Plugin constructors. Taking a [`Host`] guarantees the process-wide
@@ -274,6 +283,7 @@ impl PluginInstance {
 	/// Call the plugin with `PF_Cmd_SMART_PRE_RENDER` command, letting it declare the
 	/// input/output checkout regions it needs via [`Self::render_smart`].
 	pub fn render_pre(&mut self) -> Result<()> {
+		self.layer_checkouts.clear();
 		let mut extra = self.smart_render_data.pre_render_extra();
 
 		self.call_plugin(
@@ -469,6 +479,25 @@ impl PluginInstance {
 					));
 				}
 				self.gpu_input_uploaded = true;
+			}
+
+			// Layers linked to layer parameters get their own device buffers.
+			for linked in self.linked_layers.values_mut() {
+				let key = linked.world_ptr(true) as usize;
+				if !ctx.ensure_buffer(key, linked.gpu_len()) {
+					return Err(AexloError::Unexpected(
+						"Failed to allocate GPU layer-parameter buffer".to_string(),
+					));
+				}
+				if !linked.gpu_uploaded {
+					Self::pack_layer_to_bgra_f32(linked.layer(), &mut self.gpu_upload_staging);
+					if !ctx.write_buffer(key, bytemuck::cast_slice(&self.gpu_upload_staging)) {
+						return Err(AexloError::Unexpected(
+							"Failed to upload layer-parameter pixels to the GPU".to_string(),
+						));
+					}
+					linked.gpu_uploaded = true;
+				}
 			}
 		}
 
@@ -920,6 +949,84 @@ impl PluginInstance {
 	pub fn set_mask_paths(&mut self, paths: Vec<crate::MaskPath>) {
 		self.mask_paths = paths;
 	}
+
+	/// Link `layer` to the plugin's own layer parameter at `index` (same index
+	/// space as [`Self::set_param`]), or unlink it with `None` (the parameter's
+	/// "None" choice). The plugin sees the layer through `checkout_param` and
+	/// smart-render layer checkouts, on both the CPU and GPU paths.
+	///
+	/// # Errors
+	/// [`AexloError::ParamIndexOutOfBounds`] for index 0 (the input layer, see
+	/// [`Self::set_input_layer`]) or an out-of-range index, and
+	/// [`AexloError::ParamTypeMismatch`] if the parameter is not a layer.
+	pub fn set_layer_param(&mut self, index: usize, layer: Option<wrapper::Layer<wrapper::Depth8>>) -> Result<()> {
+		if index == 0 || index >= self.params.len() {
+			return Err(AexloError::ParamIndexOutOfBounds {
+				index,
+				max: self.params.len().saturating_sub(1),
+			});
+		}
+		let param_type = self.params[index].param_type;
+		if param_type != ParamType::Layer as PF_ParamType {
+			return Err(AexloError::ParamTypeMismatch {
+				index,
+				expected: "Layer",
+				actual: param_type,
+			});
+		}
+
+		// SAFETY: the parameter was verified to be a layer above.
+		let current = unsafe { self.params[index].u.ld };
+		let unlinked = self.linked_layers.remove(&index).map_or(current, |l| l.unlinked);
+		let def = match layer {
+			Some(layer) => {
+				let linked = LinkedLayer::new(layer, unlinked);
+				let def = linked.param_def();
+				self.linked_layers.insert(index, linked);
+				def
+			}
+			None => unlinked,
+		};
+		self.params[index].u = PF_ParamDefUnion { ld: def };
+		Ok(())
+	}
+
+	/// The layer linked to the layer parameter at `index`, if any.
+	pub fn layer_param(&self, index: usize) -> Option<&wrapper::Layer<wrapper::Depth8>> {
+		self.linked_layers.get(&index).map(LinkedLayer::layer)
+	}
+
+	/// Record that smart-render `checkout_id` refers to the layer parameter at `index`.
+	pub(crate) fn record_layer_checkout(&mut self, checkout_id: after_effects_sys::A_long, index: usize) {
+		self.layer_checkouts.insert(checkout_id, index);
+	}
+
+	/// Size of the layer behind parameter `index`: the input layer for 0, the
+	/// linked layer otherwise, `None` for an unlinked or non-layer parameter.
+	pub(crate) fn layer_param_size(&self, index: usize) -> Option<(i32, i32)> {
+		if index == 0 {
+			let (w, h) = self.input_size();
+			return Some((w as i32, h as i32));
+		}
+		self.linked_layers.get(&index).map(LinkedLayer::size)
+	}
+
+	/// The world to hand out for smart-render `checkout_id`: the input world for
+	/// the input layer (or an id never checked out), the linked layer's CPU or
+	/// GPU world for a layer parameter, `None` for an unlinked one.
+	pub(crate) fn checked_out_world(
+		&mut self,
+		checkout_id: after_effects_sys::A_long,
+	) -> Option<*mut after_effects_sys::PF_EffectWorld> {
+		let gpu = self.smart_render_data.is_gpu();
+		match self.layer_checkouts.get(&checkout_id).copied().unwrap_or(0) {
+			0 => Some(self.input_world_ptr()),
+			index => self
+				.linked_layers
+				.get_mut(&index)
+				.map(|l| l.world_ptr(gpu) as *mut after_effects_sys::PF_EffectWorld),
+		}
+	}
 	// -----------------------------------------------------
 
 	/// Add a parameter to this instance's parameter storage.
@@ -1050,6 +1157,8 @@ impl PluginInstance {
 				options_button_name: None,
 				supported_pixel_formats: Vec::new(),
 				mask_paths: Vec::new(),
+				linked_layers: HashMap::new(),
+				layer_checkouts: HashMap::new(),
 			};
 
 			instance_placeholder.wire_self_pointers();

@@ -9,8 +9,8 @@ use crate::core::diagnostics::diag;
 //==== Stub implementations ================================
 unsafe extern "C" fn checkout_layer_stub(
 	effect_ref: PF_ProgPtr,
-	_index: PF_ParamIndex,
-	_checkout_idL: A_long,
+	index: PF_ParamIndex,
+	checkout_idL: A_long,
 	req: *const after_effects_sys::PF_RenderRequest,
 	_what_time: A_long,
 	_time_step: A_long,
@@ -34,13 +34,17 @@ unsafe extern "C" fn checkout_layer_stub(
 	}
 
 	//== Implementation ==//
-	// Report the instance's actual input layer size, not the compile-time
-	// default: with a custom input (or `set_render_size`) the default rect
-	// would describe a frame that doesn't exist.
+	// Report the actual size of the checked-out layer (the input layer for
+	// index 0, a linked layer parameter otherwise), not the compile-time
+	// default. An unlinked layer parameter checks out as an empty layer.
+	// Remember which layer this checkout id refers to, for
+	// `checkout_layer_pixels`.
 	let (layer_w, layer_h) = match PluginInstance::get_instance_ptr(effect_ref) {
-		Some(instance) => {
-			let (w, h) = unsafe { instance.as_ref() }.input_size();
-			(w as i32, h as i32)
+		Some(mut instance) => {
+			let instance = unsafe { instance.as_mut() };
+			let index = usize::try_from(index).unwrap_or(0);
+			instance.record_layer_checkout(checkout_idL, index);
+			instance.layer_param_size(index).unwrap_or((0, 0))
 		}
 		None => (WIDTH as i32, HEIGHT as i32),
 	};
@@ -72,8 +76,8 @@ unsafe extern "C" fn checkout_layer_stub(
 
 	diag!("PF_PreRenderCallbacks/checkout_layer",
 		"effect_ref" => format!("{:#x}", effect_ref as usize),
-		"index" => _index,
-		"checkout_idL" => _checkout_idL,
+		"index" => index,
+		"checkout_idL" => checkout_idL,
 		"what_time" => _what_time,
 		"time_step" => _time_step,
 		"time_scale" => _time_scale;
@@ -112,16 +116,17 @@ unsafe extern "C" fn checkout_layer_pixels_stub(
 
 	// The caller passes an *uninitialized* `PF_EffectWorld*` slot (see the SDK's
 	// `PF_CheckoutLayerPixels` contract) and expects us to write a pointer to the
-	// checked-out input world into it -- not to dereference the slot. Hand back the
-	// instance's persistent input world, mirroring `checkout_output`.
-	let input_world = unsafe { instance.as_mut() }.input_world_ptr();
-	unsafe { *pixels = input_world };
+	// checked-out world into it -- not to dereference the slot. Hand back the
+	// instance's persistent world for the layer this id checked out, mirroring
+	// `checkout_output`; an unlinked layer parameter yields null.
+	let world = unsafe { instance.as_mut() }.checked_out_world(_checkout_idL);
+	unsafe { *pixels = world.unwrap_or(null_mut()) };
 
 	diag!("PF_SmartRenderCallbacks/checkout_layer_pixels",
 		"effect_ref" => format!("{:#x}", effect_ref as usize),
 		"checkout_idL" => _checkout_idL,
 		"pixels (out)" => format!("{:#x}", pixels as usize);
-		result: unsafe { (*input_world).data } as usize,
+		result: format!("{:?}", world),
 	);
 
 	PF_Err_NONE as PF_Err
@@ -312,6 +317,11 @@ impl SmartRenderData {
 		self.input.device_index = device_index;
 		self.input.bitdepth = 32;
 		self.input.gpu_data = gpu_data;
+	}
+
+	/// Whether the current render is a GPU render (see [`Self::configure_gpu`]).
+	pub fn is_gpu(&self) -> bool {
+		self.input.what_gpu != PF_GPU_Framework_NONE as PF_GPU_Framework
 	}
 
 	/// Reset the pre-render and render inputs to CPU (8-bit, no GPU framework).
