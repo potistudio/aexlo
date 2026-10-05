@@ -538,9 +538,19 @@ for test/check; bench is always 1), `--strict`, `--format human|json`,
 `filter` matches variant display ids by substring, or glob when it contains
 `*`.
 
-Exit codes: `0` all pass/skipped · `1` any fail/error/crash/timeout/regression
-· `2` manifest or usage error · `3` infrastructure error (cannot spawn worker,
-build failed).
+Exit codes:
+
+| Code | Meaning | Cases |
+| ---- | ------- | ----- |
+| `0`  | Every variant passed or was skipped. | |
+| `1`  | A plugin ran and was judged bad. | `fail`, `error`, `crash`, `timeout` (§6.3); a bench regression (§10.3). |
+| `2`  | The manifest or the command line is invalid. | TOML syntax; unknown key, preset or parent; `inherits` cycle; ambiguous parameter name; bad flag value. |
+| `3`  | **Harness error**: the run never reached a verdict. | Worker cannot be spawned or found; temp or output directory not writable; malformed worker response (an aexlo bug); `crate` mode `cargo build` fails; a baseline or golden file exists but cannot be read or decoded. |
+
+The split tells CI what to do: `1` means fix the plugin; `3` means the
+environment or aexlo itself is at fault, and a retry may succeed. A build
+failure is `3` rather than `1` because no variant was judged. When a run has
+both judged failures and a harness error, the exit code is `3`.
 
 ## 13. Rust API
 
