@@ -51,6 +51,13 @@ pub enum AexloError {
 		actual: i32,
 	},
 
+	/// The plugin's smart pre-render did not set
+	/// `PF_RenderOutputFlag_GPU_RENDER_POSSIBLE`, so the frame must render on
+	/// the CPU (as After Effects would);
+	/// [`render_frame`](crate::PluginInstance::render_frame) does so.
+	#[error("The plugin declared this frame not renderable on the GPU")]
+	GpuRenderDeclined,
+
 	/// A pixel-buffer operation failed (dimension mismatch, ...).
 	#[error("Layer error: {0}")]
 	Layer(#[from] wrapper::LayerError),

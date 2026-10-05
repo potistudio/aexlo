@@ -175,6 +175,29 @@ unsafe extern "C" fn checkout_output_sys(effect_ref: PF_ProgPtr, output: *mut *m
 	PF_Err_NONE as PF_Err
 }
 
+/// A fresh `PF_PreRenderOutput`, as handed to every `PF_Cmd_SMART_PRE_RENDER`.
+fn empty_pre_render_output() -> PF_PreRenderOutput {
+	PF_PreRenderOutput {
+		result_rect: PF_Rect {
+			left: 0,
+			top: 0,
+			right: 0,
+			bottom: 0,
+		},
+		max_result_rect: PF_Rect {
+			left: -1,
+			top: -1,
+			right: -1,
+			bottom: -1,
+		},
+		solid: 0,
+		reserved: 0,
+		flags: 0,
+		pre_render_data: null_mut(),
+		delete_pre_render_data_func: None,
+	}
+}
+
 /// Data structure to hold smart render state and provide callbacks.
 pub(crate) struct SmartRenderData {
 	pre_input: Box<after_effects_sys::PF_PreRenderInput>,
@@ -208,25 +231,7 @@ impl SmartRenderData {
 				what_gpu: 0,
 				gpu_data: null(),
 			}),
-			pre_output: Box::new(after_effects_sys::PF_PreRenderOutput {
-				result_rect: after_effects_sys::PF_Rect {
-					left: 0,
-					top: 0,
-					right: 0,
-					bottom: 0,
-				},
-				max_result_rect: after_effects_sys::PF_Rect {
-					left: -1,
-					top: -1,
-					right: -1,
-					bottom: -1,
-				},
-				solid: 0,
-				reserved: 0,
-				flags: 0,
-				pre_render_data: null_mut(),
-				delete_pre_render_data_func: None,
-			}),
+			pre_output: Box::new(empty_pre_render_output()),
 			pre_callbacks: Box::new(after_effects_sys::PF_PreRenderCallbacks {
 				checkout_layer: Some(checkout_layer_stub),
 				GuidMixInPtr: None,
@@ -317,6 +322,32 @@ impl SmartRenderData {
 		self.input.device_index = device_index;
 		self.input.bitdepth = 32;
 		self.input.gpu_data = gpu_data;
+	}
+
+	/// Prepare for a new pre-render: release the previous frame's pre-render
+	/// data and reset the output the plugin fills in.
+	pub fn begin_pre_render(&mut self) {
+		self.dispose_pre_render_data();
+		*self.pre_output = empty_pre_render_output();
+	}
+
+	/// Release the plugin's pre-render data through the delete callback it
+	/// registered, as After Effects does once the frame has rendered.
+	pub fn dispose_pre_render_data(&mut self) {
+		let data = std::mem::replace(&mut self.pre_output.pre_render_data, null_mut());
+		let delete = self.pre_output.delete_pre_render_data_func.take();
+		self.input.pre_render_data = null_mut();
+		if let (false, Some(delete)) = (data.is_null(), delete) {
+			// SAFETY: `data` is the plugin's own pre-render data, released once
+			// through the callback it registered alongside it.
+			unsafe { delete(data) };
+		}
+	}
+
+	/// Whether the last pre-render declared the frame renderable on the GPU
+	/// (`PF_RenderOutputFlag_GPU_RENDER_POSSIBLE`).
+	pub fn gpu_render_possible(&self) -> bool {
+		self.pre_output.flags as i64 & PF_RenderOutputFlag_GPU_RENDER_POSSIBLE as i64 != 0
 	}
 
 	/// Whether the current render is a GPU render (see [`Self::configure_gpu`]).

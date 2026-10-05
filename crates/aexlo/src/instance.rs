@@ -124,6 +124,8 @@ pub struct PluginInstance {
 	/// Frame the next command operates on.
 	pub(crate) render_context: RenderContext,
 	out_data: after_effects_sys::PF_OutData,
+	/// `out_flags2` as declared at `PF_Cmd_GLOBAL_SETUP`.
+	global_out_flags2: PF_OutFlags2,
 
 	/// Instance-specific parameters from the host (non-global storage).
 	params: Vec<after_effects_sys::PF_ParamDef>,
@@ -275,6 +277,7 @@ impl PluginInstance {
 
 	/// Call the plugin with `PF_Cmd_RENDER` command.
 	pub fn render(&mut self) -> Result<()> {
+		self.reset_cpu_worlds();
 		self.call_plugin(RawCommand::Render, null_mut())?;
 
 		Ok(())
@@ -284,6 +287,12 @@ impl PluginInstance {
 	/// input/output checkout regions it needs via [`Self::render_smart`].
 	pub fn render_pre(&mut self) -> Result<()> {
 		self.layer_checkouts.clear();
+		// Each pre-render gets a fresh output, as in After Effects; plugins OR
+		// their flags into it and would otherwise inherit the last frame's.
+		self.smart_render_data.begin_pre_render();
+		if !self.smart_render_data.is_gpu() {
+			self.reset_cpu_worlds();
+		}
 		let mut extra = self.smart_render_data.pre_render_extra();
 
 		self.call_plugin(
@@ -301,14 +310,14 @@ impl PluginInstance {
 	pub fn render_smart(&mut self) -> Result<()> {
 		let mut extra = self.smart_render_data.smart_render_extra();
 
-		self.call_plugin(
+		let result = self.call_plugin(
 			after_effects::RawCommand::SmartRender,
 			(&mut extra as *mut after_effects_sys::PF_SmartRenderExtra).cast(),
-		)?;
+		);
 
-		self.smart_render_data.sync();
-
-		Ok(())
+		// The frame is done; release the plugin's pre-render data as AE does.
+		self.smart_render_data.dispose_pre_render_data();
+		result
 	}
 
 	/// Whether the plugin declared `PF_OutFlag2_SUPPORTS_GPU_RENDER_F32` during
@@ -323,7 +332,7 @@ impl PluginInstance {
 			return false;
 		}
 		let flag = PF_OutFlag2_SUPPORTS_GPU_RENDER_F32 as PF_OutFlags2;
-		self.out_data.out_flags2 & flag != 0
+		self.global_out_flags2 & flag != 0
 	}
 
 	/// Run `PF_Cmd_GPU_DEVICE_SETUP`, creating aexlo's GPU context (Metal or CUDA)
@@ -406,13 +415,13 @@ impl PluginInstance {
 	fn render_smart_gpu(&mut self) -> Result<()> {
 		let mut extra = self.smart_render_data.smart_render_extra();
 
-		self.call_plugin(
+		let result = self.call_plugin(
 			RawCommand::SmartRenderGpu,
 			(&mut extra as *mut after_effects_sys::PF_SmartRenderExtra).cast(),
-		)?;
+		);
 
-		self.smart_render_data.sync();
-		Ok(())
+		self.smart_render_data.dispose_pre_render_data();
+		result
 	}
 
 	/// Render one frame on the GPU: set up the device (once), back the input and
@@ -503,8 +512,14 @@ impl PluginInstance {
 
 		self.smart_render_data.configure_gpu(self.gpu_data, 0, framework);
 
-		// Phase B: pre-render declares regions, then the GPU render runs.
+		// Phase B: pre-render declares regions, then the GPU render runs -- if the
+		// plugin says this frame can render on the GPU. Otherwise After Effects
+		// renders it on the CPU instead, which `render_frame` does on this error.
 		self.render_pre()?;
+		if !self.smart_render_data.gpu_render_possible() {
+			self.smart_render_data.dispose_pre_render_data();
+			return Err(AexloError::GpuRenderDeclined);
+		}
 		self.render_smart_gpu()?;
 
 		// The plugin queues its work but does not wait; flush before reading back.
@@ -561,7 +576,7 @@ impl PluginInstance {
 	/// Only meaningful once global setup has run (i.e. after [`Self::try_load`]).
 	pub fn supports_smart_render(&self) -> bool {
 		let flag = after_effects_sys::PF_OutFlag2_SUPPORTS_SMART_RENDER as after_effects_sys::PF_OutFlags2;
-		self.out_data.out_flags2 & flag != 0
+		self.global_out_flags2 & flag != 0
 	}
 
 	/// Render one frame, preferring the smart pre-render/render pair when the plugin
@@ -577,7 +592,11 @@ impl PluginInstance {
 			match self.render_gpu() {
 				Ok(()) => return Ok(()),
 				Err(err) => {
-					log::warn!("GPU render failed ({err:?}); falling back to CPU render.");
+					if matches!(err, AexloError::GpuRenderDeclined) {
+						log::debug!("Plugin declined GPU render for this frame; rendering on the CPU.");
+					} else {
+						log::warn!("GPU render failed ({err:?}); falling back to CPU render.");
+					}
 					// Undo GPU state so the CPU fallback doesn't leave the plugin
 					// expecting a GPU frame or reporting GPU worlds.
 					self.smart_render_data.configure_cpu();
@@ -1134,6 +1153,7 @@ impl PluginInstance {
 					ctx
 				},
 				out_data: crate::core::helpers::OutDataBuilder::new().build(),
+				global_out_flags2: 0,
 				params: Vec::new(),
 				popup_choices: Vec::new(),
 				params_dirty: false,
@@ -1187,6 +1207,22 @@ impl PluginInstance {
 	}
 
 	/// Point `world` raw pointers at this instance's own owned buffers.
+	/// Restore the 8-bit CPU layout of the input/output worlds and drop their
+	/// GPU-world registration. [`Self::render_gpu`] reshapes both worlds to
+	/// `GPU_BGRA128`; a later CPU render must not see that stride or have
+	/// `PF_GetPixelFormat` report the float GPU format.
+	fn reset_cpu_worlds(&mut self) {
+		if let Some(ctx) = &self.gpu_context {
+			ctx.unregister_all_worlds();
+		}
+		self.input_world = self.input_layer.as_sys();
+		let (w, h) = (self.output_layer.width() as i32, self.output_layer.height() as i32);
+		self.world.width = w;
+		self.world.height = h;
+		self.world.rowbytes = w * std::mem::size_of::<PF_Pixel>() as i32;
+		self.world.data = self.output_layer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
+	}
+
 	fn wire_self_pointers(&mut self) {
 		self.world.data = self.output_layer.pixels_mut().as_mut_ptr() as *mut PF_Pixel;
 		self.input_world = self.input_layer.as_sys();
@@ -1231,7 +1267,13 @@ impl PluginInstance {
 
 	/// Call the plugin with `PF_Cmd_GLOBAL_SETUP` command.
 	fn setup_global(&mut self) -> Result<()> {
-		self.call_plugin(RawCommand::GlobalSetup, null_mut())
+		self.call_plugin(RawCommand::GlobalSetup, null_mut())?;
+		// The capabilities declared here are what count. `out_data` is shared
+		// by every later command, and plugins overwrite its flags in some of
+		// them (the SDK samples set `out_flags2` in GPU device setup), so it
+		// must not be consulted afterwards.
+		self.global_out_flags2 = self.out_data.out_flags2;
+		Ok(())
 	}
 
 	/// Call the plugin with `PF_Cmd_PARAMS_SETUP` command.
@@ -1492,6 +1534,10 @@ impl Drop for PluginInstance {
 		if self.entry_point.is_none() {
 			return;
 		}
+
+		// Release pre-render data left by an interrupted render while the
+		// plugin's code (which owns the delete callback) is still loaded.
+		self.smart_render_data.dispose_pre_render_data();
 
 		if let Err(err) = self.gpu_device_setdown() {
 			log::warn!("PF_Cmd_GPU_DEVICE_SETDOWN failed during drop: {err:?}");
