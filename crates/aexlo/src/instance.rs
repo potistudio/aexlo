@@ -734,6 +734,7 @@ impl PluginInstance {
 					blue,
 				};
 			}
+			ParamValue::Path(id) => target.u.path_d.path_id = id,
 		}
 
 		Ok(())
@@ -805,6 +806,7 @@ impl PluginInstance {
 						alpha: px.alpha,
 					})
 				}
+				t if t == ParamType::Path as PF_ParamType => Some(ParamValue::Path(param.u.path_d.path_id)),
 				_ => None,
 			}
 		}

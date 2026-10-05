@@ -234,6 +234,7 @@ fn params_json(fx: &PluginInstance) -> String {
 			ParamValue::Angle(v) => out.push_str(&format!("\"kind\":\"angle\",\"value\":{v}")),
 			ParamValue::Checkbox(v) => out.push_str(&format!("\"kind\":\"checkbox\",\"value\":{v}")),
 			ParamValue::Point { x, y } => out.push_str(&format!("\"kind\":\"point\",\"x\":{x},\"y\":{y}")),
+			ParamValue::Path(id) => out.push_str(&format!("\"kind\":\"path\",\"value\":{id}")),
 			ParamValue::Color {
 				red,
 				green,
@@ -550,7 +551,7 @@ function buildControls(params) {
       row = sliderRow(p, p.kind === 'slider' ? '1' : 'any');
     } else {
       // angle, unbounded sliders, or a popup with no labels
-      row = numberRow(p, (p.kind === 'slider' || p.kind === 'popup') ? '1' : 'any');
+      row = numberRow(p, (p.kind === 'slider' || p.kind === 'popup' || p.kind === 'path') ? '1' : 'any');
     }
     panel.append(row);
   }

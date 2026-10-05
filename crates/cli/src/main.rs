@@ -415,6 +415,7 @@ pub(crate) fn parse_param_value(instance: &PluginInstance, index: usize, raw: &s
 			}
 		}
 		ParamValue::Color { .. } => parse_color(raw)?,
+		ParamValue::Path(_) => ParamValue::Path(raw.parse().with_context(|| bad(raw, "a mask id"))?),
 	};
 	Ok(value)
 }
@@ -479,5 +480,6 @@ fn describe(value: &ParamValue) -> String {
 			blue,
 			alpha,
 		} => format!("color    {red},{green},{blue},{alpha}"),
+		ParamValue::Path(id) => format!("path     {id}"),
 	}
 }

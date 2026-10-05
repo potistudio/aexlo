@@ -28,6 +28,11 @@ pub enum ParamValue {
 
 	/// `PF_Param_COLOR` - an 8-bit RGBA color.
 	Color { red: u8, green: u8, blue: u8, alpha: u8 },
+
+	/// `PF_Param_PATH` - the [`MaskPath::id`](crate::MaskPath::id) of the
+	/// selected mask (`0` for none), resolved against
+	/// [`PluginInstance::set_mask_paths`](crate::PluginInstance::set_mask_paths).
+	Path(u32),
 }
 
 impl ParamValue {
@@ -44,6 +49,7 @@ impl ParamValue {
 			ParamValue::Angle(_) => (ParamType::Angle, "Angle"),
 			ParamValue::Point { .. } => (ParamType::Point, "Point"),
 			ParamValue::Color { .. } => (ParamType::Color, "Color"),
+			ParamValue::Path(_) => (ParamType::Path, "Path"),
 		}
 	}
 }

@@ -415,6 +415,7 @@ fn param_widget(ui: &mut egui::Ui, control: &mut ParamControl) -> bool {
 				}
 				changed
 			}
+			ParamValue::Path(id) => ui.add(egui::DragValue::new(id).prefix("mask ")).changed(),
 		}
 	})
 	.inner
