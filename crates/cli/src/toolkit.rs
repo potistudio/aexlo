@@ -1,0 +1,425 @@
+//! The preset-driven commands (`docs/toolkit.md` §12): `presets`, `test`,
+//! `worker`, and the manifest plumbing they share.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+use std::sync::Arc;
+
+use aexlo_harness::manifest::{self, Manifest};
+use aexlo_harness::runner::{self, Isolate, Outcome, Report, Run, RunnerConfig};
+use aexlo_harness::worker::WorkerCommand;
+use aexlo_harness::{Error, PluginRef, PluginSource, RenderMode, Variant};
+
+/// How results are printed.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum Format {
+	#[default]
+	Human,
+	Json,
+}
+
+/// Flags every preset-driven command takes.
+#[derive(Default)]
+pub struct Common {
+	pub manifest: Option<PathBuf>,
+	pub depth: Option<Vec<u32>>,
+	pub render: Option<Vec<RenderMode>>,
+	pub isolate: Isolate,
+	pub jobs: usize,
+	pub strict: bool,
+	pub format: Format,
+	pub junit: Option<PathBuf>,
+	pub filter: Option<String>,
+}
+
+/// Arguments left after [`Common`] took its own.
+pub struct Parsed {
+	pub common: Common,
+	/// Command-specific flags with their values, in order.
+	pub rest: Vec<(String, Option<String>)>,
+}
+
+/// Parse `args` into common flags, the filter, and the flags listed in
+/// `own` (with whether each takes a value).
+pub fn parse(args: impl Iterator<Item = String>, own: &[(&str, bool)]) -> Result<Parsed, Error> {
+	let mut common = Common {
+		jobs: 1,
+		..Common::default()
+	};
+	let mut rest = Vec::new();
+	let mut args = args.peekable();
+	let value = |args: &mut std::iter::Peekable<_>, flag: &str| -> Result<String, Error> {
+		Iterator::next(args).ok_or_else(|| Error::invalid(format!("option '{flag}' needs a value")))
+	};
+	while let Some(arg) = args.next() {
+		match arg.as_str() {
+			"--manifest" => common.manifest = Some(PathBuf::from(value(&mut args, &arg)?)),
+			"--depth" => {
+				let list = value(&mut args, &arg)?
+					.split(',')
+					.map(|d| {
+						d.trim()
+							.parse::<u32>()
+							.ok()
+							.filter(|d| [8, 16, 32].contains(d))
+							.ok_or_else(|| Error::invalid(format!("--depth: '{d}' is not 8, 16 or 32")))
+					})
+					.collect::<Result<_, _>>()?;
+				common.depth = Some(list);
+			}
+			"--render" => {
+				let list = value(&mut args, &arg)?
+					.split(',')
+					.map(RenderMode::parse)
+					.collect::<Result<_, _>>()?;
+				common.render = Some(list);
+			}
+			"--isolate" => common.isolate = Isolate::parse(&value(&mut args, &arg)?)?,
+			"--jobs" | "-j" => {
+				let raw = value(&mut args, &arg)?;
+				common.jobs = raw
+					.parse()
+					.ok()
+					.filter(|j| *j > 0)
+					.ok_or_else(|| Error::invalid(format!("--jobs expects a positive number, got '{raw}'")))?;
+			}
+			"--strict" => common.strict = true,
+			"--format" => {
+				common.format = match value(&mut args, &arg)?.as_str() {
+					"human" => Format::Human,
+					"json" => Format::Json,
+					other => return Err(Error::invalid(format!("--format: '{other}' is not human or json"))),
+				}
+			}
+			"--junit" => common.junit = Some(PathBuf::from(value(&mut args, &arg)?)),
+			flag if flag.starts_with('-') => match own.iter().find(|(name, _)| *name == flag) {
+				Some((_, true)) => {
+					let v = value(&mut args, flag)?;
+					rest.push((arg, Some(v)));
+				}
+				Some((_, false)) => rest.push((arg, None)),
+				None => return Err(Error::invalid(format!("unknown option '{flag}'"))),
+			},
+			_ if common.filter.is_none() => common.filter = Some(arg),
+			_ => return Err(Error::invalid(format!("unexpected argument '{arg}'"))),
+		}
+	}
+	Ok(Parsed { common, rest })
+}
+
+/// The manifest named by `--manifest`, else the nearest `aexlo.toml`.
+pub fn load_manifest(path: Option<&Path>) -> Result<Manifest, Error> {
+	let path = match path {
+		Some(path) => path.to_path_buf(),
+		None => {
+			let cwd =
+				std::env::current_dir().map_err(|e| Error::harness(format!("reading the current directory: {e}")))?;
+			manifest::discover(&cwd).ok_or_else(|| {
+				Error::invalid(format!(
+					"no {} in {} or its parents (pass --manifest <path>)",
+					manifest::FILE_NAME,
+					cwd.display()
+				))
+			})?
+		}
+	};
+	Manifest::load(&path)
+}
+
+/// The manifest's variants matching the filter, narrowed by `--depth` and
+/// `--render`.
+pub fn select(manifest: &Manifest, common: &Common) -> Result<Vec<Variant>, Error> {
+	Ok(manifest
+		.filtered(common.filter.as_deref())?
+		.into_iter()
+		.filter(|v| common.depth.as_ref().is_none_or(|d| d.contains(&v.depth)))
+		.filter(|v| common.render.as_ref().is_none_or(|r| r.contains(&v.render)))
+		.collect())
+}
+
+/// Build every crate the variants name and map each plugin to its artifact.
+///
+/// # Errors
+/// A failing `cargo build` is a harness error (§12: exit 3).
+pub fn artifacts(variants: &[Variant]) -> Result<runner::ArtifactMap, Error> {
+	let mut map: HashMap<PluginRef, PathBuf> = HashMap::new();
+	for variant in variants {
+		if map.contains_key(&variant.plugin) {
+			continue;
+		}
+		let path = match &variant.plugin.source {
+			PluginSource::Artifact(path) => path.clone(),
+			PluginSource::Crate(dir) => {
+				let cargo_toml = dir.join("Cargo.toml");
+				eprintln!("aexlo: building {}", dir.display());
+				crate::watch::build_cdylib(&cargo_toml)
+					.map_err(|e| Error::harness(format!("building {}: {e:#}", dir.display())))?
+			}
+		};
+		map.insert(variant.plugin.clone(), path);
+	}
+	Ok(Arc::new(move |plugin: &PluginRef| map.get(plugin).cloned()))
+}
+
+/// The runner configuration for `common`.
+pub fn runner_config(common: &Common, artifacts: runner::ArtifactMap) -> Result<RunnerConfig, Error> {
+	Ok(RunnerConfig {
+		isolate: common.isolate,
+		jobs: common.jobs,
+		worker: WorkerCommand::current_exe()?,
+		artifacts,
+	})
+}
+
+/// Exit with the code `err` maps to, after printing it.
+pub fn fail(err: &Error) -> ExitCode {
+	eprintln!("error: {err}");
+	ExitCode::from(err.exit_code())
+}
+
+//==== aexlo presets ====================================================
+
+pub fn cmd_presets(args: impl Iterator<Item = String>) -> ExitCode {
+	let run = || -> Result<(), Error> {
+		let parsed = parse(args, &[])?;
+		let manifest = load_manifest(parsed.common.manifest.as_deref())?;
+		let variants = select(&manifest, &parsed.common)?;
+		if parsed.common.format == Format::Json {
+			let ids: Vec<_> = variants.iter().map(|v| &v.id).collect();
+			println!("{}", serde_json::to_string_pretty(&ids).unwrap_or_default());
+			return Ok(());
+		}
+		for v in &variants {
+			let size = v.size.map_or("input size".to_string(), |[w, h]| format!("{w}x{h}"));
+			println!(
+				"{:<48} {:>4} bpc  {:<6}  {size}  frame {} @ {} fps",
+				v.id.display,
+				v.depth,
+				v.render.name(),
+				v.time.frame,
+				v.time.fps
+			);
+		}
+		let hidden: Vec<&str> = manifest.preset_names().filter(|n| manifest.is_hidden(n)).collect();
+		eprintln!(
+			"{} variant(s){}",
+			variants.len(),
+			if hidden.is_empty() {
+				String::new()
+			} else {
+				format!(" (hidden bases: {})", hidden.join(", "))
+			}
+		);
+		Ok(())
+	};
+	match run() {
+		Ok(()) => ExitCode::SUCCESS,
+		Err(err) => fail(&err),
+	}
+}
+
+//==== aexlo worker =====================================================
+
+pub fn cmd_worker() -> ExitCode {
+	// Plugins' own log lines and aexlo's warnings land in the run's logs.
+	let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
+		.target(env_logger::Target::Stderr)
+		.try_init();
+	match aexlo_harness::worker::serve() {
+		Ok(()) => ExitCode::SUCCESS,
+		Err(err) => fail(&err),
+	}
+}
+
+//==== Reporting ========================================================
+
+/// One line per run, as it finishes.
+pub fn print_run(run: &Run) {
+	let label = match run.outcome {
+		Outcome::Pass => "PASS",
+		Outcome::Fail => "FAIL",
+		Outcome::Error => "ERROR",
+		Outcome::Crash => "CRASH",
+		Outcome::Timeout => "TIMEOUT",
+		Outcome::Skipped => "SKIP",
+	};
+	let detail = match (&run.message, run.timing.first()) {
+		(Some(message), _) => message.clone(),
+		(None, Some(seconds)) => format!("{:.1} ms", seconds * 1e3),
+		(None, None) => String::new(),
+	};
+	println!("  {label:<8} {:<48} {detail}", run.variant.id.display);
+	if run.outcome.is_bad() || run.fault.is_some() {
+		for check in run.checks.iter().filter(|c| c.status == runner::CheckStatus::Fail) {
+			println!(
+				"           {}: {}",
+				check.id,
+				check.message.as_deref().unwrap_or("failed")
+			);
+		}
+		let logs = run.trace.logs.trim();
+		if !logs.is_empty() {
+			for line in logs.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev() {
+				println!("           | {line}");
+			}
+		}
+	}
+}
+
+/// The report as JSON (`--format json`).
+pub fn report_json(report: &Report) -> String {
+	let runs: Vec<serde_json::Value> = report
+		.runs
+		.iter()
+		.map(|run| {
+			serde_json::json!({
+				"id": run.variant.id.display,
+				"file_id": run.variant.id.file_safe,
+				"preset": run.variant.preset,
+				"outcome": run.outcome.name(),
+				"message": run.message,
+				"fault": run.fault.map(|k| format!("{k:?}").to_lowercase()),
+				"timing": run.timing,
+				"checks": run.checks,
+				"last_command": run.trace.last_command(),
+				"logs": run.trace.logs,
+			})
+		})
+		.collect();
+	serde_json::to_string_pretty(&serde_json::json!({
+		"summary": report.summary(),
+		"exit_code": report.exit_code(),
+		"runs": runs,
+	}))
+	.unwrap_or_default()
+}
+
+fn xml_escape(text: &str) -> String {
+	text.chars()
+		.filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+		.map(|c| match c {
+			'&' => "&amp;".to_string(),
+			'<' => "&lt;".to_string(),
+			'>' => "&gt;".to_string(),
+			'"' => "&quot;".to_string(),
+			'\'' => "&apos;".to_string(),
+			c => c.to_string(),
+		})
+		.collect()
+}
+
+/// The report as JUnit XML (`--junit <path>`): one suite per preset.
+pub fn report_junit(report: &Report) -> String {
+	let mut suites: Vec<(&str, Vec<&Run>)> = Vec::new();
+	for run in &report.runs {
+		match suites.iter_mut().find(|(name, _)| *name == run.variant.preset) {
+			Some((_, runs)) => runs.push(run),
+			None => suites.push((&run.variant.preset, vec![run])),
+		}
+	}
+	let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuites name=\"aexlo\">\n");
+	for (name, runs) in suites {
+		let count = |f: fn(&Run) -> bool| runs.iter().filter(|r| f(r)).count();
+		xml.push_str(&format!(
+			"  <testsuite name=\"{}\" tests=\"{}\" failures=\"{}\" errors=\"{}\" skipped=\"{}\">\n",
+			xml_escape(name),
+			runs.len(),
+			count(|r| r.outcome == Outcome::Fail),
+			count(|r| matches!(r.outcome, Outcome::Error | Outcome::Crash | Outcome::Timeout)),
+			count(|r| r.outcome == Outcome::Skipped),
+		));
+		for run in runs {
+			let time = run.timing.renders.iter().sum::<f64>();
+			xml.push_str(&format!(
+				"    <testcase classname=\"{}\" name=\"{}\" time=\"{time:.6}\"",
+				xml_escape(name),
+				xml_escape(&run.variant.id.display)
+			));
+			let message = xml_escape(run.message.as_deref().unwrap_or(""));
+			let body = match run.outcome {
+				Outcome::Pass => None,
+				Outcome::Skipped => Some(format!("      <skipped message=\"{message}\"/>\n")),
+				Outcome::Fail => Some(format!("      <failure message=\"{message}\"/>\n")),
+				outcome => Some(format!(
+					"      <error type=\"{}\" message=\"{message}\">{}</error>\n",
+					outcome.name(),
+					xml_escape(&run.trace.logs)
+				)),
+			};
+			match body {
+				None => xml.push_str("/>\n"),
+				Some(body) => {
+					xml.push_str(">\n");
+					xml.push_str(&body);
+					xml.push_str("    </testcase>\n");
+				}
+			}
+		}
+		xml.push_str("  </testsuite>\n");
+	}
+	xml.push_str("</testsuites>\n");
+	xml
+}
+
+/// Print the summary (or JSON) and write JUnit, returning the exit code.
+pub fn finish(report: &Report, common: &Common) -> ExitCode {
+	if common.format == Format::Json {
+		println!("{}", report_json(report));
+	} else {
+		println!("result: {}", report.summary());
+	}
+	let mut code = report.exit_code();
+	if let Some(path) = &common.junit
+		&& let Err(e) = std::fs::write(path, report_junit(report))
+	{
+		eprintln!("error: writing {}: {e}", path.display());
+		code = 3;
+	}
+	ExitCode::from(code)
+}
+
+//==== aexlo test =======================================================
+
+pub fn cmd_test(args: impl Iterator<Item = String>) -> ExitCode {
+	let setup = || -> Result<(Common, Option<PathBuf>, Vec<Variant>, RunnerConfig), Error> {
+		let parsed = parse(args, &[("--save-frames", true)])?;
+		let mut save_frames = None;
+		for (flag, value) in parsed.rest {
+			if flag == "--save-frames" {
+				save_frames = value.map(PathBuf::from);
+			}
+		}
+		let manifest = load_manifest(parsed.common.manifest.as_deref())?;
+		let variants = select(&manifest, &parsed.common)?;
+		let artifacts = artifacts(&variants)?;
+		let config = runner_config(&parsed.common, artifacts)?;
+		Ok((parsed.common, save_frames, variants, config))
+	};
+	let (common, save_frames, variants, config) = match setup() {
+		Ok(setup) => setup,
+		Err(err) => return fail(&err),
+	};
+	if common.format == Format::Human {
+		println!("aexlo test: {} variant(s)", variants.len());
+	}
+	let human = common.format == Format::Human;
+	let runs = runner::run_all(variants, &config, |executor, variant| {
+		let mut run = runner::render_once(executor, variant);
+		if let (Some(dir), Some(frame)) = (&save_frames, &run.frame) {
+			let path = dir.join(format!(
+				"{}.{}",
+				run.variant.id.file_safe,
+				aexlo_harness::Frame::extension(frame.depth())
+			));
+			if let Err(e) = frame.save(&path) {
+				run.harness_error(e.message);
+			}
+		}
+		if human {
+			print_run(&run);
+		}
+		run
+	});
+	finish(&Report { runs }, &common)
+}

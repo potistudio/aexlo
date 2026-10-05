@@ -161,6 +161,7 @@ Every field may appear in `[defaults]` or a preset.
 | `golden`   | golden spec \| `false`               | `{}` (enabled)          | §8. |
 | `bench`    | `{ samples, warmup }` \| `false`     | `{ samples = 30, warmup = 5 }` | §10. |
 | `timeout`  | seconds                              | `30`                    | Per run (§6.3). |
+| `plugin`   | `[plugin]` table                     | `[plugin]`              | Drive another plugin for this preset (replaces, never merges). Lets one manifest cover several plugins, e.g. a fixture matrix. |
 
 ### 4.4 Inheritance
 
@@ -529,6 +530,9 @@ aexlo preview   <plugin> [--preset name] ...
 aexlo render    <plugin> [--preset name] ...   existing flags override the preset
 aexlo worker                              hidden; §6.2
 ```
+
+`aexlo test --save-frames <dir>` also writes every variant's frame to
+`<dir>/<file-safe id>.<png|exr>`, golden or not.
 
 Common flags: `--manifest <path>`, `--depth 8,16`, `--render smart` (narrow
 the matrix), `--isolate preset|variant|none`, `--jobs <n>` (parallel workers

@@ -9,7 +9,6 @@ publish = false
 [dependencies]
 aexlo = { workspace = true }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
-mtpng = "0.4.1"
 env_logger = "0.11.11"
 
 [build-dependencies]

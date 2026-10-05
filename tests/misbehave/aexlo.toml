@@ -1,0 +1,37 @@
+# Presets over the deliberately misbehaving test effect: each one makes the
+# effect fail in a way the toolkit must catch, and isolate.
+[plugin]
+crate = "."
+
+[defaults]
+size  = [64, 48]
+input = { generate = "gradient" }
+checks = ["finite"]
+golden = false
+timeout = 5
+
+[[preset]]
+name   = "ok"
+params = { Gain = { sweep = [0.5, 1.0] } }
+
+[[preset]]
+name   = "crashes"
+params = { Mode = "Crash" }
+
+[[preset]]
+name   = "errors"
+params = { Mode = "Error" }
+
+[[preset]]
+name    = "hangs"
+params  = { Mode = "Hang" }
+timeout = 1
+
+[[preset]]
+name    = "freezes"
+params  = { Mode = "Freeze" }
+timeout = 1
+
+[[preset]]
+name   = "deep"
+depth  = [8, 16, 32]

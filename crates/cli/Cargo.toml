@@ -17,6 +17,11 @@ path = "src/main.rs"
 aexlo = { workspace = true }
 anyhow = "1.0.103"
 
+# The preset-driven toolkit (`presets`, `test`, `bench`, `check`, `worker`).
+aexlo-harness = { workspace = true }
+env_logger = "0.11.11"
+serde_json = "1.0.145"
+
 # `aexlo bench`: the timing loop, plugin/resolution resolution, and reporting are
 # shared with `cargo bench -p aexlo-bench` so both front-ends measure identically.
 aexlo-bench = { path = "../bench" }
@@ -30,3 +35,6 @@ notify = "8.2.0"
 
 # `aexlo dev --bin --web`: serve the live preview over a tiny local HTTP server.
 tiny_http = "0.12.0"
+
+[dev-dependencies]
+serde_json = "1.0.145"

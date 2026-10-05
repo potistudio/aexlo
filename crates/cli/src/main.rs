@@ -12,6 +12,7 @@
 mod bench;
 mod dev;
 mod preview;
+mod toolkit;
 mod view;
 mod viewer;
 mod watch;
@@ -20,7 +21,7 @@ mod web;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use aexlo::{Depth8, Layer, ParamValue, PluginInstance};
+use aexlo::{ParamValue, PluginInstance};
 use anyhow::{Context, Result, bail};
 
 const USAGE: &str = "\
@@ -30,6 +31,10 @@ USAGE:
     aexlo <COMMAND> <plugin> [OPTIONS]
 
 COMMANDS:
+    presets [filter]   List the variants the manifest's presets expand to
+    test    [filter]   Run each variant in a worker and report its outcome
+                       (pass, fail, error, crash, timeout, skipped)
+        --save-frames <dir>  Also write each variant's frame to <dir>
     render <plugin>		Render a frame and write it to a PNG
     about  <plugin>		Print the plugin's ABOUT text
     params <plugin>    List the plugin's parameters (index, name, value)
@@ -77,10 +82,28 @@ COMMANDS:
                        (spawned automatically by a `dev`-driven #[aexlo::preview];
                        pair manually with your own re-runner otherwise)
 
+PRESET OPTIONS (presets, test):
+        --manifest <path>  The manifest  [default: the nearest aexlo.toml]
+        --depth 8,16       Narrow the matrix to these depths
+        --render smart     Narrow the matrix to these render paths
+        --isolate <how>    preset (one worker per preset, default), variant,
+                           or none (in this process; debugging only)
+    -j, --jobs <n>         Workers at once  [default: 1]
+        --format <f>       human or json  [default: human]
+        --junit <path>     Also write a JUnit XML report
+    [filter] matches variant ids by substring, or as a glob when it has `*`.
+    Exit codes: 0 all passed or skipped, 1 the plugin was judged bad,
+    2 invalid manifest or flags, 3 harness error (no verdict reached).
+
 RENDER OPTIONS:
+        --preset <name>    Start from a preset (or one variant's id) of the
+                           manifest; <plugin> is then optional and the flags
+                           below override the preset
     -i, --input  <png>     Feed a PNG as the effect's input layer
     -o, --output <png>     Where to write the rendered frame  [default: out.png]
-    -s, --set    <i>=<v>   Set parameter #<i> to <v> before rendering (repeatable)
+                           (.exr keeps 32 bpc; 16 bpc writes a 16-bit PNG)
+    -s, --set    <p>=<v>   Set parameter <p> (index, #index or name) to <v>
+                           before rendering (repeatable)
         --smart            Force the smart-render path
         --legacy           Force the legacy render path
         --serial-iterate   Run the plugin's iterate callbacks on one thread
@@ -94,7 +117,17 @@ platform's extension, e.g. `SDK_Noise` -> `SDK_Noise.plugin`.
 ";
 
 fn main() -> ExitCode {
-	match run() {
+	let mut args = std::env::args().skip(1);
+	let command = args.next();
+	// The preset-driven commands report their own exit codes (§12 of
+	// docs/toolkit.md): 1 judged bad, 2 invalid, 3 harness error.
+	match command.as_deref() {
+		Some("presets") => return toolkit::cmd_presets(args),
+		Some("test") => return toolkit::cmd_test(args),
+		Some("worker") => return toolkit::cmd_worker(),
+		_ => {}
+	}
+	match run(command, args) {
 		Ok(()) => ExitCode::SUCCESS,
 		Err(err) => {
 			eprintln!("error: {err:#}");
@@ -103,9 +136,8 @@ fn main() -> ExitCode {
 	}
 }
 
-fn run() -> Result<()> {
-	let mut args = std::env::args().skip(1);
-	let Some(command) = args.next() else {
+fn run(command: Option<String>, args: impl Iterator<Item = String>) -> Result<()> {
+	let Some(command) = command else {
 		print!("{USAGE}");
 		bail!("no command given");
 	};
@@ -200,10 +232,12 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 	let mut plugin: Option<String> = None;
 	let mut input: Option<PathBuf> = None;
 	let mut output = PathBuf::from("out.png");
-	let mut sets: Vec<(usize, String)> = Vec::new();
+	let mut sets: Vec<(String, String)> = Vec::new();
 	let mut force_smart = false;
 	let mut force_legacy = false;
 	let mut serial_iterate = false;
+	let mut preset: Option<String> = None;
+	let mut manifest: Option<PathBuf> = None;
 
 	let mut args = args.peekable();
 	while let Some(arg) = args.next() {
@@ -214,6 +248,8 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 			"--smart" => force_smart = true,
 			"--legacy" => force_legacy = true,
 			"--serial-iterate" => serial_iterate = true,
+			"--preset" => preset = Some(next_value(&mut args, &arg)?),
+			"--manifest" => manifest = Some(PathBuf::from(next_value(&mut args, &arg)?)),
 			other if other.starts_with('-') => bail!("unknown option '{other}'"),
 			_ => {
 				if plugin.replace(arg).is_some() {
@@ -226,21 +262,53 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 	if force_smart && force_legacy {
 		bail!("--smart and --legacy are mutually exclusive");
 	}
-	let plugin = plugin.context("render: missing <plugin>")?;
-	let mut instance = load(&plugin)?;
-	instance.set_parallel_iterate(!serial_iterate);
 
-	if let Some(path) = &input {
-		let (bytes, w, h) = load_input(path)?;
-		let layer = Layer::<Depth8>::from_raw(bytes, w, h).map_err(|e| anyhow::anyhow!("building input layer: {e}"))?;
-		instance.set_input_layer(layer);
+	// A preset sets the stage (plugin, input, size, time, params, depth,
+	// render path); the flags below then override it.
+	let variant = match &preset {
+		Some(name) => Some(preset_variant(manifest.as_deref(), name)?),
+		None => None,
+	};
+	let mut instance = match (&plugin, &variant) {
+		(Some(plugin), _) => load(plugin)?,
+		(None, Some(variant)) => {
+			let artifacts = toolkit::artifacts(std::slice::from_ref(variant)).map_err(anyhow::Error::msg)?;
+			let path = artifacts(&variant.plugin).context("no artifact for the preset's plugin")?;
+			aexlo::Host::get()
+				.try_load(&path)
+				.with_context(|| format!("loading plugin {}", path.display()))?
+		}
+		(None, None) => bail!("render: missing <plugin> (or --preset)"),
+	};
+	if let Some(variant) = &variant {
+		if let Some(reason) = aexlo_harness::apply::unsupported(&instance, variant) {
+			bail!("preset {} does not apply: {reason}", variant.id);
+		}
+		aexlo_harness::apply::configure(&mut instance, variant).map_err(anyhow::Error::msg)?;
+	}
+	if serial_iterate {
+		instance.set_parallel_iterate(false);
 	}
 
-	for (index, raw) in &sets {
-		let value = parse_param_value(&instance, *index, raw)?;
+	if let Some(path) = &input {
+		let layer = aexlo_harness::frame::load_image(path).map_err(anyhow::Error::msg)?;
+		let depth = variant.as_ref().map_or(aexlo::PixelDepthKind::U8, |v| v.depth_kind());
+		match layer.converted(depth) {
+			aexlo::AnyLayer::U8(l) => instance.set_input_layer(l),
+			aexlo::AnyLayer::U16(l) => instance.set_input_layer(l),
+			aexlo::AnyLayer::F32(l) => instance.set_input_layer(l),
+		}
+		if variant.as_ref().is_some_and(|v| v.size.is_none()) {
+			instance.set_render_size(instance.input_size().0, instance.input_size().1);
+		}
+	}
+
+	for (key, raw) in &sets {
+		let index = resolve_param_key(&instance, key)?;
+		let value = parse_param_value(&instance, index, raw)?;
 		instance
-			.set_param(*index, value)
-			.with_context(|| format!("setting parameter #{index}"))?;
+			.set_param(index, value)
+			.with_context(|| format!("setting parameter {key}"))?;
 	}
 	if !sets.is_empty() {
 		let _ = instance.update_params_ui();
@@ -253,17 +321,64 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 			.context("smart render failed")?;
 	} else if force_legacy {
 		instance.render().context("legacy render failed")?;
+	} else if let Some(variant) = &variant {
+		aexlo_harness::apply::render(&mut instance, variant.render)
+			.with_context(|| format!("{} render failed", variant.render.name()))?;
 	} else {
 		instance.render_frame().context("render failed")?;
 	}
 
-	// aexlo::save_preview encodes with mtpng (multithreaded), reusing the library's
-	// only PNG-encode path instead of pulling in a second encoder.
-	aexlo::save_preview(&instance, &output).with_context(|| format!("writing {}", output.display()))?;
+	// Deep output keeps its depth when the file can hold it (16-bit PNG,
+	// EXR); otherwise it is quantized to an 8-bit PNG.
+	let is_exr = output.extension().is_some_and(|e| e.eq_ignore_ascii_case("exr"));
+	let frame = aexlo_harness::Frame::new(instance.output().clone());
+	if is_exr {
+		frame.converted(aexlo::PixelDepthKind::F32).save(&output).map_err(anyhow::Error::msg)?;
+	} else if instance.output_depth() == aexlo::PixelDepthKind::U16 {
+		frame.save(&output).map_err(anyhow::Error::msg)?;
+	} else {
+		// aexlo::save_preview encodes with mtpng (multithreaded), reusing the
+		// library's only 8-bit PNG-encode path instead of a second encoder.
+		aexlo::save_preview(&instance, &output).with_context(|| format!("writing {}", output.display()))?;
+	}
 
 	let (w, h) = instance.output_size();
 	println!("rendered {}x{} -> {}", w, h, output.display());
 	Ok(())
+}
+
+/// The variant `name` names: a preset with a single variant, or one
+/// variant's display id exactly (`dot_glow[depth=16]`).
+fn preset_variant(manifest: Option<&Path>, name: &str) -> Result<aexlo_harness::Variant> {
+	let manifest = toolkit::load_manifest(manifest).map_err(anyhow::Error::msg)?;
+	let preset = name.split('[').next().unwrap_or(name);
+	let variants = manifest.preset_variants(preset).map_err(anyhow::Error::msg)?;
+	if let Some(exact) = variants.iter().find(|v| v.id.display == name) {
+		return Ok(exact.clone());
+	}
+	match &variants[..] {
+		[only] => Ok(only.clone()),
+		[first, ..] if name == preset => {
+			eprintln!(
+				"aexlo render: preset '{preset}' has {} variants; rendering {} (name one exactly to pick another)",
+				variants.len(),
+				first.id
+			);
+			Ok(first.clone())
+		}
+		_ => bail!(
+			"no variant '{name}' (variants: {})",
+			variants.iter().map(|v| v.id.display.as_str()).collect::<Vec<_>>().join(", ")
+		),
+	}
+}
+
+/// A `--set` key: a plain index (`3`), `#3`, or a declared name.
+fn resolve_param_key(instance: &PluginInstance, key: &str) -> Result<usize> {
+	if let Ok(index) = key.trim().parse::<usize>() {
+		return Ok(index);
+	}
+	aexlo_harness::apply::resolve_param(instance, key.trim()).map_err(anyhow::Error::msg)
 }
 
 fn cmd_bench(args: impl Iterator<Item = String>) -> Result<()> {
@@ -391,16 +506,15 @@ fn next_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<Str
 	args.next().with_context(|| format!("option '{flag}' needs a value"))
 }
 
-/// Split a `--set` argument of the form `<index>=<value>`.
-fn parse_set(raw: &str) -> Result<(usize, String)> {
-	let (idx, value) = raw
+/// Split a `--set` argument of the form `<name|index>=<value>`.
+fn parse_set(raw: &str) -> Result<(String, String)> {
+	let (key, value) = raw
 		.split_once('=')
-		.with_context(|| format!("--set expects <index>=<value>, got '{raw}'"))?;
-	let index: usize = idx
-		.trim()
-		.parse()
-		.with_context(|| format!("invalid parameter index '{idx}'"))?;
-	Ok((index, value.to_string()))
+		.with_context(|| format!("--set expects <name|index>=<value>, got '{raw}'"))?;
+	if key.trim().is_empty() {
+		bail!("--set: empty parameter name in '{raw}'");
+	}
+	Ok((key.trim().to_string(), value.to_string()))
 }
 
 /// Parse a textual value into the `ParamValue` variant the plugin already uses

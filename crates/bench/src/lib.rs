@@ -401,7 +401,7 @@ pub fn param_config_label(config: &ParamConfig) -> String {
 /// win, so a parameter literally named `3` is still reachable by name.
 pub fn resolve_param_index(instance: &PluginInstance, name: &str) -> Option<usize> {
 	let name = name.trim();
-	let by_name = (1..instance.param_count()).find(|&i| param_name(instance, i).eq_ignore_ascii_case(name));
+	let by_name = instance.param_indices(name).first().copied();
 	by_name.or_else(|| name.parse::<usize>().ok().filter(|&i| i < instance.param_count()))
 }
 

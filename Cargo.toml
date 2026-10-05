@@ -4,6 +4,7 @@ members = [
 	"crates/*",
 	"examples/*",
 	"tests/e2e",
+	"tests/misbehave",
 	"demos/*",
 	"playground/probe",
 	"playground/harness",
@@ -25,3 +26,4 @@ lto = true
 aexlo = { path = "crates/aexlo" }
 wrapper = { path = "crates/wrapper" }
 aexlo-macros = { path = "crates/aexlo-macros" }
+aexlo-harness = { path = "crates/harness" }

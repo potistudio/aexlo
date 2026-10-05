@@ -1,0 +1,12 @@
+[package]
+name = "aexlo_misbehave"
+version = "0.0.1"
+edition = "2024"
+description = "A deliberately misbehaving effect for testing aexlo's toolkit"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+after-effects-sys = "0.4.0"
