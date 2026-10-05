@@ -209,6 +209,11 @@ pub struct PluginInstance {
 
 	/// Who is told about commands and calls (see [`Self::set_observer`]).
 	observer: Option<Installed>,
+
+	/// Strict-mode instrumentation (see [`Self::set_strict`]).
+	strict: crate::Strict,
+	/// What strict mode found since the last [`Self::strict_report`].
+	strict_report: crate::StrictReport,
 }
 
 /// Plugin constructors. Taking a [`Host`] guarantees the process-wide
@@ -304,6 +309,7 @@ impl PluginInstance {
 	/// Call the plugin with `PF_Cmd_RENDER` command.
 	pub fn render(&mut self) -> Result<()> {
 		self.reset_cpu_worlds();
+		self.poison_output();
 		self.call_plugin(RawCommand::Render, null_mut())?;
 
 		Ok(())
@@ -318,6 +324,7 @@ impl PluginInstance {
 		self.smart_render_data.begin_pre_render();
 		if !self.smart_render_data.is_gpu() {
 			self.reset_cpu_worlds();
+			self.poison_output();
 		}
 		let mut extra = self.smart_render_data.pre_render_extra();
 
@@ -826,6 +833,33 @@ impl PluginInstance {
 	/// `out_flags2` as the plugin declared them at `PF_Cmd_GLOBAL_SETUP`.
 	pub fn out_flags2(&self) -> i32 {
 		self.global_out_flags2
+	}
+
+	/// Turn strict-mode instrumentation on or off for this instance (see
+	/// [`Strict`](crate::Strict)). With everything off, the host behaves and
+	/// costs exactly as without strict mode.
+	pub fn set_strict(&mut self, strict: crate::Strict) {
+		self.strict = strict;
+	}
+
+	/// The strict-mode features in effect.
+	pub fn strict(&self) -> crate::Strict {
+		self.strict
+	}
+
+	/// What strict mode found since the last call (violations are reported
+	/// once). Unwritten output pixels are not violations the host can judge;
+	/// count them with [`unwritten_pixels`](crate::unwritten_pixels) on
+	/// [`Self::output`] after a render.
+	pub fn strict_report(&mut self) -> crate::StrictReport {
+		std::mem::take(&mut self.strict_report)
+	}
+
+	/// Fill the output with the strict-mode poison, when asked to.
+	fn poison_output(&mut self) {
+		if self.strict.poison_output {
+			crate::strict::poison(self.output_layer.layer_mut());
+		}
 	}
 
 	/// Tell `observer` about every command sent to the plugin from now on and,
@@ -1412,6 +1446,8 @@ impl PluginInstance {
 				parallel_iterate: true,
 				owned_arb_values: Vec::new(),
 				observer: None,
+				strict: crate::Strict::default(),
+				strict_report: crate::StrictReport::default(),
 			};
 
 			instance_placeholder.wire_self_pointers();

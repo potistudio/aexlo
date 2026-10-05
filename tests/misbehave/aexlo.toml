@@ -35,3 +35,13 @@ timeout = 1
 [[preset]]
 name   = "deep"
 depth  = [8, 16, 32]
+
+[[preset]]
+name   = "unwritten"
+params = { Mode = "Unwritten" }
+checks = ["coverage"]
+
+[[preset]]
+name   = "random"
+params = { Mode = "Random" }
+checks = ["deterministic"]

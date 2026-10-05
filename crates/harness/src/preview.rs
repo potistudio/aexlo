@@ -2,13 +2,14 @@
 //!
 //! Everything here is about *surfacing* a rendered frame during development --
 //! env-var conventions, lock files, and viewer processes. None of it is part of
-//! hosting a plugin; it lives in its own module so the core loader stays free
-//! of process management, and may graduate to a separate crate later.
+//! hosting a plugin, which is why it lives here and not in `aexlo` (§3.2 of
+//! `docs/toolkit.md`: the host offers mechanisms, the harness policy).
 
 use std::path::{Path, PathBuf};
 
-use crate::core::error::{AexloError, Result};
-use crate::instance::PluginInstance;
+use aexlo::PluginInstance;
+
+use crate::error::{Error, Result};
 
 /// Whether a visual preview was requested, i.e. the `AEXLO_PREVIEW` env var is
 /// set. Used by `#[aexlo::preview]` to decide whether to pop the OS viewer.
@@ -127,7 +128,7 @@ pub fn ensure_live_viewer(png: impl AsRef<Path>) -> Result<()> {
 	}
 
 	cmd.spawn().map_err(|e| {
-		AexloError::Unexpected(format!(
+		Error::harness(format!(
 			"spawning live viewer `{bin} view` (set AEXLO_BIN to the aexlo binary, or install the CLI): {e}"
 		))
 	})?;
@@ -186,7 +187,7 @@ pub fn open_in_viewer(path: impl AsRef<Path>) -> Result<()> {
 	std::process::Command::new(program)
 		.arg(path)
 		.spawn()
-		.map_err(|e| AexloError::Unexpected(format!("launching image viewer ({program}): {e}")))?;
+		.map_err(|e| Error::harness(format!("launching image viewer ({program}): {e}")))?;
 	Ok(())
 }
 
@@ -202,8 +203,8 @@ pub fn save_preview(instance: &PluginInstance, path: impl AsRef<Path>) -> Result
 	let mut pixels = vec![0u8; w as usize * h as usize * 4];
 	instance.write_rendered_pixels(&mut pixels)?;
 
-	let file = std::fs::File::create(path)
-		.map_err(|e| AexloError::Unexpected(format!("creating preview {}: {e}", path.display())))?;
+	let file =
+		std::fs::File::create(path).map_err(|e| Error::harness(format!("creating preview {}: {e}", path.display())))?;
 
 	let options = mtpng::encoder::Options::new();
 	let mut encoder = mtpng::encoder::Encoder::new(file, &options);
@@ -215,7 +216,7 @@ pub fn save_preview(instance: &PluginInstance, path: impl AsRef<Path>) -> Result
 		.and_then(|()| encoder.write_header(&header))
 		.and_then(|()| encoder.write_image_rows(&pixels))
 		.and_then(|()| encoder.finish().map(drop))
-		.map_err(|e| AexloError::Unexpected(format!("encoding preview PNG {}: {e}", path.display())))?;
+		.map_err(|e| Error::harness(format!("encoding preview PNG {}: {e}", path.display())))?;
 
 	Ok(())
 }

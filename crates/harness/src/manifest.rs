@@ -522,6 +522,21 @@ fn expand(name: &str, table: &Table, plugin: &PluginRef, dir: &Path) -> Result<V
 		Some(Toggle::Bool(false)) => None,
 		Some(Toggle::Spec(spec)) => Some(spec),
 	};
+	if let Some(spec) = &golden {
+		for axis in &spec.split_by {
+			if !crate::golden::SPLIT_AXES.contains(&axis.as_str()) {
+				return Err(Error::invalid(format!(
+					"golden.split_by: unknown axis '{axis}' (expected {})",
+					crate::golden::SPLIT_AXES.join(", ")
+				)));
+			}
+		}
+		if !(spec.tolerance.max_abs >= 0.0 && (0.0..=1.0).contains(&spec.tolerance.max_bad)) {
+			return Err(Error::invalid(
+				"golden.tolerance: max_abs must be >= 0 and max_bad within [0, 1]",
+			));
+		}
+	}
 	let bench = match fields.bench {
 		None | Some(Toggle::Bool(true)) => Some(BenchSpec::default()),
 		Some(Toggle::Bool(false)) => None,

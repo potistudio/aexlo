@@ -62,6 +62,58 @@ impl Timing {
 	}
 }
 
+/// What strict mode found during a run (§5.3), as text for the report.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct StrictFindings {
+	/// Guard bands found overwritten (`bounds`).
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub guard_violations: Vec<String>,
+	/// Handles or worlds that outlived their scope (`allocations`).
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub leaks: Vec<String>,
+	/// Undeclared or unbalanced checkouts (`checkouts`).
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub checkout_violations: Vec<String>,
+}
+
+impl From<aexlo::StrictReport> for StrictFindings {
+	fn from(report: aexlo::StrictReport) -> Self {
+		let mut findings = Self::default();
+		findings.absorb(report);
+		findings
+	}
+}
+
+impl StrictFindings {
+	/// Add what `report` found.
+	pub fn absorb(&mut self, report: aexlo::StrictReport) {
+		self.guard_violations.extend(
+			report
+				.guard_violations
+				.into_iter()
+				.map(|v| format!("{}: {} byte(s) {} the world", v.world, v.bytes, v.band)),
+		);
+		self.leaks.extend(report.leaks.into_iter().map(|l| {
+			format!(
+				"{:?} {:#x} ({} bytes) allocated in PF_Cmd_{} outlived PF_Cmd_{}",
+				l.kind, l.address, l.bytes, l.allocated_in, l.scope
+			)
+		}));
+		self.checkout_violations
+			.extend(report.checkout_violations.into_iter().map(|v| v.message));
+	}
+}
+
+/// The `aexlo::Strict` for a list of features.
+pub fn strict_of(features: &[StrictFeature]) -> aexlo::Strict {
+	aexlo::Strict {
+		poison_output: features.contains(&StrictFeature::PoisonOutput),
+		guard_bands: features.contains(&StrictFeature::GuardBands),
+		track_allocations: features.contains(&StrictFeature::TrackAllocations),
+		track_checkouts: features.contains(&StrictFeature::TrackCheckouts),
+	}
+}
+
 /// How to run a variant.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct RunOptions {
@@ -94,6 +146,7 @@ pub struct RunOutput {
 	pub frames: Vec<Frame>,
 	pub trace: Trace,
 	pub timing: Timing,
+	pub strict: StrictFindings,
 }
 
 /// A run that never produced a frame.
@@ -202,6 +255,7 @@ pub fn run_on(
 		ObserveLevel::Commands
 	};
 	fx.set_observer(Some(recorder.clone()), level);
+	fx.set_strict(strict_of(&options.strict));
 	let take_trace = |recorder: &Recorder| recorder.trace.lock().map(|t| t.clone()).unwrap_or_default();
 
 	if let Err(err) = apply::configure(fx, variant) {
@@ -240,6 +294,7 @@ pub fn run_on(
 	fx.set_observer(None, level);
 
 	output.trace = take_trace(&recorder);
+	output.strict.absorb(fx.strict_report());
 	for command in &output.trace.commands[before_render..] {
 		match output
 			.timing

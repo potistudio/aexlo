@@ -165,7 +165,7 @@ fn run(args: &[String]) -> anyhow::Result<()> {
 	instance.render_frame()?;
 
 	let preview_path = root.join("target/probe/preview-aexlo.png");
-	aexlo::save_preview(&instance, &preview_path)?;
+	aexlo_harness::preview::save_preview(&instance, &preview_path).map_err(anyhow::Error::msg)?;
 
 	// Unload triggers SEQUENCE_SETDOWN/GLOBAL_SETDOWN so the trace is complete.
 	drop(instance);

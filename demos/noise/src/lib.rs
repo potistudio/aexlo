@@ -81,3 +81,16 @@ mod preview {
 		assert!(varied, "noise render should not be a flat color");
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	/// The same preset `aexlo test` runs, in-process: change the noise and
+	/// both fail against golden/noise.png, leaving diff images behind.
+	#[aexlo::test(preset = "noise")]
+	fn noise_matches_its_golden(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
+		let frame = aexlo_test::render(fx)?;
+		frame.assert_opaque()?;
+		aexlo_test::check(fx, &["coverage", "deterministic"])?;
+		frame.assert_golden("noise")
+	}
+}

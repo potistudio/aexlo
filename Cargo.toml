@@ -27,3 +27,4 @@ aexlo = { path = "crates/aexlo" }
 wrapper = { path = "crates/wrapper" }
 aexlo-macros = { path = "crates/aexlo-macros" }
 aexlo-harness = { path = "crates/harness" }
+aexlo-test = { path = "crates/aexlo-test" }

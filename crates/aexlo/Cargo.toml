@@ -25,7 +25,6 @@ colored = "3.1.1"
 dlopen2 = "0.8.2"
 env_logger = "0.11.11"
 log = "0.4.33"
-mtpng = "0.4.1"
 rayon = "1.12.0"
 thiserror = "2.0.18"
 wrapper = { workspace = true }

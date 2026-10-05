@@ -32,8 +32,11 @@ USAGE:
 
 COMMANDS:
     presets [filter]   List the variants the manifest's presets expand to
-    test    [filter]   Run each variant in a worker and report its outcome
-                       (pass, fail, error, crash, timeout, skipped)
+    test    [filter]   Run each variant in a worker, check it and compare it
+                       with its golden; report pass, fail, error, crash,
+                       timeout or skipped
+        --bless              Write missing or changed goldens (never ones
+                             rendered by After Effects)
         --save-frames <dir>  Also write each variant's frame to <dir>
     render <plugin>		Render a frame and write it to a PNG
     about  <plugin>		Print the plugin's ABOUT text
@@ -89,6 +92,8 @@ PRESET OPTIONS (presets, test):
         --isolate <how>    preset (one worker per preset, default), variant,
                            or none (in this process; debugging only)
     -j, --jobs <n>         Workers at once  [default: 1]
+        --strict           Every strict check (bounds, allocations, checkouts,
+                           flags) on every variant
         --format <f>       human or json  [default: human]
         --junit <path>     Also write a JUnit XML report
     [filter] matches variant ids by substring, or as a glob when it has `*`.
@@ -337,9 +342,9 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 	} else if instance.output_depth() == aexlo::PixelDepthKind::U16 {
 		frame.save(&output).map_err(anyhow::Error::msg)?;
 	} else {
-		// aexlo::save_preview encodes with mtpng (multithreaded), reusing the
-		// library's only 8-bit PNG-encode path instead of a second encoder.
-		aexlo::save_preview(&instance, &output).with_context(|| format!("writing {}", output.display()))?;
+		// save_preview encodes with mtpng (multithreaded), the toolkit's fast
+		// 8-bit PNG path.
+		aexlo_harness::preview::save_preview(&instance, &output).map_err(anyhow::Error::msg)?;
 	}
 
 	let (w, h) = instance.output_size();

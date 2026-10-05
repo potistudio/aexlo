@@ -153,7 +153,6 @@ dependencies = [
  "foreign-types",
  "log",
  "metal",
- "mtpng",
  "objc",
  "rayon",
  "thiserror 2.0.18",
@@ -218,10 +217,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "aexlo-test"
+version = "0.0.1"
+dependencies = [
+ "aexlo",
+ "aexlo-harness",
+ "aexlo-macros",
+ "toml 1.1.6+spec-1.1.0",
+]
+
+[[package]]
 name = "aexlo_demo_hello_world"
 version = "1.0.0"
 dependencies = [
  "aexlo",
+ "aexlo-test",
  "after-effects",
  "pipl",
 ]
@@ -231,6 +241,7 @@ name = "aexlo_demo_noise"
 version = "1.0.0"
 dependencies = [
  "aexlo",
+ "aexlo-test",
  "after-effects",
  "pipl",
 ]
@@ -3597,6 +3608,7 @@ name = "playground"
 version = "0.0.1"
 dependencies = [
  "aexlo",
+ "aexlo-harness",
  "aexlo-probe",
  "anyhow",
  "colored",

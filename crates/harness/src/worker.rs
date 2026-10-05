@@ -20,7 +20,7 @@ use aexlo::{AppHost, CommandPhase, PixelDepthKind, PluginInstance};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
-use crate::exec::{CommandSink, Executor, RunFailure, RunOptions, RunOutput, Timing, Trace, run_on};
+use crate::exec::{CommandSink, Executor, RunFailure, RunOptions, RunOutput, StrictFindings, Timing, Trace, run_on};
 use crate::frame::Frame;
 use crate::preset::{PluginRef, Variant};
 
@@ -132,6 +132,8 @@ pub struct Response {
 	pub timing: Option<Timing>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub trace: Option<Trace>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub strict: Option<StrictFindings>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error: Option<WireError>,
 }
@@ -375,6 +377,7 @@ fn run_request(
 				skipped: output.skipped,
 				timing: Some(output.timing),
 				trace: Some(output.trace),
+				strict: Some(output.strict),
 				..Response::default()
 			}
 		}
@@ -780,6 +783,7 @@ impl Executor for WorkerClient {
 					frames,
 					trace,
 					timing: response.timing.unwrap_or_default(),
+					strict: response.strict.unwrap_or_default(),
 				})
 			}
 			Waited::Died(description, logs) => {

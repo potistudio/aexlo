@@ -250,13 +250,15 @@ pub fn print_run(run: &Run) {
 		(None, None) => String::new(),
 	};
 	println!("  {label:<8} {:<48} {detail}", run.variant.id.display);
+	for note in &run.notes {
+		println!("           {note}");
+	}
 	if run.outcome.is_bad() || run.fault.is_some() {
 		for check in run.checks.iter().filter(|c| c.status == runner::CheckStatus::Fail) {
-			println!(
-				"           {}: {}",
-				check.id,
-				check.message.as_deref().unwrap_or("failed")
-			);
+			let line = format!("{}: {}", check.id, check.message.as_deref().unwrap_or("failed"));
+			if run.message.as_deref() != Some(line.as_str()) {
+				println!("           {line}");
+			}
 		}
 		let logs = run.trace.logs.trim();
 		if !logs.is_empty() {
@@ -282,6 +284,8 @@ pub fn report_json(report: &Report) -> String {
 				"fault": run.fault.map(|k| format!("{k:?}").to_lowercase()),
 				"timing": run.timing,
 				"checks": run.checks,
+				"notes": run.notes,
+				"strict": run.strict,
 				"last_command": run.trace.last_command(),
 				"logs": run.trace.logs,
 			})
@@ -381,32 +385,48 @@ pub fn finish(report: &Report, common: &Common) -> ExitCode {
 
 //==== aexlo test =======================================================
 
+/// `aexlo test`'s own flags.
+struct TestFlags {
+	bless: bool,
+	save_frames: Option<PathBuf>,
+}
+
 pub fn cmd_test(args: impl Iterator<Item = String>) -> ExitCode {
-	let setup = || -> Result<(Common, Option<PathBuf>, Vec<Variant>, RunnerConfig), Error> {
-		let parsed = parse(args, &[("--save-frames", true)])?;
-		let mut save_frames = None;
+	let setup = || -> Result<(Common, TestFlags, Manifest, Vec<Variant>, RunnerConfig), Error> {
+		let parsed = parse(args, &[("--save-frames", true), ("--bless", false)])?;
+		let mut flags = TestFlags {
+			bless: false,
+			save_frames: None,
+		};
 		for (flag, value) in parsed.rest {
-			if flag == "--save-frames" {
-				save_frames = value.map(PathBuf::from);
+			match flag.as_str() {
+				"--save-frames" => flags.save_frames = value.map(PathBuf::from),
+				"--bless" => flags.bless = true,
+				_ => {}
 			}
 		}
 		let manifest = load_manifest(parsed.common.manifest.as_deref())?;
 		let variants = select(&manifest, &parsed.common)?;
 		let artifacts = artifacts(&variants)?;
 		let config = runner_config(&parsed.common, artifacts)?;
-		Ok((parsed.common, save_frames, variants, config))
+		Ok((parsed.common, flags, manifest, variants, config))
 	};
-	let (common, save_frames, variants, config) = match setup() {
+	let (common, flags, manifest, variants, config) = match setup() {
 		Ok(setup) => setup,
 		Err(err) => return fail(&err),
 	};
-	if common.format == Format::Human {
-		println!("aexlo test: {} variant(s)", variants.len());
-	}
 	let human = common.format == Format::Human;
+	if human {
+		println!(
+			"aexlo test: {} variant(s){}",
+			variants.len(),
+			if flags.bless { ", blessing goldens" } else { "" }
+		);
+	}
+	let judge = aexlo_harness::judge::Judge::new(&manifest.dir, flags.bless, common.strict);
 	let runs = runner::run_all(variants, &config, |executor, variant| {
-		let mut run = runner::render_once(executor, variant);
-		if let (Some(dir), Some(frame)) = (&save_frames, &run.frame) {
+		let mut run = judge.test(executor, variant);
+		if let (Some(dir), Some(frame)) = (&flags.save_frames, &run.frame) {
 			let path = dir.join(format!(
 				"{}.{}",
 				run.variant.id.file_safe,

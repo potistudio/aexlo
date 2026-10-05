@@ -21,7 +21,7 @@ pub fn run(path: &Path) -> Result<()> {
 	// Single window per PNG: if a live viewer already owns this file, another
 	// spawn (e.g. from `#[aexlo::preview]` with AEXLO_PREVIEW=live) just exits and
 	// lets the running window pick up the change. `_lock` releases on return.
-	let Some(_lock) = aexlo::acquire_viewer_lock(path) else {
+	let Some(_lock) = aexlo_harness::preview::acquire_viewer_lock(path) else {
 		println!(
 			"aexlo view: already watching {} - leaving it to the running window",
 			path.display()

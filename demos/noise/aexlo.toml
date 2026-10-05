@@ -1,0 +1,8 @@
+# `aexlo test` runs these presets; the `#[aexlo::test]` in src/lib.rs starts
+# from the same one, and both compare against golden/noise.png.
+[plugin]
+crate = "."
+
+[[preset]]
+name = "noise"
+size = [256, 256]

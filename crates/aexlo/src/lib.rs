@@ -42,8 +42,8 @@ mod host;
 mod instance;
 mod mask;
 mod observe;
+mod strict;
 mod param_value;
-mod preview;
 mod utils;
 
 pub(crate) mod suites;
@@ -55,21 +55,23 @@ pub use instance::PluginInstance;
 /// [`Host::from_entry`].
 pub use instance::PluginEntryPoint;
 
-/// Preview helpers used by the [`macro@preview`] attribute macro (and usable
-/// directly): where to write a preview PNG, whether one was requested, how to
-/// open it, and how to drive a live `aexlo view` window.
-///
-/// These are dev-tooling, not plugin hosting; they live in their own module
-/// (see `src/preview.rs`) and are re-exported here for the macro's benefit.
-pub use preview::{
-	PreviewMode, ViewerLock, acquire_viewer_lock, ensure_live_viewer, open_in_viewer, open_preview, preview_mode,
-	preview_path, preview_requested, save_preview, viewer_is_running,
-};
-
 /// `#[aexlo::preview]` - render a plugin in-process and drop a preview PNG.
+///
+/// Expands to `aexlo-test` paths: add `aexlo-test` as a dev-dependency.
 pub use aexlo_macros::preview;
 
+/// `#[aexlo::test]` - one `#[test]` per depth and render path, starting from
+/// a manifest preset. Expands to `aexlo-test` paths: add `aexlo-test` as a
+/// dev-dependency.
+pub use aexlo_macros::test;
+
 pub use param_value::{ParamKind, ParamValue};
+
+/// Strict mode ([`PluginInstance::set_strict`]).
+pub use strict::{
+	CheckoutViolation, GuardViolation, Leak, POISON_BYTE, POISON_F32_BITS, Strict, StrictReport, is_unwritten,
+	unwritten_pixels,
+};
 
 /// Layer masks served through the Path Query/Data suites
 /// ([`PluginInstance::set_mask_paths`]).

@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::error::ErrorKind;
-use crate::exec::{Executor, InProcess, RunFailure, RunOptions, RunOutput, Timing, Trace};
+use crate::exec::{Executor, InProcess, RunFailure, RunOptions, RunOutput, StrictFindings, Timing, Trace};
 use crate::frame::Frame;
 use crate::preset::Variant;
 use crate::worker::{WorkerClient, WorkerCommand};
@@ -50,6 +50,32 @@ pub struct CheckResult {
 	pub message: Option<String>,
 }
 
+impl CheckResult {
+	pub fn passed(id: &str) -> Self {
+		Self {
+			id: id.to_string(),
+			status: CheckStatus::Pass,
+			message: None,
+		}
+	}
+
+	pub fn failed(id: &str, message: impl Into<String>) -> Self {
+		Self {
+			id: id.to_string(),
+			status: CheckStatus::Fail,
+			message: Some(message.into()),
+		}
+	}
+
+	pub fn skipped(id: &str, why: impl Into<String>) -> Self {
+		Self {
+			id: id.to_string(),
+			status: CheckStatus::Skipped,
+			message: Some(why.into()),
+		}
+	}
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CheckStatus {
@@ -72,7 +98,10 @@ pub struct Run {
 	pub frames: Vec<Frame>,
 	pub timing: Timing,
 	pub trace: Trace,
+	pub strict: StrictFindings,
 	pub checks: Vec<CheckResult>,
+	/// Things worth telling that are not failures (a golden blessed, ...).
+	pub notes: Vec<String>,
 	/// When the run never reached a verdict for a reason that is not the
 	/// plugin's: an invalid variant (exit 2) or a harness error (exit 3).
 	pub fault: Option<ErrorKind>,
@@ -95,7 +124,9 @@ impl Run {
 			frames: Vec::new(),
 			timing: Timing::default(),
 			trace: failure.trace().cloned().unwrap_or_default(),
+			strict: StrictFindings::default(),
 			checks: Vec::new(),
+			notes: Vec::new(),
 			fault,
 		}
 	}
@@ -115,7 +146,9 @@ impl Run {
 			frames: output.frames,
 			timing: output.timing,
 			trace: output.trace,
+			strict: output.strict,
 			checks: Vec::new(),
+			notes: Vec::new(),
 			fault: None,
 		}
 	}

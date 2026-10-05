@@ -10,12 +10,16 @@
 //! - [`runner`]: outcomes for a set of variants.
 
 pub mod apply;
+pub mod check;
 pub mod error;
 pub mod exec;
 pub mod frame;
+pub mod golden;
 pub mod input;
+pub mod judge;
 pub mod manifest;
 pub mod preset;
+pub mod preview;
 pub mod runner;
 pub mod worker;
 

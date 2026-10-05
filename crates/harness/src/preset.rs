@@ -491,6 +491,35 @@ pub struct Variant {
 }
 
 impl Variant {
+	/// A variant of no manifest: a gradient input at the host's default size,
+	/// 8 bpc, `auto` render, the default checks and golden. What
+	/// `#[aexlo::test]` starts from without a `preset`.
+	pub fn standalone(name: &str, plugin: PluginRef) -> Self {
+		Self {
+			preset: name.to_string(),
+			id: VariantId {
+				display: name.to_string(),
+				file_safe: name.to_string(),
+				golden: name.to_string(),
+			},
+			axes: Vec::new(),
+			plugin,
+			input: InputSpec::default(),
+			size: None,
+			time: Time::default(),
+			params: Vec::new(),
+			layers: Vec::new(),
+			render: RenderMode::Auto,
+			depth: 8,
+			iterate: Iterate::Parallel,
+			checks: DEFAULT_CHECKS.iter().map(|s| s.to_string()).collect(),
+			strict: vec![StrictFeature::PoisonOutput],
+			golden: Some(GoldenSpec::default()),
+			bench: Some(BenchSpec::default()),
+			timeout: crate::manifest::DEFAULT_TIMEOUT,
+		}
+	}
+
 	pub fn depth_kind(&self) -> PixelDepthKind {
 		PixelDepthKind::from_bits(self.depth).unwrap_or(PixelDepthKind::U8)
 	}
