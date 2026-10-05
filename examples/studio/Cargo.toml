@@ -1,0 +1,25 @@
+[package]
+name = "studio"
+version = "0.0.1"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "A small compositor for exercising aexlo end to end: layers, shapes, masks, effects and keyframes."
+
+[dependencies]
+aexlo = { path = "../../crates/aexlo" }
+ab_glyph = "0.2.32"
+anyhow = "1.0.103"
+eframe = "0.35.0"
+env_logger = "0.11.11"
+epaint_default_fonts = "0.35.0"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
+log = "0.4.33"
+rfd = "0.17.2"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+tiny-skia = { version = "0.11.4", default-features = false, features = ["std", "simd"] }
+
+[[bin]]
+name = "studio"
+path = "src/main.rs"
