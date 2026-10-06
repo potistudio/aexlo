@@ -11,12 +11,12 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use aexlo::{Depth8, Layer, PluginInstance};
+use aexlo::{Depth8, Layer};
 use anyhow::{Context, Result, bail};
 use notify::{RecursiveMode, Watcher};
 
+use crate::session::Session;
 use crate::viewer::{self, Viewer};
-use crate::watch::{render_instance, stage_and_load};
 
 /// Debounce so an external rebuild's non-atomic write isn't loaded half-finished.
 const DEBOUNCE: Duration = Duration::from_millis(120);
@@ -36,13 +36,25 @@ impl Input {
 	}
 }
 
-pub fn run(artifact: &Path, input: Option<&Path>, port: u16, watch: bool) -> Result<()> {
+/// `aexlo preview`'s options.
+pub struct Options<'a> {
+	pub input: Option<&'a Path>,
+	pub port: u16,
+	pub watch: bool,
+	pub manifest: Option<&'a Path>,
+	pub preset: Option<&'a str>,
+	pub strict: bool,
+	/// Don't open a browser tab (the URL is printed either way).
+	pub no_open: bool,
+}
+
+pub fn run(artifact: &Path, options: Options<'_>) -> Result<()> {
 	if artifact.is_dir() {
 		bail!("preview needs a built plugin artifact - use `aexlo dev` to watch a crate's source");
 	}
 
 	// Decode up front: a bad path should fail before we open a browser tab.
-	let input = match input {
+	let input = match options.input {
 		Some(path) => {
 			let (rgba, w, h) = crate::load_input(path)?;
 			println!("aexlo preview: input {} ({w}×{h})", path.display());
@@ -50,28 +62,32 @@ pub fn run(artifact: &Path, input: Option<&Path>, port: u16, watch: bool) -> Res
 		}
 		None => None,
 	};
+	let manifest = crate::session::viewer_manifest(options.manifest, options.preset.is_some())?;
+	let mut session = Session::new(manifest, options.preset, options.strict)?;
 
-	let viewer = viewer::start(port)?;
+	let viewer = viewer::start(options.port)?;
 	println!("aexlo preview: serving {} (Ctrl+C to quit)", viewer.url);
-	if watch {
+	if options.watch {
 		println!("aexlo preview: watching {}", artifact.display());
 	}
-	viewer::open_browser(&viewer.url);
+	if !options.no_open {
+		viewer::open_browser(&viewer.url);
+	}
 
-	// The live instance and the staged copy it was loaded from. Kept alive across
-	// param edits so re-rendering doesn't reload; replaced on each disk reload.
-	let mut instance: Option<PluginInstance> = None;
+	// The staged copy the session loads instances from; replaced on each
+	// disk reload so a rebuilt file is never served from a stale mapping.
+	let input = std::sync::Arc::new(input);
 	let mut staged: Option<PathBuf> = None;
 	let mut attempt: u64 = 0;
 
 	// Load once on startup.
 	attempt += 1;
-	reload(artifact, input.as_ref(), attempt, &viewer, &mut instance, &mut staged);
+	reload(artifact, &input, attempt, &viewer, &mut session, &mut staged);
 
 	// Only wire up the file watcher when asked; without `--watch`, `preview`
 	// serves the artifact exactly as loaded (parameter edits still re-render it).
 	let _watcher; // keep the watcher alive for the loop's lifetime
-	let rx = if watch {
+	let rx = if options.watch {
 		let (tx, rx) = mpsc::channel();
 		let mut watcher = notify::recommended_watcher(move |res| {
 			let _ = tx.send(res);
@@ -111,62 +127,68 @@ pub fn run(artifact: &Path, input: Option<&Path>, port: u16, watch: bool) -> Res
 		{
 			pending = None;
 			attempt += 1;
-			reload(artifact, input.as_ref(), attempt, &viewer, &mut instance, &mut staged);
+			reload(artifact, &input, attempt, &viewer, &mut session, &mut staged);
 		}
 
-		// Apply any parameter edits, then re-render once for the whole batch.
-		if let Some(fx) = &mut instance
-			&& viewer.apply_edits(fx)
-		{
-			let _ = fx.update_params_ui();
-			match render_instance(fx) {
-				Ok((rgba, w, h)) => viewer.publish_frame(fx, rgba, w, h),
-				Err(err) => eprintln!("aexlo preview: re-render failed: {err:#}"),
-			}
-		}
+		// Parameter edits, preset picks, time, comparisons, saves.
+		session.step(&viewer);
 
 		std::thread::sleep(Duration::from_millis(50));
 	}
 }
 
-/// (Re)load the artifact from disk, render a frame, and publish it - swapping in
-/// the new instance and dropping the previous staged copy. On failure the last
-/// good frame stays on screen and the browser dot goes red.
+/// Stage the artifact afresh and have the session load from it. On failure
+/// the last good frame stays on screen and the browser dot goes red.
 fn reload(
 	artifact: &Path,
-	input: Option<&Input>,
+	input: &std::sync::Arc<Option<Input>>,
 	attempt: u64,
 	viewer: &Viewer,
-	instance: &mut Option<PluginInstance>,
+	session: &mut Session,
 	staged: &mut Option<PathBuf>,
 ) {
 	viewer.begin_attempt(attempt);
-	match stage_and_load(artifact, attempt).and_then(|(mut fx, new_staged)| {
-		// Install the input layer before the first render, so the freshly loaded
-		// instance never shows a frame built from the default test image.
-		if let Some(input) = input {
+	let ext = artifact.extension().and_then(|s| s.to_str()).unwrap_or("dylib");
+	let copy = std::env::temp_dir().join(format!("aexlo-preview-{}-{attempt}.{ext}", std::process::id()));
+	if let Err(err) = copy_artifact(artifact, &copy) {
+		viewer.fail_attempt(attempt);
+		eprintln!("\n─── load failed ───\n{err:#}\n");
+		return;
+	}
+	let (path, input) = (copy.clone(), input.clone());
+	session.set_loader(Box::new(move || {
+		let mut fx = aexlo::Host::get().try_load(&path).context("loading plugin")?;
+		// Install the input layer before the first render, so a fresh
+		// instance never shows a frame built from the default test image (a
+		// preset's own input replaces it).
+		if let Some(input) = input.as_ref() {
 			fx.set_input_layer(input.layer()?);
 		}
-		Ok((fx, new_staged))
-	}) {
-		Ok((mut fx, new_staged)) => match render_instance(&mut fx) {
-			Ok((rgba, w, h)) => {
-				viewer.publish_reload(&fx, rgba, w, h);
-				println!("aexlo preview: loaded {} → {w}×{h}", artifact.display());
-				*instance = Some(fx);
-				if let Some(old) = staged.replace(new_staged) {
-					let _ = std::fs::remove_file(old);
-				}
+		Ok(fx)
+	}));
+	match session.reload(viewer) {
+		Ok(()) => {
+			println!("aexlo preview: loaded {}", artifact.display());
+			if let Some(old) = staged.replace(copy) {
+				remove_staged(&old);
 			}
-			Err(err) => {
-				viewer.fail_attempt(attempt);
-				eprintln!("\n─── render failed ───\n{err:#}\n");
-				let _ = std::fs::remove_file(new_staged);
-			}
-		},
+		}
 		Err(err) => {
 			viewer.fail_attempt(attempt);
-			eprintln!("\n─── load failed ───\n{err:#}\n");
+			eprintln!("\n─── render failed ───\n{err:#}\n");
 		}
 	}
+}
+
+/// Copy a plugin artifact (a file, or a `.plugin` bundle directory).
+fn copy_artifact(from: &Path, to: &Path) -> Result<()> {
+	if from.is_dir() {
+		bail!("{} is a directory", from.display());
+	}
+	std::fs::copy(from, to).with_context(|| format!("staging {}", from.display()))?;
+	Ok(())
+}
+
+fn remove_staged(path: &Path) {
+	let _ = std::fs::remove_file(path);
 }

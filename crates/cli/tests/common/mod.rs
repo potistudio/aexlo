@@ -89,3 +89,38 @@ pub fn outcomes(report: &serde_json::Value) -> Vec<(String, String)> {
 		})
 		.collect()
 }
+
+/// Build the misbehaving effect and return its dynamic library.
+pub fn misbehave_artifact() -> PathBuf {
+	let status = std::process::Command::new(env!("CARGO"))
+		.args(["build", "-q", "-p", "aexlo_misbehave"])
+		.current_dir(workspace())
+		.status()
+		.expect("running cargo build");
+	assert!(status.success(), "building aexlo_misbehave");
+	let name = if cfg!(target_os = "windows") {
+		"aexlo_misbehave.dll"
+	} else if cfg!(target_os = "macos") {
+		"libaexlo_misbehave.dylib"
+	} else {
+		"libaexlo_misbehave.so"
+	};
+	workspace().join("target/debug").join(name)
+}
+
+/// `GET <url>` over plain HTTP/1.0, returning the body.
+pub fn http_get(url: &str) -> String {
+	use std::io::{Read, Write};
+	let rest = url.strip_prefix("http://").expect("http url");
+	let (host, path) = rest
+		.split_once('/')
+		.map_or((rest, "/".to_string()), |(h, p)| (h, format!("/{p}")));
+	let mut stream = std::net::TcpStream::connect(host).expect("connecting to the viewer");
+	write!(stream, "GET {path} HTTP/1.0\r\nHost: {host}\r\n\r\n").unwrap();
+	let mut response = String::new();
+	stream.read_to_string(&mut response).unwrap();
+	response
+		.split_once("\r\n\r\n")
+		.map(|(_, body)| body.to_string())
+		.unwrap_or_default()
+}

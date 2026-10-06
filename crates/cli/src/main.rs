@@ -12,6 +12,7 @@
 mod bench;
 mod dev;
 mod preview;
+mod session;
 mod toolkit;
 mod view;
 mod viewer;
@@ -59,6 +60,12 @@ COMMANDS:
                               it into a <canvas>. Requires --bin. Good for
                               headless/remote hosts.
         --port <n>            Port for --web  [default: OS-assigned]
+        --preset <name>       (--web) Start the viewer on a manifest preset;
+                              its picker lists them all
+        --manifest <path>     (--web) The manifest  [default: nearest]
+        --strict              (--web) Poison and guard the output, showing
+                              unwritten pixels and overwritten guard bands
+        --no-open             (--web) Don't open a browser tab
     preview <plugin>   Interactively preview a *built* plugin in the browser:
                        serve it and expose its parameters as live controls.
                        No compiler in the loop - point it at a finished
@@ -68,6 +75,13 @@ COMMANDS:
         --watch              Reload the artifact when the file changes on disk
                               (e.g. rebuilt by another toolchain)
         --port <n>           Port for the preview server  [default: OS-assigned]
+        --preset <name>      Start on a manifest preset (or a variant id);
+                              the viewer's picker lists them all, compares
+                              against goldens, depths and render paths, and
+                              `Save as preset` appends to the manifest
+        --manifest <path>    The manifest  [default: the nearest aexlo.toml]
+        --strict             Poison and guard the output while previewing
+        --no-open            Don't open a browser tab
     bench   [filter]   Time the manifest's presets (each preset's `bench`
                        samples/warmup), one at a time, with a phase breakdown
                        (pre-render, render, GPU, host overhead)
@@ -436,6 +450,10 @@ fn cmd_dev(args: impl Iterator<Item = String>) -> Result<()> {
 	let mut bin_mode = false;
 	let mut web_mode = false;
 	let mut port: u16 = 0;
+	let mut preset: Option<String> = None;
+	let mut manifest_path: Option<PathBuf> = None;
+	let mut strict = false;
+	let mut no_open = false;
 
 	let mut args = args.peekable();
 
@@ -443,6 +461,10 @@ fn cmd_dev(args: impl Iterator<Item = String>) -> Result<()> {
 		match arg.as_str() {
 			"--bin" => bin_mode = true,
 			"--web" => web_mode = true,
+			"--preset" => preset = Some(next_value(&mut args, &arg)?),
+			"--manifest" => manifest_path = Some(PathBuf::from(next_value(&mut args, &arg)?)),
+			"--strict" => strict = true,
+			"--no-open" => no_open = true,
 			"--port" => {
 				port = next_value(&mut args, &arg)?
 					.parse()
@@ -461,6 +483,9 @@ fn cmd_dev(args: impl Iterator<Item = String>) -> Result<()> {
 	if port != 0 && !web_mode {
 		bail!("--port only applies to --web");
 	}
+	if (preset.is_some() || manifest_path.is_some() || strict || no_open) && !web_mode {
+		bail!("--preset, --manifest, --strict and --no-open drive the browser viewer: add --bin --web");
+	}
 
 	let manifest = resolve_manifest(package.as_deref())?;
 
@@ -470,7 +495,16 @@ fn cmd_dev(args: impl Iterator<Item = String>) -> Result<()> {
 		}
 
 		if web_mode {
-			web::run(&manifest, port)
+			web::run(
+				&manifest,
+				web::Options {
+					port,
+					manifest: manifest_path.as_deref(),
+					preset: preset.as_deref(),
+					strict,
+					no_open,
+				},
+			)
 		} else {
 			watch::run(&manifest)
 		}
@@ -484,12 +518,20 @@ fn cmd_preview(args: impl Iterator<Item = String>) -> Result<()> {
 	let mut input: Option<PathBuf> = None;
 	let mut port: u16 = 0;
 	let mut watch = false;
+	let mut preset: Option<String> = None;
+	let mut manifest: Option<PathBuf> = None;
+	let mut strict = false;
+	let mut no_open = false;
 
 	let mut args = args.peekable();
 	while let Some(arg) = args.next() {
 		match arg.as_str() {
 			"-i" | "--input" => input = Some(PathBuf::from(next_value(&mut args, &arg)?)),
 			"--watch" => watch = true,
+			"--preset" => preset = Some(next_value(&mut args, &arg)?),
+			"--manifest" => manifest = Some(PathBuf::from(next_value(&mut args, &arg)?)),
+			"--strict" => strict = true,
+			"--no-open" => no_open = true,
 			"--port" => {
 				port = next_value(&mut args, &arg)?
 					.parse()
@@ -506,7 +548,18 @@ fn cmd_preview(args: impl Iterator<Item = String>) -> Result<()> {
 
 	let plugin = plugin.context("preview: missing <plugin>")?;
 	let path = resolve_plugin(&plugin);
-	preview::run(&path, input.as_deref(), port, watch)
+	preview::run(
+		&path,
+		preview::Options {
+			input: input.as_deref(),
+			port,
+			watch,
+			manifest: manifest.as_deref(),
+			preset: preset.as_deref(),
+			strict,
+			no_open,
+		},
+	)
 }
 
 /// Resolve `-p <package>` (or, if absent, the crate in the current directory)
