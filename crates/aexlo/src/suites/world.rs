@@ -46,6 +46,9 @@ use crate::core::diagnostics::diag;
 /// `PF_GetPixelFormat` can report what the world was created as.
 static WORLD_FORMATS: LazyLock<Mutex<HashMap<usize, u32>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Worlds allocated with guard bands (strict mode), keyed by `data`.
+static GUARDED: LazyLock<Mutex<HashMap<usize, crate::strict::Guarded>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
 /// The format `world` was allocated with by [`alloc_world`], if any.
 pub(super) fn allocated_format(world: &PF_EffectWorld) -> Option<u32> {
 	WORLD_FORMATS.lock().ok()?.get(&(world.data as usize)).copied()
@@ -79,27 +82,41 @@ pub(crate) fn untag_host_world(data: usize) {
 pub(super) fn alloc_world(width: A_long, height: A_long, bytes_per_pixel: i32, format: u32) -> PF_EffectWorld {
 	let width = width.max(0);
 	let height = height.max(0);
+	let row_data = width as usize * bytes_per_pixel.max(0) as usize;
+
+	// Strict mode: a guard band around the image, verified on dispose.
+	let guarded = crate::strict::guard_bands().then(|| {
+		let mut guarded = crate::strict::Guarded::new(row_data, height as usize, bytes_per_pixel.max(1) as usize);
+		let data = guarded.data_ptr();
+		let rowbytes = guarded.rowbytes() as A_long;
+		if let Ok(mut all) = GUARDED.lock() {
+			all.insert(data as usize, guarded);
+		}
+		(data, rowbytes)
+	});
+
 	// `data` must point at the pixel bytes themselves. Leaking a `Box<Vec<u8>>`
 	// and handing back its address instead points the plugin at the 24-byte
 	// `Vec` header, so any write past the first few pixels corrupts the heap.
 	// Take the buffer's own data pointer and leak the allocation; it is
 	// reclaimed in `free_world` from the world's own dimensions.
-	let data = {
-		let mut buffer = vec![0u8; width as usize * height as usize * bytes_per_pixel as usize];
+	let (data, rowbytes) = guarded.unwrap_or_else(|| {
+		let mut buffer = vec![0u8; row_data * height as usize];
 		let data = buffer.as_mut_ptr();
 		std::mem::forget(buffer);
-		data
-	};
+		(data, width * bytes_per_pixel)
+	});
 	if let Ok(mut formats) = WORLD_FORMATS.lock() {
 		formats.insert(data as usize, format);
 	}
+	crate::strict::allocated(crate::AllocationKind::World, data as usize, row_data * height as usize);
 
 	PF_EffectWorld {
 		reserved0: null_mut(),
 		reserved1: null_mut(),
 		world_flags: PF_WorldFlag_WRITEABLE as PF_WorldFlags,
 		data: data as *mut _,
-		rowbytes: width * bytes_per_pixel,
+		rowbytes,
 		width,
 		height,
 		extent_hint: PF_UnionableRect {
@@ -131,6 +148,19 @@ pub(super) unsafe fn free_world(world: &mut PF_EffectWorld) {
 	}
 	if let Ok(mut formats) = WORLD_FORMATS.lock() {
 		formats.remove(&(world.data as usize));
+	}
+	crate::strict::disposed(crate::AllocationKind::World, world.data as usize);
+	let guarded = GUARDED
+		.lock()
+		.ok()
+		.and_then(|mut all| all.remove(&(world.data as usize)));
+	if let Some(guarded) = guarded {
+		let broken = guarded.verify();
+		if !broken.is_empty() {
+			crate::strict::guards_broken(&format!("PF_NewWorld {}x{}", world.width, world.height), broken);
+		}
+		world.data = null_mut();
+		return;
 	}
 	// Its byte length is exactly `rowbytes * height`, matching the
 	// `vec![0u8; ..]` forgotten in `alloc_world`.

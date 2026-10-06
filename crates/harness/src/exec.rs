@@ -309,6 +309,22 @@ pub fn run_on(
 	Ok(output)
 }
 
+/// [`run_on`], then tear `fx` down and add what it leaked to the findings
+/// (allocations are only judged once the plugin is set down).
+pub fn run_owned(
+	mut fx: PluginInstance,
+	variant: &Variant,
+	options: &RunOptions,
+	sink: Option<CommandSink>,
+) -> Result<RunOutput, RunFailure> {
+	let mut result = run_on(&mut fx, variant, options, sink);
+	let report = fx.finish();
+	if let Ok(output) = &mut result {
+		output.strict.absorb(report);
+	}
+	result
+}
+
 /// Runs variants in this process: debuggers and `dbg!` work, but a crash
 /// takes the process down (§6.1).
 pub struct InProcess<F> {
@@ -317,10 +333,10 @@ pub struct InProcess<F> {
 
 impl<F> InProcess<F>
 where
-	F: FnMut(&Variant) -> aexlo::Result<PluginInstance>,
+	F: FnMut(&Variant, aexlo::Strict) -> aexlo::Result<PluginInstance>,
 {
-	/// `load` makes a fresh instance for each run, e.g.
-	/// `|_| aexlo::Host::get().try_load(path)`.
+	/// `load` makes a fresh instance for each run, with strict mode on from
+	/// the start, e.g. `|_, strict| aexlo::Host::get().try_load_with(path, strict)`.
 	pub fn new(load: F) -> Self {
 		Self { load }
 	}
@@ -328,16 +344,16 @@ where
 
 impl<F> Executor for InProcess<F>
 where
-	F: FnMut(&Variant) -> aexlo::Result<PluginInstance>,
+	F: FnMut(&Variant, aexlo::Strict) -> aexlo::Result<PluginInstance>,
 {
 	fn run(&mut self, variant: &Variant, options: &RunOptions) -> Result<RunOutput, RunFailure> {
 		// A panicking Rust plugin (or harness bug) fails this run, not the process.
 		let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-			let mut fx = (self.load)(variant).map_err(|e| RunFailure::Plugin {
+			let fx = (self.load)(variant, strict_of(&options.strict)).map_err(|e| RunFailure::Plugin {
 				message: format!("loading the plugin: {e}"),
 				trace: Trace::default(),
 			})?;
-			run_on(&mut fx, variant, options, None)
+			run_owned(fx, variant, options, None)
 		}));
 		match result {
 			Ok(result) => result,

@@ -389,21 +389,63 @@ pub fn finish(report: &Report, common: &Common) -> ExitCode {
 struct TestFlags {
 	bless: bool,
 	save_frames: Option<PathBuf>,
+	/// `--fuzz <n>`: fuzzed cases per preset instead of the presets.
+	fuzz: Option<usize>,
+	seed: Option<u64>,
+}
+
+/// The plugin's parameters and capabilities, from a worker (or in-process).
+fn plugin_info(config: &RunnerConfig, plugin: &PluginRef) -> Result<aexlo_harness::worker::PluginInfo, Error> {
+	if config.isolate == Isolate::None {
+		let path = (config.artifacts)(plugin).ok_or_else(|| Error::harness("no artifact for the plugin"))?;
+		let fx = aexlo::Host::get().try_load(&path).map_err(Error::from)?;
+		return Ok(aexlo_harness::worker::PluginInfo::of(&fx));
+	}
+	let mut client = aexlo_harness::worker::WorkerClient::new(config.worker.clone(), config.artifacts.clone())?;
+	client.info(plugin).map_err(|failure| match failure {
+		aexlo_harness::RunFailure::Invalid { message } => Error::invalid(message),
+		aexlo_harness::RunFailure::Harness { message } => Error::harness(message),
+		other => Error::plugin(other.message().to_string()),
+	})
 }
 
 pub fn cmd_test(args: impl Iterator<Item = String>) -> ExitCode {
 	let setup = || -> Result<(Common, TestFlags, Manifest, Vec<Variant>, RunnerConfig), Error> {
-		let parsed = parse(args, &[("--save-frames", true), ("--bless", false)])?;
+		let parsed = parse(
+			args,
+			&[
+				("--save-frames", true),
+				("--bless", false),
+				("--fuzz", true),
+				("--seed", true),
+			],
+		)?;
 		let mut flags = TestFlags {
 			bless: false,
 			save_frames: None,
+			fuzz: None,
+			seed: None,
 		};
 		for (flag, value) in parsed.rest {
+			let value = value.unwrap_or_default();
+			let number = |what: &str| {
+				value
+					.parse::<u64>()
+					.map_err(|_| Error::invalid(format!("{what} expects a number, got '{value}'")))
+			};
 			match flag.as_str() {
-				"--save-frames" => flags.save_frames = value.map(PathBuf::from),
+				"--save-frames" => flags.save_frames = Some(PathBuf::from(&value)),
 				"--bless" => flags.bless = true,
+				"--fuzz" => flags.fuzz = Some(number("--fuzz")?.max(1) as usize),
+				"--seed" => flags.seed = Some(number("--seed")?),
 				_ => {}
 			}
+		}
+		if flags.fuzz.is_some() && flags.bless {
+			return Err(Error::invalid("--fuzz has no goldens to bless"));
+		}
+		if flags.seed.is_some() && flags.fuzz.is_none() {
+			return Err(Error::invalid("--seed only applies to --fuzz"));
 		}
 		let manifest = load_manifest(parsed.common.manifest.as_deref())?;
 		let variants = select(&manifest, &parsed.common)?;
@@ -411,11 +453,44 @@ pub fn cmd_test(args: impl Iterator<Item = String>) -> ExitCode {
 		let config = runner_config(&parsed.common, artifacts)?;
 		Ok((parsed.common, flags, manifest, variants, config))
 	};
-	let (common, flags, manifest, variants, config) = match setup() {
+	let (common, flags, manifest, mut variants, config) = match setup() {
 		Ok(setup) => setup,
 		Err(err) => return fail(&err),
 	};
 	let human = common.format == Format::Human;
+
+	// Fuzzing: replace the presets with cases drawn from their first variant.
+	let mut cases: Vec<aexlo_harness::fuzz::Case> = Vec::new();
+	if let Some(count) = flags.fuzz {
+		let seed = flags.seed.unwrap_or_else(|| {
+			std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH)
+				.map_or(0, |d| d.as_nanos() as u64)
+		});
+		let mut bases: Vec<Variant> = Vec::new();
+		for variant in variants {
+			if !bases.iter().any(|b| b.preset == variant.preset) {
+				bases.push(variant);
+			}
+		}
+		let mut infos: HashMap<PluginRef, aexlo_harness::worker::PluginInfo> = HashMap::new();
+		for base in &bases {
+			if !infos.contains_key(&base.plugin) {
+				match plugin_info(&config, &base.plugin) {
+					Ok(info) => {
+						infos.insert(base.plugin.clone(), info);
+					}
+					Err(err) => return fail(&err.context(format!("reading {}'s parameters", base.plugin.label()))),
+				}
+			}
+			cases.extend(aexlo_harness::fuzz::cases(base, &infos[&base.plugin], count, seed));
+		}
+		variants = cases.iter().map(|c| c.variant.clone()).collect();
+		if human {
+			println!("aexlo test --fuzz: seed {seed} (repeat with --seed {seed})");
+		}
+	}
+
 	if human {
 		println!(
 			"aexlo test: {} variant(s){}",
@@ -424,7 +499,7 @@ pub fn cmd_test(args: impl Iterator<Item = String>) -> ExitCode {
 		);
 	}
 	let judge = aexlo_harness::judge::Judge::new(&manifest.dir, flags.bless, common.strict);
-	let runs = runner::run_all(variants, &config, |executor, variant| {
+	let mut runs = runner::run_all(variants, &config, |executor, variant| {
 		let mut run = judge.test(executor, variant);
 		if let (Some(dir), Some(frame)) = (&flags.save_frames, &run.frame) {
 			let path = dir.join(format!(
@@ -441,5 +516,30 @@ pub fn cmd_test(args: impl Iterator<Item = String>) -> ExitCode {
 		}
 		run
 	});
+
+	// Checks across variants, once all of them ran.
+	for i in aexlo_harness::judge::depth_consistency(&mut runs) {
+		if human {
+			print_run(&runs[i]);
+		}
+	}
+
+	if human {
+		let failing: Vec<String> = cases
+			.iter()
+			.zip(&runs)
+			.filter(|(_, run)| run.outcome.is_bad())
+			.map(|(case, run)| {
+				let why = format!("{}: {}", run.outcome.name(), run.message.as_deref().unwrap_or(""));
+				aexlo_harness::fuzz::preset_block(case, &why)
+			})
+			.collect();
+		if !failing.is_empty() {
+			println!("\nfailing cases, ready to paste into {}:\n", manifest::FILE_NAME);
+			for block in failing {
+				println!("{block}");
+			}
+		}
+	}
 	finish(&Report { runs }, &common)
 }

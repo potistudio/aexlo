@@ -38,6 +38,10 @@ COMMANDS:
         --bless              Write missing or changed goldens (never ones
                              rendered by After Effects)
         --save-frames <dir>  Also write each variant's frame to <dir>
+        --fuzz <n>           Instead, render n cases per preset with parameters
+                             drawn from their declared ranges; failing cases
+                             print as [[preset]] blocks
+        --seed <s>           The fuzzing seed  [default: time-based, printed]
     render <plugin>		Render a frame and write it to a PNG
     about  <plugin>		Print the plugin's ABOUT text
     params <plugin>    List the plugin's parameters (index, name, value)

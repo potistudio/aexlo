@@ -240,3 +240,128 @@ impl Judge {
 		}
 	}
 }
+
+/// `depth-consistency` (§7): within each group of runs that differ only in
+/// depth, every depth's frame must match the shallowest one's within
+/// [`check::DEPTH_TOLERANCE`]. Returns the indices of runs it changed.
+pub fn depth_consistency(runs: &mut [Run]) -> Vec<usize> {
+	use crate::preset::Axis;
+	let key = |run: &Run| {
+		let axes: Vec<String> = run
+			.variant
+			.axes
+			.iter()
+			.filter(|a| !matches!(a, Axis::Depth(_)))
+			.map(|a| format!("{a:?}"))
+			.collect();
+		(run.variant.preset.clone(), axes)
+	};
+	// (preset, the non-depth axes) -> indices of the runs that share them.
+	type Group = ((String, Vec<String>), Vec<usize>);
+	let mut groups: Vec<Group> = Vec::new();
+	for (i, run) in runs.iter().enumerate() {
+		if !run.variant.has_check("depth-consistency") {
+			continue;
+		}
+		let k = key(run);
+		match groups.iter_mut().find(|(g, _)| *g == k) {
+			Some((_, members)) => members.push(i),
+			None => groups.push((k, vec![i])),
+		}
+	}
+
+	let mut changed = Vec::new();
+	for (_, members) in groups {
+		let rendered: Vec<usize> = members
+			.iter()
+			.copied()
+			.filter(|&i| runs[i].outcome == Outcome::Pass && runs[i].frame.is_some())
+			.collect();
+		let depths: HashSet<u32> = rendered.iter().map(|&i| runs[i].variant.depth).collect();
+		if depths.len() < 2 {
+			for &i in &members {
+				runs[i].checks.push(check::CheckResult::skipped(
+					"depth-consistency",
+					"needs two depths that rendered",
+				));
+			}
+			continue;
+		}
+		let Some(&reference) = rendered.iter().min_by_key(|&&i| runs[i].variant.depth) else {
+			continue;
+		};
+		let expected = runs[reference].frame.clone().expect("rendered");
+		let shallow = runs[reference].variant.depth;
+		for &i in &rendered {
+			if i == reference {
+				runs[i].checks.push(check::CheckResult::passed("depth-consistency"));
+				continue;
+			}
+			let frame = runs[i].frame.clone().expect("rendered");
+			let result = check::agrees(
+				"depth-consistency",
+				&format!("the {shallow} bpc render"),
+				&frame,
+				&expected,
+				check::DEPTH_TOLERANCE,
+			);
+			if result.status == CheckStatus::Fail {
+				let reason = format!("depth-consistency: {}", result.message.as_deref().unwrap_or("differs"));
+				runs[i].fail(reason);
+				changed.push(i);
+			}
+			runs[i].checks.push(result);
+		}
+	}
+	changed
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::exec::RunOutput;
+	use crate::frame::Frame;
+	use aexlo::{AnyLayer, PixelDepthKind};
+
+	fn run(variant: &Variant, rgba: [f32; 4]) -> Run {
+		let frame = Frame::new(AnyLayer::filled(variant.depth_kind(), 4, 4, rgba));
+		Run::rendered(
+			variant.clone(),
+			RunOutput {
+				frames: vec![frame],
+				..RunOutput::default()
+			},
+		)
+	}
+
+	#[test]
+	fn depth_consistency_compares_depths_of_one_variant() {
+		let manifest = crate::Manifest::parse(
+			"[plugin]\nartifact = 'x'\n[[preset]]\nname = 'p'\ndepth = [8, 16, 32]\nrender = ['smart', 'legacy']\nchecks = ['depth-consistency']\n",
+			std::path::Path::new("/m/aexlo.toml"),
+		)
+		.unwrap();
+		let variants = manifest.variants().unwrap();
+		assert_eq!(variants[0].depth_kind(), PixelDepthKind::U8);
+		// depth 8 / 16 / 32 for smart (0, 2, 4) and legacy (1, 3, 5).
+		let mut runs: Vec<Run> = variants
+			.iter()
+			.enumerate()
+			.map(|(i, v)| {
+				let off = if i == 5 { 0.1 } else { 0.0 };
+				run(v, [0.5 + off, 0.25, 0.75, 1.0])
+			})
+			.collect();
+		let changed = depth_consistency(&mut runs);
+		assert_eq!(changed, [5]);
+		assert_eq!(runs[5].outcome, Outcome::Fail);
+		assert!(
+			runs[5]
+				.message
+				.as_deref()
+				.unwrap()
+				.starts_with("depth-consistency: differs from the 8 bpc render")
+		);
+		assert!(runs[..5].iter().all(|r| r.outcome == Outcome::Pass));
+	}
+}

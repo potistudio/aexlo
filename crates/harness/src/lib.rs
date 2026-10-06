@@ -14,6 +14,7 @@ pub mod check;
 pub mod error;
 pub mod exec;
 pub mod frame;
+pub mod fuzz;
 pub mod golden;
 pub mod input;
 pub mod judge;

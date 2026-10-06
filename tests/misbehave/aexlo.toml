@@ -8,7 +8,7 @@ size  = [64, 48]
 input = { generate = "gradient" }
 checks = ["finite"]
 golden = false
-timeout = 5
+timeout = 2
 
 [[preset]]
 name   = "ok"
@@ -45,3 +45,33 @@ checks = ["coverage"]
 name   = "random"
 params = { Mode = "Random" }
 checks = ["deterministic"]
+
+# Strict mode (`--strict`, or `strict = true` here) catches these.
+[[preset]]
+name   = "overruns"
+params = { Mode = "Overrun" }
+strict = true
+
+[[preset]]
+name   = "leaks"
+params = { Mode = "Leak" }
+strict = true
+
+[[preset]]
+name   = "undeclared"
+params = { Mode = "Undeclared" }
+strict = true
+
+[[preset]]
+name   = "unbalanced"
+params = { Mode = "Unbalanced" }
+strict = true
+
+[[preset]]
+name   = "param_leak"
+params = { Mode = "ParamLeak" }
+strict = true
+
+[[preset]]
+name   = "strict_ok"
+strict = true

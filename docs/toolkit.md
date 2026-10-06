@@ -289,14 +289,18 @@ impl PluginInstance {
 ```
 
 Per instance, like `set_parallel_iterate`. With everything off, the host's
-allocation paths and costs are unchanged.
+allocation paths and costs are unchanged. `Host::try_load_with(path, strict)`
+turns strict mode on before `GLOBAL_SETUP`, so setup allocations are tracked
+too, and `PluginInstance::finish(self) -> StrictReport` sets the plugin down
+and reports what it never released. Worlds allocated during a render command
+must be disposed by its end; everything else by `GLOBAL_SETDOWN`.
 
 | Feature             | Mechanism                                                              | Detects                                     |
 | ------------------- | ---------------------------------------------------------------------- | ------------------------------------------- |
 | `poison_output`     | 8/16 bpc: byte pattern `0xCD`; 32 bpc: a signalling-NaN payload.        | Output pixels the plugin never wrote.       |
-| `guard_bands`       | Extra rows above/below and a rowbytes tail, filled with a pattern.      | Writes outside the world (rowbytes misuse). |
+| `guard_bands`       | Extra rows above/below and a rowbytes tail, filled with a pattern.      | Writes outside the world (rowbytes misuse). Only the rows above and below are verified: the tail is inside `rowbytes` (plugins may clear it); it is there so code assuming `rowbytes == width * bpp` renders visibly wrong. |
 | `track_allocations` | Counters on Handle Suite / World Suite / `new_world` paths.             | Leaks at `SEQUENCE_SETDOWN`/`GLOBAL_SETDOWN`. |
-| `track_checkouts`   | Records from `PreRender` declarations and `SmartRender` checkouts.      | Checkouts not declared in PreRender, missing checkins. |
+| `track_checkouts`   | Records from `PreRender` declarations and `SmartRender` checkouts.      | Checkouts not declared in PreRender, layers checked in that were never checked out, layer params (`PF_CHECKOUT_PARAM`) never checked in. Checking smart-render layer pixels back in is optional per the SDK, so its absence is not reported; a layer param checked out in PreRender may be checked in by the following SmartRender. |
 
 ### 5.4 Observer
 

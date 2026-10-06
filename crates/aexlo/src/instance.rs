@@ -212,8 +212,12 @@ pub struct PluginInstance {
 
 	/// Strict-mode instrumentation (see [`Self::set_strict`]).
 	strict: crate::Strict,
-	/// What strict mode found since the last [`Self::strict_report`].
-	strict_report: crate::StrictReport,
+	/// Strict-mode bookkeeping, shared with host callbacks during commands.
+	tracker: crate::strict::SharedTracker,
+	/// The guarded copy of the output a CPU render writes into (strict mode).
+	output_guard: Option<crate::strict::Guarded>,
+	/// Whether the plugin has been set down (see [`Self::finish`]).
+	torn_down: bool,
 }
 
 /// Plugin constructors. Taking a [`Host`] guarantees the process-wide
@@ -233,7 +237,15 @@ impl Host {
 	/// `PF_Cmd_GLOBAL_SETUP`, `PF_Cmd_PARAMS_SETUP`, or `PF_Cmd_SEQUENCE_SETUP`
 	/// commands.
 	pub fn try_load(self, path: impl AsRef<Path>) -> Result<PluginInstance> {
+		self.try_load_with(path, crate::Strict::default())
+	}
+
+	/// [`Self::try_load`] with strict mode on from the very first command, so
+	/// what the plugin allocates during setup is tracked too (see
+	/// [`PluginInstance::finish`]).
+	pub fn try_load_with(self, path: impl AsRef<Path>, strict: crate::Strict) -> Result<PluginInstance> {
 		let mut instance = PluginInstance::new(path.as_ref());
+		instance.set_strict(strict);
 
 		instance.load()?;
 		instance.finalize()?;
@@ -281,8 +293,23 @@ impl Host {
 	/// `entry_addr` must be the address of a function that is ABI-compatible with
 	/// [`PluginEntryPoint`] and stays callable for the lifetime of the instance.
 	pub unsafe fn from_entry_raw(self, entry_addr: usize) -> Result<PluginInstance> {
+		unsafe { self.from_entry_raw_with(entry_addr, crate::Strict::default()) }
+	}
+
+	/// [`Self::from_entry_raw`] with strict mode on from the first command.
+	///
+	/// # Safety
+	/// As [`Self::from_entry_raw`].
+	pub unsafe fn from_entry_raw_with(self, entry_addr: usize, strict: crate::Strict) -> Result<PluginInstance> {
 		let entry: PluginEntryPoint = unsafe { std::mem::transmute(entry_addr) };
-		unsafe { self.from_entry(entry) }
+		let mut instance = PluginInstance::new(Path::new("<in-process>"));
+		instance.set_strict(strict);
+
+		instance.entry_point = Some(entry);
+		instance.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_string());
+		instance.finalize()?;
+
+		Ok(instance)
 	}
 }
 
@@ -310,9 +337,11 @@ impl PluginInstance {
 	pub fn render(&mut self) -> Result<()> {
 		self.reset_cpu_worlds();
 		self.poison_output();
-		self.call_plugin(RawCommand::Render, null_mut())?;
+		self.begin_output_guard();
+		let result = self.call_plugin(RawCommand::Render, null_mut());
+		self.end_output_guard();
 
-		Ok(())
+		result
 	}
 
 	/// Call the plugin with `PF_Cmd_SMART_PRE_RENDER` command, letting it declare the
@@ -325,6 +354,7 @@ impl PluginInstance {
 		if !self.smart_render_data.is_gpu() {
 			self.reset_cpu_worlds();
 			self.poison_output();
+			self.begin_output_guard();
 		}
 		let mut extra = self.smart_render_data.pre_render_extra();
 
@@ -347,9 +377,10 @@ impl PluginInstance {
 			after_effects::RawCommand::SmartRender,
 			(&mut extra as *mut after_effects_sys::PF_SmartRenderExtra).cast(),
 		);
+		self.end_output_guard();
 
 		// The frame is done; release the plugin's pre-render data as AE does.
-		self.smart_render_data.dispose_pre_render_data();
+		self.dispose_pre_render();
 		result
 	}
 
@@ -453,7 +484,7 @@ impl PluginInstance {
 			(&mut extra as *mut after_effects_sys::PF_SmartRenderExtra).cast(),
 		);
 
-		self.smart_render_data.dispose_pre_render_data();
+		self.dispose_pre_render();
 		result
 	}
 
@@ -559,7 +590,7 @@ impl PluginInstance {
 		// renders it on the CPU instead, which `render_frame` does on this error.
 		self.render_pre()?;
 		if !self.smart_render_data.gpu_render_possible() {
-			self.smart_render_data.dispose_pre_render_data();
+			self.dispose_pre_render();
 			return Err(AexloError::GpuRenderDeclined);
 		}
 		self.render_smart_gpu()?;
@@ -840,6 +871,9 @@ impl PluginInstance {
 	/// costs exactly as without strict mode.
 	pub fn set_strict(&mut self, strict: crate::Strict) {
 		self.strict = strict;
+		if let Ok(mut tracker) = self.tracker.lock() {
+			tracker.strict = strict;
+		}
 	}
 
 	/// The strict-mode features in effect.
@@ -852,7 +886,76 @@ impl PluginInstance {
 	/// count them with [`unwritten_pixels`](crate::unwritten_pixels) on
 	/// [`Self::output`] after a render.
 	pub fn strict_report(&mut self) -> crate::StrictReport {
-		std::mem::take(&mut self.strict_report)
+		self.tracker
+			.lock()
+			.map(|mut t| std::mem::take(&mut t.report))
+			.unwrap_or_default()
+	}
+
+	/// Tear the plugin down (`SEQUENCE_SETDOWN`, `GLOBAL_SETDOWN`, as on drop)
+	/// and return what strict mode found, including handles and worlds the
+	/// plugin never released ([`Strict::track_allocations`](crate::Strict)).
+	pub fn finish(mut self) -> crate::StrictReport {
+		self.teardown();
+		self.strict_report()
+	}
+
+	/// Route host callbacks on this thread to this instance's tracker while
+	/// the guard lives, when strict mode or an observer wants them.
+	fn tracking(&self) -> Option<crate::strict::TrackGuard> {
+		let wanted = self.strict.any() || self.observer.is_some();
+		wanted.then(|| crate::strict::enter(Some(self.tracker.clone())))
+	}
+
+	/// Release the plugin's pre-render data, attributing what it frees.
+	fn dispose_pre_render(&mut self) {
+		let _tracking = self.tracking();
+		self.smart_render_data.dispose_pre_render_data();
+	}
+
+	/// Strict mode: point the output world at a copy of the output with guard
+	/// bands around it, for the plugin to render into.
+	fn begin_output_guard(&mut self) {
+		self.end_output_guard();
+		if !self.strict.guard_bands {
+			return;
+		}
+		let layer = self.output_layer.layer_mut();
+		let bpp = layer.kind().bytes_per_pixel();
+		let (w, h) = (layer.width() as usize, layer.height() as usize);
+		let mut guarded = crate::strict::Guarded::new(w * bpp, h, bpp);
+		// SAFETY: the layer's buffer is exactly `w * h * bpp` bytes.
+		let bytes = unsafe { std::slice::from_raw_parts(layer.data_ptr(), w * h * bpp) };
+		guarded.load_rows(bytes);
+		self.world.data = guarded.data_ptr() as *mut after_effects_sys::PF_Pixel;
+		self.world.rowbytes = guarded.rowbytes() as i32;
+		self.output_guard = Some(guarded);
+	}
+
+	/// Copy the guarded output back and report overwritten guard bands.
+	fn end_output_guard(&mut self) {
+		let Some(guarded) = self.output_guard.take() else {
+			return;
+		};
+		let layer = self.output_layer.layer_mut();
+		let len = layer.width() as usize * layer.height() as usize * layer.kind().bytes_per_pixel();
+		// SAFETY: as in `begin_output_guard`.
+		let bytes = unsafe { std::slice::from_raw_parts_mut(layer.data_mut_ptr(), len) };
+		guarded.store_rows(bytes);
+		let (w, h) = (layer.width(), layer.height());
+		let broken = guarded.verify();
+		if !broken.is_empty()
+			&& let Ok(mut tracker) = self.tracker.lock()
+		{
+			for (band, bytes) in broken {
+				tracker.report.guard_violations.push(crate::GuardViolation {
+					world: format!("output {w}x{h}"),
+					band,
+					bytes,
+				});
+			}
+		}
+		self.sync_output_world();
 	}
 
 	/// Fill the output with the strict-mode poison, when asked to.
@@ -866,6 +969,9 @@ impl PluginInstance {
 	/// at [`ObserveLevel::Calls`], every suite function it calls back on the
 	/// dispatching thread. `None` removes it.
 	pub fn set_observer(&mut self, observer: Option<Arc<dyn Observer>>, level: ObserveLevel) {
+		if let Ok(mut tracker) = self.tracker.lock() {
+			tracker.observer = observer.clone();
+		}
 		self.observer = observer.map(|observer| Installed { observer, level });
 	}
 
@@ -1447,7 +1553,9 @@ impl PluginInstance {
 				owned_arb_values: Vec::new(),
 				observer: None,
 				strict: crate::Strict::default(),
-				strict_report: crate::StrictReport::default(),
+				tracker: Default::default(),
+				output_guard: None,
+				torn_down: false,
 			};
 
 			instance_placeholder.wire_self_pointers();
@@ -1837,6 +1945,11 @@ impl PluginInstance {
 			.filter(|installed| installed.level >= ObserveLevel::Calls)
 			.map(|installed| installed.observer.clone());
 		let calls_guard = crate::observe::enter_calls(calls);
+		let name = crate::observe::command_name(command as i32);
+		let tracking = self.tracking();
+		let resumed = tracking
+			.as_ref()
+			.and_then(|_| self.tracker.lock().ok().map(|mut t| t.begin(name)));
 
 		let result = crate::suites::iterate::with_parallel_iterate(self.parallel_iterate, || unsafe {
 			entry_point(
@@ -1849,6 +1962,12 @@ impl PluginInstance {
 			)
 		});
 
+		if let Some(resumed) = resumed
+			&& let Ok(mut tracker) = self.tracker.lock()
+		{
+			tracker.end(name, resumed);
+		}
+		drop(tracking);
 		drop(calls_guard);
 		if let (Some(installed), Some(started)) = (&observer, started) {
 			let code = result as i64;
@@ -1899,15 +2018,24 @@ impl Drop for PluginInstance {
 	/// Failures are only logged, because panicking in `drop` would abort the
 	/// process and the plugin is about to be unloaded anyway.
 	fn drop(&mut self) {
+		self.teardown();
+	}
+}
+
+impl PluginInstance {
+	/// Set the plugin down once, in After Effects' order.
+	fn teardown(&mut self) {
 		// The entry point is missing only when `try_load` failed to resolve it,
 		// in which case the plugin was never set up.
-		if self.entry_point.is_none() {
+		if self.entry_point.is_none() || self.torn_down {
 			return;
 		}
+		self.torn_down = true;
 
 		// Release pre-render data left by an interrupted render while the
 		// plugin's code (which owns the delete callback) is still loaded.
-		self.smart_render_data.dispose_pre_render_data();
+		self.end_output_guard();
+		self.dispose_pre_render();
 
 		if let Err(err) = self.gpu_device_setdown() {
 			log::warn!("PF_Cmd_GPU_DEVICE_SETDOWN failed during drop: {err:?}");
@@ -1921,6 +2049,9 @@ impl Drop for PluginInstance {
 
 		if let Err(err) = self.call_plugin(RawCommand::GlobalSetdown, null_mut()) {
 			log::warn!("PF_Cmd_GLOBAL_SETDOWN failed during drop: {err:?}");
+		}
+		if let Ok(mut tracker) = self.tracker.lock() {
+			tracker.torn_down();
 		}
 	}
 }

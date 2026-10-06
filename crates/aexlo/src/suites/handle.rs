@@ -124,6 +124,7 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 	}
 
 	unsafe { *handle_ptr = user_ptr as *mut c_void };
+	crate::strict::allocated(crate::AllocationKind::Handle, handle_ptr as usize, requested_size);
 
 	log::trace!(
 		"host_new_handle: SUCCESS handle={:p}, user_ptr={:p}, size={}",
@@ -170,6 +171,7 @@ pub(crate) unsafe extern "C" fn host_dispose_handle_impl(pf_handle: PF_Handle) {
 	if pf_handle.is_null() {
 		return;
 	}
+	crate::strict::disposed(crate::AllocationKind::Handle, pf_handle as usize);
 
 	// 1. Get the pointer to user data
 	let user_ptr = unsafe { *(pf_handle as *mut *mut u8) };

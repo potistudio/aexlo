@@ -219,10 +219,10 @@ where
 {
 	if config.isolate == Isolate::None {
 		let artifacts = config.artifacts.clone();
-		let mut executor = InProcess::new(move |variant: &Variant| {
+		let mut executor = InProcess::new(move |variant: &Variant, strict| {
 			let path = artifacts(&variant.plugin)
 				.ok_or_else(|| aexlo::AexloError::Unexpected(format!("no artifact for {}", variant.plugin.label())))?;
-			aexlo::Host::get().try_load(path)
+			aexlo::Host::get().try_load_with(path, strict)
 		});
 		return variants.iter().map(|v| run_one(&mut executor, v)).collect();
 	}

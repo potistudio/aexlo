@@ -70,6 +70,8 @@ unsafe extern "C" fn checkout_layer_stub(
 		reserved: [0; 6],
 	};
 
+	crate::strict::checkout(crate::CheckoutKind::DeclareLayer, checkout_idL, 0);
+
 	// The plugin passes an uninitialized `PF_CheckoutResult` and reads the layer
 	// bounds back out of it; leaving it unwritten hands the plugin stack garbage.
 	unsafe { *checkout_result = result };
@@ -119,6 +121,7 @@ unsafe extern "C" fn checkout_layer_pixels_stub(
 	// checked-out world into it -- not to dereference the slot. Hand back the
 	// instance's persistent world for the layer this id checked out, mirroring
 	// `checkout_output`; an unlinked layer parameter yields null.
+	crate::strict::checkout(crate::CheckoutKind::CheckoutLayerPixels, _checkout_idL, 0);
 	let world = unsafe { instance.as_mut() }.checked_out_world(_checkout_idL);
 	unsafe { *pixels = world.unwrap_or(null_mut()) };
 
@@ -133,6 +136,7 @@ unsafe extern "C" fn checkout_layer_pixels_stub(
 }
 
 unsafe extern "C" fn checkin_layer_pixels_stub(_effect_ref: PF_ProgPtr, _checkout_idL: A_long) -> PF_Err {
+	crate::strict::checkout(crate::CheckoutKind::CheckinLayerPixels, _checkout_idL, 0);
 	diag!("PF_SmartRenderCallbacks/checkin_layer_pixels",
 		"effect_ref" => format!("{:#x}", _effect_ref as usize),
 		"checkout_idL" => _checkout_idL,

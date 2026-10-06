@@ -8,8 +8,11 @@
 //! 1. `Mode` popup: what to do wrong while rendering (see [`Mode`]).
 //! 2. `Gain` float slider: output = input × gain, so a golden can change.
 //! 3. `Delay` float slider: milliseconds to sleep per render, for benches.
+//! 4. `Map` layer: unused, except that `ParamLeak` checks it out.
 //!
-//! Renders through `PF_Cmd_RENDER` at 8 and 16 bpc.
+//! Renders through `PF_Cmd_RENDER` and the smart pre-render/render pair, at
+//! 8 and 16 bpc. On the smart path it checks its parameters out and in
+//! with `PF_CHECKOUT_PARAM`, as After Effects requires there.
 
 #![allow(non_snake_case)]
 #![allow(clippy::missing_safety_doc)]
@@ -39,14 +42,21 @@ enum Mode {
 	Unwritten,
 	/// Add noise that differs on every render.
 	Random,
+	/// Smart render: check out a layer pre-render never declared.
+	Undeclared,
+	/// Smart render: check the input layer in twice.
+	Unbalanced,
+	/// Smart render: check the `Map` layer param out and never back in.
+	ParamLeak,
 }
 
-const MODE_NAMES: &[u8] = b"OK|Crash|Hang|Freeze|Error|Overrun|Leak|Unwritten|Random\0";
-const MODE_COUNT: i16 = 9;
+const MODE_NAMES: &[u8] = b"OK|Crash|Hang|Freeze|Error|Overrun|Leak|Unwritten|Random|Undeclared|Unbalanced|ParamLeak\0";
+const MODE_COUNT: i16 = 12;
 
 const PARAM_MODE: usize = 1;
 const PARAM_GAIN: usize = 2;
 const PARAM_DELAY: usize = 3;
+const PARAM_MAP: usize = 4;
 
 /// Bumped on every render, so `Random` never repeats itself.
 static RENDERS: AtomicU32 = AtomicU32::new(0);
@@ -102,13 +112,19 @@ unsafe fn params_setup(in_data: *mut PF_InData, out_data: *mut PF_OutData) -> PF
 	delay.u.fs_d.slider_min = 0.0;
 	delay.u.fs_d.slider_max = 100.0;
 
-	for def in [mode, gain, delay] {
+	let mut map: PF_ParamDef = unsafe { std::mem::zeroed() };
+	map.param_type = PF_Param_LAYER as PF_ParamType;
+	map.name_do_not_use_directly = name32("Map");
+	map.uu.id = 4;
+	map.u.ld.dephault = PF_LayerDefault_NONE as A_long;
+
+	for def in [mode, gain, delay, map] {
 		let err = unsafe { add_param(in_data, def) };
 		if err != PF_Err_NONE as PF_Err {
 			return err;
 		}
 	}
-	unsafe { (*out_data).num_params = 4 };
+	unsafe { (*out_data).num_params = 5 };
 	PF_Err_NONE as PF_Err
 }
 
@@ -122,6 +138,9 @@ fn mode_of(value: i32) -> Mode {
 		7 => Mode::Leak,
 		8 => Mode::Unwritten,
 		9 => Mode::Random,
+		10 => Mode::Undeclared,
+		11 => Mode::Unbalanced,
+		12 => Mode::ParamLeak,
 		_ => Mode::Ok,
 	}
 }
@@ -174,14 +193,17 @@ unsafe fn shade(input: &PF_LayerDef, output: &PF_LayerDef, rows: i32, gain: f64,
 	}
 }
 
-unsafe fn render(in_data: *mut PF_InData, params: *mut *mut PF_ParamDef, output: *mut PF_LayerDef) -> PF_Err {
-	let param = |index: usize| unsafe { &**params.add(index) };
-	let mode = mode_of(unsafe { param(PARAM_MODE).u.pd.value });
-	let gain = unsafe { param(PARAM_GAIN).u.fs_d.value };
-	let delay = unsafe { param(PARAM_DELAY).u.fs_d.value };
-	let input = unsafe { &param(0).u.ld };
-	let output = unsafe { &*output };
-	let in_data = unsafe { &*in_data };
+/// The parameter values a render uses.
+#[derive(Clone, Copy)]
+struct Settings {
+	mode: Mode,
+	gain: f64,
+	delay: f64,
+}
+
+/// What every render path does, into `output` from `input`.
+unsafe fn draw(in_data: &PF_InData, settings: &Settings, input: &PF_LayerDef, output: &PF_LayerDef) -> PF_Err {
+	let &Settings { mode, gain, delay } = settings;
 	let render_index = RENDERS.fetch_add(1, Ordering::Relaxed);
 
 	if delay > 0.0 {
@@ -231,6 +253,115 @@ unsafe fn render(in_data: *mut PF_InData, params: *mut *mut PF_ParamDef, output:
 	PF_Err_NONE as PF_Err
 }
 
+unsafe fn render(in_data: *mut PF_InData, params: *mut *mut PF_ParamDef, output: *mut PF_LayerDef) -> PF_Err {
+	let param = |index: usize| unsafe { &**params.add(index) };
+	let settings = Settings {
+		mode: mode_of(unsafe { param(PARAM_MODE).u.pd.value }),
+		gain: unsafe { param(PARAM_GAIN).u.fs_d.value },
+		delay: unsafe { param(PARAM_DELAY).u.fs_d.value },
+	};
+	let input = unsafe { &param(0).u.ld };
+	unsafe { draw(&*in_data, &settings, input, &*output) }
+}
+
+/// Read the parameters through `PF_CHECKOUT_PARAM`, as smart render must.
+unsafe fn checkout_settings(in_data: &PF_InData) -> Result<Settings, PF_Err> {
+	let (Some(checkout), Some(checkin)) = (in_data.inter.checkout_param, in_data.inter.checkin_param) else {
+		return Err(PF_Err_BAD_CALLBACK_PARAM as PF_Err);
+	};
+	let read = |index: usize, keep: bool| -> Result<PF_ParamDef, PF_Err> {
+		let mut def: PF_ParamDef = unsafe { std::mem::zeroed() };
+		let err = unsafe {
+			checkout(
+				in_data.effect_ref,
+				index as PF_ParamIndex,
+				in_data.current_time,
+				in_data.time_step,
+				in_data.time_scale,
+				&mut def,
+			)
+		};
+		if err != PF_Err_NONE as PF_Err {
+			return Err(err);
+		}
+		if !keep {
+			unsafe { checkin(in_data.effect_ref, &mut def) };
+		}
+		Ok(def)
+	};
+	let mode = mode_of(unsafe { read(PARAM_MODE, false)?.u.pd.value });
+	let gain = unsafe { read(PARAM_GAIN, false)?.u.fs_d.value };
+	let delay = unsafe { read(PARAM_DELAY, false)?.u.fs_d.value };
+	// A layer param must be checked back in; `ParamLeak` does not.
+	read(PARAM_MAP, mode == Mode::ParamLeak)?;
+	Ok(Settings { mode, gain, delay })
+}
+
+unsafe fn smart_pre_render(in_data: *mut PF_InData, extra: *mut PF_PreRenderExtra) -> PF_Err {
+	let in_data = unsafe { &*in_data };
+	let extra = unsafe { &mut *extra };
+	let Some(checkout_layer) = (unsafe { (*extra.cb).checkout_layer }) else {
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	};
+	let mut result: PF_CheckoutResult = unsafe { std::mem::zeroed() };
+	let err = unsafe {
+		checkout_layer(
+			in_data.effect_ref,
+			0,
+			0,
+			&(*extra.input).output_request,
+			in_data.current_time,
+			in_data.time_step,
+			in_data.time_scale,
+			&mut result,
+		)
+	};
+	if err != PF_Err_NONE as PF_Err {
+		return err;
+	}
+	let output = unsafe { &mut *extra.output };
+	output.result_rect = result.result_rect;
+	output.max_result_rect = result.max_result_rect;
+	PF_Err_NONE as PF_Err
+}
+
+unsafe fn smart_render(in_data: *mut PF_InData, extra: *mut PF_SmartRenderExtra) -> PF_Err {
+	let in_data = unsafe { &*in_data };
+	let cb = unsafe { &*(*extra).cb };
+	let settings = match unsafe { checkout_settings(in_data) } {
+		Ok(settings) => settings,
+		Err(err) => return err,
+	};
+	let (Some(checkout_pixels), Some(checkin_pixels), Some(checkout_output)) =
+		(cb.checkout_layer_pixels, cb.checkin_layer_pixels, cb.checkout_output)
+	else {
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	};
+	// `Undeclared` asks for checkout id 1; pre-render only declared 0.
+	let id = if settings.mode == Mode::Undeclared { 1 } else { 0 };
+	let mut input: *mut PF_EffectWorld = std::ptr::null_mut();
+	let mut output: *mut PF_EffectWorld = std::ptr::null_mut();
+	unsafe {
+		let err = checkout_pixels(in_data.effect_ref, id, &mut input);
+		if err != PF_Err_NONE as PF_Err {
+			return err;
+		}
+		let err = checkout_output(in_data.effect_ref, &mut output);
+		if err != PF_Err_NONE as PF_Err {
+			return err;
+		}
+	}
+	if input.is_null() || output.is_null() {
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+	let err = unsafe { draw(in_data, &settings, &*input, &*output) };
+	unsafe { checkin_pixels(in_data.effect_ref, id) };
+	if settings.mode == Mode::Unbalanced {
+		unsafe { checkin_pixels(in_data.effect_ref, id) };
+	}
+	err
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn EffectMain(
 	cmd: PF_Cmd,
@@ -246,10 +377,13 @@ pub unsafe extern "C" fn EffectMain(
 			let out = unsafe { &mut *out_data };
 			out.my_version = 1 << 19;
 			out.out_flags = (PF_OutFlag_DEEP_COLOR_AWARE | PF_OutFlag_PIX_INDEPENDENT) as PF_OutFlags;
+			out.out_flags2 = PF_OutFlag2_SUPPORTS_SMART_RENDER as PF_OutFlags2;
 			PF_Err_NONE as PF_Err
 		}
 		PF_Cmd_PARAMS_SETUP => unsafe { params_setup(in_data, out_data) },
 		PF_Cmd_RENDER => unsafe { render(in_data, params, output) },
+		PF_Cmd_SMART_PRE_RENDER => unsafe { smart_pre_render(in_data, _extra.cast()) },
+		PF_Cmd_SMART_RENDER => unsafe { smart_render(in_data, _extra.cast()) },
 		_ => PF_Err_NONE as PF_Err,
 	}
 }

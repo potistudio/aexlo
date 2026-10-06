@@ -56,7 +56,7 @@ params = {{ Gain = {{ sweep = [0.5, 2.0] }} }}
 	);
 	let crash = &report["runs"][1];
 	assert!(crash["message"].as_str().unwrap().contains("signal"), "{crash:#}");
-	assert_eq!(crash["last_command"], "RENDER");
+	assert_eq!(crash["last_command"], "SMART_RENDER");
 	assert_eq!(code, 1, "a crash is a judged failure");
 
 	// Every variant in its own worker gives the same verdicts.
@@ -270,4 +270,168 @@ name = "fine"
 		"{xml}"
 	);
 	assert!(xml.contains(r#"<testcase classname="fine" name="fine""#), "{xml}");
+}
+
+/// M4: strict mode catches a write one row past the world (`bounds`) and a
+/// handle never disposed (`allocations`), plus checkout misuse; a well
+/// behaved render passes all of it.
+#[test]
+fn strict_mode_catches_overruns_leaks_and_checkout_misuse() {
+	let dir = scratch("strict");
+	let path = manifest(
+		&dir,
+		&format!(
+			r#"
+[plugin]
+crate = {}
+
+[defaults]
+size = [32, 16]
+golden = false
+checks = ["finite", "coverage", "iterate-parallel"]
+
+[[preset]]
+name = "overruns"
+params = {{ Mode = "Overrun" }}
+
+[[preset]]
+name = "overruns_legacy"
+params = {{ Mode = "Overrun" }}
+render = "legacy"
+
+[[preset]]
+name = "leaks"
+params = {{ Mode = "Leak" }}
+
+[[preset]]
+name = "undeclared"
+params = {{ Mode = "Undeclared" }}
+
+[[preset]]
+name = "param_leak"
+params = {{ Mode = "ParamLeak" }}
+
+[[preset]]
+name = "deep_error"
+params = {{ Mode = "Error" }}
+depth = 16
+
+[[preset]]
+name = "fine"
+depth = [8, 16]
+checks = ["+depth-consistency"]
+"#,
+			toml_path(&misbehave_crate())
+		),
+	);
+	let (code, report) = test_json(&path, &["--strict"]);
+	assert_eq!(code, 1);
+	let runs = report["runs"].as_array().unwrap();
+	let message = |i: usize| runs[i]["message"].as_str().unwrap_or("").to_string();
+	assert!(message(0).starts_with("bounds: output 32x16: "), "{}", message(0));
+	assert!(message(0).contains("below the world"), "{}", message(0));
+	assert!(message(1).starts_with("bounds: "), "{}", message(1));
+	assert!(message(2).starts_with("allocations: Handle "), "{}", message(2));
+	assert!(
+		message(2).contains("allocated in PF_Cmd_SMART_RENDER"),
+		"{}",
+		message(2)
+	);
+	assert!(
+		message(3).contains("which SMART_PRE_RENDER never declared"),
+		"{}",
+		message(3)
+	);
+	assert!(
+		message(4).contains("layer param #4 and never checked it in"),
+		"{}",
+		message(4)
+	);
+	assert_eq!(runs[5]["outcome"], "error");
+	let flags = runs[5]["checks"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.find(|c| c["id"] == "flags")
+		.unwrap();
+	assert!(
+		flags["message"]
+			.as_str()
+			.unwrap()
+			.contains("declares 16 bpc but errors at 16 bpc")
+	);
+	for run in &runs[6..] {
+		assert_eq!(run["outcome"], "pass", "{run:#}");
+		let ids: Vec<&str> = run["checks"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.map(|c| c["id"].as_str().unwrap())
+			.collect();
+		for id in [
+			"bounds",
+			"allocations",
+			"checkouts",
+			"iterate-parallel",
+			"depth-consistency",
+		] {
+			assert!(ids.contains(&id), "{id} missing from {ids:?}");
+		}
+	}
+
+	// Without --strict, only the presets' own checks run: the overrun renders.
+	let (_, report) = test_json(&path, &["fine"]);
+	let ids: Vec<&str> = report["runs"][0]["checks"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.map(|c| c["id"].as_str().unwrap())
+		.collect();
+	assert!(!ids.contains(&"bounds"));
+}
+
+/// M4: fuzzing draws reproducible cases and prints failures as presets.
+#[test]
+fn fuzzing_is_reproducible_and_prints_failing_presets() {
+	let dir = scratch("fuzz");
+	let path = manifest(
+		&dir,
+		&format!(
+			"[plugin]\ncrate = {}\n[defaults]\nsize = [16, 16]\ntimeout = 1\n[[preset]]\nname = \"base\"\n",
+			toml_path(&misbehave_crate())
+		),
+	);
+	let run = |seed: &str| {
+		let out = aexlo(
+			&[
+				"test",
+				"--manifest",
+				path.to_str().unwrap(),
+				"--fuzz",
+				"4",
+				"--seed",
+				seed,
+				"--jobs",
+				"2",
+			],
+			&dir,
+		);
+		(out.status.code(), String::from_utf8_lossy(&out.stdout).into_owned())
+	};
+	let (code, first) = run("3");
+	let (_, again) = run("3");
+	let verdicts = |text: &str| -> Vec<String> {
+		text.lines()
+			.filter(|l| l.contains("base[fuzz="))
+			.map(|l| l.split_whitespace().take(2).collect::<Vec<_>>().join(" "))
+			.collect()
+	};
+	assert_eq!(verdicts(&first).len(), 4, "{first}");
+	assert_eq!(verdicts(&first), verdicts(&again), "same seed, same cases");
+	if code == Some(1) {
+		assert!(first.contains("failing cases, ready to paste"), "{first}");
+		assert!(first.contains("inherits = \"base\"\nparams = { Mode = "), "{first}");
+	}
+	let out = aexlo(&["test", "--manifest", path.to_str().unwrap(), "--seed", "1"], &dir);
+	assert_eq!(out.status.code(), Some(2), "--seed without --fuzz");
 }

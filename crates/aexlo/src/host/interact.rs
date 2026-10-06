@@ -58,6 +58,10 @@ unsafe extern "C" fn checkout_param_stub(
 	// SAFETY: We have validated that the index is within bounds and the param pointer is not null.
 	let src_param = instance.param_by_index(index).unwrap();
 	unsafe { *param = *src_param };
+	// Checking a param back in matters for layer params (their pixels).
+	if src_param.param_type == PF_Param_LAYER as PF_ParamType {
+		crate::strict::checkout(crate::CheckoutKind::CheckoutParam, index as i32, param as usize);
+	}
 
 	diag!("InteractCallbacks/checkout_param",
 		"effect_ref" => format!("{:#x}", effect_ref as usize),
@@ -78,7 +82,9 @@ unsafe extern "C" fn checkin_param_stub(_effect_ref: PF_ProgPtr, _param: *mut PF
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	// For now, just log - no-op for checkin
+	if unsafe { (*_param).param_type } == PF_Param_LAYER as PF_ParamType {
+		crate::strict::checkout(crate::CheckoutKind::CheckinParam, 0, _param as usize);
+	}
 	log::debug!("checkin_param called for effect_ref={:#x}", _effect_ref as usize);
 	PF_Err_NONE as PF_Err
 }

@@ -20,7 +20,9 @@ use aexlo::{AppHost, CommandPhase, PixelDepthKind, PluginInstance};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
-use crate::exec::{CommandSink, Executor, RunFailure, RunOptions, RunOutput, StrictFindings, Timing, Trace, run_on};
+use crate::exec::{
+	CommandSink, Executor, RunFailure, RunOptions, RunOutput, StrictFindings, Timing, Trace, run_owned, strict_of,
+};
 use crate::frame::Frame;
 use crate::preset::{PluginRef, Variant};
 
@@ -63,7 +65,16 @@ pub enum Request {
 pub struct ParamInfo {
 	pub index: usize,
 	pub name: String,
+	/// The [`aexlo::ParamKind`] name, e.g. `FloatSlider`.
 	pub kind: String,
+	/// The slider range, for slider-like kinds.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub range: Option<(f64, f64)>,
+	/// Popup choice labels.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub choices: Vec<String>,
+	#[serde(default)]
+	pub hidden: bool,
 }
 
 /// What a plugin declared, as `load` reports it.
@@ -86,6 +97,9 @@ impl PluginInfo {
 					index,
 					name: fx.param_name(index).unwrap_or_default(),
 					kind: fx.param_kind(index).map(|k| format!("{k:?}")).unwrap_or_default(),
+					range: fx.param_slider_range(index),
+					choices: fx.param_choices(index).unwrap_or_default(),
+					hidden: fx.param_hidden(index),
 				})
 				.collect(),
 			smart: fx.supports_smart_render(),
@@ -351,11 +365,11 @@ fn run_request(
 		})
 	};
 
-	let mut fx = match aexlo::Host::get().try_load(artifact) {
+	let fx = match aexlo::Host::get().try_load_with(artifact, strict_of(&options.strict)) {
 		Ok(fx) => fx,
 		Err(e) => return failed(id, "plugin", format!("loading {}: {e}", artifact.display()), None),
 	};
-	match run_on(&mut fx, variant, options, Some(sink)) {
+	match run_owned(fx, variant, options, Some(sink)) {
 		Ok(output) => {
 			let mut frames = Vec::with_capacity(output.frames.len());
 			for (i, frame) in output.frames.iter().enumerate() {
