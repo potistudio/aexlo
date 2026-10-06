@@ -519,3 +519,17 @@ mod imp {
 }
 
 pub use imp::GpuContext;
+
+/// The name of the GPU this host renders on, when it can tell without
+/// creating a render context: the default Metal device on macOS. `None`
+/// elsewhere or without a GPU.
+pub fn device_name() -> Option<String> {
+	#[cfg(target_os = "macos")]
+	{
+		metal::Device::system_default().map(|device| device.name().to_string())
+	}
+	#[cfg(not(target_os = "macos"))]
+	{
+		None
+	}
+}

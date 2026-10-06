@@ -68,6 +68,14 @@ COMMANDS:
         --watch              Reload the artifact when the file changes on disk
                               (e.g. rebuilt by another toolchain)
         --port <n>           Port for the preview server  [default: OS-assigned]
+    bench   [filter]   Time the manifest's presets (each preset's `bench`
+                       samples/warmup), one at a time, with a phase breakdown
+                       (pre-render, render, GPU, host overhead)
+        --save-baseline <name>  Store the timings in .aexlo/baselines/
+        --baseline <name>       Compare with them; a variant whose median
+                                and min are both slower than --threshold
+                                regresses (exit 1)
+        --threshold <p>         [default: 5%]
     bench  <plugin>... Time one or more plugins and rank them by throughput
                        (megapixels/second), then optionally export the numbers.
                        Same measurements as `cargo bench -p aexlo-bench`, driven
@@ -134,6 +142,20 @@ fn main() -> ExitCode {
 		Some("presets") => return toolkit::cmd_presets(args),
 		Some("test") => return toolkit::cmd_test(args),
 		Some("worker") => return toolkit::cmd_worker(),
+		Some("bench") => {
+			let args: Vec<String> = args.collect();
+			let is_plugin = |arg: &str| resolve_plugin(arg).exists() || bench::resolve_fixture(arg).is_some();
+			if !toolkit::bench_names_plugins(&args, is_plugin) {
+				return toolkit::cmd_bench(args.into_iter());
+			}
+			return match cmd_bench(args.into_iter()) {
+				Ok(()) => ExitCode::SUCCESS,
+				Err(err) => {
+					eprintln!("error: {err:#}");
+					ExitCode::FAILURE
+				}
+			};
+		}
 		_ => {}
 	}
 	match run(command, args) {

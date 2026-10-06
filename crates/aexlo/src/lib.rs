@@ -67,6 +67,9 @@ pub use aexlo_macros::test;
 
 pub use param_value::{ParamKind, ParamValue};
 
+/// The GPU this host renders on, for machine fingerprints.
+pub use gpu::device_name as gpu_device_name;
+
 /// Strict mode ([`PluginInstance::set_strict`]).
 pub use strict::{
 	CheckoutViolation, GuardViolation, Leak, POISON_BYTE, POISON_F32_BITS, Strict, StrictReport, is_unwritten,

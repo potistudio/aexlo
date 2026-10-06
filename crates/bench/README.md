@@ -85,3 +85,12 @@ Resolutions: `512` (512×512), `720p`, `1080p`, `4k`. See
   crashes are not. Narrow `AEXLO_BENCH_PLUGINS` to avoid a known-bad one; full
   per-plugin process isolation (like the e2e `render_one` harness) is a possible
   future addition.
+
+## Shared timing loop
+
+Every measurement here goes through `aexlo_harness::bench::measure`, the same
+loop `aexlo bench` runs over a manifest's presets (see `docs/toolkit.md` §10):
+the `AEXLO_BENCH_*` variables describe what amounts to an implicit preset, and
+the warmup/sample protocol is identical. For baselines and regression checks,
+describe the configuration as a preset and use `aexlo bench --save-baseline`
+/ `--baseline`.

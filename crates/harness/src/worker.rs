@@ -149,6 +149,8 @@ pub struct Response {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub strict: Option<StrictFindings>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub bench: Option<crate::bench::Samples>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error: Option<WireError>,
 }
 
@@ -392,6 +394,7 @@ fn run_request(
 				timing: Some(output.timing),
 				trace: Some(output.trace),
 				strict: Some(output.strict),
+				bench: output.bench,
 				..Response::default()
 			}
 		}
@@ -773,7 +776,11 @@ impl Executor for WorkerClient {
 			return Err(RunFailure::Harness { message: e.message });
 		}
 
-		let timeout = Duration::from_secs_f64(variant.timeout * options.renders.max(1) as f64);
+		let renders = match options.bench {
+			Some(spec) => spec.samples + spec.warmup,
+			None => options.renders,
+		};
+		let timeout = Duration::from_secs_f64(variant.timeout * renders.max(1) as f64);
 		let mut trace = Trace::default();
 		match self.wait(id, timeout, &mut trace) {
 			Waited::Response(response) => {
@@ -798,6 +805,7 @@ impl Executor for WorkerClient {
 					trace,
 					timing: response.timing.unwrap_or_default(),
 					strict: response.strict.unwrap_or_default(),
+					bench: response.bench,
 				})
 			}
 			Waited::Died(description, logs) => {

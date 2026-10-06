@@ -64,6 +64,7 @@ impl Judge {
 			renders: if variant.has_check("deterministic") { 2 } else { 1 },
 			strict: variant.strict.clone(),
 			calls: false,
+			bench: None,
 		}
 	}
 

@@ -164,6 +164,7 @@ name = "aexlo-bench"
 version = "0.0.1"
 dependencies = [
  "aexlo",
+ "aexlo-harness",
  "criterion",
  "image",
 ]

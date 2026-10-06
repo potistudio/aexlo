@@ -32,7 +32,7 @@ pub mod report;
 
 use aexlo::{Depth8, Layer, ParamValue, PluginInstance, Result};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// A named frame size to sweep the render benchmarks over.
 #[derive(Clone, Copy, Debug)]
@@ -125,7 +125,7 @@ pub fn fixtures_dir() -> PathBuf {
 		"macos"
 	};
 	PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-		.join("../fixtures/plugins")
+		.join("../../fixtures/plugins")
 		.join(platform_dir)
 }
 
@@ -561,7 +561,9 @@ pub fn measure(
 		return Err("samples must be at least 1".to_string());
 	}
 
-	let mut instance = aexlo::Host::get().try_load(path).map_err(|e| format!("load failed: {e:?}"))?;
+	let mut instance = aexlo::Host::get()
+		.try_load(path)
+		.map_err(|e| format!("load failed: {e:?}"))?;
 	let _ = instance.about();
 	let caps = capabilities(&instance);
 
@@ -572,19 +574,16 @@ pub fn measure(
 	let (width, height) = (options.resolution.width, options.resolution.height);
 	set_input_frame(&mut instance, options.input, width, height).map_err(|e| format!("set_input failed: {e}"))?;
 
-	// Warmup also validates that the mode works before any timing is recorded.
-	for _ in 0..options.warmup {
-		mode.render(&mut instance)
-			.map_err(|e| format!("render failed: {e:?}"))?;
-	}
-
-	let mut samples = Vec::with_capacity(options.samples);
-	for _ in 0..options.samples {
-		let start = Instant::now();
-		mode.render(&mut instance)
-			.map_err(|e| format!("render failed: {e:?}"))?;
-		samples.push(start.elapsed());
-	}
+	// The toolkit's timing loop (`aexlo_harness::bench`), shared with
+	// `aexlo bench`: warmup first (which also validates the mode), then the
+	// timed renders.
+	let spec = aexlo_harness::BenchSpec {
+		samples: options.samples,
+		warmup: options.warmup,
+	};
+	let measured = aexlo_harness::bench::measure(&mut instance, spec, |fx| mode.render(fx))
+		.map_err(|e| format!("render failed: {e:?}"))?;
+	let mut samples: Vec<Duration> = measured.wall.iter().map(|s| Duration::from_secs_f64(*s)).collect();
 	samples.sort();
 	Ok((Timing { samples }, caps))
 }

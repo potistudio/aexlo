@@ -126,6 +126,10 @@ pub struct RunOptions {
 	/// Also report suite calls (costly).
 	#[serde(default)]
 	pub calls: bool,
+	/// Time the variant (§10.1) instead of rendering it `renders` times; the
+	/// output then carries the samples and the last frame.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub bench: Option<crate::preset::BenchSpec>,
 }
 
 impl Default for RunOptions {
@@ -134,6 +138,7 @@ impl Default for RunOptions {
 			renders: 1,
 			strict: Vec::new(),
 			calls: false,
+			bench: None,
 		}
 	}
 }
@@ -147,6 +152,8 @@ pub struct RunOutput {
 	pub trace: Trace,
 	pub timing: Timing,
 	pub strict: StrictFindings,
+	/// The timed renders, for a bench run.
+	pub bench: Option<crate::bench::Samples>,
 }
 
 /// A run that never produced a frame.
@@ -261,6 +268,30 @@ pub fn run_on(
 	if let Err(err) = apply::configure(fx, variant) {
 		fx.set_observer(None, level);
 		return Err(RunFailure::from_error(err, take_trace(&recorder)));
+	}
+
+	if let Some(spec) = options.bench {
+		fx.set_observer(None, level);
+		let mode = variant.render;
+		return match crate::bench::measure(fx, spec, |fx| apply::render(fx, mode)) {
+			Ok(samples) => Ok(RunOutput {
+				frames: vec![Frame::new(fx.output().clone())],
+				timing: Timing {
+					renders: samples.wall.clone(),
+					commands: Vec::new(),
+				},
+				bench: Some(samples),
+				..RunOutput::default()
+			}),
+			Err(err) if apply::is_skip(&err) => Ok(RunOutput {
+				skipped: Some(err.to_string()),
+				..RunOutput::default()
+			}),
+			Err(err) => Err(RunFailure::Plugin {
+				message: err.to_string(),
+				trace: Trace::default(),
+			}),
+		};
 	}
 
 	let before_render = take_trace(&recorder).commands.len();

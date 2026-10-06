@@ -435,3 +435,74 @@ fn fuzzing_is_reproducible_and_prints_failing_presets() {
 	let out = aexlo(&["test", "--manifest", path.to_str().unwrap(), "--seed", "1"], &dir);
 	assert_eq!(out.status.code(), Some(2), "--seed without --fuzz");
 }
+
+/// M5: a render slowed beyond the threshold regresses against the saved
+/// baseline (exit 1); the phase breakdown puts the time in the plugin.
+#[test]
+fn bench_baselines_catch_regressions() {
+	let dir = scratch("bench");
+	let write = |delay: u32| {
+		manifest(
+			&dir,
+			&format!(
+				r#"
+[plugin]
+crate = {}
+
+[defaults]
+size = [32, 32]
+bench = {{ samples = 5, warmup = 1 }}
+
+[[preset]]
+name = "timed"
+params = {{ Delay = {delay} }}
+
+[[preset]]
+name = "untimed"
+bench = false
+"#,
+				toml_path(&misbehave_crate())
+			),
+		)
+	};
+	let bench = |path: &std::path::Path, extra: &[&str]| {
+		let mut args = vec!["bench", "--format", "json", "--manifest", path.to_str().unwrap()];
+		args.extend_from_slice(extra);
+		let out = aexlo(&args, &dir);
+		// Errors before any run (exit 2, 3) print no report.
+		let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or(serde_json::Value::Null);
+		(out.status.code(), report)
+	};
+
+	let path = write(2);
+	let (code, report) = bench(&path, &["--save-baseline", "main"]);
+	assert_eq!(code, Some(0), "{report:#}");
+	assert_eq!(
+		report["runs"].as_array().unwrap().len(),
+		1,
+		"bench = false is not timed"
+	);
+	let stats = &report["runs"][0]["stats"];
+	assert_eq!(stats["samples"], 5);
+	assert!(stats["phases"]["render"].as_f64().unwrap() >= 0.002, "{stats:#}");
+	assert!(dir.join(".aexlo/baselines/main.json").exists());
+
+	let (code, _) = bench(&path, &["--baseline", "main", "--threshold", "50%"]);
+	assert_eq!(code, Some(0), "unchanged");
+
+	let path = write(30);
+	let (code, report) = bench(&path, &["--baseline", "main", "--threshold", "5%"]);
+	assert_eq!(code, Some(1), "{report:#}");
+	assert!(
+		report["runs"][0]["message"]
+			.as_str()
+			.unwrap()
+			.starts_with("regressed against baseline 'main'")
+	);
+
+	let (code, _) = bench(&path, &["--baseline", "nope"]);
+	assert_eq!(code, Some(2), "a missing baseline is a bad flag value");
+	std::fs::write(dir.join(".aexlo/baselines/main.json"), "{").unwrap();
+	let (code, _) = bench(&path, &["--baseline", "main"]);
+	assert_eq!(code, Some(3), "an unreadable baseline is a harness error");
+}

@@ -102,6 +102,8 @@ pub struct Run {
 	pub checks: Vec<CheckResult>,
 	/// Things worth telling that are not failures (a golden blessed, ...).
 	pub notes: Vec<String>,
+	/// The timed renders, for a bench run.
+	pub bench: Option<crate::bench::Samples>,
 	/// When the run never reached a verdict for a reason that is not the
 	/// plugin's: an invalid variant (exit 2) or a harness error (exit 3).
 	pub fault: Option<ErrorKind>,
@@ -127,6 +129,7 @@ impl Run {
 			strict: StrictFindings::default(),
 			checks: Vec::new(),
 			notes: Vec::new(),
+			bench: None,
 			fault,
 		}
 	}
@@ -149,6 +152,7 @@ impl Run {
 			strict: output.strict,
 			checks: Vec::new(),
 			notes: Vec::new(),
+			bench: output.bench,
 			fault: None,
 		}
 	}

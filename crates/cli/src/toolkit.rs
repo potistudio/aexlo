@@ -543,3 +543,278 @@ pub fn cmd_test(args: impl Iterator<Item = String>) -> ExitCode {
 	}
 	finish(&Report { runs }, &common)
 }
+
+//==== aexlo bench (presets) ============================================
+
+/// Whether `aexlo bench`'s arguments name plugins (the flag-driven front-end)
+/// rather than a manifest's presets: the first positional argument exists
+/// on disk or as a fixture, and no preset-only flag is given.
+pub fn bench_names_plugins(args: &[String], is_plugin: impl Fn(&str) -> bool) -> bool {
+	const PRESET_FLAGS: &[&str] = &[
+		"--manifest",
+		"--baseline",
+		"--save-baseline",
+		"--threshold",
+		"--depth",
+		"--render",
+	];
+	const VALUED: &[&str] = &[
+		"-r",
+		"--resolution",
+		"-n",
+		"--samples",
+		"--warmup",
+		"--mode",
+		"-s",
+		"--set",
+		"-i",
+		"--input",
+		"--csv",
+		"--json",
+		"--manifest",
+		"--depth",
+		"--render",
+		"--isolate",
+		"--jobs",
+		"-j",
+		"--format",
+		"--junit",
+		"--baseline",
+		"--save-baseline",
+		"--threshold",
+	];
+	if args.iter().any(|a| PRESET_FLAGS.contains(&a.as_str())) {
+		return false;
+	}
+	let mut iter = args.iter();
+	while let Some(arg) = iter.next() {
+		if VALUED.contains(&arg.as_str()) {
+			iter.next();
+		} else if !arg.starts_with('-') {
+			return is_plugin(arg);
+		}
+	}
+	false
+}
+
+fn ms(seconds: f64) -> String {
+	format!("{:.3}", seconds * 1e3)
+}
+
+pub fn cmd_bench(args: impl Iterator<Item = String>) -> ExitCode {
+	struct Flags {
+		save: Option<String>,
+		baseline: Option<String>,
+		threshold: f64,
+	}
+	let setup = || -> Result<(Common, Flags, Manifest, Vec<Variant>, RunnerConfig), Error> {
+		let parsed = parse(
+			args,
+			&[("--save-baseline", true), ("--baseline", true), ("--threshold", true)],
+		)?;
+		let mut flags = Flags {
+			save: None,
+			baseline: None,
+			threshold: 0.05,
+		};
+		let mut threshold_given = false;
+		for (flag, value) in parsed.rest {
+			let value = value.unwrap_or_default();
+			match flag.as_str() {
+				"--save-baseline" => {
+					aexlo_harness::bench::validate_name(&value)?;
+					flags.save = Some(value);
+				}
+				"--baseline" => {
+					aexlo_harness::bench::validate_name(&value)?;
+					flags.baseline = Some(value);
+				}
+				"--threshold" => {
+					flags.threshold = aexlo_harness::bench::parse_threshold(&value)?;
+					threshold_given = true;
+				}
+				_ => {}
+			}
+		}
+		if threshold_given && flags.baseline.is_none() {
+			return Err(Error::invalid("--threshold only applies with --baseline"));
+		}
+		if parsed.common.jobs > 1 {
+			eprintln!("aexlo bench: benches always run one at a time; ignoring --jobs");
+		}
+		if parsed.common.strict {
+			return Err(Error::invalid("benches run with strict mode off; drop --strict"));
+		}
+		let manifest = load_manifest(parsed.common.manifest.as_deref())?;
+		let variants: Vec<Variant> = select(&manifest, &parsed.common)?
+			.into_iter()
+			.filter(|v| v.bench.is_some())
+			.collect();
+		let artifacts = artifacts(&variants)?;
+		let mut config = runner_config(&parsed.common, artifacts)?;
+		config.jobs = 1;
+		Ok((parsed.common, flags, manifest, variants, config))
+	};
+	let (common, flags, manifest, variants, config) = match setup() {
+		Ok(setup) => setup,
+		Err(err) => return fail(&err),
+	};
+	let human = common.format == Format::Human;
+
+	let baseline = match &flags.baseline {
+		Some(name) => {
+			match aexlo_harness::bench::Baseline::load(&aexlo_harness::bench::baseline_path(&manifest.dir, name)) {
+				Ok(baseline) => Some(baseline),
+				Err(err) => return fail(&err),
+			}
+		}
+		None => None,
+	};
+	let fingerprint = aexlo_harness::bench::Fingerprint::current();
+	if let Some(baseline) = &baseline {
+		let differences = fingerprint.differences(&baseline.fingerprint);
+		if !differences.is_empty() {
+			eprintln!(
+				"aexlo bench: warning: baseline '{}' was measured on another machine ({}); timings may not compare",
+				baseline.name,
+				differences.join("; ")
+			);
+		}
+	}
+
+	if human {
+		println!("aexlo bench: {} variant(s)", variants.len());
+		println!(
+			"  {:<8} {:<40} {:>10} {:>9} {:>9} {:>8}  {:>7} {:>7} {:>7} {:>7}{}",
+			"",
+			"variant",
+			"median ms",
+			"min ms",
+			"p95 ms",
+			"Mpx/s",
+			"pre",
+			"render",
+			"gpu",
+			"host",
+			if baseline.is_some() { "   Δmedian    Δmin" } else { "" }
+		);
+	}
+
+	let records = std::sync::Mutex::new(Vec::new());
+	let runs = runner::run_all(variants, &config, |executor, variant| {
+		let options = aexlo_harness::RunOptions {
+			bench: variant.bench,
+			..aexlo_harness::RunOptions::default()
+		};
+		let mut run = match executor.run(variant, &options) {
+			Ok(output) => Run::rendered(variant.clone(), output),
+			Err(failure) => Run::from_failure(variant.clone(), failure),
+		};
+		let stats = match (&run.bench, &run.frame) {
+			(Some(samples), Some(frame)) if run.outcome == Outcome::Pass => {
+				Some(samples.stats(frame.width() as u64 * frame.height() as u64))
+			}
+			_ => None,
+		};
+		let mut delta_text = String::new();
+		if let (Some(stats), Some(baseline)) = (&stats, &baseline) {
+			match baseline.record(&run.variant.id.display) {
+				Some(record) => {
+					let delta = aexlo_harness::bench::compare(stats, &record.stats, flags.threshold);
+					delta_text = format!("  {:>+8.1}% {:>+6.1}%", delta.median * 100.0, delta.min * 100.0);
+					if delta.regressed {
+						run.fail(format!(
+							"regressed against baseline '{}': median {:+.1}%, min {:+.1}% (threshold {:.1}%)",
+							baseline.name,
+							delta.median * 100.0,
+							delta.min * 100.0,
+							flags.threshold * 100.0
+						));
+					}
+				}
+				None => run.notes.push(format!("not in baseline '{}'", baseline.name)),
+			}
+		}
+		if let Some(stats) = stats {
+			if human {
+				let label = if run.outcome == Outcome::Fail { "REGRESS" } else { "" };
+				println!(
+					"  {label:<8} {:<40} {:>10} {:>9} {:>9} {:>8.1}  {:>7} {:>7} {:>7} {:>7}{delta_text}",
+					run.variant.id.display,
+					ms(stats.median),
+					ms(stats.min),
+					ms(stats.p95),
+					stats.mpx_per_s,
+					ms(stats.phases.pre_render),
+					ms(stats.phases.render),
+					ms(stats.phases.gpu),
+					ms(stats.phases.host),
+				);
+				if let Some(message) = run.message.as_deref().filter(|_| run.outcome == Outcome::Fail) {
+					println!("           {message}");
+				}
+				for note in &run.notes {
+					println!("           {note}");
+				}
+			}
+			if let Ok(mut records) = records.lock() {
+				records.push(aexlo_harness::bench::Record {
+					id: run.variant.id.display.clone(),
+					stats,
+				});
+			}
+		} else if human {
+			print_run(&run);
+		}
+		run
+	});
+
+	let report = Report { runs };
+	if let Some(name) = &flags.save {
+		let path = aexlo_harness::bench::baseline_path(&manifest.dir, name);
+		let baseline = aexlo_harness::bench::Baseline {
+			name: name.clone(),
+			fingerprint,
+			records: records.into_inner().unwrap_or_default(),
+		};
+		if let Err(err) = baseline.save(&path) {
+			return fail(&err);
+		}
+		if human {
+			println!(
+				"saved baseline '{name}' ({} variant(s)) to {}",
+				baseline.records.len(),
+				path.display()
+			);
+		}
+	}
+	if common.format == Format::Json {
+		let runs: Vec<serde_json::Value> = report
+			.runs
+			.iter()
+			.map(|run| {
+				let stats = match (&run.bench, &run.frame) {
+					(Some(samples), Some(frame)) => Some(samples.stats(frame.width() as u64 * frame.height() as u64)),
+					_ => None,
+				};
+				serde_json::json!({
+					"id": run.variant.id.display,
+					"outcome": run.outcome.name(),
+					"message": run.message,
+					"stats": stats,
+				})
+			})
+			.collect();
+		println!(
+			"{}",
+			serde_json::to_string_pretty(&serde_json::json!({
+				"summary": report.summary(),
+				"exit_code": report.exit_code(),
+				"runs": runs,
+			}))
+			.unwrap_or_default()
+		);
+		return ExitCode::from(report.exit_code());
+	}
+	finish(&report, &common)
+}
