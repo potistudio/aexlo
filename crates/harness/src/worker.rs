@@ -33,6 +33,11 @@ pub const CANCEL_GRACE: Duration = Duration::from_secs(2);
 /// Extra time a load gets on top of a run's timeout.
 const LOAD_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// How long a worker may take to start (its `ready` event). Generous: the
+/// first launch of a freshly linked binary can be held up by the OS's code
+/// checks, and many launching at once queue behind each other.
+pub const START_TIMEOUT: Duration = Duration::from_secs(180);
+
 /// A request to the worker.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "op", rename_all = "lowercase")]
@@ -158,7 +163,8 @@ pub struct Response {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Event {
 	pub id: u64,
-	/// `command` (a `PF_Cmd` begins or ends) or `load`.
+	/// `ready` (the worker started), `command` (a `PF_Cmd` begins or ends)
+	/// or `load`.
 	pub event: String,
 	#[serde(default)]
 	pub command: String,
@@ -242,6 +248,13 @@ pub fn serve() -> Result<()> {
 			}
 		}
 	};
+
+	send(json(&Event {
+		id: 0,
+		event: "ready".into(),
+		command: String::new(),
+		phase: String::new(),
+	}));
 
 	// Read requests on their own thread, so `cancel` lands mid-render.
 	let (tx, rx) = mpsc::channel::<Request>();
@@ -484,14 +497,55 @@ impl Live {
 				}
 			})
 		};
-		Ok(Self {
+		let mut live = Self {
 			child,
 			stdin,
 			lines,
 			stderr,
 			stderr_thread: Some(stderr_thread),
 			loaded: None,
-		})
+		};
+		live.wait_ready(&command.program)?;
+		Ok(live)
+	}
+
+	/// Wait for the worker's `ready` event. Not starting is the harness's
+	/// problem (exit 3), never the plugin's.
+	fn wait_ready(&mut self, program: &Path) -> Result<()> {
+		let deadline = Instant::now() + START_TIMEOUT;
+		loop {
+			match self
+				.lines
+				.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+			{
+				Ok(line) => {
+					if serde_json::from_str::<Event>(&line).is_ok_and(|e| e.event == "ready") {
+						return Ok(());
+					}
+				}
+				Err(RecvTimeoutError::Timeout) => {
+					let _ = self.child.kill();
+					return Err(Error::harness(format!(
+						"worker {} did not start within {}s",
+						program.display(),
+						START_TIMEOUT.as_secs()
+					)));
+				}
+				Err(RecvTimeoutError::Disconnected) => {
+					let status = self.child.wait().map(describe_exit).unwrap_or_default();
+					let logs = self.take_logs();
+					return Err(Error::harness(format!(
+						"worker {} {status} before it was ready (is it an aexlo binary with a `worker` command?){}",
+						program.display(),
+						if logs.trim().is_empty() {
+							String::new()
+						} else {
+							format!(": {}", logs.trim())
+						}
+					)));
+				}
+			}
+		}
 	}
 
 	fn send(&mut self, request: &Request) -> Result<()> {
@@ -844,5 +898,29 @@ impl Drop for WorkerClient {
 			let _ = live.child.wait();
 		}
 		let _ = std::fs::remove_dir_all(&self.temp);
+	}
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+	use super::*;
+	use crate::preset::{PluginSource, Variant};
+
+	#[test]
+	fn a_worker_that_never_starts_is_a_harness_error() {
+		let plugin = PluginRef {
+			source: PluginSource::Artifact("/nope".into()),
+			entry: "EffectMain".into(),
+		};
+		let artifacts: ArtifactMap = Arc::new(|_| Some(PathBuf::from("/nope")));
+		let mut client =
+			WorkerClient::new(WorkerCommand::new("/usr/bin/true", Vec::<String>::new()), artifacts).unwrap();
+		let failure = client
+			.run(&Variant::standalone("v", plugin), &RunOptions::default())
+			.unwrap_err();
+		match failure {
+			RunFailure::Harness { message } => assert!(message.contains("before it was ready"), "{message}"),
+			other => panic!("expected a harness error, got {other:?}"),
+		}
 	}
 }

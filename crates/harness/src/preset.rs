@@ -483,6 +483,9 @@ pub struct Variant {
 	pub depth: u32,
 	pub iterate: Iterate,
 	pub checks: Vec<String>,
+	/// Checks the preset opted out of with `-id`: `--strict` leaves them off.
+	#[serde(default)]
+	pub unchecked: Vec<String>,
 	pub strict: Vec<StrictFeature>,
 	pub golden: Option<GoldenSpec>,
 	pub bench: Option<BenchSpec>,
@@ -513,6 +516,7 @@ impl Variant {
 			depth: 8,
 			iterate: Iterate::Parallel,
 			checks: DEFAULT_CHECKS.iter().map(|s| s.to_string()).collect(),
+			unchecked: Vec::new(),
 			strict: vec![StrictFeature::PoisonOutput],
 			golden: Some(GoldenSpec::default()),
 			bench: Some(BenchSpec::default()),

@@ -505,6 +505,17 @@ fn expand(name: &str, table: &Table, plugin: &PluginRef, dir: &Path) -> Result<V
 	}
 
 	let checks = normalize_checks(fields.checks.as_deref())?;
+	// `-id` is an explicit opt-out that `--strict` respects.
+	let mut unchecked: Vec<String> = fields
+		.checks
+		.iter()
+		.flatten()
+		.filter_map(|c| c.strip_prefix('-'))
+		.filter(|id| !checks.iter().any(|c| c == id))
+		.map(str::to_string)
+		.collect();
+	unchecked.sort();
+	unchecked.dedup();
 	let mut strict: Vec<StrictFeature> = match fields.strict {
 		None | Some(Toggle::Bool(false)) => Vec::new(),
 		Some(Toggle::Bool(true)) => StrictFeature::ALL.to_vec(),
@@ -621,6 +632,7 @@ fn expand(name: &str, table: &Table, plugin: &PluginRef, dir: &Path) -> Result<V
 			depth,
 			iterate: fields.iterate.unwrap_or_default(),
 			checks: checks.clone(),
+			unchecked: unchecked.clone(),
 			strict: strict.clone(),
 			golden: golden.clone(),
 			bench,
@@ -821,6 +833,11 @@ checks = []
 		assert_eq!(variants[0].checks, ["finite", "coverage", "iterate-parallel"]);
 		assert_eq!(variants[1].checks, ["finite"]);
 		assert!(variants[2].checks.is_empty());
+		assert_eq!(variants[0].unchecked, ["deterministic"]);
+		assert!(
+			variants[1].unchecked.is_empty(),
+			"a plain list replaces; it opts nothing out"
+		);
 		// `coverage` implies poisoning the output.
 		assert_eq!(variants[0].strict, [StrictFeature::PoisonOutput]);
 		assert!(variants[1].strict.is_empty());

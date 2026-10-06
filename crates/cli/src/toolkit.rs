@@ -20,7 +20,7 @@ pub enum Format {
 }
 
 /// Flags every preset-driven command takes.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Common {
 	pub manifest: Option<PathBuf>,
 	pub depth: Option<Vec<u32>>,
@@ -138,12 +138,28 @@ pub fn select(manifest: &Manifest, common: &Common) -> Result<Vec<Variant>, Erro
 		.collect())
 }
 
+/// A private directory of built artifacts, removed when the last user of
+/// the artifact map lets go of it.
+struct Staged(PathBuf);
+
+impl Drop for Staged {
+	fn drop(&mut self) {
+		let _ = std::fs::remove_dir_all(&self.0);
+	}
+}
+
 /// Build every crate the variants name and map each plugin to its artifact.
+///
+/// A built cdylib is copied to a directory of this run's own: `cargo`
+/// re-links `target/<profile>/` outputs on every build, even fresh ones, so
+/// a build running elsewhere meanwhile would otherwise pull the file out
+/// from under the workers loading it.
 ///
 /// # Errors
 /// A failing `cargo build` is a harness error (§12: exit 3).
 pub fn artifacts(variants: &[Variant]) -> Result<runner::ArtifactMap, Error> {
 	let mut map: HashMap<PluginRef, PathBuf> = HashMap::new();
+	let mut staged: Option<Arc<Staged>> = None;
 	for variant in variants {
 		if map.contains_key(&variant.plugin) {
 			continue;
@@ -153,13 +169,30 @@ pub fn artifacts(variants: &[Variant]) -> Result<runner::ArtifactMap, Error> {
 			PluginSource::Crate(dir) => {
 				let cargo_toml = dir.join("Cargo.toml");
 				eprintln!("aexlo: building {}", dir.display());
-				crate::watch::build_cdylib(&cargo_toml)
-					.map_err(|e| Error::harness(format!("building {}: {e:#}", dir.display())))?
+				let built = crate::watch::build_cdylib(&cargo_toml)
+					.map_err(|e| Error::harness(format!("building {}: {e:#}", dir.display())))?;
+				let stage = staged.get_or_insert_with(|| {
+					static RUN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+					let n = RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+					Arc::new(Staged(
+						std::env::temp_dir().join(format!("aexlo-built-{}-{n}", std::process::id())),
+					))
+				});
+				std::fs::create_dir_all(&stage.0)
+					.map_err(|e| Error::harness(format!("creating {}: {e}", stage.0.display())))?;
+				let file = built.file_name().map(PathBuf::from).unwrap_or_else(|| "plugin".into());
+				let copy = stage.0.join(format!("{}-{file}", map.len(), file = file.display()));
+				crate::watch::copy_built(&built, &copy)
+					.map_err(|e| Error::harness(format!("staging {}: {e}", built.display())))?;
+				copy
 			}
 		};
 		map.insert(variant.plugin.clone(), path);
 	}
-	Ok(Arc::new(move |plugin: &PluginRef| map.get(plugin).cloned()))
+	Ok(Arc::new(move |plugin: &PluginRef| {
+		let _keep = &staged;
+		map.get(plugin).cloned()
+	}))
 }
 
 /// The runner configuration for `common`.
@@ -453,10 +486,24 @@ pub fn cmd_test(args: impl Iterator<Item = String>) -> ExitCode {
 		let config = runner_config(&parsed.common, artifacts)?;
 		Ok((parsed.common, flags, manifest, variants, config))
 	};
-	let (common, flags, manifest, mut variants, config) = match setup() {
+	let (common, flags, manifest, variants, config) = match setup() {
 		Ok(setup) => setup,
 		Err(err) => return fail(&err),
 	};
+	match test_runs(&common, &flags, &manifest, variants, &config) {
+		Ok(runs) => finish(&Report { runs }, &common),
+		Err(err) => fail(&err),
+	}
+}
+
+/// Run `aexlo test` over `variants`, printing as it goes when human.
+fn test_runs(
+	common: &Common,
+	flags: &TestFlags,
+	manifest: &Manifest,
+	mut variants: Vec<Variant>,
+	config: &RunnerConfig,
+) -> Result<Vec<Run>, Error> {
 	let human = common.format == Format::Human;
 
 	// Fuzzing: replace the presets with cases drawn from their first variant.
@@ -476,11 +523,11 @@ pub fn cmd_test(args: impl Iterator<Item = String>) -> ExitCode {
 		let mut infos: HashMap<PluginRef, aexlo_harness::worker::PluginInfo> = HashMap::new();
 		for base in &bases {
 			if !infos.contains_key(&base.plugin) {
-				match plugin_info(&config, &base.plugin) {
+				match plugin_info(config, &base.plugin) {
 					Ok(info) => {
 						infos.insert(base.plugin.clone(), info);
 					}
-					Err(err) => return fail(&err.context(format!("reading {}'s parameters", base.plugin.label()))),
+					Err(err) => return Err(err.context(format!("reading {}'s parameters", base.plugin.label()))),
 				}
 			}
 			cases.extend(aexlo_harness::fuzz::cases(base, &infos[&base.plugin], count, seed));
@@ -499,7 +546,7 @@ pub fn cmd_test(args: impl Iterator<Item = String>) -> ExitCode {
 		);
 	}
 	let judge = aexlo_harness::judge::Judge::new(&manifest.dir, flags.bless, common.strict);
-	let mut runs = runner::run_all(variants, &config, |executor, variant| {
+	let mut runs = runner::run_all(variants, config, |executor, variant| {
 		let mut run = judge.test(executor, variant);
 		if let (Some(dir), Some(frame)) = (&flags.save_frames, &run.frame) {
 			let path = dir.join(format!(
@@ -541,7 +588,7 @@ pub fn cmd_test(args: impl Iterator<Item = String>) -> ExitCode {
 			}
 		}
 	}
-	finish(&Report { runs }, &common)
+	Ok(runs)
 }
 
 //==== aexlo bench (presets) ============================================
@@ -601,18 +648,20 @@ fn ms(seconds: f64) -> String {
 	format!("{:.3}", seconds * 1e3)
 }
 
+/// `aexlo bench`'s own flags.
+struct BenchFlags {
+	save: Option<String>,
+	baseline: Option<String>,
+	threshold: f64,
+}
+
 pub fn cmd_bench(args: impl Iterator<Item = String>) -> ExitCode {
-	struct Flags {
-		save: Option<String>,
-		baseline: Option<String>,
-		threshold: f64,
-	}
-	let setup = || -> Result<(Common, Flags, Manifest, Vec<Variant>, RunnerConfig), Error> {
+	let setup = || -> Result<(Common, BenchFlags, Manifest, Vec<Variant>, RunnerConfig), Error> {
 		let parsed = parse(
 			args,
 			&[("--save-baseline", true), ("--baseline", true), ("--threshold", true)],
 		)?;
-		let mut flags = Flags {
+		let mut flags = BenchFlags {
 			save: None,
 			baseline: None,
 			threshold: 0.05,
@@ -659,15 +708,55 @@ pub fn cmd_bench(args: impl Iterator<Item = String>) -> ExitCode {
 		Ok(setup) => setup,
 		Err(err) => return fail(&err),
 	};
+	let report = match bench_runs(&common, &flags, &manifest, variants, &config) {
+		Ok(runs) => Report { runs },
+		Err(err) => return fail(&err),
+	};
+	if common.format == Format::Json {
+		let runs: Vec<serde_json::Value> = report
+			.runs
+			.iter()
+			.map(|run| {
+				let stats = match (&run.bench, &run.frame) {
+					(Some(samples), Some(frame)) => Some(samples.stats(frame.width() as u64 * frame.height() as u64)),
+					_ => None,
+				};
+				serde_json::json!({
+					"id": run.variant.id.display,
+					"outcome": run.outcome.name(),
+					"message": run.message,
+					"stats": stats,
+				})
+			})
+			.collect();
+		println!(
+			"{}",
+			serde_json::to_string_pretty(&serde_json::json!({
+				"summary": report.summary(),
+				"exit_code": report.exit_code(),
+				"runs": runs,
+			}))
+			.unwrap_or_default()
+		);
+		return ExitCode::from(report.exit_code());
+	}
+	finish(&report, &common)
+}
+
+/// Run `aexlo bench` over `variants`, comparing with and saving baselines.
+fn bench_runs(
+	common: &Common,
+	flags: &BenchFlags,
+	manifest: &Manifest,
+	variants: Vec<Variant>,
+	config: &RunnerConfig,
+) -> Result<Vec<Run>, Error> {
 	let human = common.format == Format::Human;
 
 	let baseline = match &flags.baseline {
-		Some(name) => {
-			match aexlo_harness::bench::Baseline::load(&aexlo_harness::bench::baseline_path(&manifest.dir, name)) {
-				Ok(baseline) => Some(baseline),
-				Err(err) => return fail(&err),
-			}
-		}
+		Some(name) => Some(aexlo_harness::bench::Baseline::load(
+			&aexlo_harness::bench::baseline_path(&manifest.dir, name),
+		)?),
 		None => None,
 	};
 	let fingerprint = aexlo_harness::bench::Fingerprint::current();
@@ -701,7 +790,7 @@ pub fn cmd_bench(args: impl Iterator<Item = String>) -> ExitCode {
 	}
 
 	let records = std::sync::Mutex::new(Vec::new());
-	let runs = runner::run_all(variants, &config, |executor, variant| {
+	let runs = runner::run_all(variants, config, |executor, variant| {
 		let options = aexlo_harness::RunOptions {
 			bench: variant.bench,
 			..aexlo_harness::RunOptions::default()
@@ -769,7 +858,6 @@ pub fn cmd_bench(args: impl Iterator<Item = String>) -> ExitCode {
 		run
 	});
 
-	let report = Report { runs };
 	if let Some(name) = &flags.save {
 		let path = aexlo_harness::bench::baseline_path(&manifest.dir, name);
 		let baseline = aexlo_harness::bench::Baseline {
@@ -777,9 +865,7 @@ pub fn cmd_bench(args: impl Iterator<Item = String>) -> ExitCode {
 			fingerprint,
 			records: records.into_inner().unwrap_or_default(),
 		};
-		if let Err(err) = baseline.save(&path) {
-			return fail(&err);
-		}
+		baseline.save(&path)?;
 		if human {
 			println!(
 				"saved baseline '{name}' ({} variant(s)) to {}",
@@ -788,33 +874,118 @@ pub fn cmd_bench(args: impl Iterator<Item = String>) -> ExitCode {
 			);
 		}
 	}
-	if common.format == Format::Json {
-		let runs: Vec<serde_json::Value> = report
-			.runs
-			.iter()
-			.map(|run| {
-				let stats = match (&run.bench, &run.frame) {
-					(Some(samples), Some(frame)) => Some(samples.stats(frame.width() as u64 * frame.height() as u64)),
-					_ => None,
-				};
-				serde_json::json!({
-					"id": run.variant.id.display,
-					"outcome": run.outcome.name(),
-					"message": run.message,
-					"stats": stats,
-				})
-			})
-			.collect();
-		println!(
-			"{}",
-			serde_json::to_string_pretty(&serde_json::json!({
-				"summary": report.summary(),
-				"exit_code": report.exit_code(),
-				"runs": runs,
-			}))
-			.unwrap_or_default()
-		);
-		return ExitCode::from(report.exit_code());
+	Ok(runs)
+}
+
+//==== aexlo check ======================================================
+
+/// The baseline `aexlo check` compares against: `--baseline <name>`, else
+/// `main` when `.aexlo/baselines/main.json` exists.
+pub const DEFAULT_BASELINE: &str = "main";
+
+/// `aexlo check [filter]`: everything CI should gate on (§12): `test` with
+/// every strict check, then `bench` against a baseline when one is
+/// configured. Parity failures (against After Effects goldens) are reported
+/// apart from regressions.
+pub fn cmd_check(args: impl Iterator<Item = String>) -> ExitCode {
+	/// The flags, the baseline and its threshold, and what to run.
+	type Setup = (Common, Option<String>, f64, Manifest, Vec<Variant>, RunnerConfig);
+	let setup = || -> Result<Setup, Error> {
+		let parsed = parse(args, &[("--baseline", true), ("--threshold", true)])?;
+		let mut common = parsed.common;
+		common.strict = true;
+		let mut baseline = None;
+		let mut threshold = 0.05;
+		for (flag, value) in parsed.rest {
+			let value = value.unwrap_or_default();
+			match flag.as_str() {
+				"--baseline" => {
+					aexlo_harness::bench::validate_name(&value)?;
+					baseline = Some(value);
+				}
+				"--threshold" => threshold = aexlo_harness::bench::parse_threshold(&value)?,
+				_ => {}
+			}
+		}
+		let manifest = load_manifest(common.manifest.as_deref())?;
+		if baseline.is_none() && aexlo_harness::bench::baseline_path(&manifest.dir, DEFAULT_BASELINE).exists() {
+			baseline = Some(DEFAULT_BASELINE.to_string());
+		}
+		let variants = select(&manifest, &common)?;
+		let artifacts = artifacts(&variants)?;
+		let config = runner_config(&common, artifacts)?;
+		Ok((common, baseline, threshold, manifest, variants, config))
+	};
+	let (common, baseline, threshold, manifest, variants, config) = match setup() {
+		Ok(setup) => setup,
+		Err(err) => return fail(&err),
+	};
+	let human = common.format == Format::Human;
+
+	if human {
+		println!("aexlo check: test --strict");
 	}
-	finish(&report, &common)
+	let flags = TestFlags {
+		bless: false,
+		save_frames: None,
+		fuzz: None,
+		seed: None,
+	};
+	let mut runs = match test_runs(&common, &flags, &manifest, variants.clone(), &config) {
+		Ok(runs) => runs,
+		Err(err) => return fail(&err),
+	};
+
+	let mut bench_count = 0;
+	if let Some(name) = &baseline {
+		if human {
+			println!("\naexlo check: bench --baseline {name}");
+		}
+		let timed: Vec<Variant> = variants.into_iter().filter(|v| v.bench.is_some()).collect();
+		bench_count = timed.len();
+		let flags = BenchFlags {
+			save: None,
+			baseline: Some(name.clone()),
+			threshold,
+		};
+		let mut config = config.clone();
+		config.jobs = 1;
+		match bench_runs(&common, &flags, &manifest, timed, &config) {
+			Ok(bench) => runs.extend(bench.into_iter().map(|mut run| {
+				run.variant.preset = format!("bench/{}", run.variant.preset);
+				run
+			})),
+			Err(err) => return fail(&err),
+		}
+	} else if human {
+		println!("\naexlo check: no baseline (save one with `aexlo bench --save-baseline {DEFAULT_BASELINE}`)");
+	}
+
+	if human {
+		let is_parity = |run: &Run| run.message.as_deref().is_some_and(|m| m.starts_with("parity:"));
+		let tests = &runs[..runs.len() - bench_count];
+		let benches = &runs[runs.len() - bench_count..];
+		let regressions: Vec<&Run> = tests.iter().filter(|r| r.outcome.is_bad() && !is_parity(r)).collect();
+		let parity: Vec<&Run> = tests.iter().filter(|r| is_parity(r)).collect();
+		let slower: Vec<&Run> = benches.iter().filter(|r| r.outcome.is_bad()).collect();
+		println!();
+		for (title, list) in [
+			("failed", &regressions),
+			("parity with After Effects", &parity),
+			("slower than the baseline", &slower),
+		] {
+			if !list.is_empty() {
+				println!("{title}:");
+				for run in list.iter() {
+					println!(
+						"  {:<8} {} {}",
+						run.outcome.name(),
+						run.variant.id.display,
+						run.message.as_deref().unwrap_or("")
+					);
+				}
+			}
+		}
+	}
+	finish(&Report { runs }, &common)
 }

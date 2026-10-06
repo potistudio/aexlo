@@ -1,0 +1,96 @@
+# `aexlo check` on macOS and Windows: the CI template of the aexlo toolkit
+# (docs/toolkit.md §12, M7). Call it from a plugin's repository:
+#
+#   jobs:
+#     aexlo:
+#       uses: potistudio/aexlo-rs/.github/workflows/aexlo-check.yml@master
+#       with:
+#         manifest: aexlo.toml
+#
+# It installs the `aexlo` CLI, runs `aexlo check` (every preset with every
+# strict check, plus `bench --baseline` when .aexlo/baselines/main.json is
+# committed), and uploads the JUnit report and, on failure, the
+# actual/expected/diff images from target/aexlo/.
+name: aexlo check
+
+on:
+  workflow_call:
+    inputs:
+      manifest:
+        description: Path to the aexlo.toml to check.
+        type: string
+        default: aexlo.toml
+      filter:
+        description: Only variants whose id matches (substring, or glob with `*`).
+        type: string
+        default: ""
+      aexlo-path:
+        description: Build the CLI from this directory of the checkout (for aexlo itself) instead of installing it.
+        type: string
+        default: ""
+      aexlo-git:
+        description: Where to install the CLI from.
+        type: string
+        default: https://github.com/potistudio/aexlo-rs
+      aexlo-rev:
+        description: Branch, tag or commit of aexlo-git.
+        type: string
+        default: master
+      os:
+        description: Runners to check on, as a JSON list.
+        type: string
+        default: '["macos-latest", "windows-latest"]'
+
+jobs:
+  check:
+    name: aexlo check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.os) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        shell: bash
+        run: rustup update stable --no-self-update && rustup default stable
+
+      - name: Install aexlo (from this checkout)
+        if: inputs.aexlo-path != ''
+        shell: bash
+        run: cargo install --locked --path "${{ inputs.aexlo-path }}/crates/cli"
+
+      - name: Install aexlo
+        if: inputs.aexlo-path == ''
+        shell: bash
+        run: cargo install --locked --git "${{ inputs.aexlo-git }}" --rev "${{ inputs.aexlo-rev }}" aexlo-cli
+
+      - name: aexlo check
+        shell: bash
+        run: |
+          args=(check --manifest "${{ inputs.manifest }}" --junit aexlo-junit.xml)
+          if [ -n "${{ inputs.filter }}" ]; then args+=("${{ inputs.filter }}"); fi
+          aexlo "${args[@]}"
+
+      - name: Upload the JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aexlo-junit-${{ matrix.os }}-${{ strategy.job-index }}
+          path: aexlo-junit.xml
+          if-no-files-found: ignore
+
+      - name: Locate failure images
+        if: failure()
+        id: artifacts
+        shell: bash
+        run: echo "dir=$(dirname "${{ inputs.manifest }}")/target/aexlo" >> "$GITHUB_OUTPUT"
+
+      - name: Upload failure images
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aexlo-artifacts-${{ matrix.os }}-${{ strategy.job-index }}
+          path: ${{ steps.artifacts.outputs.dir }}
+          if-no-files-found: ignore

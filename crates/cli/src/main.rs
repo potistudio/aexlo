@@ -43,6 +43,11 @@ COMMANDS:
                              drawn from their declared ranges; failing cases
                              print as [[preset]] blocks
         --seed <s>           The fuzzing seed  [default: time-based, printed]
+    check   [filter]   What CI gates on: `test --strict`, then `bench
+                       --baseline` when a baseline is configured (--baseline
+                       <name>, else `main` if .aexlo/baselines/main.json
+                       exists). Parity failures against After Effects goldens
+                       are listed apart from regressions.
     render <plugin>		Render a frame and write it to a PNG
     about  <plugin>		Print the plugin's ABOUT text
     params <plugin>    List the plugin's parameters (index, name, value)
@@ -155,6 +160,7 @@ fn main() -> ExitCode {
 	match command.as_deref() {
 		Some("presets") => return toolkit::cmd_presets(args),
 		Some("test") => return toolkit::cmd_test(args),
+		Some("check") => return toolkit::cmd_check(args),
 		Some("worker") => return toolkit::cmd_worker(),
 		Some("bench") => {
 			let args: Vec<String> = args.collect();

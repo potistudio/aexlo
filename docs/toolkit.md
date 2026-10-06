@@ -1,6 +1,6 @@
 # aexlo toolkit — specification
 
-Status: draft · Target: aexlo 0.1
+Status: implemented (M1–M7) · Target: aexlo 0.1
 
 ## 1. Purpose
 
@@ -626,3 +626,37 @@ on Windows x64 where a fixture exists.
 4. **32 bpc poison value.** A signalling NaN is unambiguous but trips
    `finite`. `coverage` must run first and claim those pixels so they are not
    reported twice.
+
+## 17. Implementation notes
+
+Decisions made while building M1–M7, where the draft above left room:
+
+- **Layer params** take any depth (`set_layer_param::<D>`); `clear_layer_param`
+  unlinks without naming one, and `layer_param` returns an `AnyLayer`.
+- **16 bpc white is 32768** (`PF_MAX_CHAN16`), not `u16::MAX`; PNG16 files
+  are rescaled to and from it exactly.
+- **Observer at `Calls` level** reports suite calls on the dispatching
+  thread only (open question 1): calls from iterate worker threads are not
+  attributed.
+- **Strict mode** follows the SDK where it is explicit. Checking smart-render
+  layer pixels back in is optional ("not strictly necessary"), so only layer
+  params (`PF_CHECKOUT_PARAM`) must be checked in, and those checked out in
+  PreRender may be checked in by the following SmartRender. Guard bands are
+  verified above and below a world; its row tail is inside `rowbytes` and
+  may be written. Worlds allocated during a render command must be disposed
+  by its end; handles, by `GLOBAL_SETDOWN`.
+- **`-id` opt-outs survive `--strict`**: an explicit opt-out in a preset wins
+  over the blanket flag (the fixtures opt SDK_Noise out of `allocations`: as
+  shipped, it leaks its pre-render data every frame).
+- **`aexlo check`** finds its baseline as `--baseline <name>`, else `main`
+  when `.aexlo/baselines/main.json` exists.
+- **`aexlo bench`** without a manifest still accepts plugin paths (the
+  flag-driven front-end); a first argument that names a plugin selects it.
+- **The viewer** loads presets with `--preset`/`--manifest`; `--no-open`
+  skips the browser. "Save as preset" writes `inherits`, the swept and edited
+  params and the time.
+- **The test plugin** `tests/misbehave` crashes, hangs, errors, overruns,
+  leaks, leaves pixels unwritten or randomizes on request; the acceptance
+  tests of every milestone drive it through the real `aexlo` binary
+  (`crates/cli/tests/`).
+

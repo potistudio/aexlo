@@ -61,7 +61,7 @@ params = {{ Gain = {{ sweep = [0.5, 2.0] }} }}
 
 	// Every variant in its own worker gives the same verdicts.
 	let (code, report) = test_json(&manifest, &["--isolate", "variant", "--jobs", "3"]);
-	assert_eq!(common::outcomes(&report), outcomes);
+	assert_eq!(common::outcomes(&report), outcomes, "{report:#}");
 	assert_eq!(code, 1);
 }
 
@@ -505,4 +505,89 @@ bench = false
 	std::fs::write(dir.join(".aexlo/baselines/main.json"), "{").unwrap();
 	let (code, _) = bench(&path, &["--baseline", "main"]);
 	assert_eq!(code, Some(3), "an unreadable baseline is a harness error");
+}
+
+/// M7: `aexlo check` is `test --strict`, plus `bench --baseline main` once
+/// that baseline exists; parity failures against After Effects references
+/// are listed apart from regressions.
+#[test]
+fn check_runs_strict_tests_parity_and_the_main_baseline() {
+	let dir = scratch("check");
+	let path = manifest(
+		&dir,
+		&format!(
+			r#"
+[plugin]
+crate = {}
+
+[defaults]
+size = [16, 16]
+bench = {{ samples = 3, warmup = 1 }}
+
+[[preset]]
+name = "clean"
+golden = false
+
+[[preset]]
+name = "against_ae"
+golden = {{ source = "ae", path = "golden/ae/against_ae.png" }}
+
+[[preset]]
+name = "leaky"
+params = {{ Mode = "Leak" }}
+golden = false
+"#,
+			toml_path(&misbehave_crate())
+		),
+	);
+	// An "After Effects" reference that disagrees with what aexlo renders.
+	std::fs::create_dir_all(dir.join("golden/ae")).unwrap();
+	image::RgbaImage::from_pixel(16, 16, image::Rgba([255, 0, 0, 255]))
+		.save(dir.join("golden/ae/against_ae.png"))
+		.unwrap();
+
+	let check = |extra: &[&str]| {
+		let mut args = vec!["check", "--manifest", path.to_str().unwrap()];
+		args.extend_from_slice(extra);
+		let out = aexlo(&args, &dir);
+		(out.status.code(), String::from_utf8_lossy(&out.stdout).into_owned())
+	};
+	let (code, out) = check(&[]);
+	assert_eq!(code, Some(1), "{out}");
+	assert!(out.contains("no baseline"), "{out}");
+	let failed = out.split("failed:\n").nth(1).unwrap_or_default();
+	let (failed, parity) = failed
+		.split_once("parity with After Effects:\n")
+		.unwrap_or((failed, ""));
+	assert!(failed.contains("leaky allocations: "), "strict is on in check:\n{out}");
+	assert!(!failed.contains("against_ae"), "{out}");
+	assert!(
+		parity.contains("against_ae parity: differs from golden/ae/against_ae.png"),
+		"{out}"
+	);
+
+	// Once `main` exists, check also benches against it.
+	let out = aexlo(
+		&[
+			"bench",
+			"--manifest",
+			path.to_str().unwrap(),
+			"clean",
+			"--save-baseline",
+			"main",
+		],
+		&dir,
+	);
+	assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+	// Timing noise on a sub-millisecond render is not what this tests.
+	let (_, out) = check(&["clean", "--format", "json", "--threshold", "1000%"]);
+	let report: serde_json::Value = serde_json::from_str(&out).unwrap();
+	let ids: Vec<&str> = report["runs"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.map(|r| r["id"].as_str().unwrap())
+		.collect();
+	assert_eq!(ids, ["clean", "clean"], "the test run, then the bench run");
+	assert_eq!(report["exit_code"], 0);
 }

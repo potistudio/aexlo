@@ -119,6 +119,6 @@ fn build_and_stage(manifest: &Path, attempt: u64) -> Result<PathBuf> {
 	let artifact = build_cdylib(manifest)?;
 	let ext = artifact.extension().and_then(|s| s.to_str()).unwrap_or("dylib");
 	let copy = std::env::temp_dir().join(format!("aexlo-web-{}-{attempt}.{ext}", std::process::id()));
-	std::fs::copy(&artifact, &copy).with_context(|| format!("staging {}", artifact.display()))?;
+	crate::watch::copy_built(&artifact, &copy).with_context(|| format!("staging {}", artifact.display()))?;
 	Ok(copy)
 }

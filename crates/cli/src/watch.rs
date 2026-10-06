@@ -122,6 +122,22 @@ pub(crate) fn build_and_load(manifest: &Path, generation: u64) -> Result<(Plugin
 	stage_and_load(&artifact, generation)
 }
 
+/// Copy a freshly built artifact, retrying briefly: `cargo` re-links its
+/// `target/<profile>/` outputs on every build, even fresh ones, so a build
+/// running elsewhere can have the file missing for an instant.
+pub(crate) fn copy_built(from: &Path, to: &Path) -> std::io::Result<u64> {
+	let mut attempt = 0;
+	loop {
+		match std::fs::copy(from, to) {
+			Err(err) if err.kind() == std::io::ErrorKind::NotFound && attempt < 100 => {
+				attempt += 1;
+				std::thread::sleep(Duration::from_millis(10));
+			}
+			result => return result,
+		}
+	}
+}
+
 /// Copy `artifact` to a uniquely named temp file and load *that*, returning the
 /// instance plus the staged path (so the caller can remove the copy once it
 /// drops the instance).
@@ -133,7 +149,7 @@ pub(crate) fn build_and_load(manifest: &Path, generation: u64) -> Result<(Plugin
 pub(crate) fn stage_and_load(artifact: &Path, generation: u64) -> Result<(PluginInstance, PathBuf)> {
 	let ext = artifact.extension().and_then(|s| s.to_str()).unwrap_or("dylib");
 	let staged = std::env::temp_dir().join(format!("aexlo-stage-{generation}.{ext}"));
-	std::fs::copy(artifact, &staged).with_context(|| format!("staging {}", artifact.display()))?;
+	copy_built(artifact, &staged).with_context(|| format!("staging {}", artifact.display()))?;
 
 	let fx = aexlo::Host::get().try_load(&staged).context("loading plugin")?;
 	Ok((fx, staged))

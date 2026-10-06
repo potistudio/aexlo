@@ -1,0 +1,28 @@
+# The toolkit over the fixtures checked into this repository: what
+# `.github/workflows/toolkit.yml` runs `aexlo check` on, on macOS and Windows.
+[plugin]
+artifact = { macos = "plugins/macos/SDK_Noise.plugin", windows = "plugins/windows/SDK_Noise.aex" }
+
+[defaults]
+size  = [128, 96]
+input = { generate = "gradient" }
+depth = [8, 16, 32]
+# SDK_Noise, as Adobe ships it, never frees its pre-render data handle (it
+# sets no delete_pre_render_data_func): a leak strict mode reports on every
+# frame. Opt out of that one check rather than fail every run on it.
+checks = ["-allocations", "+depth-consistency"]
+bench = { samples = 10, warmup = 2 }
+
+# No noise: SDK_Noise copies its input, so the frame is exact and portable.
+[[preset]]
+name   = "passthrough"
+params = { "Noise variation" = 0.0 }
+
+# Noise is random: no golden, but it must still cover the frame, stay
+# finite at 32 bpc and render the same twice in a row... which it does
+# not (rand() per pixel), so `deterministic` is off here.
+[[preset]]
+name   = "noisy"
+params = { "Noise variation" = { sweep = [10.0, 100.0] } }
+golden = false
+checks = ["-deterministic", "-depth-consistency"]

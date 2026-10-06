@@ -1,0 +1,21 @@
+# The toolkit's own CI: the reusable `aexlo check` template, run against
+# this repository's fixtures and demo with the CLI built from this commit.
+name: toolkit
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  fixtures:
+    uses: ./.github/workflows/aexlo-check.yml
+    with:
+      manifest: fixtures/aexlo.toml
+      aexlo-path: .
+
+  noise-demo:
+    uses: ./.github/workflows/aexlo-check.yml
+    with:
+      manifest: demos/noise/aexlo.toml
+      aexlo-path: .

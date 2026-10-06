@@ -59,6 +59,41 @@ However, all of these plugins are designed to run exclusively within After Effec
 cargo build
 ```
 
+## Toolkit
+
+`aexlo.toml` describes "render this plugin under these conditions" once, as
+presets; the `aexlo` CLI (`cargo install --path crates/cli`) then tests,
+benchmarks and previews them. The full specification is
+[docs/toolkit.md](docs/toolkit.md).
+
+```toml
+[plugin]
+artifact = { macos = "build/MyGlow.plugin", windows = "build/MyGlow.aex" }
+
+[defaults]
+depth = [8, 16, 32]
+
+[[preset]]
+name   = "dot_glow"
+input  = { generate = "dot", at = [320, 240], radius = 2 }
+size   = [640, 480]
+params = { Radius = 100.0, Mode = "Screen" }
+```
+
+```bash
+aexlo presets                      # the variants the presets expand to
+aexlo test --bless                 # write goldens; later `aexlo test` compares
+aexlo test --strict                # + guard bands, leak and checkout tracking
+aexlo test --fuzz 100              # random parameters, failures as presets
+aexlo bench --save-baseline main   # later: aexlo bench --baseline main
+aexlo preview build/MyGlow.plugin --preset dot_glow
+aexlo check                        # what CI runs (.github/workflows/aexlo-check.yml)
+```
+
+Every variant runs in a worker process, so a crashing plugin fails one run,
+not the suite. Rust plugins add `aexlo-test` as a dev-dependency for
+in-process `#[aexlo::test]`s with frame assertions.
+
 ## Implementation Progress
 
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 91% (32/35)

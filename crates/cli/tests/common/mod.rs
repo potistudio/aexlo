@@ -68,7 +68,8 @@ pub fn test_json(manifest: &Path, extra: &[&str]) -> (i32, serde_json::Value) {
 	let stdout = String::from_utf8_lossy(&out.stdout);
 	let report = serde_json::from_str(&stdout).unwrap_or_else(|e| {
 		panic!(
-			"not a JSON report ({e}):\nstdout:\n{stdout}\nstderr:\n{}",
+			"not a JSON report ({e}), {}:\nstdout:\n{stdout}\nstderr:\n{}",
+			out.status,
 			String::from_utf8_lossy(&out.stderr)
 		)
 	});
@@ -105,7 +106,17 @@ pub fn misbehave_artifact() -> PathBuf {
 	} else {
 		"libaexlo_misbehave.so"
 	};
-	workspace().join("target/debug").join(name)
+	// Copy it away: cargo re-links target/debug outputs on every build, and
+	// other tests build the same crate concurrently.
+	let built = workspace().join("target/debug").join(name);
+	let copy = scratch("misbehave_artifact").join(name);
+	for _ in 0..50 {
+		if std::fs::copy(&built, &copy).is_ok() {
+			return copy;
+		}
+		std::thread::sleep(std::time::Duration::from_millis(20));
+	}
+	panic!("copying {}", built.display());
 }
 
 /// `GET <url>` over plain HTTP/1.0, returning the body.

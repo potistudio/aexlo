@@ -40,18 +40,20 @@ impl Judge {
 	/// `variant` with `--strict` applied.
 	pub fn prepare(&self, variant: &Variant) -> Variant {
 		let mut variant = variant.clone();
+		let opted_out = |v: &Variant, id: &str| v.unchecked.iter().any(|u| u == id);
 		if self.strict {
 			variant.strict = StrictFeature::ALL.to_vec();
 			for id in STRICT_CHECKS {
-				if !variant.has_check(id) {
+				if !variant.has_check(id) && !opted_out(&variant, id) {
 					variant.checks.push(id.to_string());
 				}
 			}
 		}
-		// A strict feature turns on the check that reports it.
+		// A strict feature turns on the check that reports it, unless the
+		// preset opted out of it.
 		for feature in variant.strict.clone() {
 			let id = feature.check();
-			if feature != StrictFeature::PoisonOutput && !variant.has_check(id) {
+			if feature != StrictFeature::PoisonOutput && !variant.has_check(id) && !opted_out(&variant, id) {
 				variant.checks.push(id.to_string());
 			}
 		}
