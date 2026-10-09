@@ -1,137 +1,61 @@
-extern crate env_logger as logger;
-extern crate log;
-
-use std::error::Error;
-use std::path::PathBuf;
-
-use colored::{ColoredString, Colorize};
-
-use aexlo::{Depth8, PluginInstance};
-
-// Configuration constants
-const DEFAULT_PLUGIN_NAME: &str = "AnimatedNoise";
-const INPUT_IMAGE_PATH: &str = "input.png";
-const OUTPUT_FILE_PATH: &str = "output.png";
-
-fn successfully() -> ColoredString {
-	"successfully".green()
-}
-
-#[rustfmt::skip]
-fn print_banner() {
-	{
-		println!("\n========  {} --- After Effects Plugin Loader  ========", "aexlo".bold());
-		println!("________  _______      ___    ___ ___       ________");
-		println!("|\\   __  \\|\\  ___ \\    |\\  \\  /  /|\\  \\     |\\   __  \\");
-		println!("\\ \\  \\|\\  \\ \\   __/|   \\ \\  \\/  / | \\  \\    \\ \\  \\|\\  \\");
-		println!(" \\ \\   __  \\ \\  \\_|/__  \\ \\    / / \\ \\  \\    \\ \\  \\\\\\  \\");
-		println!("  \\ \\  \\ \\  \\ \\  \\_|\\ \\  /     \\/   \\ \\  \\____\\ \\  \\\\\\  \\");
-		println!("   \\ \\__\\ \\__\\ \\_______\\/  /\\   \\    \\ \\_______\\ \\_______\\");
-		println!("    \\|__|\\|__|\\|_______/__/ /\\ __\\    \\|_______|\\|_______|");
-		println!("                       |__|/ \\|__|");
-		println!("=========================================================\n");
-	}
-}
-
-/// Resolves the path to a prebuilt After Effects plugin bundle checked into
-/// the workspace's shared `fixtures/plugins/` directory. These are real,
-/// compiled plugin binaries used across examples - not mock objects in the
-/// unit-test sense.
-fn resolve_plugin_fixture_path(plugin_name: &str) -> PathBuf {
-	let (platform_dir, extension) = if cfg!(target_os = "windows") {
-		("windows", "aex")
-	} else {
-		("macos", "plugin")
-	};
-
-	PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-		.join("../../fixtures/plugins")
-		.join(platform_dir)
-		.join(format!("{plugin_name}.{extension}"))
-}
-
-fn extract_output_rgba(instance: &mut PluginInstance) -> Result<(Vec<u8>, u32, u32), Box<dyn Error>> {
-	log::info!("Extracting output layer...");
-
-	let (width, height) = instance.output_size();
-	let mut buffer = vec![0u8; (width * height * 4) as usize];
-
-	instance.write_rendered_pixels(&mut buffer)?;
-	log::info!("Extracted output layer {}.", "successfully".green());
-
-	log::debug!("First 10 pixels (out of {}):", buffer.len() / 4);
-
-	for (i, pixel) in buffer.as_chunks::<4>().0.iter().enumerate().take(10) {
-		let r = pixel[0];
-		let g = pixel[1];
-		let b = pixel[2];
-		let a = pixel[3];
-		log::debug!("    {}: {{{}, {}, {}, {}}}", i, r, g, b, a);
-	}
-
-	Ok((buffer, width, height))
-}
-
-fn write_png(data: &[u8], width: u32, height: u32) -> Result<(), Box<dyn Error>> {
-	log::info!("Writing output image...");
-
-	let mut writer = Vec::<u8>::new();
-	let options = mtpng::encoder::Options::default();
-
-	let mut header = mtpng::Header::new();
-	header.set_size(width, height)?;
-	header.set_color(mtpng::ColorType::TruecolorAlpha, 8)?;
-
-	let mut encoder = mtpng::encoder::Encoder::new(&mut writer, &options);
-	encoder.write_header(&header)?;
-	encoder.write_image_rows(data)?;
-	encoder.finish()?;
-
-	std::fs::write(OUTPUT_FILE_PATH, writer)?;
-	log::info!(
-		"Wrote output image to '{}' {}.",
-		OUTPUT_FILE_PATH.white(),
-		"successfully".green()
-	);
-
-	Ok(())
-}
+//! Load a plugin, provide an RGBA input layer, render one frame, and save PNG.
+use aexlo::{Depth8, Host, Layer};
+use std::{error::Error, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn Error>> {
-	print_banner();
-
 	env_logger::init();
+	let args: Vec<_> = std::env::args_os().skip(1).collect();
+	if args.first().is_some_and(|arg| arg == "--help" || arg == "-h") {
+		println!(
+			"Usage: cargo run -p sdk_noise -- [plugin path] [input.png] [output.png]\nDefaults: bundled SDK_Noise, repository input.png, target/sdk-noise.png."
+		);
+		return Ok(());
+	}
+	if args.len() > 3 {
+		return Err("Expected at most three paths; use --help".into());
+	}
+	let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+	let fixture = if cfg!(target_os = "windows") {
+		"fixtures/plugins/windows/SDK_Noise.aex"
+	} else {
+		"fixtures/plugins/macos/SDK_Noise.plugin"
+	};
+	let plugin = args.first().map(PathBuf::from).unwrap_or_else(|| root.join(fixture));
+	let input = args.get(1).map(PathBuf::from).unwrap_or_else(|| root.join("input.png"));
+	let output = args
+		.get(2)
+		.map(PathBuf::from)
+		.unwrap_or_else(|| root.join("target/sdk-noise.png"));
 
-	let plugin_name = std::env::args()
-		.nth(1)
-		.unwrap_or_else(|| DEFAULT_PLUGIN_NAME.to_string());
-	let plugin_path = resolve_plugin_fixture_path(&plugin_name);
+	// 1. Load a compiled plugin through the host.
+	println!("Loading {}", plugin.display());
+	let mut instance = Host::get().try_load(&plugin)?;
+	println!("{}", instance.about()?);
 
-	// 1. Load plugin with `aexlo::Host::get().try_load()`
-	// `try_load()` will return an error if the plugin fails to load for any reason (e.g. file not found, invalid format, missing dependencies).
-	log::info!("Loading plugin from '{}'...", plugin_path.display());
-	let mut instance = aexlo::Host::get().try_load(&plugin_path)?;
-	log::info!("Plugin loaded {}.", successfully());
+	// 2. Use the actual image dimensions when constructing the input layer.
+	let image = image::open(&input)?.to_rgba8();
+	let (width, height) = image.dimensions();
+	instance.set_render_size(width, height);
+	instance.set_input_layer(Layer::<Depth8>::from_raw(image.into_raw(), width, height)?);
 
-	// Call `about()` if you want plugin information from `PF_Cmd_ABOUT`.
-	let message = instance.about()?;
-	println!("plugin information: {:?}", message);
+	// 3. Select the appropriate render path and copy the result to RGBA bytes.
+	instance.render_frame()?;
+	let (width, height) = instance.output_size();
+	let mut pixels = vec![0; width as usize * height as usize * 4];
+	instance.write_rendered_pixels(&mut pixels)?;
 
-	let img = image::open(INPUT_IMAGE_PATH).unwrap();
-	let input_buffer = img.to_rgba8().into_raw();
-	let input_layer = aexlo::Layer::<Depth8>::from_raw(input_buffer, 1920, 1080)?;
-
-	instance.set_input_layer(input_layer);
-
-	log::info!("Rendering...");
-	instance.render()?;
-	// instance.render_pre()?;
-	// instance.render_smart()?;
-	log::info!("Rendering completed {}.", successfully());
-
-	let (buffer, width, height) = extract_output_rgba(&mut instance)?;
-	write_png(&buffer, width, height)?;
-
-	println!("======== Execution completed ========\n");
+	// 4. Save a PNG. Errors propagate to the terminal instead of panicking.
+	if let Some(parent) = output.parent().filter(|path| !path.as_os_str().is_empty()) {
+		std::fs::create_dir_all(parent)?;
+	}
+	image::save_buffer_with_format(
+		&output,
+		&pixels,
+		width,
+		height,
+		image::ColorType::Rgba8,
+		image::ImageFormat::Png,
+	)?;
+	println!("Saved {} ({} × {})", output.display(), width, height);
 	Ok(())
 }

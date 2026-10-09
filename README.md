@@ -1,5 +1,7 @@
 # aexlo — After Effects Plugin Runtime
 
+New to the repository? Start with the [getting started guide](docs/getting-started.md), then explore the [examples](examples/README.md), GUI, and [verification playground](playground/README.md).
+
 > Load, run, and render After Effects plugins (.aex) outside of After Effects.
 
 ## What
@@ -43,10 +45,7 @@ However, all of these plugins are designed to run exclusively within After Effec
 
 ### Requirements
 
-- Rust 1.80.0 or higher
-
-> [!NOTE]
-> This crate requires **Rust Nightly** due to its use of the C variadic arguments feature.
+- Rust toolchain specified by `rust-toolchain.toml` (currently 1.99.0)
 
 - Windows x64 or macOS arm64
 

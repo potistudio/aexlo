@@ -1,58 +1,26 @@
-# Rust Interactive Demo
+# Interactive playground
 
-A real-time interactive demo application built with Rust, featuring:
-- **winit** for cross-platform windowing
-- **imgui-rs** for immediate-mode GUI
-- **wgpu** for GPU-accelerated rendering
-- Real-time background effects rendered from ARGB pixel arrays
+A desktop application that loads existing After Effects plugins through aexlo and previews their output while you edit parameters. The UI uses eframe / egui. New to the repository? Try minimal and sdk_noise in the [getting started guide](../../docs/getting-started.md) first.
 
-## Features
+## Run
 
-- GPU-accelerated rendering of pixel buffer backgrounds
-- Interactive ImGui overlay with real-time controls
-- Animated plasma wave effect (demo)
-- Easy to extend with your own effects
+From the repository root:
 
-## Building
-
-```bash
-cargo build --release
+```sh
+cargo run -p interactive --release
+# Select a bundled plugin by name, without its extension (not a file path).
+cargo run -p interactive --release -- SDK_Noise
 ```
 
-## Running
+The application lists plugins in `fixtures/plugins/macos/` or `fixtures/plugins/windows/`. SDK_Noise is the default selection. If no plugins are found, the UI displays an error. Running the application requires a desktop environment with GUI and GPU access.
 
-```bash
-cargo run --release
-```
+## First steps
 
-## Controls
+1. Check that `Plugin` on the left is set to SDK_Noise.
+2. Change `Noise variation` under `Parameters` and inspect the preview on the right.
+3. Turn off `Auto-render (animate)` and click `Render once` to process individual frames.
+4. Check the status for loading and rendering errors, FPS, image dimensions, and the smart or legacy render path.
 
-The demo includes an interactive control panel where you can adjust:
-- **Frequency**: Controls the wave pattern density
-- **Speed**: Animation speed
-- **Color Shift**: Color cycling speed
+The UI exposes supported parameter types, including numeric and boolean controls. It may not expose every parameter of an arbitrary plugin. The implementation starts in [src/main.rs](src/main.rs).
 
-## Architecture
-
-- `main.rs`: Application entry point and event loop
-- `renderer.rs`: GPU rendering pipeline and background effect generation
-- `ui.rs`: ImGui interface and state management
-- `shader.wgsl`: WGSL shader for rendering the texture
-
-## Extending
-
-To add your own effects, modify the `update()` method in `renderer.rs`. The pixel buffer is a simple `Vec<u32>` in ARGB format that gets uploaded to the GPU each frame.
-
-```rust
-// In renderer.rs update() method
-for y in 0..self.texture_height {
-    for x in 0..self.texture_width {
-        let idx = (y * self.texture_width + x) as usize;
-        self.pixel_buffer[idx] = your_argb_color;
-    }
-}
-```
-
-## License
-
-MIT
+For multiple layers and file export, try [studio](../studio/README.md). To inspect host API responses, use the [verification playground](../../playground/README.md).

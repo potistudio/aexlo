@@ -1,5 +1,20 @@
 # playground — host-behavior verification for aexlo
 
+## First run
+
+This playground measures host API behavior. If you want to build an image-processing application, start with the [getting started guide](../docs/getting-started.md) and [examples](../examples/README.md).
+
+Run the following from the repository root; After Effects is not required:
+
+```sh
+cargo run -p playground -- run --in-process
+cargo run -p playground -- report target/probe/trace-aexlo.jsonl
+```
+
+`--in-process` runs the probe directly. To include dynamic library loading, use `cargo run -p playground -- run`. The trace is written to `target/probe/trace-aexlo.jsonl` and the preview to `target/probe/preview-aexlo.png`. Subsequent runs overwrite these files, so save traces under separate names before comparing them. In the report, `unavailable` identifies suites the probe could not acquire.
+
+The After Effects `package` instructions below target Windows. Packaging an installable macOS bundle is not supported yet.
+
 Infrastructure for answering one question precisely: **does aexlo behave like
 the real After Effects host?**
 
