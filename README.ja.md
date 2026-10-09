@@ -119,4 +119,4 @@ Rust プラグインでは `aexlo-test` を開発用依存関係に追加する�
 
 ## ライセンス
 
-このプロジェクトは [MIT License](LICENSE) に基づいて公開されています。[日本語参考訳](LICENSE.ja.md)も参照できます。
+このプロジェクトは [MIT License](LICENSE) に基づいて公開されています。
