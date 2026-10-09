@@ -1,5 +1,7 @@
 # playground — host-behavior verification for aexlo
 
+English | [日本語](README.ja.md)
+
 ## First run
 
 This playground measures host API behavior. If you want to build an image-processing application, start with the [getting started guide](../docs/getting-started.md) and [examples](../examples/README.md).

@@ -1,5 +1,7 @@
 # Examples
 
+English | [日本語](README.ja.md)
+
 Start with [Getting started with aexlo](../docs/getting-started.md). Run all commands from the repository root. The basic examples use the bundled SDK_Noise fixture and do not require After Effects.
 
 | Example | What it demonstrates | Command |

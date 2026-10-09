@@ -1,5 +1,7 @@
 # aexlo — After Effects Plugin Runtime
 
+English | [日本語](README.ja.md)
+
 New to the repository? Start with the [getting started guide](docs/getting-started.md), then explore the [examples](examples/README.md), GUI, and [verification playground](playground/README.md).
 
 > Load, run, and render After Effects plugins (.aex) outside of After Effects.

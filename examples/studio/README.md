@@ -1,5 +1,7 @@
 # aexlo studio
 
+English | [日本語](README.ja.md)
+
 New to the repository? Try minimal, sdk_noise, and interactive in the [getting started guide](../../docs/getting-started.md) first. See the [examples index](../README.md) for an overview.
 
 A small compositor for exercising aexlo end to end. `examples/interactive`

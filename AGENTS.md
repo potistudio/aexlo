@@ -1,5 +1,7 @@
 # Agent Guideline
 
+English | [日本語](AGENTS.ja.md)
+
 ## Development
 
 MUST commit when you make any changes.

@@ -1,5 +1,7 @@
 # aexlo toolkit — specification
 
+English | [日本語](toolkit.ja.md)
+
 Status: implemented (M1–M7) · Target: aexlo 0.1
 
 ## 1. Purpose

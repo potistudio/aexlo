@@ -1,5 +1,7 @@
 # aexlo-bench
 
+English | [日本語](README.ja.md)
+
 A benchmark platform for driving real After Effects plugins through
 [`aexlo`](../aexlo) and measuring them. It is deliberately plugin-agnostic:
 point it at any `.plugin`/`.aex` artifact and it will benchmark it — no code

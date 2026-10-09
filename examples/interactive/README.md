@@ -1,5 +1,7 @@
 # Interactive playground
 
+English | [日本語](README.ja.md)
+
 A desktop application that loads existing After Effects plugins through aexlo and previews their output while you edit parameters. The UI uses eframe / egui. New to the repository? Try minimal and sdk_noise in the [getting started guide](../../docs/getting-started.md) first.
 
 ## Run

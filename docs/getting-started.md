@@ -1,5 +1,7 @@
 # Getting started with aexlo
 
+English | [日本語](getting-started.ja.md)
+
 aexlo is a Rust host that loads existing After Effects plugins and processes images outside After Effects. Start with the bundled SDK_Noise fixture, then try your own plugin. Run the commands below from the repository root.
 
 ## 1. Load a plugin
