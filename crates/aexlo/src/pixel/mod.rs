@@ -1,8 +1,11 @@
+//! Safe newtype wrappers around After Effects low-level pixel/layer types.
+
 mod float32;
+mod layer;
 mod uint16;
 mod uint8;
 
-use crate::layer::{AnyLayer, Layer};
+pub use layer::*;
 
 /// The channel depth of a pixel buffer, as a value (see [`PixelDepth::KIND`]).
 ///

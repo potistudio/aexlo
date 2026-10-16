@@ -60,14 +60,14 @@ pub enum AexloError {
 
 	/// A pixel-buffer operation failed (dimension mismatch, ...).
 	#[error("Layer error: {0}")]
-	Layer(#[from] wrapper::LayerError),
+	Layer(#[from] crate::pixel::LayerError),
 
 	/// A layer was requested at a depth other than the one it has (see
 	/// [`PluginInstance::read_output`](crate::PluginInstance::read_output)).
 	#[error("Requested a {requested} layer, but it is {actual}")]
 	DepthMismatch {
-		requested: wrapper::PixelDepthKind,
-		actual: wrapper::PixelDepthKind,
+		requested: crate::pixel::PixelDepthKind,
+		actual: crate::pixel::PixelDepthKind,
 	},
 
 	#[error("Unexpected error: {0}")]

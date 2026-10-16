@@ -250,7 +250,7 @@ pub(super) const fn create_sampling_float_suite_1() -> PF_SamplingFloatSuite1 {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use wrapper::{Depth8, Layer};
+	use crate::pixel::{Depth8, Layer};
 
 	const ONE: PF_Fixed = 1 << 16;
 

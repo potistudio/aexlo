@@ -28,7 +28,7 @@ use std::{
 	sync::Arc,
 	time::Instant,
 };
-use wrapper::{AnyLayer, Layer, PixelDepth, PixelDepthKind};
+use crate::pixel::{AnyLayer, Depth8, Layer, Pixel, PixelDepth, PixelDepthKind};
 
 use crate::core::constants::{DEFAULT_HEIGHT as HEIGHT, DEFAULT_WIDTH as WIDTH};
 
@@ -1331,7 +1331,7 @@ impl PluginInstance {
 	/// Unlink the layer parameter at `index` (its "None" choice); the same as
 	/// [`Self::set_layer_param`] with `None`, without naming a depth.
 	pub fn clear_layer_param(&mut self, index: usize) -> Result<()> {
-		self.set_layer_param::<wrapper::Depth8>(index, None)
+		self.set_layer_param::<Depth8>(index, None)
 	}
 
 	/// Whether the plugin's iterate callbacks (`PF_Iterate*Suite`, the legacy
@@ -1499,7 +1499,7 @@ impl PluginInstance {
 		let input_layer = HostLayer::new(AnyLayer::new(Self::build_layer(
 			WIDTH,
 			HEIGHT,
-			wrapper::Pixel::<wrapper::Depth8>::green(),
+			Pixel::<Depth8>::green(),
 		)));
 		let output_layer = HostLayer::new(AnyLayer::filled(PixelDepthKind::U8, WIDTH, HEIGHT, OPAQUE_BLACK));
 
@@ -1579,8 +1579,8 @@ impl PluginInstance {
 	}
 
 	/// Build a `width` x `height` layer filled with `fill`.
-	fn build_layer(width: u32, height: u32, fill: wrapper::Pixel<wrapper::Depth8>) -> wrapper::Layer<wrapper::Depth8> {
-		wrapper::Layer::<wrapper::Depth8>::new(width, height, vec![fill; (width * height) as usize]).unwrap()
+	fn build_layer(width: u32, height: u32, fill: Pixel<Depth8>) -> Layer<Depth8> {
+		Layer::<Depth8>::new(width, height, vec![fill; (width * height) as usize]).unwrap()
 	}
 
 	/// Point `world` raw pointers at this instance's own owned buffers.
@@ -2160,7 +2160,7 @@ mod tests {
 		fx.set_input_layer(PluginInstance::build_layer(
 			320,
 			240,
-			wrapper::Pixel::<wrapper::Depth8>::black(),
+			Pixel::<Depth8>::black(),
 		));
 		assert_eq!(fx.render_context.size(), (320, 240));
 		assert_eq!(fx.output_size(), (640, 360));
