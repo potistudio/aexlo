@@ -23,6 +23,9 @@ fn all_fixtures_render() {
 		.unwrap_or_else(|e| panic!("fixtures dir not found at {}: {e}", fixtures.display()))
 		.map(|entry| entry.unwrap().path())
 		.filter(|path| path.extension().and_then(|e| e.to_str()) == Some(ext))
+		// Most fixtures are personal symlinks (fixtures/plugins/.gitignore);
+		// one whose target is absent on this machine is skipped, not failed.
+		.filter(|path| path.exists())
 		.collect();
 	plugins.sort();
 	assert!(!plugins.is_empty(), "no plugin fixtures in {}", fixtures.display());

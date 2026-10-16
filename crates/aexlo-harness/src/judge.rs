@@ -187,11 +187,15 @@ impl Judge {
 			"golden"
 		};
 		let path = golden::path(&run.variant, &spec, &self.manifest_dir);
+		// Shown with `/` on every platform, as goldens are written in the
+		// manifest, so reports read the same wherever they were produced.
 		let shown = path
 			.strip_prefix(&self.manifest_dir)
 			.unwrap_or(&path)
-			.display()
-			.to_string();
+			.components()
+			.map(|c| c.as_os_str().to_string_lossy())
+			.collect::<Vec<_>>()
+			.join("/");
 		// Bless only what passed its checks: a flaky frame is no reference.
 		let bless = self.bless && run.outcome == Outcome::Pass;
 

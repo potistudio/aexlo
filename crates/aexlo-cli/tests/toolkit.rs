@@ -55,7 +55,8 @@ params = {{ Gain = {{ sweep = [0.5, 2.0] }} }}
 		"{report:#}"
 	);
 	let crash = &report["runs"][1];
-	assert!(crash["message"].as_str().unwrap().contains("signal"), "{crash:#}");
+	let killed_by = if cfg!(windows) { "exception" } else { "signal" };
+	assert!(crash["message"].as_str().unwrap().contains(killed_by), "{crash:#}");
 	assert_eq!(crash["last_command"], "SMART_RENDER");
 	assert_eq!(code, 1, "a crash is a judged failure");
 
