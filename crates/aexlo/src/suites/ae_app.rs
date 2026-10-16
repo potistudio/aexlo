@@ -165,6 +165,7 @@ unsafe extern "C" fn get_font_style_sheet(
 	);
 
 	with_host(|host| {
+		#[allow(clippy::unnecessary_cast)] // `PF_FontStyleSheet` is `u32` on macOS only.
 		let font = host.font_style_sheet(sheet as i32);
 		unsafe {
 			if let Some(name) = font_nameP0.as_mut() {

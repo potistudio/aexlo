@@ -348,6 +348,7 @@ pub trait AppHost: Send + Sync {
 	// ---- AE Plugin Helper Suite / Suite2 ------------------------------------
 
 	/// The selected tool, as a `PF_ExtendedSuiteTool_*` value.
+	#[allow(clippy::unnecessary_cast)] // `PF_ExtendedSuiteTool_*` is `u32` on macOS only.
 	fn current_tool(&self) -> i32 {
 		after_effects_sys::PF_ExtendedSuiteTool_NONE as i32
 	}

@@ -80,9 +80,6 @@ pub use host::app::{
 	PersonalInfo, ProgressId, TimeDisplayMode, TimeDisplayPref,
 };
 
-/// Diagnostic utilities (feature-gated).
-pub use core::diagnostics::{Diagnostic, DiagnosticBuilder};
-
 /// Safe pixel/layer wrappers, re-exported explicitly so additions to the
 /// `pixel` module don't silently widen this crate's public API.
 pub use pixel::{AnyLayer, Depth8, Depth16, Depth32, Layer, LayerError, Pixel, PixelDepth, PixelDepthKind};
