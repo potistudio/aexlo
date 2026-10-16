@@ -296,9 +296,15 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		// The App Suite's wire versions do NOT follow the struct names, and the
 		// layouts are not append-only (v5 inserts `PF_AppGetLanguage` mid-table),
 		// so each wire version must get its own exactly-shaped table.
-		("PF AE App Suite", v) if v == kPFAppSuiteVersion6 as i32 => dispatch_static!(suite, suite_name, version, ae_app6),
-		("PF AE App Suite", v) if v == kPFAppSuiteVersion5 as i32 => dispatch_static!(suite, suite_name, version, ae_app5),
-		("PF AE App Suite", v) if v == kPFAppSuiteVersion4 as i32 => dispatch_static!(suite, suite_name, version, ae_app4),
+		("PF AE App Suite", v) if v == kPFAppSuiteVersion6 as i32 => {
+			dispatch_static!(suite, suite_name, version, ae_app6)
+		}
+		("PF AE App Suite", v) if v == kPFAppSuiteVersion5 as i32 => {
+			dispatch_static!(suite, suite_name, version, ae_app5)
+		}
+		("PF AE App Suite", v) if v == kPFAppSuiteVersion4 as i32 => {
+			dispatch_static!(suite, suite_name, version, ae_app4)
+		}
 		// Adv App v2 only appends `PF_AppendInfoText`; Adv Time versions differ
 		// in their preference struct, so each gets an exactly-shaped table.
 		("PF AE Adv App Suite", 1) => dispatch_static!(suite, suite_name, version, adv_app1),

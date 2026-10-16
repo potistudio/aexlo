@@ -42,10 +42,10 @@ mod host;
 mod instance;
 mod mask;
 mod observe;
-mod strict;
-mod time;
 mod param_value;
 mod pixel;
+mod strict;
+mod time;
 mod utils;
 
 pub(crate) mod suites;
@@ -88,6 +88,6 @@ pub use pixel::{AnyLayer, Depth8, Depth16, Depth32, Layer, LayerError, Pixel, Pi
 
 /// Observation hooks ([`PluginInstance::set_observer`]).
 pub use observe::{
-	AllocationEvent, AllocationKind, CheckoutEvent, CheckoutKind, CommandEvent, CommandPhase, LogObserver, ObserveLevel, Observer,
-	SuiteCallEvent, command_name,
+	AllocationEvent, AllocationKind, CheckoutEvent, CheckoutKind, CommandEvent, CommandPhase, LogObserver,
+	ObserveLevel, Observer, SuiteCallEvent, command_name,
 };

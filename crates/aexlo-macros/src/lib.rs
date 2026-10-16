@@ -159,9 +159,9 @@ pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
 					renders.push(name);
 				}
 			} else {
-				return Err(
-					meta.error("unsupported `aexlo_test::test` argument (expected `depth`, `render`, `preset` or `entry`)")
-				);
+				return Err(meta.error(
+					"unsupported `aexlo_test::test` argument (expected `depth`, `render`, `preset` or `entry`)",
+				));
 			}
 			Ok(())
 		});

@@ -21,7 +21,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 		"fixtures/plugins/macos/SDK_Noise.plugin"
 	};
 	let plugin = args.first().map(PathBuf::from).unwrap_or_else(|| root.join(fixture));
-	let input = args.get(1).map(PathBuf::from).unwrap_or_else(|| root.join("fixtures/input.png"));
+	let input = args
+		.get(1)
+		.map(PathBuf::from)
+		.unwrap_or_else(|| root.join("fixtures/input.png"));
 	let output = args
 		.get(2)
 		.map(PathBuf::from)

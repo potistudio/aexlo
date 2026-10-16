@@ -128,7 +128,9 @@ unsafe extern "C" fn does_key_exist(
 	value_keyZ: *const A_char,
 	existsPB: *mut A_Boolean,
 ) -> A_Err {
-	log::debug!("AEGP_DoesKeyExist [{}] {}", unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+	log::debug!("AEGP_DoesKeyExist [{}] {}", unsafe { key(section_keyZ) }, unsafe {
+		key(value_keyZ)
+	});
 	let exists = {
 		let store = STORE.lock().unwrap();
 		store.contains_key(&(unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) }))

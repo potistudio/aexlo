@@ -387,9 +387,11 @@ mod tests {
 		};
 		let mut buf = vec![orig; 1];
 		let mut world = world_over(1, 1, &mut buf);
-		let err = unsafe { premultiply_color_16_sys(std::ptr::null_mut(), &mut world, std::ptr::null(), 1, &mut world) };
+		let err =
+			unsafe { premultiply_color_16_sys(std::ptr::null_mut(), &mut world, std::ptr::null(), 1, &mut world) };
 		assert_eq!(err, PF_Err_NONE as PF_Err);
-		let err = unsafe { premultiply_color_16_sys(std::ptr::null_mut(), &mut world, std::ptr::null(), 0, &mut world) };
+		let err =
+			unsafe { premultiply_color_16_sys(std::ptr::null_mut(), &mut world, std::ptr::null(), 0, &mut world) };
 		assert_eq!(err, PF_Err_NONE as PF_Err);
 		let p = buf[0];
 		assert!((p.red as i32 - orig.red as i32).abs() <= 2, "red {}", p.red);
@@ -425,7 +427,14 @@ mod tests {
 	#[test]
 	fn null_worlds_are_rejected() {
 		assert_eq!(
-			unsafe { fill_8_sys(std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) },
+			unsafe {
+				fill_8_sys(
+					std::ptr::null_mut(),
+					std::ptr::null(),
+					std::ptr::null(),
+					std::ptr::null_mut(),
+				)
+			},
 			PF_Err_BAD_CALLBACK_PARAM as PF_Err
 		);
 		assert_eq!(

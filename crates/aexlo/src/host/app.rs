@@ -376,7 +376,11 @@ pub struct HeadlessAppHost;
 
 impl HeadlessAppHost {
 	/// Neutral mid-gray reported for every UI color.
-	pub const GRAY: AppColor = AppColor { red: 0x8000, green: 0x8000, blue: 0x8000 };
+	pub const GRAY: AppColor = AppColor {
+		red: 0x8000,
+		green: 0x8000,
+		blue: 0x8000,
+	};
 }
 
 impl AppHost for HeadlessAppHost {}

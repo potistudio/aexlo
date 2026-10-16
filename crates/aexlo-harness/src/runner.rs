@@ -224,10 +224,9 @@ where
 	if config.isolate == Isolate::None {
 		let artifacts = config.artifacts.clone();
 		let mut executor = InProcess::new(move |variant: &Variant, strict| {
-			let path = artifacts(&variant.plugin)
-				.ok_or_else(|| aexlo::AexloError::PluginNotFound {
-					path: variant.plugin.label().into(),
-				})?;
+			let path = artifacts(&variant.plugin).ok_or_else(|| aexlo::AexloError::PluginNotFound {
+				path: variant.plugin.label().into(),
+			})?;
 			aexlo::Host::get().try_load_with(path, strict)
 		});
 		return variants.iter().map(|v| run_one(&mut executor, v)).collect();

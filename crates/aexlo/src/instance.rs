@@ -9,6 +9,8 @@ use crate::param_value::ParamValue;
 use crate::utils;
 
 use crate::gpu::GPU_BYTES_PER_PIXEL;
+use crate::pixel::{AnyLayer, Depth8, Layer, Pixel, PixelDepth, PixelDepthKind};
+use crate::time::Time;
 use after_effects::{ParamType, RawCommand};
 use after_effects_sys::{
 	PF_ArbParamsExtra, PF_Arbitrary_COPY_FUNC, PF_Arbitrary_DISPOSE_FUNC, PF_Arbitrary_NEW_FUNC, PF_ArbitraryH,
@@ -27,8 +29,6 @@ use std::{
 	sync::Arc,
 	time::Instant,
 };
-use crate::pixel::{AnyLayer, Depth8, Layer, Pixel, PixelDepth, PixelDepthKind};
-use crate::time::Time;
 
 use crate::core::constants::{DEFAULT_HEIGHT as HEIGHT, DEFAULT_WIDTH as WIDTH};
 
@@ -569,12 +569,16 @@ impl PluginInstance {
 			for linked in self.linked_layers.values_mut() {
 				let key = linked.world_ptr(true) as usize;
 				if !ctx.ensure_buffer(key, linked.gpu_len()) {
-					return Err(AexloError::Gpu("Failed to allocate GPU layer-parameter buffer".to_string()));
+					return Err(AexloError::Gpu(
+						"Failed to allocate GPU layer-parameter buffer".to_string(),
+					));
 				}
 				if !linked.gpu_uploaded {
 					Self::pack_layer_to_bgra_f32(linked.layer(), &mut self.gpu_upload_staging);
 					if !ctx.write_buffer(key, bytemuck::cast_slice(&self.gpu_upload_staging)) {
-						return Err(AexloError::Gpu("Failed to upload layer-parameter pixels to the GPU".to_string()));
+						return Err(AexloError::Gpu(
+							"Failed to upload layer-parameter pixels to the GPU".to_string(),
+						));
 					}
 					linked.gpu_uploaded = true;
 				}
@@ -1092,7 +1096,11 @@ impl PluginInstance {
 		let expected = value.kind();
 		let actual = crate::ParamKind::from_sdk(target.param_type);
 		if actual != expected {
-			return Err(AexloError::ParamTypeMismatch { index, expected, actual });
+			return Err(AexloError::ParamTypeMismatch {
+				index,
+				expected,
+				actual,
+			});
 		}
 
 		// SAFETY: the union variant was verified against `param_type` above.
@@ -1870,7 +1878,9 @@ impl PluginInstance {
 		let macos_dir = bundle_path.join("Contents").join("MacOS");
 
 		let mut binaries = std::fs::read_dir(&macos_dir)
-			.map_err(|_| AexloError::PluginNotFound { path: macos_dir.clone() })?
+			.map_err(|_| AexloError::PluginNotFound {
+				path: macos_dir.clone(),
+			})?
 			.filter_map(|entry| entry.ok())
 			.map(|entry| entry.path())
 			.filter(|path| path.is_file());
@@ -2014,7 +2024,9 @@ impl PluginInstance {
 		#[allow(non_upper_case_globals)]
 		match result {
 			PF_Err_NONE => {
-				log::debug!("Executed command '{command:?}' successfully ({entry_point_name} exited with code {result}).");
+				log::debug!(
+					"Executed command '{command:?}' successfully ({entry_point_name} exited with code {result})."
+				);
 			}
 			code => {
 				// The format! only runs on the failure path, never per frame.
@@ -2176,11 +2188,7 @@ mod tests {
 		fx.set_render_size(640, 360);
 		assert_eq!(fx.render_context.size(), (in_w as i32, in_h as i32));
 
-		fx.set_input_layer(PluginInstance::build_layer(
-			320,
-			240,
-			Pixel::<Depth8>::black(),
-		));
+		fx.set_input_layer(PluginInstance::build_layer(320, 240, Pixel::<Depth8>::black()));
 		assert_eq!(fx.render_context.size(), (320, 240));
 		assert_eq!(fx.output_size(), (640, 360));
 	}

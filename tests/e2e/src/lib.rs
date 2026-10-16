@@ -34,7 +34,6 @@ pub fn sample_input_path() -> PathBuf {
 mod tests {
 	use std::path::PathBuf;
 
-
 	fn plugin_path(var_name: &str) -> PathBuf {
 		std::env::var(var_name)
 			.map(PathBuf::from)

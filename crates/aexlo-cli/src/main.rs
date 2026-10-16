@@ -237,7 +237,9 @@ fn resolve_plugin(arg: &str) -> PathBuf {
 /// a prebuilt `.plugin`/`.aex`/`.dll` or a crate's source directory directly.
 fn load(plugin_arg: &str) -> Result<PluginInstance> {
 	let path = resolve_artifact(plugin_arg)?;
-	aexlo::Host::get().try_load(&path).with_context(|| format!("loading plugin {}", path.display()))
+	aexlo::Host::get()
+		.try_load(&path)
+		.with_context(|| format!("loading plugin {}", path.display()))
 }
 
 /// Resolve a plugin argument to an artifact on disk, building it first when the
@@ -366,9 +368,7 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 	}
 
 	if force_smart {
-		instance
-			.render_with(RenderPath::Smart)
-			.context("smart render failed")?;
+		instance.render_with(RenderPath::Smart).context("smart render failed")?;
 	} else if force_legacy {
 		instance
 			.render_with(RenderPath::Legacy)
@@ -385,7 +385,10 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 	let is_exr = output.extension().is_some_and(|e| e.eq_ignore_ascii_case("exr"));
 	let frame = aexlo_harness::Frame::new(instance.output().clone());
 	if is_exr {
-		frame.converted(aexlo::PixelDepthKind::F32).save(&output).map_err(anyhow::Error::msg)?;
+		frame
+			.converted(aexlo::PixelDepthKind::F32)
+			.save(&output)
+			.map_err(anyhow::Error::msg)?;
 	} else if instance.output_depth() == aexlo::PixelDepthKind::U16 {
 		frame.save(&output).map_err(anyhow::Error::msg)?;
 	} else {
@@ -420,7 +423,11 @@ fn preset_variant(manifest: Option<&Path>, name: &str) -> Result<aexlo_harness::
 		}
 		_ => bail!(
 			"no variant '{name}' (variants: {})",
-			variants.iter().map(|v| v.id.display.as_str()).collect::<Vec<_>>().join(", ")
+			variants
+				.iter()
+				.map(|v| v.id.display.as_str())
+				.collect::<Vec<_>>()
+				.join(", ")
 		),
 	}
 }
