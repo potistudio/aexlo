@@ -218,7 +218,7 @@ parameters the harness sends `PF_Cmd_UPDATE_PARAMS_UI` once, as
 ### 4.7 Time
 
 `fps` is a number or a rational string (`"30000/1001"`). The harness calls
-`set_time(frame * step, step, scale)` with `scale/step = fps` in lowest
+`set_time(Time { value: frame * step, step, scale })` with `scale/step = fps` in lowest
 integer terms (`24` → `24/1`, `"30000/1001"` → `30000/1001`).
 
 ### 4.8 Matrix expansion and variant ids
