@@ -125,7 +125,7 @@ pub fn fixtures_dir() -> PathBuf {
 		"macos"
 	};
 	PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-		.join("../../fixtures/plugins")
+		.join("../fixtures/plugins")
 		.join(platform_dir)
 }
 
