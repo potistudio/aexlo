@@ -30,7 +30,7 @@ fn all_fixtures_render() {
 	let mut text = format!(
 		"[plugin]\nartifact = {}\n\n[defaults]\ninput = {{ path = {} }}\nchecks = []\ngolden = false\ntimeout = 60\n",
 		toml_path(&plugins[0]),
-		toml_path(&workspace().join("input.png")),
+		toml_path(&workspace().join("fixtures/input.png")),
 	);
 	for plugin in &plugins {
 		let stem = plugin.file_stem().unwrap().to_string_lossy();

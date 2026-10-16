@@ -66,7 +66,7 @@ reference trace from real AE is checked in.
 
 | Command | What it does |
 | --- | --- |
-| `run [--release] [--in-process] [--trace <file>] [--input <png>]` | Build + load the probe under aexlo, nudge every param off its default, render `input.png`, write `target/probe/trace-aexlo.jsonl` and a preview PNG, print the report. `--in-process` drives the entry point without `dlopen` — breakpoints inside the probe work. |
+| `run [--release] [--in-process] [--trace <file>] [--input <png>]` | Build + load the probe under aexlo, nudge every param off its default, render `fixtures/input.png`, write `target/probe/trace-aexlo.jsonl` and a preview PNG, print the report. `--in-process` drives the entry point without `dlopen` — breakpoints inside the probe work. |
 | `report <trace.jsonl>` | Human-readable summary of one trace (host identity, command/error table, suite availability map, callback results, world layouts, param values). |
 | `diff <a> <b> [--all]` | Key-by-key comparison of two traces. Compares facts, suite availability, and callback presence by default; `--all` also compares context (command counts, render scenario, timing). |
 | `package [--debug] [--to <dir>]` | Build release and drop `playground/dist/AexloProbe.aex`. |

@@ -7,7 +7,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let args: Vec<_> = std::env::args_os().skip(1).collect();
 	if args.first().is_some_and(|arg| arg == "--help" || arg == "-h") {
 		println!(
-			"Usage: cargo run -p sdk_noise -- [plugin path] [input.png] [output.png]\nDefaults: bundled SDK_Noise, repository input.png, target/sdk-noise.png."
+			"Usage: cargo run -p sdk_noise -- [plugin path] [input.png] [output.png]\nDefaults: bundled SDK_Noise, fixtures/input.png, target/sdk-noise.png."
 		);
 		return Ok(());
 	}
@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 		"fixtures/plugins/macos/SDK_Noise.plugin"
 	};
 	let plugin = args.first().map(PathBuf::from).unwrap_or_else(|| root.join(fixture));
-	let input = args.get(1).map(PathBuf::from).unwrap_or_else(|| root.join("input.png"));
+	let input = args.get(1).map(PathBuf::from).unwrap_or_else(|| root.join("fixtures/input.png"));
 	let output = args
 		.get(2)
 		.map(PathBuf::from)

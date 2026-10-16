@@ -23,14 +23,14 @@ cargo run -p minimal
 cargo run -p sdk_noise
 ```
 
-同梱の `input.png` を読み込み、`target/sdk-noise.png` に書き出します。最後の `Saved ...` メッセージには出力サイズが含まれます。[ソースコード](../examples/sdk_noise/src/main.rs)を、プラグインの読み込み、入力レイヤーの設定、レンダリング、PNG の保存という順に読んでみてください。
+同梱の `fixtures/input.png` を読み込み、`target/sdk-noise.png` に書き出します。最後の `Saved ...` メッセージには出力サイズが含まれます。[ソースコード](../examples/sdk_noise/src/main.rs)を、プラグインの読み込み、入力レイヤーの設定、レンダリング、PNG の保存という順に読んでみてください。
 
 自分のプラグインや画像を使う場合は、`--` で Cargo の引数とアプリケーションの引数を区切ります。空白を含むパスは引用符で囲んでください。
 
 ```sh
 # macOS の例。Windows では .aex のパスを指定してください。
 cargo run -p minimal -- "/path/to/MyEffect.plugin"
-cargo run -p sdk_noise -- "/path/to/MyEffect.plugin" "input.png" "target/my-effect.png"
+cargo run -p sdk_noise -- "/path/to/MyEffect.plugin" "fixtures/input.png" "target/my-effect.png"
 cargo run -p sdk_noise -- --help
 ```
 

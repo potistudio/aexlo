@@ -23,14 +23,14 @@ The first run downloads dependencies and builds the example. A successful run pr
 cargo run -p sdk_noise
 ```
 
-This reads the bundled `input.png` and writes `target/sdk-noise.png`. The final `Saved ...` message includes the output dimensions. Read the [source](../examples/sdk_noise/src/main.rs) in order: load the plugin, supply an input layer, render, then save the PNG.
+This reads the bundled `fixtures/input.png` and writes `target/sdk-noise.png`. The final `Saved ...` message includes the output dimensions. Read the [source](../examples/sdk_noise/src/main.rs) in order: load the plugin, supply an input layer, render, then save the PNG.
 
 To use your own plugin and image, separate Cargo's arguments from the application's arguments with `--`. Quote paths containing spaces.
 
 ```sh
 # macOS example; use an .aex path on Windows.
 cargo run -p minimal -- "/path/to/MyEffect.plugin"
-cargo run -p sdk_noise -- "/path/to/MyEffect.plugin" "input.png" "target/my-effect.png"
+cargo run -p sdk_noise -- "/path/to/MyEffect.plugin" "fixtures/input.png" "target/my-effect.png"
 cargo run -p sdk_noise -- --help
 ```
 

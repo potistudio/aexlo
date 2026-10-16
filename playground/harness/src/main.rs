@@ -110,7 +110,7 @@ fn run(args: &[String]) -> anyhow::Result<()> {
 		.unwrap_or_else(|| root.join("target/probe/trace-aexlo.jsonl"));
 	let input_path = option(args, "--input")
 		.map(PathBuf::from)
-		.unwrap_or_else(|| root.join("input.png"));
+		.unwrap_or_else(|| root.join("fixtures/input.png"));
 
 	if let Some(parent) = trace_path.parent() {
 		std::fs::create_dir_all(parent)?;
