@@ -57,7 +57,7 @@ cargo build
 
 ## ツールキット
 
-`aexlo.toml` に「この条件でこのプラグインをレンダリングする」という設定をプリセットとして一度記述すれば、`aexlo` CLI（`cargo install --path crates/cli`）でテスト、ベンチマーク、プレビューを実行できます。
+`aexlo.toml` に「この条件でこのプラグインをレンダリングする」という設定をプリセットとして一度記述すれば、`aexlo` CLI（`cargo install --path crates/aexlo-cli`）でテスト、ベンチマーク、プレビューを実行できます。
 詳細は[ツールキット仕様書](docs/toolkit.ja.md)を参照してください。
 
 ```toml

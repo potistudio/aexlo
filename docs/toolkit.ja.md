@@ -429,7 +429,7 @@ aexlo bench --baseline main --threshold 5%
 
 ## 11. プレビュー
 
-`aexlo dev`（ソースの監視）と `aexlo preview`（ビルド済みプラグインの監視）は、`crates/cli/src/viewer.rs` のブラウザービューアーを共有します。次の機能を追加します。
+`aexlo dev`（ソースの監視）と `aexlo preview`（ビルド済みプラグインの監視）は、`crates/aexlo-cli/src/viewer.rs` のブラウザービューアーを共有します。次の機能を追加します。
 
 - **プリセット選択**：選択したバリアントを `test` と同じ条件でレンダリングします。
 - パラメーターのコントロール（既存）：プリセットの値で初期化します。
@@ -534,4 +534,4 @@ fn glow_is_symmetric(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
 - **`aexlo check`** は `--baseline <name>` でベースラインを指定します。指定がなければ、`.aexlo/baselines/main.json` が存在する場合に `main` を使います。
 - **`aexlo bench`** は、マニフェストがなくてもプラグインのパスを受け付けます（フラグで設定するフロントエンド）。最初の引数がプラグインを指していれば、そのプラグインを選択します。
 - **ビューアー**は `--preset` / `--manifest` でプリセットを読み込みます。`--no-open` はブラウザーを開かないようにします。「Save as preset」は、`inherits`、スイープ・編集したパラメーター、時間を書き込みます。
-- **テストプラグイン** `tests/misbehave` は、要求に応じてクラッシュ、ハング、エラー、範囲外の書き込み、リーク、ピクセルの未書き込み、ランダム化を行います。各マイルストーンの受け入れテストは、実際の `aexlo` バイナリを通じてこのプラグインを実行します（`crates/cli/tests/`）。
+- **テストプラグイン** `tests/misbehave` は、要求に応じてクラッシュ、ハング、エラー、範囲外の書き込み、リーク、ピクセルの未書き込み、ランダム化を行います。各マイルストーンの受け入れテストは、実際の `aexlo` バイナリを通じてこのプラグインを実行します（`crates/aexlo-cli/tests/`）。

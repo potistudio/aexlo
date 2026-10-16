@@ -8,7 +8,7 @@ authors = { workspace = true }
 license = { workspace = true }
 repository = "https://github.com/potistudio/aexlo-rs"
 
-# Installs as `aexlo` so `cargo install --path cli` gives an `aexlo` command.
+# Installs as `aexlo` so `cargo install --path crates/aexlo-cli` gives an `aexlo` command.
 [[bin]]
 name = "aexlo"
 path = "src/main.rs"

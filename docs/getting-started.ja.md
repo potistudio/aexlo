@@ -76,7 +76,7 @@ cargo run -p aexlo-cli -- test --manifest fixtures/aexlo.toml
 | `examples/plugins/` | ソースからビルドし、aexlo でテストするサンプルプラグイン | プラグイン側のコードを調べたいとき |
 | `fixtures/` | 既存のプラグインと検証設定 | サンプルの入力を確認したいとき |
 | `crates/aexlo/` | ホストの実装と公開 API | 自分のアプリケーションにホストを組み込みたいとき |
-| `crates/cli/` | 検証・プレビュー用 CLI | 同じ条件で実行を繰り返したいとき |
+| `crates/aexlo-cli/` | 検証・プレビュー用 CLI | 同じ条件で実行を繰り返したいとき |
 | `playground/` | ホスト API のプローブと実行ツール | 互換性や未対応 API を調べたいとき |
 
 ## トラブルシューティング
