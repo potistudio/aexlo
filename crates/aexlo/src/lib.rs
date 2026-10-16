@@ -29,6 +29,7 @@
 //! # Features
 //!
 //! - `diagnostics` - Enable detailed diagnostic logging for debugging
+//! - `macros` - `#[aexlo::test]` and `#[aexlo::preview]` (enabled by `aexlo-test`)
 
 #![warn(clippy::all)]
 // The crate mirrors the After Effects C SDK, whose suite struct fields and entry
@@ -59,11 +60,13 @@ pub use instance::PluginEntryPoint;
 /// `#[aexlo::preview]` - render a plugin in-process and drop a preview PNG.
 ///
 /// Expands to `aexlo-test` paths: add `aexlo-test` as a dev-dependency.
+#[cfg(feature = "macros")]
 pub use aexlo_macros::preview;
 
 /// `#[aexlo::test]` - one `#[test]` per depth and render path, starting from
 /// a manifest preset. Expands to `aexlo-test` paths: add `aexlo-test` as a
 /// dev-dependency.
+#[cfg(feature = "macros")]
 pub use aexlo_macros::test;
 
 pub use param_value::{ParamKind, ParamValue};

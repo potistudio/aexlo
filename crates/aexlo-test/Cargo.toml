@@ -9,7 +9,7 @@ license = { workspace = true }
 repository = "https://github.com/potistudio/aexlo-rs"
 
 [dependencies]
-aexlo = { workspace = true }
+aexlo = { workspace = true, features = ["macros"] }
 aexlo-harness = { workspace = true }
 aexlo-macros = { workspace = true }
 toml = "1.1.6"

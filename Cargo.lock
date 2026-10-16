@@ -149,7 +149,6 @@ dependencies = [
  "colored",
  "cudarc",
  "dlopen2",
- "env_logger",
  "foreign-types",
  "log",
  "metal",
