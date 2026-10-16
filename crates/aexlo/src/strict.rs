@@ -121,6 +121,7 @@ pub fn unwritten_pixels(layer: &AnyLayer) -> usize {
 
 /// A guard band around a host world was overwritten.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GuardViolation {
 	/// What the world was (`"PF_NewWorld 64x48"`, `"output"`, ...).
 	pub world: String,
@@ -132,6 +133,7 @@ pub struct GuardViolation {
 
 /// A handle or world still alive when its scope ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Leak {
 	pub kind: crate::AllocationKind,
 	pub address: usize,
@@ -144,6 +146,7 @@ pub struct Leak {
 
 /// A smart-render checkout rule broken.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CheckoutViolation {
 	pub message: String,
 }
@@ -152,6 +155,7 @@ pub struct CheckoutViolation {
 ///
 /// [`PluginInstance::strict_report`]: crate::PluginInstance::strict_report
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct StrictReport {
 	pub guard_violations: Vec<GuardViolation>,
 	pub leaks: Vec<Leak>,

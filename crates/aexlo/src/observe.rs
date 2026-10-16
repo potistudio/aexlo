@@ -14,6 +14,7 @@ use std::time::Duration;
 
 /// How much an [`Observer`] is told.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum ObserveLevel {
 	/// One event as each command begins and ends.
 	Commands,
@@ -32,6 +33,7 @@ pub enum CommandPhase {
 
 /// A command sent to the plugin's entry point.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CommandEvent {
 	/// The `PF_Cmd_*` value.
 	pub command: i32,
@@ -47,6 +49,7 @@ pub struct CommandEvent {
 
 /// A host suite function the plugin called.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SuiteCallEvent {
 	/// The suite and its version, e.g. `"PF_WorldSuite2"`.
 	pub suite: &'static str,
@@ -58,6 +61,7 @@ pub struct SuiteCallEvent {
 ///
 /// [`Strict::track_allocations`]: crate::Strict::track_allocations
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AllocationEvent {
 	pub kind: AllocationKind,
 	/// `true` for a new allocation, `false` for a disposal.
@@ -69,6 +73,7 @@ pub struct AllocationEvent {
 
 /// What kind of host memory an [`AllocationEvent`] is about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum AllocationKind {
 	Handle,
 	World,
@@ -78,6 +83,7 @@ pub enum AllocationKind {
 ///
 /// [`Strict::track_checkouts`]: crate::Strict::track_checkouts
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CheckoutEvent {
 	pub kind: CheckoutKind,
 	/// The checkout id the plugin chose, or the parameter index for params.
@@ -85,6 +91,7 @@ pub struct CheckoutEvent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum CheckoutKind {
 	/// `checkout_layer` during `SMART_PRE_RENDER`.
 	DeclareLayer,

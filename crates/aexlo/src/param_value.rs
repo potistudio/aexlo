@@ -62,6 +62,7 @@ impl ParamValue {
 /// kinds [`ParamValue`] does not carry a value for (layers, groups, buttons,
 /// arbitrary data, ...). See [`PluginInstance::param_kind`](crate::PluginInstance::param_kind).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ParamKind {
 	/// `PF_Param_LAYER` - index 0 is the effect's own input layer; others are
 	/// linked with [`PluginInstance::set_layer_param`](crate::PluginInstance::set_layer_param).

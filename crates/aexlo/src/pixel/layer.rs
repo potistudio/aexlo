@@ -6,6 +6,7 @@ use std::ptr::null_mut;
 
 /// A 2D raster of `Pixel<D>` stored in row-major order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum LayerError {
 	DimensionMismatch { expected: usize, actual: usize },
 }

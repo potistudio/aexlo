@@ -8,6 +8,7 @@ use thiserror::Error;
 
 /// The main error type for crate's operations.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum AexloError {
 	/// Error occurred while loading the plugin file.
 	#[error("Failed to load plugin: {0}")]
