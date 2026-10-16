@@ -27,7 +27,7 @@ toml_edit = "0.25.15"
 
 # `aexlo bench`: the timing loop, plugin/resolution resolution, and reporting are
 # shared with `cargo bench -p aexlo-bench` so both front-ends measure identically.
-aexlo-bench = { path = "../bench" }
+aexlo-bench = { path = "../../bench" }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 
 # `aexlo dev --bin`: live preview window (minifb), source watching (notify), and

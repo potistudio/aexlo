@@ -2,7 +2,7 @@
 
 [English](README.md) | 日本語
 
-[`aexlo`](../aexlo) を通じて実際の After Effects プラグインを実行し、計測するためのベンチマーク基盤です。特定のプラグインに依存しない設計で、任意の `.plugin` / `.aex` を指定するだけで、コードを変更せずにベンチマークできます。
+[`aexlo`](../crates/aexlo) を通じて実際の After Effects プラグインを実行し、計測するためのベンチマーク基盤です。特定のプラグインに依存しない設計で、任意の `.plugin` / `.aex` を指定するだけで、コードを変更せずにベンチマークできます。
 
 ## ベンチマーク対象
 
@@ -69,4 +69,4 @@ AEXLO_BENCH_PLUGINS=all AEXLO_BENCH_OUT=/tmp/aexlo cargo bench -p aexlo-bench --
 
 ## 共通の計測ループ
 
-すべての計測は、`aexlo bench` がマニフェストのプリセットに対して使うものと同じ `aexlo_harness::bench::measure` を通じて行われます（[ツールキット仕様書](../../docs/toolkit.ja.md) §10）。`AEXLO_BENCH_*` の変数は暗黙のプリセットに相当する設定を記述し、ウォームアップとサンプリングの手順も同じです。ベースラインや性能低下のチェックには、設定をプリセットとして記述し、`aexlo bench --save-baseline` / `--baseline` を使ってください。
+すべての計測は、`aexlo bench` がマニフェストのプリセットに対して使うものと同じ `aexlo_harness::bench::measure` を通じて行われます（[ツールキット仕様書](../docs/toolkit.ja.md) §10）。`AEXLO_BENCH_*` の変数は暗黙のプリセットに相当する設定を記述し、ウォームアップとサンプリングの手順も同じです。ベースラインや性能低下のチェックには、設定をプリセットとして記述し、`aexlo bench --save-baseline` / `--baseline` を使ってください。
