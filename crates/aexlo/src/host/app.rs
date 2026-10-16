@@ -25,24 +25,33 @@ use crate::core::error::{AexloError, Result};
 /// A 16-bit-per-channel UI color, as reported by `PF_AppGetBgColor` / `PF_AppGetColor`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppColor {
+	/// Red, `0..=65535`.
 	pub red: u16,
+	/// Green, `0..=65535`.
 	pub green: u16,
+	/// Blue, `0..=65535`.
 	pub blue: u16,
 }
 
 /// A straight float color, as used by the color picker and eyedropper.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct AppPixelF {
+	/// Alpha, `0.0..=1.0`.
 	pub alpha: f32,
+	/// Red, `0.0..=1.0`.
 	pub red: f32,
+	/// Green, `0.0..=1.0`.
 	pub green: f32,
+	/// Blue, `0.0..=1.0`.
 	pub blue: f32,
 }
 
 /// A point in panel-local or screen coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct AppPoint {
+	/// Horizontal coordinate, growing rightwards.
 	pub h: i32,
+	/// Vertical coordinate, growing downwards.
 	pub v: i32,
 }
 
@@ -50,8 +59,11 @@ pub struct AppPoint {
 /// Each string is truncated to the SDK's 63-byte limit.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PersonalInfo {
+	/// The registered user's name.
 	pub name: String,
+	/// The registered organization.
 	pub org: String,
+	/// The application serial number.
 	pub serial: String,
 }
 
@@ -59,9 +71,13 @@ pub struct PersonalInfo {
 /// `name` is truncated to the SDK's 255-byte limit.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FontInfo {
+	/// The font family name.
 	pub name: String,
+	/// The platform font number (`font_numPS`).
 	pub font_num: i16,
+	/// The point size (`sizePS`).
 	pub size: i16,
+	/// The style bits (`stylePS`).
 	pub style: i16,
 }
 
@@ -72,9 +88,13 @@ pub struct ProgressId(pub u64);
 /// An 8-bit straight color, as passed to `PF_InfoDrawColor`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct AppPixel8 {
+	/// Alpha, `0..=255`.
 	pub alpha: u8,
+	/// Red, `0..=255`.
 	pub red: u8,
+	/// Green, `0..=255`.
 	pub green: u8,
+	/// Blue, `0..=255`.
 	pub blue: u8,
 }
 
@@ -83,7 +103,9 @@ pub struct AppPixel8 {
 /// and a right-justified part.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InfoLine {
+	/// The left-justified text.
 	pub left: String,
+	/// The right-justified text; empty unless set by `PF_InfoDrawText3Plus`.
 	pub right: String,
 }
 
@@ -102,6 +124,7 @@ pub enum TimeDisplayMode {
 /// aexlo to format times for `PF_FormatTime*`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimeDisplayPref {
+	/// Timecode or frames.
 	pub mode: TimeDisplayMode,
 	/// Timecode base in frames per second (`framemax`).
 	pub timebase: i32,
@@ -113,7 +136,10 @@ pub struct TimeDisplayPref {
 	pub starting_frame: i32,
 	/// Non-drop-frame timecode for 29.97/59.94 bases.
 	pub non_drop: bool,
+	/// Use the source footage's timecode where it has one
+	/// (`honor_source_timecodeB`).
 	pub honor_source_timecode: bool,
+	/// Show feet+frames instead of a frame count in [`TimeDisplayMode::Frames`].
 	pub use_feet_frames: bool,
 }
 
@@ -136,10 +162,15 @@ impl Default for TimeDisplayPref {
 /// "PF Effect Custom UI Overlay Theme Suite".
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct OverlayTheme {
+	/// The color overlay strokes are drawn in.
 	pub foreground: AppPixelF,
+	/// The color of the drop shadow drawn under strokes.
 	pub shadow: AppPixelF,
+	/// The stroke width, in pixels.
 	pub stroke_width: f32,
+	/// The size of vertex handles, in pixels.
 	pub vertex_size: f32,
+	/// How far the shadow is offset from the stroke, in pixels.
 	pub shadow_offset: AppPoint,
 }
 

@@ -27,7 +27,9 @@ pub enum ObserveLevel {
 /// Whether a [`CommandEvent`] marks the start or the end of a command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandPhase {
+	/// The entry point is about to be called.
 	Begin,
+	/// The entry point returned.
 	End,
 }
 
@@ -39,6 +41,7 @@ pub struct CommandEvent {
 	pub command: i32,
 	/// The SDK name without its prefix, e.g. `"SMART_RENDER"`.
 	pub name: &'static str,
+	/// Whether the command is starting or has finished.
 	pub phase: CommandPhase,
 	/// Time spent inside the entry point; set on [`CommandPhase::End`].
 	pub duration: Option<Duration>,
@@ -57,17 +60,20 @@ pub struct SuiteCallEvent {
 	pub function: &'static str,
 }
 
-/// A host-tracked allocation changed (see [`Strict::track_allocations`]).
+/// The plugin got memory from the host or gave it back. Reported whether or
+/// not [`Strict::track_allocations`] is on.
 ///
 /// [`Strict::track_allocations`]: crate::Strict::track_allocations
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct AllocationEvent {
+	/// What was allocated or disposed.
 	pub kind: AllocationKind,
 	/// `true` for a new allocation, `false` for a disposal.
 	pub allocated: bool,
 	/// The allocation's address, as the plugin sees it.
 	pub address: usize,
+	/// The allocation's size in bytes.
 	pub bytes: usize,
 }
 
@@ -75,21 +81,26 @@ pub struct AllocationEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum AllocationKind {
+	/// A memory handle (`PF_NewHandle` and the Handle Suite).
 	Handle,
+	/// A pixel world (`PF_NewWorld` and the World Suite).
 	World,
 }
 
-/// A smart-render checkout (see [`Strict::track_checkouts`]).
+/// A smart-render checkout or checkin. Reported whether or not
+/// [`Strict::track_checkouts`] is on.
 ///
 /// [`Strict::track_checkouts`]: crate::Strict::track_checkouts
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct CheckoutEvent {
+	/// Which checkout call this is.
 	pub kind: CheckoutKind,
 	/// The checkout id the plugin chose, or the parameter index for params.
 	pub id: i32,
 }
 
+/// Which checkout call a [`CheckoutEvent`] reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum CheckoutKind {
@@ -111,9 +122,13 @@ pub enum CheckoutKind {
 /// Methods run synchronously inside the host, some while the plugin waits on
 /// them; keep them short and never call back into the instance.
 pub trait Observer: Send + Sync {
+	/// A command began or ended.
 	fn command(&self, _event: &CommandEvent) {}
+	/// The plugin called a host suite function (only at [`ObserveLevel::Calls`]).
 	fn suite_call(&self, _event: &SuiteCallEvent) {}
+	/// The plugin got memory from the host or gave it back.
 	fn allocation(&self, _event: &AllocationEvent) {}
+	/// The plugin checked a layer or parameter out or in.
 	fn checkout(&self, _event: &CheckoutEvent) {}
 }
 

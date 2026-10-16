@@ -4,11 +4,17 @@ use super::{Depth8, Depth16, Depth32, Pixel, PixelDepth, PixelDepthKind};
 use core::ops::{Index, IndexMut};
 use std::ptr::null_mut;
 
-/// A 2D raster of `Pixel<D>` stored in row-major order.
+/// An error building a [`Layer`] or copying its pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum LayerError {
-	DimensionMismatch { expected: usize, actual: usize },
+	/// A buffer's length does not match the layer's dimensions.
+	DimensionMismatch {
+		/// The length the dimensions call for.
+		expected: usize,
+		/// The length of the buffer passed.
+		actual: usize,
+	},
 }
 
 impl core::fmt::Display for LayerError {
@@ -36,9 +42,10 @@ impl<D> Layer<D>
 where
 	D: PixelDepth,
 {
-	/// Create a layer from dimensions and a pixel buffer.
+	/// Create a layer from dimensions and a pixel buffer in row-major order.
 	///
-	/// Returns an error if `pixels.len() != width * height`.
+	/// # Errors
+	/// [`LayerError::DimensionMismatch`] if `pixels.len() != width * height`.
 	pub fn new(width: u32, height: u32, pixels: Vec<Pixel<D>>) -> Result<Self, LayerError> {
 		let expected = (width * height) as usize;
 		if pixels.len() != expected {
@@ -51,6 +58,11 @@ where
 		Ok(Self { width, height, pixels })
 	}
 
+	/// An 8 bpc layer from straight RGBA bytes in row-major order, as image
+	/// decoders produce them.
+	///
+	/// # Errors
+	/// [`LayerError::DimensionMismatch`] if `pixels.len() != width * height * 4`.
 	pub fn from_raw(pixels: Vec<u8>, width: u32, height: u32) -> Result<Layer<Depth8>, LayerError> {
 		let expected = (width * height * 4) as usize;
 		if pixels.len() != expected {
@@ -75,6 +87,7 @@ where
 		Layer::<Depth8>::new(width, height, converted)
 	}
 
+	/// A layer of fully transparent black pixels ([`Pixel::blank`]).
 	pub fn blank(width: u32, height: u32) -> Self
 	where
 		Pixel<D>: Default,
@@ -85,6 +98,7 @@ where
 		Self { width, height, pixels }
 	}
 
+	/// A layer of opaque black pixels ([`Pixel::black`]).
 	pub fn black(width: u32, height: u32) -> Self
 	where
 		Pixel<D>: Default,
@@ -192,6 +206,11 @@ where
 		self.pixels.iter_mut()
 	}
 
+	/// A `PF_LayerDef` (effect world) over this layer's pixels, for passing to
+	/// a plugin.
+	///
+	/// The world borrows the pixel buffer through a raw pointer: it is valid
+	/// only while this layer is alive and not resized.
 	pub fn as_sys(&mut self) -> PF_LayerDef {
 		// `data` must come from `as_mut_ptr`: the host/plugin writes through it,
 		// and a pointer derived from `as_ptr` only carries read provenance.
@@ -231,7 +250,10 @@ where
 
 impl Layer<Depth8> {
 	/// Write RGBA bytes directly into an existing buffer (zero-allocation).
-	/// The buffer must have exactly `width * height * 4` bytes.
+	///
+	/// # Errors
+	/// [`LayerError::DimensionMismatch`] unless the buffer has exactly
+	/// `width * height * 4` bytes.
 	pub fn write_rgba_bytes(&self, buffer: &mut [u8]) -> Result<(), LayerError> {
 		let required = self.pixels.len() * 4;
 
@@ -263,8 +285,11 @@ impl<D: PixelDepth> Clone for Layer<D> {
 /// A [`Layer`] of any depth, for code that picks the depth at run time.
 #[derive(Clone)]
 pub enum AnyLayer {
+	/// An 8 bpc layer.
 	U8(Layer<Depth8>),
+	/// A 16 bpc layer.
 	U16(Layer<Depth16>),
+	/// A 32 bpc layer.
 	F32(Layer<Depth32>),
 }
 
@@ -280,6 +305,7 @@ macro_rules! with_layer {
 }
 
 impl AnyLayer {
+	/// Wrap a typed layer.
 	pub fn new<D: PixelDepth>(layer: Layer<D>) -> Self {
 		D::wrap(layer)
 	}
@@ -301,6 +327,7 @@ impl AnyLayer {
 		}
 	}
 
+	/// The layer's depth.
 	pub fn kind(&self) -> PixelDepthKind {
 		match self {
 			Self::U8(_) => PixelDepthKind::U8,
@@ -309,10 +336,12 @@ impl AnyLayer {
 		}
 	}
 
+	/// The width in pixels.
 	pub fn width(&self) -> u32 {
 		with_layer!(self, l => l.width())
 	}
 
+	/// The height in pixels.
 	pub fn height(&self) -> u32 {
 		with_layer!(self, l => l.height())
 	}
@@ -375,8 +404,11 @@ impl AnyLayer {
 		}
 	}
 
-	/// Write the layer as 8-bit RGBA bytes, quantizing deeper channels. The
-	/// buffer must have exactly `width * height * 4` bytes.
+	/// Write the layer as 8-bit RGBA bytes, quantizing deeper channels.
+	///
+	/// # Errors
+	/// [`LayerError::DimensionMismatch`] unless the buffer has exactly
+	/// `width * height * 4` bytes.
 	pub fn write_rgba8(&self, buffer: &mut [u8]) -> Result<(), LayerError> {
 		if let Self::U8(layer) = self {
 			return layer.write_rgba_bytes(buffer);

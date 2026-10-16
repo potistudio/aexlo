@@ -55,8 +55,11 @@ impl PluginInstance {
 	}
 
 	/// Write output pixels directly to an RGBA buffer (zero-allocation).
-	/// The buffer must have exactly `width * height * 4` bytes. Deeper output
-	/// is quantized to 8 bits per channel.
+	/// Deeper output is quantized to 8 bits per channel.
+	///
+	/// # Errors
+	/// [`AexloError::Layer`] unless the buffer has exactly
+	/// `width * height * 4` bytes ([`Self::output_size`]).
 	pub fn write_rendered_pixels(&self, buffer: &mut [u8]) -> Result<()> {
 		self.output_layer.layer().write_rgba8(buffer)?;
 		Ok(())
@@ -165,6 +168,9 @@ impl PluginInstance {
 
 	/// Unlink the layer parameter at `index` (its "None" choice); the same as
 	/// [`Self::set_layer_param`] with `None`, without naming a depth.
+	///
+	/// # Errors
+	/// As [`Self::set_layer_param`].
 	pub fn clear_layer_param(&mut self, index: usize) -> Result<()> {
 		self.set_layer_param::<Depth8>(index, None)
 	}

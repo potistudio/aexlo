@@ -25,9 +25,13 @@ impl PluginInstance {
 	/// Set a parameter value by index.
 	///
 	/// Indices follow the plugin's own parameter order — the same space used by
-	/// [`Self::get_param`], [`Self::param_values`], and [`Self::param_by_index`]:
-	/// index 0 is the implicit input layer (not settabl-), real parameters start
-	/// at 1.
+	/// [`Self::get_param`] and [`Self::param_values`]: index 0 is the implicit
+	/// input layer (not settable), real parameters start at 1.
+	///
+	/// # Errors
+	/// [`AexloError::ParamIndexOutOfBounds`] for index 0 or past the last
+	/// parameter, [`AexloError::ParamTypeMismatch`] if `value` is not of the
+	/// parameter's [kind](Self::param_kind).
 	pub fn set_param(&mut self, index: usize, value: ParamValue) -> Result<()> {
 		if index == 0 || index >= self.params.len() {
 			return Err(AexloError::ParamIndexOutOfBounds {
@@ -93,7 +97,10 @@ impl PluginInstance {
 	///
 	/// This is where an effect reacts to an edit — adjusting dependent parameters
 	/// or requesting a UI refresh (typically by raising `PF_OutFlag_SEND_UPDATE_PARAMS_UI`,
-	/// after which the host follows up with [`Sel-::update_params_ui`]).
+	/// after which the host follows up with [`Self::update_params_ui`]).
+	///
+	/// # Errors
+	/// [`AexloError::PluginExecutionFailed`] if the plugin rejects the command.
 	pub fn user_changed_param(&mut self, index: usize) -> Result<()> {
 		let mut extra = after_effects_sys::PF_UserChangedParamExtra {
 			param_index: index as after_effects_sys::PF_ParamIndex,
@@ -106,8 +113,11 @@ impl PluginInstance {
 
 	/// Ask the plugin to refresh its parameter UI state (`PF_Cmd_UPDATE_PARAMS_UI`):
 	/// showing, hiding, collapsing, or disabling controls via
-	/// [`PF_ParamUtilsSuite3::PF_UpdateParamUI`](crate::suites). Cosmetic only — the
-	/// plugin must not change parameter values in response to this command.
+	/// `PF_ParamUtilsSuite3::PF_UpdateParamUI`. Cosmetic only — the plugin must
+	/// not change parameter values in response to this command.
+	///
+	/// # Errors
+	/// [`AexloError::PluginExecutionFailed`] if the plugin rejects the command.
 	pub fn update_params_ui(&mut self) -> Result<()> {
 		self.call_plugin(RawCommand::UpdateParamsUi, null_mut())
 	}

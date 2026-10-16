@@ -66,6 +66,9 @@ impl Host {
 	/// [`Self::try_load`] with strict mode on from the very first command, so
 	/// what the plugin allocates during setup is tracked too (see
 	/// [`PluginInstance::finish`]).
+	///
+	/// # Errors
+	/// As [`Self::try_load`].
 	pub fn try_load_with(self, path: impl AsRef<Path>, strict: crate::Strict) -> Result<PluginInstance> {
 		let mut instance = PluginInstance::new(path.as_ref());
 		instance.set_strict(strict);
@@ -88,6 +91,10 @@ impl Host {
 	/// Use this when the plugin crate is built against the *same*
 	/// `after-effects-sys` version as aexlo, so `EffectMain as PluginEntryPoint`
 	/// coerces. Otherwise reach for [`Self::from_entry_raw`].
+	///
+	/// # Errors
+	/// [`AexloError::PluginExecutionFailed`] if the plugin rejects
+	/// `PF_Cmd_GLOBAL_SETUP`, `PF_Cmd_PARAMS_SETUP` or `PF_Cmd_SEQUENCE_SETUP`.
 	///
 	/// # Safety
 	/// `entry` must be a valid AE effect entry point that is ABI-compatible with
@@ -112,6 +119,9 @@ impl Host {
 	/// identical. Passing the address (`EffectMain as usize`) sidesteps the type
 	/// mismatch, making ABI compatibility the caller's explicit promise.
 	///
+	/// # Errors
+	/// As [`Self::from_entry`].
+	///
 	/// # Safety
 	/// `entry_addr` must be the address of a function that is ABI-compatible with
 	/// [`PluginEntryPoint`] and stays callable for the lifetime of the instance.
@@ -120,6 +130,9 @@ impl Host {
 	}
 
 	/// [`Self::from_entry_raw`] with strict mode on from the first command.
+	///
+	/// # Errors
+	/// As [`Self::from_entry`].
 	///
 	/// # Safety
 	/// As [`Self::from_entry_raw`].

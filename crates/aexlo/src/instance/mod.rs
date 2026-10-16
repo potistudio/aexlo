@@ -193,7 +193,11 @@ pub struct PluginInstance {
 }
 
 impl PluginInstance {
-	/// Call the plugin with `PF_Cmd_ABOUT` command.
+	/// Call the plugin with `PF_Cmd_ABOUT` and return the text it reports,
+	/// typically its name, version and copyright.
+	///
+	/// # Errors
+	/// [`AexloError::PluginExecutionFailed`] if the plugin rejects the command.
 	pub fn about(&mut self) -> Result<String> {
 		self.call_plugin(RawCommand::About, null_mut())?;
 

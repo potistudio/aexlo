@@ -6,31 +6,35 @@
 //! # Example
 //!
 //! ```no_run
-//! use aexlo::{Host, PluginInstance};
-//! use std::path::Path;
+//! use aexlo::{Depth8, Host, Layer, ParamValue, Time};
 //!
 //! # fn main() -> aexlo::Result<()> {
 //! // Fix the host services first (`Host::install(my_app_host)?` to customize).
 //! let host = Host::get();
 //!
-//! // `try_load` loads the library, runs GLOBAL_SETUP and PARAMS_SETUP.
-//! let mut instance = host.try_load(Path::new("ExamplePlugin"))?;
+//! // Load the plugin and run GLOBAL_SETUP, PARAMS_SETUP and SEQUENCE_SETUP.
+//! // On Windows pass the `.aex` file, on macOS the `.plugin` bundle.
+//! let mut fx = host.try_load("MyEffect.aex")?;
+//! println!("{}", fx.about()?);
 //!
-//! // Query plugin info (PF_Cmd_ABOUT).
-//! let message = instance.about()?;
-//! println!("{message}");
+//! // Feed an input frame and set parameters (index 0 is the input layer).
+//! fx.set_input_layer(Layer::<Depth8>::black(1920, 1080));
+//! fx.set_param(1, ParamValue::Float(0.5))?;
+//! fx.set_time(Time::frame(0, 30));
 //!
-//! // Render a frame.
-//! instance.render_frame()?;
+//! // Render the way After Effects picks the path: GPU, smart, then legacy.
+//! fx.render_frame()?;
+//! let output: Layer<Depth8> = fx.read_output()?;
 //! # Ok(())
 //! # }
 //! ```
 //!
 //! # Features
 //!
-//! - `diagnostics` - Enable detailed diagnostic logging for debugging
+//! - `diagnostics` - Print every suite call the plugin makes, with its
+//!   arguments, to stdout
 
-#![warn(clippy::all)]
+#![warn(clippy::all, missing_docs, clippy::missing_errors_doc)]
 // The crate mirrors the After Effects C SDK, whose suite struct fields and entry
 // points (`PF_GetAppName`, `EffectMain`, …) use non-snake-case names. Allowing it
 // crate-wide keeps the FFI surface readable without per-item annotations.

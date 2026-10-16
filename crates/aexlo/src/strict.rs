@@ -135,8 +135,11 @@ pub struct GuardViolation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Leak {
+	/// What leaked.
 	pub kind: crate::AllocationKind,
+	/// The allocation's address, as the plugin saw it.
 	pub address: usize,
+	/// The allocation's size in bytes.
 	pub bytes: usize,
 	/// The command during which it was allocated.
 	pub allocated_in: &'static str,
@@ -148,6 +151,7 @@ pub struct Leak {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CheckoutViolation {
+	/// Which rule was broken, and by which command.
 	pub message: String,
 }
 
@@ -157,12 +161,16 @@ pub struct CheckoutViolation {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct StrictReport {
+	/// Writes outside a world's pixels ([`Strict::guard_bands`]).
 	pub guard_violations: Vec<GuardViolation>,
+	/// Allocations not released in time ([`Strict::track_allocations`]).
 	pub leaks: Vec<Leak>,
+	/// Smart-render checkout rules broken ([`Strict::track_checkouts`]).
 	pub checkout_violations: Vec<CheckoutViolation>,
 }
 
 impl StrictReport {
+	/// Whether strict mode found nothing.
 	pub fn is_empty(&self) -> bool {
 		self.guard_violations.is_empty() && self.leaks.is_empty() && self.checkout_violations.is_empty()
 	}

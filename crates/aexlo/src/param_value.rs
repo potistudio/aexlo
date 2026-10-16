@@ -22,18 +22,39 @@ pub enum ParamValue {
 	Angle(f32),
 
 	/// `PF_Param_POINT` - a 2D point, in pixels.
-	Point { x: f32, y: f32 },
+	Point {
+		/// Horizontal position.
+		x: f32,
+		/// Vertical position.
+		y: f32,
+	},
 
 	/// `PF_Param_COLOR` - an 8-bit RGBA color.
-	Color { red: u8, green: u8, blue: u8, alpha: u8 },
+	Color {
+		/// Red, `0..=255`.
+		red: u8,
+		/// Green, `0..=255`.
+		green: u8,
+		/// Blue, `0..=255`.
+		blue: u8,
+		/// Alpha, `0..=255`.
+		alpha: u8,
+	},
 
 	/// `PF_Param_PATH` - the [`MaskPath::id`](crate::MaskPath::id) of the
 	/// selected mask (`0` for none), resolved against
 	/// [`PluginInstance::set_mask_paths`](crate::PluginInstance::set_mask_paths).
 	Path(u32),
 
-	/// `PF_Param_POINT_3D` - a 3D point, in pixels (`z` along the comp's depth).
-	Point3D { x: f64, y: f64, z: f64 },
+	/// `PF_Param_POINT_3D` - a 3D point, in pixels.
+	Point3D {
+		/// Horizontal position.
+		x: f64,
+		/// Vertical position.
+		y: f64,
+		/// Position along the comp's depth.
+		z: f64,
+	},
 }
 
 impl ParamValue {
@@ -64,23 +85,40 @@ pub enum ParamKind {
 	/// `PF_Param_LAYER` - index 0 is the effect's own input layer; others are
 	/// linked with [`PluginInstance::set_layer_param`](crate::PluginInstance::set_layer_param).
 	Layer,
+	/// `PF_Param_SLIDER` - an integer slider ([`ParamValue::Slider`]).
 	Slider,
+	/// `PF_Param_FIX_SLIDER` - a 16.16 fixed-point slider ([`ParamValue::Fixed`]).
 	FixedSlider,
+	/// `PF_Param_ANGLE` - an angle ([`ParamValue::Angle`]).
 	Angle,
+	/// `PF_Param_CHECKBOX` - a toggle ([`ParamValue::Checkbox`]).
 	Checkbox,
+	/// `PF_Param_COLOR` - an 8-bit color ([`ParamValue::Color`]).
 	Color,
+	/// `PF_Param_POINT` - a 2D point ([`ParamValue::Point`]).
 	Point,
+	/// `PF_Param_POPUP` - a choice list ([`ParamValue::Popup`]).
 	Popup,
+	/// `PF_Param_CUSTOM` - a parameter drawn by the plugin's own UI.
 	Custom,
+	/// `PF_Param_NO_DATA` - a parameter with a UI but no value.
 	NoData,
+	/// `PF_Param_FLOAT_SLIDER` - a floating-point slider ([`ParamValue::Float`]).
 	FloatSlider,
+	/// `PF_Param_ARBITRARY_DATA` - plugin-defined data the host stores opaquely.
 	ArbitraryData,
+	/// `PF_Param_PATH` - a mask selector ([`ParamValue::Path`]).
 	Path,
 	/// `PF_Param_GROUP_START` - the following parameters, up to the matching
 	/// [`ParamKind::GroupEnd`], form a twirl-down group named after this one.
 	GroupStart,
+	/// `PF_Param_GROUP_END` - closes the group opened by the matching
+	/// [`ParamKind::GroupStart`].
 	GroupEnd,
+	/// `PF_Param_BUTTON` - a push button; pressing it sends
+	/// `PF_Cmd_USER_CHANGED_PARAM`.
 	Button,
+	/// `PF_Param_POINT_3D` - a 3D point ([`ParamValue::Point3D`]).
 	Point3D,
 	/// Any other `PF_ParamType` value.
 	Other(i32),
