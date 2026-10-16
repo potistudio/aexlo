@@ -17,5 +17,5 @@ jobs:
   noise-demo:
     uses: ./.github/workflows/aexlo-check.yml
     with:
-      manifest: demos/noise/aexlo.toml
+      manifest: examples/plugins/noise/aexlo.toml
       aexlo-path: .

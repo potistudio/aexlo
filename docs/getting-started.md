@@ -73,16 +73,16 @@ cargo run -p aexlo-cli -- test --manifest fixtures/aexlo.toml
 | Directory | Purpose | When to explore it |
 | --- | --- | --- |
 | `examples/` | Applications using the host | Start here: minimal → sdk_noise → interactive |
+| `examples/plugins/` | Example plugins built from source and tested with aexlo | Explore plugin-side code |
 | `fixtures/` | Existing plugins and verification settings | Inspect the examples' inputs |
 | `crates/aexlo/` | Host implementation and public API | Integrate the host into your application |
 | `crates/cli/` | Verification and preview CLI | Repeat runs under consistent conditions |
-| `demos/` | Demo plugins built from source | Explore plugin-side code |
 | `playground/` | Host API probe and runner | Investigate compatibility and unsupported APIs |
 
 ## Troubleshooting
 
 - **Plugin not found:** Check the path and platform-specific extension. On macOS, pass the entire `.plugin` bundle; on Windows, pass the `.aex` file. If a fixture is a Git LFS pointer, run `git lfs pull` to fetch its contents.
-- **Build fails:** Check the selected toolchain with `rustup show` and read the first compiler error. Building demo plugins also requires the platform's linker.
+- **Build fails:** Check the selected toolchain with `rustup show` and read the first compiler error. Building the example plugins also requires the platform's linker.
 - **Image cannot be opened:** Check the input path and use PNG. The image decoder in this example enables only PNG support.
 - **Plugin loads but rendering fails:** Try the same workflow with SDK_Noise first, then inspect the target plugin's error. The host may not provide every feature the plugin requires.
 - **GUI does not start:** Use a desktop environment with GPU access. minimal, sdk_noise, and the CLI can run from a terminal.

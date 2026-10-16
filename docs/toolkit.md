@@ -608,7 +608,7 @@ on Windows x64 where a fixture exists.
 | -- | ----- | ---------- |
 | M1 | Core: `param_indices`, generic depth I/O (16, then 32), `Observer` at `Commands` level. | A bundled fixture declaring deep color renders at 16 bpc and reads back `Layer<Depth16>`; command timings are observable. |
 | M2 | Harness: manifest, `inherits`, matrix, worker protocol, outcomes; `aexlo presets`, `aexlo render --preset`. | A manifest over two fixtures where one crashes: `aexlo test` reports one `crash` and the remaining variants still run. `render_one` removed. |
-| M3 | Test: goldens, `--bless`, `finite`/`coverage`/`deterministic`; JSON and JUnit output; `aexlo-test` with `#[aexlo::test]`. | `demos/noise` has a manifest and an `#[aexlo::test]`; changing its hash constant fails both with diff artifacts. |
+| M3 | Test: goldens, `--bless`, `finite`/`coverage`/`deterministic`; JSON and JUnit output; `aexlo-test` with `#[aexlo::test]`. | `examples/plugins/noise` has a manifest and an `#[aexlo::test]`; changing its hash constant fails both with diff artifacts. |
 | M4 | Strict: guard bands, allocation and checkout tracking; `bounds`/`allocations`/`checkouts`/`flags`; `iterate-parallel`, `depth-consistency`; fuzzing. | A test plugin that writes one row past its world fails `bounds`; one that leaks a handle fails `allocations`. |
 | M5 | Bench on presets: phase breakdown, baselines, regression exit code. `aexlo-bench` migrated. | Artificially slowing a fixture's render beyond the threshold makes `aexlo bench --baseline` exit 1. |
 | M6 | Viewer: preset picker, compare modes, time scrubber, "Save as preset". | A saved preset round-trips: the viewer shows it, then `aexlo test` runs it. |
