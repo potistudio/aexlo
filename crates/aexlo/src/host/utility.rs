@@ -609,7 +609,7 @@ pub fn create_utility_callbacks() -> Box<_PF_UtilCallbacks> {
 
 #[cfg(test)]
 mod tests {
-	use wrapper::{Depth8, Layer};
+	use crate::pixel::{Depth8, Layer};
 
 	use super::*;
 

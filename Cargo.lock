@@ -159,7 +159,6 @@ dependencies = [
  "rayon",
  "thiserror 2.0.18",
  "tiny-skia",
- "wrapper",
 ]
 
 [[package]]
@@ -5764,14 +5763,6 @@ name = "wit-bindgen"
 version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
-
-[[package]]
-name = "wrapper"
-version = "0.0.0"
-dependencies = [
- "after-effects-sys",
- "rand",
-]
 
 [[package]]
 name = "writeable"

@@ -44,6 +44,7 @@ mod mask;
 mod observe;
 mod param_value;
 mod pipl;
+mod pixel;
 mod strict;
 mod utils;
 
@@ -108,8 +109,8 @@ pub use host::app::{
 pub use core::diagnostics::{Diagnostic, DiagnosticBuilder};
 
 /// Safe pixel/layer wrappers, re-exported explicitly so additions to the
-/// `wrapper` crate don't silently widen this crate's public API.
-pub use wrapper::{AnyLayer, Depth8, Depth16, Depth32, Layer, LayerError, Pixel, PixelDepth, PixelDepthKind};
+/// `pixel` module don't silently widen this crate's public API.
+pub use pixel::{AnyLayer, Depth8, Depth16, Depth32, Layer, LayerError, Pixel, PixelDepth, PixelDepthKind};
 
 /// Observation hooks ([`PluginInstance::set_observer`]).
 pub use observe::{

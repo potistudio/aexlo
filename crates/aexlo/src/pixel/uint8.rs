@@ -111,18 +111,6 @@ impl Pixel<Depth8> {
 		}
 	}
 
-	pub fn random() -> Self {
-		use rand::RngExt;
-		let mut rng = rand::rng();
-
-		Pixel {
-			alpha: 255,
-			red: rng.random(),
-			green: rng.random(),
-			blue: rng.random(),
-		}
-	}
-
 	pub fn red() -> Self {
 		Pixel {
 			alpha: 255,

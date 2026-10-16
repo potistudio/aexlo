@@ -25,7 +25,7 @@ pub(crate) struct LinkedLayer {
 }
 
 impl LinkedLayer {
-	pub(crate) fn new(layer: wrapper::AnyLayer, unlinked: PF_LayerDef) -> Self {
+	pub(crate) fn new(layer: crate::pixel::AnyLayer, unlinked: PF_LayerDef) -> Self {
 		let mut layer = HostLayer::new(layer);
 		let mut cpu_world = layer.as_sys();
 		// `PF_LayerDefault_NONE` marks an unlinked layer parameter, which plugins
@@ -42,7 +42,7 @@ impl LinkedLayer {
 		}
 	}
 
-	pub(crate) fn layer(&self) -> &wrapper::AnyLayer {
+	pub(crate) fn layer(&self) -> &crate::pixel::AnyLayer {
 		self.layer.layer()
 	}
 

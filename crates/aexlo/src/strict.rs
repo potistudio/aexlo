@@ -6,7 +6,7 @@
 //!
 //! [`PluginInstance::set_strict`]: crate::PluginInstance::set_strict
 
-use wrapper::{AnyLayer, Layer, PixelDepth};
+use crate::pixel::{AnyLayer, Layer, PixelDepth};
 
 /// Which strict-mode instrumentation an instance runs. All off by default,
 /// in which case the host's allocation paths and costs are unchanged.
@@ -540,7 +540,7 @@ pub(crate) fn guards_broken(world: &str, bands: Vec<(&'static str, usize)>) {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use wrapper::PixelDepthKind;
+	use crate::pixel::PixelDepthKind;
 
 	#[test]
 	fn poison_is_found_at_every_depth_and_only_where_left() {
@@ -551,13 +551,13 @@ mod tests {
 			fn write<D: PixelDepth>(layer: &mut AnyLayer) {
 				let layer = layer.get_mut::<D>().unwrap();
 				for pixel in layer.iter_mut().take(3) {
-					*pixel = wrapper::Pixel::from_unit([0.2, 0.4, 0.6, 1.0]);
+					*pixel = crate::pixel::Pixel::from_unit([0.2, 0.4, 0.6, 1.0]);
 				}
 			}
 			match kind {
-				PixelDepthKind::U8 => write::<wrapper::Depth8>(&mut layer),
-				PixelDepthKind::U16 => write::<wrapper::Depth16>(&mut layer),
-				PixelDepthKind::F32 => write::<wrapper::Depth32>(&mut layer),
+				PixelDepthKind::U8 => write::<crate::pixel::Depth8>(&mut layer),
+				PixelDepthKind::U16 => write::<crate::pixel::Depth16>(&mut layer),
+				PixelDepthKind::F32 => write::<crate::pixel::Depth32>(&mut layer),
 			}
 			assert_eq!(unwritten_pixels(&layer), 5, "{kind}");
 		}

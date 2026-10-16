@@ -45,17 +45,17 @@ fn alloc(kind: i32, width: i32, height: i32) -> AEGP_WorldH {
 
 /// A world filled from `layer`, subsampled by `down_x`/`down_y` (values below 1
 /// mean no subsample). Channel order is ARGB, matching `PF_Pixel`.
-fn depth_kind(kind: i32) -> wrapper::PixelDepthKind {
+fn depth_kind(kind: i32) -> crate::pixel::PixelDepthKind {
 	if kind == AEGP_WorldType_16 as i32 {
-		wrapper::PixelDepthKind::U16
+		crate::pixel::PixelDepthKind::U16
 	} else if kind == AEGP_WorldType_32 as i32 {
-		wrapper::PixelDepthKind::F32
+		crate::pixel::PixelDepthKind::F32
 	} else {
-		wrapper::PixelDepthKind::U8
+		crate::pixel::PixelDepthKind::U8
 	}
 }
 
-pub(crate) fn world_from_layer(kind: i32, layer: &wrapper::AnyLayer, down_x: i32, down_y: i32) -> AEGP_WorldH {
+pub(crate) fn world_from_layer(kind: i32, layer: &crate::pixel::AnyLayer, down_x: i32, down_y: i32) -> AEGP_WorldH {
 	let down_x = down_x.max(1) as usize;
 	let down_y = down_y.max(1) as usize;
 	let width = (layer.width() as usize / down_x).max(1);
@@ -449,7 +449,7 @@ mod tests {
 
 	#[test]
 	fn world_from_layer_writes_argb() {
-		let layer = wrapper::AnyLayer::U8(wrapper::Layer::from_fn(1, 1, |_, _| wrapper::Pixel::red()));
+		let layer = crate::pixel::AnyLayer::U8(crate::pixel::Layer::from_fn(1, 1, |_, _| crate::pixel::Pixel::red()));
 		let handle = world_from_layer(AEGP_WorldType_8 as i32, &layer, 1, 1);
 		let world = unsafe { world_mut(handle) }.unwrap();
 		assert_eq!(&world.pixels[..4], &[255, 255, 0, 0]);

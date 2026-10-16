@@ -1,6 +1,6 @@
 use after_effects_sys::{PF_LayerDef, PF_Pixel};
 
-use super::pixel::{Depth8, Depth16, Depth32, Pixel, PixelDepth, PixelDepthKind};
+use super::{Depth8, Depth16, Depth32, Pixel, PixelDepth, PixelDepthKind};
 use core::ops::{Index, IndexMut};
 use std::ptr::null_mut;
 
