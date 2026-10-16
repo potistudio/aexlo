@@ -6,7 +6,12 @@ rust-version = { workspace = true }
 description = "Command-line front-end for the aexlo After Effects plugin loader."
 authors = { workspace = true }
 license = { workspace = true }
-repository = "https://github.com/potistudio/aexlo-rs"
+repository = { workspace = true }
+
+# After Effects plugins only exist for Windows and macOS; docs.rs builds Linux
+# by default.
+[package.metadata.docs.rs]
+targets = ["x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
 
 # Installs as `aexlo` so `cargo install --path crates/aexlo-cli` gives an `aexlo` command.
 [[bin]]
@@ -15,20 +20,20 @@ path = "src/main.rs"
 
 [dependencies]
 aexlo = { workspace = true }
-anyhow = "1.0.103"
+anyhow = { workspace = true }
 
 # The preset-driven toolkit (`presets`, `test`, `bench`, `check`, `worker`).
 aexlo-harness = { workspace = true }
-env_logger = "0.11.11"
-serde_json = "1.0.145"
+env_logger = { workspace = true }
+serde_json = { workspace = true }
 # The viewer's "Save as preset" edits aexlo.toml, keeping its formatting.
-toml = "1.1.6"
+toml = { workspace = true }
 toml_edit = "0.25.15"
 
 # `aexlo bench`: the timing loop, plugin/resolution resolution, and reporting are
 # shared with `cargo bench -p aexlo-bench` so both front-ends measure identically.
-aexlo-bench = { path = "../../bench" }
-image = { version = "0.25.10", default-features = false, features = ["png"] }
+aexlo-bench = { workspace = true }
+image = { workspace = true, features = ["png"] }
 
 # `aexlo dev --bin`: live preview window (minifb), source watching (notify), and
 # locating the freshly built cdylib artifact (cargo_metadata).
@@ -40,5 +45,5 @@ notify = "8.2.0"
 tiny_http = "0.12.0"
 
 [dev-dependencies]
-image = { version = "0.25.10", default-features = false, features = ["png"] }
-serde_json = "1.0.145"
+image = { workspace = true, features = ["png"] }
+serde_json = { workspace = true }

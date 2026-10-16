@@ -6,10 +6,16 @@ edition = { workspace = true }
 rust-version = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
-repository = "https://github.com/potistudio/aexlo-rs"
+repository = { workspace = true }
+
+
+# After Effects plugins only exist for Windows and macOS; docs.rs builds Linux
+# by default.
+[package.metadata.docs.rs]
+targets = ["x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
 
 [dependencies]
 aexlo = { workspace = true, features = ["macros"] }
 aexlo-harness = { workspace = true }
 aexlo-macros = { workspace = true }
-toml = "1.1.6"
+toml = { workspace = true }

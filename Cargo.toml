@@ -21,13 +21,35 @@ edition = "2024"
 rust-version = "1.99.0"
 authors = ["potistudio <potistudio@proton.me>"]
 license = "MIT"
+repository = "https://github.com/potistudio/aexlo-rs"
 
 [profile.release]
 codegen-units = 1
 lto = true
 
 [workspace.dependencies]
-aexlo = { path = "crates/aexlo" }
-aexlo-macros = { path = "crates/aexlo-macros" }
-aexlo-harness = { path = "crates/aexlo-harness" }
-aexlo-test = { path = "crates/aexlo-test" }
+# Published crates carry `version` next to `path` so `cargo publish` can
+# rewrite them to registry dependencies; keep it equal to the workspace version.
+aexlo = { path = "crates/aexlo", version = "0.0.1" }
+aexlo-macros = { path = "crates/aexlo-macros", version = "0.0.1" }
+aexlo-harness = { path = "crates/aexlo-harness", version = "0.0.1" }
+aexlo-test = { path = "crates/aexlo-test", version = "0.0.1" }
+aexlo-bench = { path = "bench" }
+
+after-effects = "0.4.0"
+after-effects-sys = "0.4.0"
+pipl = "0.1.1"
+
+anyhow = "1.0.103"
+chrono = "0.4.45"
+colored = "3.1.1"
+criterion = "0.8.2"
+eframe = "0.35.0"
+env_logger = "0.11.11"
+# Members add the codecs they need (`features = ["png"]`, ...).
+image = { version = "0.25.10", default-features = false }
+log = "0.4.33"
+mtpng = "0.4.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+toml = "1.1.6"

@@ -15,10 +15,10 @@ bench = false
 [dependencies]
 aexlo = { workspace = true }
 aexlo-harness = { workspace = true }
-image = { version = "0.25.10", default-features = false, features = ["png"] }
+image = { workspace = true, features = ["png"] }
 
 [dev-dependencies]
-criterion = "0.8.2"
+criterion = { workspace = true }
 
 [[bench]]
 name = "render_matrix"
