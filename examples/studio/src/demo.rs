@@ -88,7 +88,7 @@ pub fn project() -> Project {
 	));
 
 	// The workspace's sample image, with a feathered elliptical mask.
-	let image = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../input.png");
+	let image = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/input.png");
 	if let Ok((iw, ih)) = image::image_dimensions(&image) {
 		let mut bg = p.new_layer(
 			"Background",

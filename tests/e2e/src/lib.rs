@@ -24,10 +24,10 @@ pub fn fixture(stem: &str) -> Option<PathBuf> {
 	path.exists().then_some(path)
 }
 
-/// Absolute path to the workspace's shared `input.png`, used as a realistic
+/// Absolute path to the workspace's shared `fixtures/input.png`, used as a realistic
 /// non-uniform input frame across the pixel/param/GPU e2e tests.
 pub fn sample_input_path() -> PathBuf {
-	PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../input.png")
+	PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/input.png")
 }
 
 #[cfg(test)]
