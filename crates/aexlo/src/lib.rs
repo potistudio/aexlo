@@ -21,7 +21,7 @@
 //! println!("{message}");
 //!
 //! // Render a frame.
-//! instance.render()?;
+//! instance.render_frame()?;
 //! # Ok(())
 //! # }
 //! ```
@@ -46,12 +46,14 @@ mod param_value;
 mod pipl;
 mod pixel;
 mod strict;
+mod time;
 mod utils;
 
 pub(crate) mod suites;
 
 pub use core::error::{AexloError, Result};
-pub use instance::{CustomControlEvent, CustomControlImage, PluginInstance};
+pub use instance::{CustomControlEvent, CustomControlImage, PluginInstance, RenderPath};
+pub use time::Time;
 
 /// Window plugins should treat as After Effects' main window
 /// (`PF_PlatData_MAIN_WND`).

@@ -583,7 +583,7 @@ impl Worker {
 
 		fx.set_input_layer(to_layer(input)?);
 		fx.set_render_size(w, h);
-		fx.set_time(ctx.frame - layer.start, 1, ctx.project.comp.fps.max(1));
+		fx.set_time(aexlo::Time::frame(ctx.frame - layer.start, ctx.project.comp.fps.max(1)));
 		if slot.size != (w, h) {
 			// Resizing the input re-resolves point defaults behind our back.
 			slot.applied.clear();

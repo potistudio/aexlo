@@ -174,15 +174,18 @@ pub struct Time {
 }
 
 impl Time {
-	/// `(current_time, time_step, time_scale)` for
-	/// [`PluginInstance::set_time`](aexlo::PluginInstance::set_time).
-	pub fn as_ae(self) -> Result<(i32, i32, u32)> {
+	/// This time for [`PluginInstance::set_time`](aexlo::PluginInstance::set_time).
+	pub fn as_ae(self) -> Result<aexlo::Time> {
 		let step = self.fps.den as i64;
 		let current = self.frame * step;
 		let current = i32::try_from(current)
 			.map_err(|_| Error::invalid(format!("frame {} is out of range at {} fps", self.frame, self.fps)))?;
 		let step = i32::try_from(step).map_err(|_| Error::invalid(format!("fps {} is out of range", self.fps)))?;
-		Ok((current, step, self.fps.num))
+		Ok(aexlo::Time {
+			value: current,
+			step,
+			scale: self.fps.num,
+		})
 	}
 }
 
@@ -601,12 +604,12 @@ mod tests {
 			frame: 12,
 			fps: Fps::parse("30000/1001").unwrap(),
 		};
-		assert_eq!(time.as_ae().unwrap(), (12 * 1001, 1001, 30000));
+		assert_eq!(time.as_ae().unwrap(), aexlo::Time { value: 12 * 1001, step: 1001, scale: 30000 });
 		let time = Time {
 			frame: 12,
 			fps: Fps::default(),
 		};
-		assert_eq!(time.as_ae().unwrap(), (12, 1, 24));
+		assert_eq!(time.as_ae().unwrap(), aexlo::Time::frame(12, 24));
 	}
 
 	#[test]

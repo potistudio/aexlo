@@ -169,8 +169,7 @@ impl Session {
 		if !self.edits.is_empty() {
 			let _ = fx.update_params_ui();
 		}
-		let (current, step, scale) = self.variant_time().as_ae().map_err(anyhow::Error::msg)?;
-		fx.set_time(current, step, scale);
+		fx.set_time(self.variant_time().as_ae().map_err(anyhow::Error::msg)?);
 		let features = variant.map(|v| v.strict.clone()).unwrap_or_default();
 		let poison = self.strict || features.contains(&StrictFeature::PoisonOutput);
 		let guards = self.strict || features.contains(&StrictFeature::GuardBands);
@@ -277,8 +276,8 @@ impl Session {
 						None => self.time.frame = frame,
 					}
 					let time = self.variant_time().as_ae();
-					if let (Some(fx), Ok((current, step, scale))) = (&mut self.fx, time) {
-						fx.set_time(current, step, scale);
+					if let (Some(fx), Ok(time)) = (&mut self.fx, time) {
+						fx.set_time(time);
 					}
 					changed = true;
 				}

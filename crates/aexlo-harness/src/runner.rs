@@ -225,7 +225,9 @@ where
 		let artifacts = config.artifacts.clone();
 		let mut executor = InProcess::new(move |variant: &Variant, strict| {
 			let path = artifacts(&variant.plugin)
-				.ok_or_else(|| aexlo::AexloError::Unexpected(format!("no artifact for {}", variant.plugin.label())))?;
+				.ok_or_else(|| aexlo::AexloError::PluginNotFound {
+					path: variant.plugin.label().into(),
+				})?;
 			// Set up with the variant's own input and size, as the worker does,
 			// so `--isolate none` renders the same frame. An input that cannot
 			// be built is left for `apply::configure` to report as invalid.

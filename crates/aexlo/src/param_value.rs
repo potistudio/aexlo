@@ -1,7 +1,5 @@
 //! Parameter value type for reading and writing plugin parameters.
 
-use after_effects::ParamType;
-
 /// A parameter value for an After Effects plugin.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParamValue {
@@ -39,21 +37,20 @@ pub enum ParamValue {
 }
 
 impl ParamValue {
-	/// The `PF_ParamType` this value must be written to, plus a human-readable name
-	/// for error reporting. Used to guard union writes in
-	/// [`PluginInstance::set_param`].
-	pub(crate) fn expected_param_type(&self) -> (ParamType, &'static str) {
+	/// The parameter kind this value can be set on. Guards the union writes in
+	/// [`PluginInstance::set_param`](crate::PluginInstance::set_param).
+	pub fn kind(&self) -> ParamKind {
 		match self {
-			ParamValue::Float(_) => (ParamType::FloatSlider, "FloatSlider"),
-			ParamValue::Fixed(_) => (ParamType::FixSlider, "FixSlider"),
-			ParamValue::Slider(_) => (ParamType::Slider, "Slider"),
-			ParamValue::Checkbox(_) => (ParamType::CheckBox, "Checkbox"),
-			ParamValue::Popup(_) => (ParamType::PopUp, "Popup"),
-			ParamValue::Angle(_) => (ParamType::Angle, "Angle"),
-			ParamValue::Point { .. } => (ParamType::Point, "Point"),
-			ParamValue::Color { .. } => (ParamType::Color, "Color"),
-			ParamValue::Path(_) => (ParamType::Path, "Path"),
-			ParamValue::Point3D { .. } => (ParamType::Point3D, "Point3D"),
+			ParamValue::Float(_) => ParamKind::FloatSlider,
+			ParamValue::Fixed(_) => ParamKind::FixedSlider,
+			ParamValue::Slider(_) => ParamKind::Slider,
+			ParamValue::Checkbox(_) => ParamKind::Checkbox,
+			ParamValue::Popup(_) => ParamKind::Popup,
+			ParamValue::Angle(_) => ParamKind::Angle,
+			ParamValue::Point { .. } => ParamKind::Point,
+			ParamValue::Color { .. } => ParamKind::Color,
+			ParamValue::Path(_) => ParamKind::Path,
+			ParamValue::Point3D { .. } => ParamKind::Point3D,
 		}
 	}
 }

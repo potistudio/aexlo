@@ -4,7 +4,8 @@
 use std::sync::{Arc, Mutex};
 
 use aexlo::{
-	CommandEvent, CommandPhase, Depth8, Depth16, Depth32, Layer, ObserveLevel, Observer, PixelDepthKind, SuiteCallEvent,
+	CommandEvent, CommandPhase, Depth8, Depth16, Depth32, Layer, ObserveLevel, Observer, PixelDepthKind, RenderPath,
+	SuiteCallEvent,
 };
 
 fn sample_input<D: aexlo::PixelDepth>() -> Layer<D> {
@@ -94,11 +95,12 @@ fn float_capable_fixture_renders_at_32_bpc() {
 		}
 		fx.set_input_layer(sample_input::<Depth32>());
 		// The CPU path: the GPU one is float regardless of the project depth.
-		if fx.supports_smart_render() {
-			fx.render_pre().and_then(|()| fx.render_smart()).unwrap();
+		let path = if fx.supports_smart_render() {
+			RenderPath::Smart
 		} else {
-			fx.render().unwrap();
-		}
+			RenderPath::Legacy
+		};
+		fx.render_with(path).unwrap();
 		let out = fx.read_output::<Depth32>().expect("32 bpc output");
 		assert!(out.iter().any(|p| p.alpha > 0.0), "{name}: output should not be empty");
 		eprintln!("{name}: rendered at 32 bpc");

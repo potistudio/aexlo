@@ -8,7 +8,7 @@
 //! Each test skips when the fixture isn't present locally; GPU comparisons
 //! skip when the machine has no GPU device.
 
-use aexlo::{AexloError, Depth8, Layer, MaskPath, MaskVertex, ParamValue, PluginInstance};
+use aexlo::{AexloError, Depth8, Layer, MaskPath, MaskVertex, ParamValue, PluginInstance, RenderPath};
 
 const MODE: usize = 2;
 const THRESHOLD_MIN: usize = 4;
@@ -48,17 +48,16 @@ fn output(instance: &PluginInstance) -> Vec<u8> {
 }
 
 fn render_cpu(instance: &mut PluginInstance) -> Vec<u8> {
-	instance.render_pre().expect("SMART_PRE_RENDER failed");
-	instance.render_smart().expect("SMART_RENDER failed");
+	instance.render_with(RenderPath::Smart).expect("smart render failed");
 	output(instance)
 }
 
 /// `None` when the machine has no GPU device.
 fn render_gpu(instance: &mut PluginInstance) -> Option<Vec<u8>> {
-	match instance.render_gpu() {
+	match instance.render_with(RenderPath::Gpu) {
 		Ok(()) => Some(output(instance)),
-		Err(AexloError::Unexpected(msg)) if msg.contains("No GPU device available") => {
-			eprintln!("skipping GPU comparison: {msg}");
+		Err(AexloError::GpuUnavailable) => {
+			eprintln!("skipping GPU comparison: no GPU device available");
 			None
 		}
 		Err(err) => panic!("GPU render failed: {err:?}"),
@@ -317,9 +316,8 @@ fn gpu_declined_frame_renders_on_the_cpu() {
 
 	let mut auto = make().unwrap();
 	if auto.supports_gpu() {
-		match auto.render_gpu() {
-			Err(AexloError::GpuRenderDeclined) => {}
-			Err(AexloError::Unexpected(msg)) if msg.contains("No GPU device available") => {}
+		match auto.render_with(RenderPath::Gpu) {
+			Err(AexloError::GpuRenderDeclined | AexloError::GpuUnavailable) => {}
 			other => panic!("expected the plugin to decline the GPU render, got {other:?}"),
 		}
 	}
