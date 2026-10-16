@@ -1,4 +1,4 @@
-//! Dev-tooling helpers for `#[aexlo::preview]` and the `aexlo view` live window.
+//! Dev-tooling helpers for `#[aexlo_test::preview]` and the `aexlo view` live window.
 //!
 //! Everything here is about *surfacing* a rendered frame during development --
 //! env-var conventions, lock files, and viewer processes. None of it is part of
@@ -12,12 +12,12 @@ use aexlo::PluginInstance;
 use crate::error::{Error, Result};
 
 /// Whether a visual preview was requested, i.e. the `AEXLO_PREVIEW` env var is
-/// set. Used by `#[aexlo::preview]` to decide whether to pop the OS viewer.
+/// set. Used by `#[aexlo_test::preview]` to decide whether to pop the OS viewer.
 pub fn preview_requested() -> bool {
 	std::env::var_os("AEXLO_PREVIEW").is_some()
 }
 
-/// How `#[aexlo::preview]` should surface the rendered frame, from
+/// How `#[aexlo_test::preview]` should surface the rendered frame, from
 /// `AEXLO_PREVIEW`: unset = save only, `live` = keep a live `aexlo view` window
 /// updated, anything else = open the OS viewer once.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

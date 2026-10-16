@@ -2,9 +2,9 @@
 //! aexlo (`docs/toolkit.md` §13).
 //!
 //! ```ignore
-//! // Cargo.toml: [dev-dependencies] aexlo-test = "0.1"
+//! // Cargo.toml: [dev-dependencies] aexlo-test = { git = "https://github.com/potistudio/aexlo-rs" }
 //!
-//! #[aexlo::test(depth = [8, 16, 32], render = [smart, gpu], preset = "dot_glow")]
+//! #[aexlo_test::test(depth = [8, 16, 32], render = [smart, gpu], preset = "dot_glow")]
 //! fn glow_is_symmetric(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
 //!     fx.set_param_named("Radius", 100.0)?;
 //!     let frame = aexlo_test::render(fx)?;
@@ -412,7 +412,7 @@ impl FrameAssert for Frame {
 pub mod __private {
 	use super::*;
 
-	/// One expanded `#[aexlo::test]`.
+	/// One expanded `#[aexlo_test::test]`.
 	pub struct TestSpec {
 		pub entry: usize,
 		pub crate_dir: &'static str,
@@ -487,7 +487,7 @@ pub mod __private {
 		Ok((variant, root))
 	}
 
-	/// Run one expanded `#[aexlo::test]`: load the in-process entry point,
+	/// Run one expanded `#[aexlo_test::test]`: load the in-process entry point,
 	/// configure it as the variant says, then run the body. Panics with the
 	/// failure, as a `#[test]` should.
 	pub fn run_test<R: TestOutcome>(spec: TestSpec, body: impl FnOnce(&mut PluginInstance) -> R) {
@@ -520,7 +520,7 @@ pub mod __private {
 		}
 	}
 
-	/// Run one `#[aexlo::preview]`: drive the entry point through `body`,
+	/// Run one `#[aexlo_test::preview]`: drive the entry point through `body`,
 	/// write the frame to `target/aexlo-preview/`, and surface it as
 	/// `AEXLO_PREVIEW` asks.
 	pub fn preview(
@@ -536,7 +536,7 @@ pub mod __private {
 		body(&mut fx);
 		let path = preview_path(crate_dir, module_path, name);
 		aexlo_harness::preview::save_preview(&fx, &path)?;
-		eprintln!("aexlo::preview: wrote {}", path.display());
+		eprintln!("aexlo_test::preview: wrote {}", path.display());
 		// AEXLO_PREVIEW: unset = save only, `live` = keep an `aexlo view`
 		// window updated (pair with a re-runner like `bacon`), else open once.
 		match preview_mode() {

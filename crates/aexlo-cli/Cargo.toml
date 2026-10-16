@@ -7,11 +7,8 @@ description = "Command-line front-end for the aexlo After Effects plugin loader.
 authors = { workspace = true }
 license = { workspace = true }
 repository = { workspace = true }
-
-# After Effects plugins only exist for Windows and macOS; docs.rs builds Linux
-# by default.
-[package.metadata.docs.rs]
-targets = ["x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
+# Only `aexlo` is published; the tooling is used from git.
+publish = false
 
 # Installs as `aexlo` so `cargo install --path crates/aexlo-cli` gives an `aexlo` command.
 [[bin]]

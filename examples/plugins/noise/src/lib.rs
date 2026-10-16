@@ -64,7 +64,7 @@ fn hash(mut x: u32) -> u32 {
 
 #[cfg(test)]
 mod preview {
-	#[aexlo::preview]
+	#[aexlo_test::preview]
 	fn renders_noise_in_process(fx: &mut aexlo::PluginInstance) {
 		fx.render_frame().expect("render should succeed");
 
@@ -86,7 +86,7 @@ mod preview {
 mod tests {
 	/// The same preset `aexlo test` runs, in-process: change the noise and
 	/// both fail against golden/noise.png, leaving diff images behind.
-	#[aexlo::test(preset = "noise")]
+	#[aexlo_test::test(preset = "noise")]
 	fn noise_matches_its_golden(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
 		let frame = aexlo_test::render(fx)?;
 		frame.assert_opaque()?;

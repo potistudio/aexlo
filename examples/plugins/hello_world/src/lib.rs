@@ -31,7 +31,7 @@ impl AdobePluginGlobal for Plugin {
 
 #[cfg(test)]
 mod preview {
-	#[aexlo::preview]
+	#[aexlo_test::preview]
 	fn passthrough(fx: &mut aexlo::PluginInstance) {
 		fx.render_frame().unwrap();
 	}
@@ -41,7 +41,7 @@ mod preview {
 mod tests {
 	/// One test per depth; the effect declares no deep color, so 16 bpc is
 	/// reported as skipped rather than failed.
-	#[aexlo::test(depth = [8, 16], render = legacy)]
+	#[aexlo_test::test(depth = [8, 16], render = legacy)]
 	fn renders_at_each_declared_depth(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
 		let frame = aexlo_test::render(fx)?;
 		assert_eq!(frame.depth(), aexlo::PixelDepthKind::U8);

@@ -21,5 +21,5 @@ minimal and sdk_noise accept `-- --help` to describe their arguments. sdk_noise 
 
 | Example | What it demonstrates | Command |
 | --- | --- | --- |
-| [hello_world](plugins/hello_world/src/lib.rs) | Preview a plugin in-process with `#[aexlo::preview]` | `cargo test -p aexlo_demo_hello_world -- --ignored` |
-| [noise](plugins/noise/aexlo.toml) | Presets, goldens and `#[aexlo::test]` | `cargo test -p aexlo_demo_noise` |
+| [hello_world](plugins/hello_world/src/lib.rs) | Preview a plugin in-process with `#[aexlo_test::preview]` | `cargo test -p aexlo_demo_hello_world -- --ignored` |
+| [noise](plugins/noise/aexlo.toml) | Presets, goldens and `#[aexlo_test::test]` | `cargo test -p aexlo_demo_noise` |
