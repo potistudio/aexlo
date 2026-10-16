@@ -1,6 +1,6 @@
-//! `aexlo dev [filter] [-p <package>]` - rerun a `#[aexlo::preview]` test on save.
+//! `aexlo dev [filter] [-p <package>]` - rerun a `#[aexlo_test::preview]` test on save.
 //!
-//! Built-in replacement for pairing `bacon` with `#[aexlo::preview]`: watches
+//! Built-in replacement for pairing `bacon` with `#[aexlo_test::preview]`: watches
 //! the crate's sources and reruns `cargo test` on every change, with
 //! `AEXLO_PREVIEW=live` set so the test's own `ensure_live_viewer` call pops (or
 //! keeps updating) an `aexlo view` window. Each run is a fresh process driving
@@ -65,9 +65,9 @@ pub fn run(manifest: &Path, filter: Option<&str>) -> Result<()> {
 }
 
 /// Run `cargo test` for `manifest`, filtered to `filter` if given, with
-/// `AEXLO_PREVIEW=live` so any `#[aexlo::preview]` it runs pops a live viewer.
+/// `AEXLO_PREVIEW=live` so any `#[aexlo_test::preview]` it runs pops a live viewer.
 ///
-/// `#[aexlo::preview]` generates an `#[ignore]`d test (so a plain `cargo test`
+/// `#[aexlo_test::preview]` generates an `#[ignore]`d test (so a plain `cargo test`
 /// never pays the render cost), so this passes `--ignored` to actually run it.
 fn spawn_test(manifest: &Path, filter: Option<&str>) -> Result<Child> {
 	let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());

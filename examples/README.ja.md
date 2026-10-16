@@ -21,5 +21,5 @@ minimal と sdk_noise は `-- --help` で引数の説明を表示できます。
 
 | サンプル | 内容 | コマンド |
 | --- | --- | --- |
-| [hello_world](plugins/hello_world/src/lib.rs) | `#[aexlo::preview]` でプラグインをプロセス内でプレビューする | `cargo test -p aexlo_demo_hello_world -- --ignored` |
-| [noise](plugins/noise/aexlo.toml) | プリセット、golden、`#[aexlo::test]` | `cargo test -p aexlo_demo_noise` |
+| [hello_world](plugins/hello_world/src/lib.rs) | `#[aexlo_test::preview]` でプラグインをプロセス内でプレビューする | `cargo test -p aexlo_demo_hello_world -- --ignored` |
+| [noise](plugins/noise/aexlo.toml) | プリセット、golden、`#[aexlo_test::test]` | `cargo test -p aexlo_demo_noise` |

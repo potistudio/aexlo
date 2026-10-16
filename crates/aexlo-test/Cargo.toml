@@ -1,21 +1,17 @@
 [package]
 name = "aexlo-test"
-description = "The dev-dependency for testing After Effects plugins with aexlo: #[aexlo::test], frame assertions and goldens."
+description = "The dev-dependency for testing After Effects plugins with aexlo: #[aexlo_test::test], frame assertions and goldens."
 version = { workspace = true }
 edition = { workspace = true }
 rust-version = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
 repository = { workspace = true }
-
-
-# After Effects plugins only exist for Windows and macOS; docs.rs builds Linux
-# by default.
-[package.metadata.docs.rs]
-targets = ["x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
+# Only `aexlo` is published; the tooling is used from git.
+publish = false
 
 [dependencies]
-aexlo = { workspace = true, features = ["macros"] }
+aexlo = { workspace = true }
 aexlo-harness = { workspace = true }
 aexlo-macros = { workspace = true }
 toml = { workspace = true }

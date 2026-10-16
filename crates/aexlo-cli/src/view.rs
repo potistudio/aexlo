@@ -3,7 +3,7 @@
 //! Opens a [`minifb`] window showing a PNG and reloads it whenever the file
 //! changes. It is decoupled from any plugin build, so it survives recompiles:
 //! pair it with a re-runner (e.g. `bacon`) driving an in-process
-//! `#[aexlo::preview]`, which overwrites the PNG, to get a live preview that
+//! `#[aexlo_test::preview]`, which overwrites the PNG, to get a live preview that
 //! keeps the in-process (debuggable) render path.
 
 use std::path::Path;
@@ -19,7 +19,7 @@ const DEBOUNCE: Duration = Duration::from_millis(80);
 
 pub fn run(path: &Path) -> Result<()> {
 	// Single window per PNG: if a live viewer already owns this file, another
-	// spawn (e.g. from `#[aexlo::preview]` with AEXLO_PREVIEW=live) just exits and
+	// spawn (e.g. from `#[aexlo_test::preview]` with AEXLO_PREVIEW=live) just exits and
 	// lets the running window pick up the change. `_lock` releases on return.
 	let Some(_lock) = aexlo_harness::preview::acquire_viewer_lock(path) else {
 		println!(

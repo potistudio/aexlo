@@ -496,7 +496,7 @@ pub struct Variant {
 impl Variant {
 	/// A variant of no manifest: a gradient input at the host's default size,
 	/// 8 bpc, `auto` render, the default checks and golden. What
-	/// `#[aexlo::test]` starts from without a `preset`.
+	/// `#[aexlo_test::test]` starts from without a `preset`.
 	pub fn standalone(name: &str, plugin: PluginRef) -> Self {
 		Self {
 			preset: name.to_string(),

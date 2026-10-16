@@ -51,7 +51,7 @@ COMMANDS:
     render <plugin>		Render a frame and write it to a PNG
     about  <plugin>		Print the plugin's ABOUT text
     params <plugin>    List the plugin's parameters (index, name, value)
-    dev    [filter]     Rerun a #[aexlo::preview] test on save + live viewer
+    dev    [filter]     Rerun a #[aexlo_test::preview] test on save + live viewer
                               (built-in `bacon` replacement; add a name to filter tests)
                               Like `cargo build`: defaults to the crate in the
                               current directory; use -p to pick another.
@@ -113,7 +113,7 @@ COMMANDS:
         --csv  <path>        Write the results as CSV
         --json <path>        Write the results as JSON
     view   <png>       Live image window: reload a PNG whenever it changes
-                       (spawned automatically by a `dev`-driven #[aexlo::preview];
+                       (spawned automatically by a `dev`-driven #[aexlo_test::preview];
                        pair manually with your own re-runner otherwise)
 
 PRESET OPTIONS (presets, test):

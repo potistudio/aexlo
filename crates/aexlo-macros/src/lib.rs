@@ -15,7 +15,7 @@ use syn::{Expr, ExprArray, ExprLit, FnArg, Ident, ItemFn, Lit, parse_macro_input
 /// in the code rather than implied by an empty body:
 ///
 /// ```ignore
-/// #[aexlo::preview]
+/// #[aexlo_test::preview]
 /// fn with_blur(fx: &mut aexlo::PluginInstance) {
 ///     fx.set_param(1, aexlo::ParamValue::Float(0.8)).unwrap();
 ///     fx.render_frame().unwrap();
@@ -30,7 +30,7 @@ use syn::{Expr, ExprArray, ExprLit, FnArg, Ident, ItemFn, Lit, parse_macro_input
 ///
 /// The function must take a fixture parameter (a `&mut aexlo::PluginInstance`).
 /// If the plugin's entry point isn't named `EffectMain`, override it with
-/// `#[aexlo::preview(entry = "EntryPointFunc")]`.
+/// `#[aexlo_test::preview(entry = "EntryPointFunc")]`.
 #[proc_macro_attribute]
 pub fn preview(attr: TokenStream, item: TokenStream) -> TokenStream {
 	// Entry-point symbol to drive; defaults to the `after-effects` crate's export.
@@ -41,7 +41,7 @@ pub fn preview(attr: TokenStream, item: TokenStream) -> TokenStream {
 				entry = meta.value()?.parse::<syn::LitStr>()?.value();
 				Ok(())
 			} else {
-				Err(meta.error("unsupported `aexlo::preview` argument (expected `entry = \"...\"`)"))
+				Err(meta.error("unsupported `aexlo_test::preview` argument (expected `entry = \"...\"`)"))
 			}
 		});
 		parse_macro_input!(attr with parser);
@@ -60,7 +60,7 @@ pub fn preview(attr: TokenStream, item: TokenStream) -> TokenStream {
 		_ => {
 			return syn::Error::new_spanned(
 				&func.sig,
-				"`#[aexlo::preview]` functions must take a fixture, \
+				"`#[aexlo_test::preview]` functions must take a fixture, \
 				 e.g. `fn preview(fx: &mut aexlo::PluginInstance)`",
 			)
 			.to_compile_error()
@@ -90,7 +90,7 @@ pub fn preview(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Test an After Effects plugin in-process, once per depth and render path.
 ///
 /// ```ignore
-/// #[aexlo::test(depth = [8, 16, 32], render = [smart, gpu], preset = "dot_glow")]
+/// #[aexlo_test::test(depth = [8, 16, 32], render = [smart, gpu], preset = "dot_glow")]
 /// fn glow_is_symmetric(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
 ///     fx.set_param_named("Radius", 100.0)?;
 ///     let frame = aexlo_test::render(fx)?;
@@ -160,7 +160,7 @@ pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
 				}
 			} else {
 				return Err(
-					meta.error("unsupported `aexlo::test` argument (expected `depth`, `render`, `preset` or `entry`)")
+					meta.error("unsupported `aexlo_test::test` argument (expected `depth`, `render`, `preset` or `entry`)")
 				);
 			}
 			Ok(())
@@ -173,7 +173,7 @@ pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
 	if !matches!(func.sig.inputs.first(), Some(FnArg::Typed(_))) || func.sig.inputs.len() != 1 {
 		return syn::Error::new_spanned(
 			&func.sig,
-			"`#[aexlo::test]` functions take one fixture, e.g. `fn t(fx: &mut aexlo::PluginInstance)`",
+			"`#[aexlo_test::test]` functions take one fixture, e.g. `fn t(fx: &mut aexlo::PluginInstance)`",
 		)
 		.to_compile_error()
 		.into();

@@ -93,7 +93,7 @@ aexlo check                        # what CI runs (.github/workflows/aexlo-check
 
 Every variant runs in a worker process, so a crashing plugin fails one run,
 not the suite. Rust plugins add `aexlo-test` as a dev-dependency for
-in-process `#[aexlo::test]`s with frame assertions.
+in-process `#[aexlo_test::test]`s with frame assertions.
 
 ## Implementation Progress
 

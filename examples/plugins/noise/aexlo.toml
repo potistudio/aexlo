@@ -1,4 +1,4 @@
-# `aexlo test` runs these presets; the `#[aexlo::test]` in src/lib.rs starts
+# `aexlo test` runs these presets; the `#[aexlo_test::test]` in src/lib.rs starts
 # from the same one, and both compare against golden/noise.png.
 [plugin]
 crate = "."
