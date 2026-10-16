@@ -63,7 +63,7 @@ cargo build
 ## Toolkit
 
 `aexlo.toml` describes "render this plugin under these conditions" once, as
-presets; the `aexlo` CLI (`cargo install --path crates/cli`) then tests,
+presets; the `aexlo` CLI (`cargo install --path crates/aexlo-cli`) then tests,
 benchmarks and previews them. The full specification is
 [docs/toolkit.md](docs/toolkit.md).
 

@@ -510,7 +510,7 @@ They synthesize an implicit preset, so both front-ends share one timing loop
 ## 11. Preview
 
 `aexlo dev` (source watch) and `aexlo preview` (artifact watch) share the
-browser viewer in `crates/cli/src/viewer.rs`. It gains:
+browser viewer in `crates/aexlo-cli/src/viewer.rs`. It gains:
 
 - a **preset picker**: renders the selected variant exactly as `test` would;
 - parameter controls (existing), initialized from the preset;
@@ -660,5 +660,5 @@ Decisions made while building M1–M7, where the draft above left room:
 - **The test plugin** `tests/misbehave` crashes, hangs, errors, overruns,
   leaks, leaves pixels unwritten or randomizes on request; the acceptance
   tests of every milestone drive it through the real `aexlo` binary
-  (`crates/cli/tests/`).
+  (`crates/aexlo-cli/tests/`).
 

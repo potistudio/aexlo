@@ -76,7 +76,7 @@ cargo run -p aexlo-cli -- test --manifest fixtures/aexlo.toml
 | `examples/plugins/` | Example plugins built from source and tested with aexlo | Explore plugin-side code |
 | `fixtures/` | Existing plugins and verification settings | Inspect the examples' inputs |
 | `crates/aexlo/` | Host implementation and public API | Integrate the host into your application |
-| `crates/cli/` | Verification and preview CLI | Repeat runs under consistent conditions |
+| `crates/aexlo-cli/` | Verification and preview CLI | Repeat runs under consistent conditions |
 | `playground/` | Host API probe and runner | Investigate compatibility and unsupported APIs |
 
 ## Troubleshooting

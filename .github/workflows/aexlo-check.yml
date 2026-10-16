@@ -59,7 +59,7 @@ jobs:
       - name: Install aexlo (from this checkout)
         if: inputs.aexlo-path != ''
         shell: bash
-        run: cargo install --locked --path "${{ inputs.aexlo-path }}/crates/cli"
+        run: cargo install --locked --path "${{ inputs.aexlo-path }}/crates/aexlo-cli"
 
       - name: Install aexlo
         if: inputs.aexlo-path == ''
