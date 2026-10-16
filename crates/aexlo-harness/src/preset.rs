@@ -604,7 +604,14 @@ mod tests {
 			frame: 12,
 			fps: Fps::parse("30000/1001").unwrap(),
 		};
-		assert_eq!(time.as_ae().unwrap(), aexlo::Time { value: 12 * 1001, step: 1001, scale: 30000 });
+		assert_eq!(
+			time.as_ae().unwrap(),
+			aexlo::Time {
+				value: 12 * 1001,
+				step: 1001,
+				scale: 30000
+			}
+		);
 		let time = Time {
 			frame: 12,
 			fps: Fps::default(),

@@ -490,9 +490,7 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 	}
 
 	if force_smart {
-		instance
-			.render_with(RenderPath::Smart)
-			.context("smart render failed")?;
+		instance.render_with(RenderPath::Smart).context("smart render failed")?;
 	} else if force_legacy {
 		instance
 			.render_with(RenderPath::Legacy)
