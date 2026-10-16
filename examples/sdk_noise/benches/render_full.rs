@@ -17,7 +17,7 @@ fn benchmark_rendering_full(criterion: &mut Criterion) {
 
 	criterion.bench_function("rendering", |bencher| {
 		bencher.iter(|| {
-			instance.render().unwrap();
+			instance.render_with(aexlo::RenderPath::Legacy).unwrap();
 			black_box(instance.output_size());
 		})
 	});

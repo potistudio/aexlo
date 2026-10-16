@@ -22,7 +22,7 @@ mod web;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use aexlo::{ParamValue, PluginInstance};
+use aexlo::{ParamValue, PluginInstance, RenderPath};
 use anyhow::{Context, Result, bail};
 
 const USAGE: &str = "\
@@ -367,11 +367,12 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 
 	if force_smart {
 		instance
-			.render_pre()
-			.and_then(|()| instance.render_smart())
+			.render_with(RenderPath::Smart)
 			.context("smart render failed")?;
 	} else if force_legacy {
-		instance.render().context("legacy render failed")?;
+		instance
+			.render_with(RenderPath::Legacy)
+			.context("legacy render failed")?;
 	} else if let Some(variant) = &variant {
 		aexlo_harness::apply::render(&mut instance, variant.render)
 			.with_context(|| format!("{} render failed", variant.render.name()))?;

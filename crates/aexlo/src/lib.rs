@@ -21,7 +21,7 @@
 //! println!("{message}");
 //!
 //! // Render a frame.
-//! instance.render()?;
+//! instance.render_frame()?;
 //! # Ok(())
 //! # }
 //! ```
@@ -43,6 +43,7 @@ mod instance;
 mod mask;
 mod observe;
 mod strict;
+mod time;
 mod param_value;
 mod pixel;
 mod utils;
@@ -50,7 +51,8 @@ mod utils;
 pub(crate) mod suites;
 
 pub use core::error::{AexloError, Result};
-pub use instance::PluginInstance;
+pub use instance::{PluginInstance, RenderPath};
+pub use time::Time;
 
 /// Entry point ABI for driving an in-process effect via
 /// [`Host::from_entry`].

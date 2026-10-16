@@ -28,6 +28,7 @@ use std::{
 	time::Instant,
 };
 use crate::pixel::{AnyLayer, Depth8, Layer, Pixel, PixelDepth, PixelDepthKind};
+use crate::time::Time;
 
 use crate::core::constants::{DEFAULT_HEIGHT as HEIGHT, DEFAULT_WIDTH as WIDTH};
 
@@ -55,6 +56,23 @@ pub type PluginEntryPoint = unsafe extern "C" fn(
 	output: *mut after_effects_sys::PF_LayerDef,
 	extra: *mut ::std::os::raw::c_void,
 ) -> after_effects_sys::PF_Err;
+
+/// The command path [`PluginInstance::render_with`] renders a frame through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub enum RenderPath {
+	/// GPU when possible, else smart, else legacy, falling through on failure
+	/// ([`PluginInstance::render_frame`]).
+	#[default]
+	Auto,
+	/// `PF_Cmd_RENDER` only.
+	Legacy,
+	/// `PF_Cmd_SMART_PRE_RENDER` + `PF_Cmd_SMART_RENDER` only.
+	Smart,
+	/// `PF_Cmd_SMART_PRE_RENDER` + `PF_Cmd_SMART_RENDER_GPU` only, on a
+	/// 32-bit float GPU world.
+	Gpu,
+}
 
 /// Signature of `PluginDataEntryFunction2`: the AE SDK's cross-platform replacement
 /// for a binary PiPL resource. Plugins export this under a fixed symbol name and,
@@ -332,8 +350,8 @@ impl PluginInstance {
 		Ok(self.message())
 	}
 
-	/// Call the plugin with `PF_Cmd_RENDER` command.
-	pub fn render(&mut self) -> Result<()> {
+	/// Call the plugin with `PF_Cmd_RENDER` command ([`RenderPath::Legacy`]).
+	fn render_legacy(&mut self) -> Result<()> {
 		self.reset_cpu_worlds();
 		self.poison_output();
 		self.begin_output_guard();
@@ -345,7 +363,7 @@ impl PluginInstance {
 
 	/// Call the plugin with `PF_Cmd_SMART_PRE_RENDER` command, letting it declare the
 	/// input/output checkout regions it needs via [`Self::render_smart`].
-	pub fn render_pre(&mut self) -> Result<()> {
+	fn render_pre(&mut self) -> Result<()> {
 		self.layer_checkouts.clear();
 		// Each pre-render gets a fresh output, as in After Effects; plugins OR
 		// their flags into it and would otherwise inherit the last frame's.
@@ -369,7 +387,7 @@ impl PluginInstance {
 
 	/// Call the plugin with `PF_Cmd_SMART_RENDER` command, using the checkout regions
 	/// declared during the preceding [`Self::render_pre`] call.
-	pub fn render_smart(&mut self) -> Result<()> {
+	fn render_smart(&mut self) -> Result<()> {
 		let mut extra = self.smart_render_data.smart_render_extra();
 
 		let result = self.call_plugin(
@@ -385,7 +403,7 @@ impl PluginInstance {
 
 	/// Whether the plugin declared `PF_OutFlag2_SUPPORTS_GPU_RENDER_F32` during
 	/// `PF_Cmd_GLOBAL_SETUP`, i.e. it can render on the GPU into 32-bit-float
-	/// `PF_PixelFormat_GPU_BGRA128` worlds via [`Self::render_gpu`].
+	/// `PF_PixelFormat_GPU_BGRA128` worlds ([`RenderPath::Gpu`]).
 	///
 	/// Only meaningful once global setup has run (i.e. after [`Self::try_load`]).
 	pub fn supports_gpu(&self) -> bool {
@@ -413,9 +431,7 @@ impl PluginInstance {
 		}
 
 		let Some(ctx) = self.gpu_context.as_ref() else {
-			return Err(AexloError::Unexpected(
-				"No GPU device available for GPU render".to_string(),
-			));
+			return Err(AexloError::GpuUnavailable);
 		};
 
 		let what_gpu = ctx.framework();
@@ -444,7 +460,7 @@ impl PluginInstance {
 
 	/// Run `PF_Cmd_GPU_DEVICE_SETDOWN` so the plugin releases its GPU data, then drop
 	/// this instance's GPU-world registrations. Safe to call when no device was set up.
-	pub fn gpu_device_setdown(&mut self) -> Result<()> {
+	fn gpu_device_setdown(&mut self) -> Result<()> {
 		if self.gpu_data.is_null() {
 			return Ok(());
 		}
@@ -494,7 +510,7 @@ impl PluginInstance {
 	/// # Errors
 	/// Propagates any failure from device setup or the render commands. On error the
 	/// caller should fall back to CPU rendering (see [`Self::render_frame`]).
-	pub fn render_gpu(&mut self) -> Result<()> {
+	fn render_gpu(&mut self) -> Result<()> {
 		if self.gpu_data.is_null() {
 			self.gpu_device_setup()?;
 		}
@@ -528,16 +544,14 @@ impl PluginInstance {
 			let ctx = self
 				.gpu_context
 				.as_mut()
-				.ok_or_else(|| AexloError::Unexpected("GPU context missing".to_string()))?;
+				.ok_or_else(|| AexloError::Gpu("GPU context missing".to_string()))?;
 			framework = ctx.framework();
 			ctx.make_current();
 
 			if !ctx.ensure_buffer(input_key, in_w * in_h * GPU_BYTES_PER_PIXEL)
 				|| !ctx.ensure_buffer(output_key, out_len)
 			{
-				return Err(AexloError::Unexpected(
-					"Failed to allocate GPU world buffers".to_string(),
-				));
+				return Err(AexloError::Gpu("Failed to allocate GPU world buffers".to_string()));
 			}
 
 			// Pack + upload only when the input pixels changed since the last upload
@@ -546,9 +560,7 @@ impl PluginInstance {
 			if !self.gpu_input_uploaded {
 				Self::pack_layer_to_bgra_f32(self.input_layer.layer(), &mut self.gpu_upload_staging);
 				if !ctx.write_buffer(input_key, bytemuck::cast_slice(&self.gpu_upload_staging)) {
-					return Err(AexloError::Unexpected(
-						"Failed to upload input pixels to the GPU".to_string(),
-					));
+					return Err(AexloError::Gpu("Failed to upload input pixels to the GPU".to_string()));
 				}
 				self.gpu_input_uploaded = true;
 			}
@@ -557,16 +569,12 @@ impl PluginInstance {
 			for linked in self.linked_layers.values_mut() {
 				let key = linked.world_ptr(true) as usize;
 				if !ctx.ensure_buffer(key, linked.gpu_len()) {
-					return Err(AexloError::Unexpected(
-						"Failed to allocate GPU layer-parameter buffer".to_string(),
-					));
+					return Err(AexloError::Gpu("Failed to allocate GPU layer-parameter buffer".to_string()));
 				}
 				if !linked.gpu_uploaded {
 					Self::pack_layer_to_bgra_f32(linked.layer(), &mut self.gpu_upload_staging);
 					if !ctx.write_buffer(key, bytemuck::cast_slice(&self.gpu_upload_staging)) {
-						return Err(AexloError::Unexpected(
-							"Failed to upload layer-parameter pixels to the GPU".to_string(),
-						));
+						return Err(AexloError::Gpu("Failed to upload layer-parameter pixels to the GPU".to_string()));
 					}
 					linked.gpu_uploaded = true;
 				}
@@ -655,8 +663,8 @@ impl PluginInstance {
 
 	/// Whether the plugin declared `PF_OutFlag2_SUPPORTS_SMART_RENDER` during
 	/// `PF_Cmd_GLOBAL_SETUP`, i.e. it expects the smart pre-render/render command
-	/// pair ([`Self::render_pre`] + [`Self::render_smart`]) rather than the legacy
-	/// [`Self::render`] path.
+	/// pair ([`RenderPath::Smart`]) rather than the legacy `PF_Cmd_RENDER`
+	/// ([`RenderPath::Legacy`]).
 	///
 	/// Only meaningful once global setup has run (i.e. after [`Self::try_load`]).
 	pub fn supports_smart_render(&self) -> bool {
@@ -664,15 +672,46 @@ impl PluginInstance {
 		self.global_out_flags2 & flag != 0
 	}
 
-	/// Render one frame, preferring the smart pre-render/render pair when the plugin
-	/// declared [`Self::supports_smart_render`] and falling back to the legacy
-	/// [`Self::render`] command if the smart path fails (or was never declared).
+	/// Render one frame the way After Effects would pick the path: on the GPU
+	/// when the plugin [supports it](Self::supports_gpu), else the smart
+	/// pre-render/render pair when [declared](Self::supports_smart_render), else
+	/// the legacy `PF_Cmd_RENDER`. A failed GPU or smart render falls through to
+	/// the next path; a cancelled one does not.
 	///
-	/// Prefer this over calling [`Self::render`] directly in a general-purpose host:
-	/// many modern effects implement `PF_Cmd_SMART_RENDER`, while others only handle
-	/// the legacy command -- and some declare smart support but still render correctly
-	/// through the legacy path when our smart emulation can't satisfy them.
+	/// This is the call for a general-purpose host: many modern effects implement
+	/// `PF_Cmd_SMART_RENDER`, others only the legacy command, and some declare
+	/// smart support but still render correctly through the legacy path when the
+	/// smart emulation can't satisfy them. Same as
+	/// [`render_with(RenderPath::Auto)`](Self::render_with).
+	///
+	/// # Errors
+	/// The error of the last path tried, typically
+	/// [`AexloError::PluginExecutionFailed`].
 	pub fn render_frame(&mut self) -> Result<()> {
+		self.render_with(RenderPath::Auto)
+	}
+
+	/// Render one frame through `path` only, without falling back to another
+	/// path (except [`RenderPath::Auto`], which is [`Self::render_frame`]).
+	///
+	/// For tests and tools that exercise one command path of a plugin; a host
+	/// should call [`Self::render_frame`].
+	///
+	/// # Errors
+	/// [`AexloError::PluginExecutionFailed`] if the plugin rejects a command,
+	/// [`AexloError::GpuUnavailable`] or [`AexloError::GpuRenderDeclined`] for a
+	/// GPU render that cannot run.
+	pub fn render_with(&mut self, path: RenderPath) -> Result<()> {
+		match path {
+			RenderPath::Auto => self.render_auto(),
+			RenderPath::Legacy => self.render_legacy(),
+			RenderPath::Smart => self.render_pre().and_then(|()| self.render_smart()),
+			RenderPath::Gpu => self.render_gpu(),
+		}
+	}
+
+	/// [`RenderPath::Auto`]: GPU, then smart, then legacy.
+	fn render_auto(&mut self) -> Result<()> {
 		if self.supports_gpu() {
 			match self.render_gpu() {
 				Ok(()) => return Ok(()),
@@ -704,7 +743,7 @@ impl PluginInstance {
 			}
 		}
 
-		self.render()
+		self.render_legacy()
 	}
 
 	/// Set the output frame size in pixels, resizing the output world and the smart-render
@@ -726,26 +765,23 @@ impl PluginInstance {
 		self.smart_render_data.set_output_rect(width as i32, height as i32);
 	}
 
-	/// Set the time the next commands operate on: `current_time / time_scale`
-	/// seconds into the comp, one frame being `time_step / time_scale` seconds
-	/// (so frame `n` of a 30 fps comp is `set_time(n, 1, 30)`).
+	/// Set the time the next commands operate on (e.g. `Time::frame(n, 30)` for
+	/// frame `n` of a 30 fps comp).
 	///
 	/// The layer and comp the plugin sees through the AEGP suites run at the
-	/// same frame rate. Plugins start at frame 0 of a 30 fps comp.
+	/// same frame rate. Plugins start at [`Time::default`], frame 0 at 30 fps.
 	///
 	/// # Panics
-	/// If `time_step` or `time_scale` is not positive: plugins divide by both.
-	pub fn set_time(&mut self, current_time: i32, time_step: i32, time_scale: u32) {
-		assert!(
-			time_step > 0 && time_scale > 0,
-			"time_step and time_scale must be positive"
-		);
-		self.render_context.set_time(current_time, time_step, time_scale);
+	/// If `time.step` or `time.scale` is not positive: plugins divide by both.
+	pub fn set_time(&mut self, time: Time) {
+		assert!(time.step > 0 && time.scale > 0, "time step and scale must be positive");
+		self.render_context.set_time(time.value, time.step, time.scale);
 	}
 
-	/// The time set by [`Self::set_time`], as `(current_time, time_step, time_scale)`.
-	pub fn time(&self) -> (i32, i32, u32) {
-		self.render_context.time()
+	/// The time set by [`Self::set_time`].
+	pub fn time(&self) -> Time {
+		let (value, step, scale) = self.render_context.time();
+		Time { value, step, scale }
 	}
 
 	/// Replace the input layer.
@@ -1053,13 +1089,10 @@ impl PluginInstance {
 
 		// Reject a value whose variant doesn't match the parameter's declared type,
 		// so we never write the wrong union member.
-		let (expected_type, expected_name) = value.expected_param_type();
-		if target.param_type != expected_type as PF_ParamType {
-			return Err(AexloError::ParamTypeMismatch {
-				index,
-				expected: expected_name,
-				actual: target.param_type,
-			});
+		let expected = value.kind();
+		let actual = crate::ParamKind::from_sdk(target.param_type);
+		if actual != expected {
+			return Err(AexloError::ParamTypeMismatch { index, expected, actual });
 		}
 
 		// SAFETY: the union variant was verified against `param_type` above.
@@ -1306,8 +1339,8 @@ impl PluginInstance {
 		if param_type != ParamType::Layer as PF_ParamType {
 			return Err(AexloError::ParamTypeMismatch {
 				index,
-				expected: "Layer",
-				actual: param_type,
+				expected: crate::ParamKind::Layer,
+				actual: crate::ParamKind::from_sdk(param_type),
 			});
 		}
 
@@ -1825,7 +1858,7 @@ impl PluginInstance {
 		}
 
 		Err(AexloError::PluginNotFound {
-			path: artifact_path.display().to_string(),
+			path: artifact_path.to_path_buf(),
 		})
 	}
 
@@ -1837,23 +1870,16 @@ impl PluginInstance {
 		let macos_dir = bundle_path.join("Contents").join("MacOS");
 
 		let mut binaries = std::fs::read_dir(&macos_dir)
-			.map_err(|_| AexloError::PluginNotFound {
-				path: macos_dir.display().to_string(),
-			})?
+			.map_err(|_| AexloError::PluginNotFound { path: macos_dir.clone() })?
 			.filter_map(|entry| entry.ok())
 			.map(|entry| entry.path())
 			.filter(|path| path.is_file());
 
 		match (binaries.next(), binaries.next()) {
 			(Some(binary), None) => Ok(binary),
-			(None, _) => Err(AexloError::PluginNotFound {
-				path: macos_dir.display().to_string(),
-			}),
-			(Some(_), Some(_)) => Err(AexloError::InvalidPath {
-				message: format!(
-					"Ambiguous bundle '{}': expected exactly one executable in Contents/MacOS",
-					bundle_path.display()
-				),
+			(None, _) => Err(AexloError::PluginNotFound { path: macos_dir }),
+			(Some(_), Some(_)) => Err(AexloError::AmbiguousBundle {
+				path: bundle_path.to_path_buf(),
 			}),
 		}
 	}
@@ -2099,9 +2125,9 @@ mod tests {
 	#[test]
 	fn set_time_reaches_in_data() {
 		let mut fx = bare_instance();
-		assert_eq!(fx.time(), (0, 1, 30));
-		fx.set_time(48, 1, 24);
-		assert_eq!(fx.time(), (48, 1, 24));
+		assert_eq!(fx.time(), Time::default());
+		fx.set_time(Time::frame(48, 24));
+		assert_eq!(fx.time(), Time::frame(48, 24));
 	}
 
 	#[test]

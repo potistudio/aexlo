@@ -6,7 +6,7 @@
 //! is available `render_gpu` fails with a clear "no GPU device" error -- this
 //! test treats that specific failure as a skip, not a bug.
 
-use aexlo::{AexloError, Depth8, Layer, ParamValue, PluginInstance};
+use aexlo::{AexloError, Depth8, Layer, ParamValue, PluginInstance, RenderPath};
 
 fn load_sample_input() -> Layer<Depth8> {
 	let img = image::open(test_e2e::sample_input_path())
@@ -25,11 +25,10 @@ fn read_output_rgba(instance: &PluginInstance) -> Vec<u8> {
 	buffer
 }
 
-/// `true` if `err` is the "no GPU device available" error `gpu_device_setup`
-/// raises when the machine has no usable CUDA/Metal device -- an environment
-/// gap, not a regression.
+/// `true` if `err` means the machine has no usable CUDA/Metal device -- an
+/// environment gap, not a regression.
 fn is_missing_device(err: &AexloError) -> bool {
-	matches!(err, AexloError::Unexpected(msg) if msg.contains("No GPU device available"))
+	matches!(err, AexloError::GpuUnavailable)
 }
 
 /// `BitonicPixelSorter.aex` declares `PF_OutFlag2_SUPPORTS_GPU_RENDER_F32`.
@@ -60,7 +59,7 @@ fn bitonic_pixel_sorter_gpu_render_produces_real_output() {
 	}
 	instance.set_input_layer(input);
 
-	match instance.render_gpu() {
+	match instance.render_with(RenderPath::Gpu) {
 		Ok(()) => {}
 		Err(err) if is_missing_device(&err) => {
 			eprintln!("skipping: no GPU device available on this machine ({err:?})");
@@ -94,7 +93,7 @@ fn render_frame_prefers_gpu_path_when_supported() {
 	via_gpu.set_input_layer(load_sample_input());
 	via_gpu.set_param(4, ParamValue::Float(25.0)).unwrap();
 	via_gpu.set_param(5, ParamValue::Float(75.0)).unwrap();
-	if let Err(err) = via_gpu.render_gpu() {
+	if let Err(err) = via_gpu.render_with(RenderPath::Gpu) {
 		if is_missing_device(&err) {
 			eprintln!("skipping: no GPU device available on this machine ({err:?})");
 			return;

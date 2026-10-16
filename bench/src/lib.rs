@@ -30,7 +30,7 @@
 
 pub mod report;
 
-use aexlo::{Depth8, Layer, ParamValue, PluginInstance, Result};
+use aexlo::{Depth8, Layer, ParamValue, PluginInstance, RenderPath, Result};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -470,7 +470,7 @@ impl RenderMode {
 		match self {
 			RenderMode::Auto => instance.render_frame(),
 			RenderMode::Cpu => render_cpu(instance),
-			RenderMode::Gpu => instance.render_gpu(),
+			RenderMode::Gpu => instance.render_with(RenderPath::Gpu),
 		}
 	}
 }
@@ -480,10 +480,10 @@ impl RenderMode {
 /// otherwise the legacy render command. Mirrors [`PluginInstance::render_frame`]
 /// minus the GPU attempt.
 pub fn render_cpu(instance: &mut PluginInstance) -> Result<()> {
-	if instance.supports_smart_render() && instance.render_pre().and_then(|()| instance.render_smart()).is_ok() {
+	if instance.supports_smart_render() && instance.render_with(RenderPath::Smart).is_ok() {
 		return Ok(());
 	}
-	instance.render()
+	instance.render_with(RenderPath::Legacy)
 }
 
 /// The render modes to benchmark for a plugin: `[Cpu, Gpu]` when it can render

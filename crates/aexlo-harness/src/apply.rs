@@ -1,7 +1,7 @@
 //! Putting a [`Variant`] on a [`PluginInstance`]: input, size, time,
 //! parameters and layers (§4), and rendering through its render path.
 
-use aexlo::{AexloError, ParamKind, ParamValue, PixelDepthKind, PluginInstance};
+use aexlo::{AexloError, ParamKind, ParamValue, PixelDepthKind, PluginInstance, RenderPath};
 use toml::Value;
 
 use crate::error::{Error, Result};
@@ -44,8 +44,7 @@ pub fn configure(fx: &mut PluginInstance, variant: &Variant) -> Result<()> {
 	let (w, h) = size.unwrap_or((in_w, in_h));
 	fx.set_render_size(w, h);
 
-	let (current, step, scale) = variant.time.as_ae()?;
-	fx.set_time(current, step, scale);
+	fx.set_time(variant.time.as_ae()?);
 
 	for (key, value) in &variant.params {
 		let index = resolve_param(fx, key)?;
@@ -93,12 +92,12 @@ fn set_layer_param(fx: &mut PluginInstance, index: usize, layer: aexlo::AnyLayer
 /// Render one frame through `mode`'s path, with no fallback except for
 /// `auto` (which is `render_frame`'s own GPU → smart → legacy chain).
 pub fn render(fx: &mut PluginInstance, mode: RenderMode) -> aexlo::Result<()> {
-	match mode {
-		RenderMode::Auto => fx.render_frame(),
-		RenderMode::Legacy => fx.render(),
-		RenderMode::Smart => fx.render_pre().and_then(|()| fx.render_smart()),
-		RenderMode::Gpu => fx.render_gpu(),
-	}
+	fx.render_with(match mode {
+		RenderMode::Auto => RenderPath::Auto,
+		RenderMode::Legacy => RenderPath::Legacy,
+		RenderMode::Smart => RenderPath::Smart,
+		RenderMode::Gpu => RenderPath::Gpu,
+	})
 }
 
 /// Whether a render error means the variant does not apply rather than
