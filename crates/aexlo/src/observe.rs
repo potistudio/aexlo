@@ -245,6 +245,7 @@ mod tests {
 	}
 
 	#[test]
+	#[allow(clippy::unnecessary_cast)] // `PF_Cmd_*` is `u32` on macOS only.
 	fn names_commands_by_sdk_name() {
 		assert_eq!(
 			command_name(after_effects_sys::PF_Cmd_SMART_RENDER as i32),

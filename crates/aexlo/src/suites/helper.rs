@@ -65,6 +65,7 @@ unsafe extern "C" fn set_current_extended_tool(tool: PF_ExtendedSuiteTool) -> PF
 		"tool" => tool,
 	);
 
+	#[allow(clippy::unnecessary_cast)] // `PF_ExtendedSuiteTool` is `u32` on macOS only.
 	with_host(|host| {
 		host.set_current_tool(tool as i32);
 		PF_Err_NONE as PF_Err
@@ -108,6 +109,7 @@ mod tests {
 
 	struct PenHost;
 	impl AppHost for PenHost {
+		#[allow(clippy::unnecessary_cast)] // `PF_ExtendedSuiteTool_*` is `u32` on macOS only.
 		fn current_tool(&self) -> i32 {
 			PF_ExtendedSuiteTool_PEN_ADD_POINT as i32
 		}
