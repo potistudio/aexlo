@@ -509,7 +509,7 @@ fn glow_is_symmetric(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
 | --- | --- | --- |
 | M1 | コア：`param_indices`、深度を汎用化した I/O（16、次に 32）、`Commands` レベルの `Observer`。 | ディープカラーを宣言する同梱のフィクスチャを 16 bpc でレンダリングし、`Layer<Depth16>` として読み戻せる。コマンドの時間を観測できる。 |
 | M2 | ハーネス：マニフェスト、`inherits`、マトリクス、ワーカープロトコル、結果の分類。`aexlo presets`、`aexlo render --preset`。 | 一方がクラッシュする 2 つのフィクスチャを扱うマニフェストで、`aexlo test` が 1 件の `crash` を報告し、残りのバリアントも実行する。`render_one` を削除。 |
-| M3 | テスト：golden、`--bless`、`finite` / `coverage` / `deterministic`、JSON と JUnit 出力、`#[aexlo::test]` を備えた `aexlo-test`。 | `demos/noise` にマニフェストと `#[aexlo::test]` があり、ハッシュ定数を変えると両方が不合格になり、差分の生成物が保存される。 |
+| M3 | テスト：golden、`--bless`、`finite` / `coverage` / `deterministic`、JSON と JUnit 出力、`#[aexlo::test]` を備えた `aexlo-test`。 | `examples/plugins/noise` にマニフェストと `#[aexlo::test]` があり、ハッシュ定数を変えると両方が不合格になり、差分の生成物が保存される。 |
 | M4 | strict：ガード領域、割り当てとチェックアウトの追跡、`bounds` / `allocations` / `checkouts` / `flags`、`iterate-parallel`、`depth-consistency`、ファジング。 | world の 1 行先に書き込むテストプラグインが `bounds` に不合格となり、ハンドルをリークするものが `allocations` に不合格となる。 |
 | M5 | プリセットのベンチマーク：フェーズ別の内訳、ベースライン、性能低下の終了コード。`aexlo-bench` の移行。 | フィクスチャのレンダリングを意図的に閾値以上遅くすると、`aexlo bench --baseline` が 1 で終了する。 |
 | M6 | ビューアー：プリセット選択、比較モード、タイムスクラバー、「Save as preset」。 | 保存したプリセットを再利用できる。ビューアーに表示され、`aexlo test` でも実行できる。 |

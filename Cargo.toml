@@ -2,10 +2,13 @@
 resolver = "3"
 members = [
 	"crates/*",
-	"examples/*",
+	"examples/interactive",
+	"examples/minimal",
+	"examples/sdk_noise",
+	"examples/studio",
+	"examples/plugins/*",
 	"tests/e2e",
 	"tests/misbehave",
-	"demos/*",
 	"playground/probe",
 	"playground/harness",
 ]
