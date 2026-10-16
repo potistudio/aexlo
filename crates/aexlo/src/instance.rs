@@ -17,7 +17,6 @@ use after_effects_sys::{
 	PF_OutFlag2_SUPPORTS_GPU_RENDER_F32, PF_OutFlags, PF_OutFlags2, PF_ParamDef, PF_ParamDefUnion, PF_ParamType,
 	PF_ProgPtr,
 };
-use colored::Colorize;
 use dlopen2::raw::Library;
 use std::{
 	collections::HashMap,
@@ -2256,7 +2255,7 @@ impl PluginInstance {
 		for candidate in &names {
 			match unsafe { lib.symbol::<PluginEntryPoint>(candidate) } {
 				Ok(symbol) => {
-					log::info!("Resolved entry point '{}'.", candidate.blue());
+					log::info!("Resolved entry point '{candidate}'.");
 					return Ok((symbol, candidate.clone()));
 				}
 				Err(err) => {
@@ -2327,7 +2326,7 @@ impl PluginInstance {
 		let module_path = Self::resolve_binary_path(&self.binary_file_path)?;
 		let module_path_str = module_path.display().to_string();
 
-		log::info!("Loading plugin from '{}'.", module_path_str.blue());
+		log::info!("Loading plugin from '{module_path_str}'.");
 
 		let lib = Library::open(&module_path)?;
 		let (entry_point, resolved_name) = Self::resolve_entry_point(&lib, self.pica.as_ref(), &module_path)?;
@@ -2339,8 +2338,8 @@ impl PluginInstance {
 		// Remembered for the get_platform_data callback (plugin path queries).
 		self.resolved_binary_path = Some(module_path.clone());
 
-		log::info!("Resolved entry point symbol: {}.", resolved_name.blue());
-		log::info!("Loaded plugin '{}' {}.", module_path_str.blue(), "successfully".green());
+		log::info!("Resolved entry point symbol: {resolved_name}.");
+		log::info!("Loaded plugin '{module_path_str}' successfully.");
 
 		Ok(())
 	}
@@ -2377,7 +2376,7 @@ impl PluginInstance {
 
 		// debug, not info: this runs for every render command, so at info level a
 		// preview loop drowns the log.
-		log::debug!("Executing command: {}", format!("{:?}", command).blue());
+		log::debug!("Executing command: {command:?}");
 
 		if self.params_dirty {
 			self.params_ptr_cache = self.params.iter_mut().map(|p| p as *mut _).collect();
@@ -2457,13 +2456,7 @@ impl PluginInstance {
 		#[allow(non_upper_case_globals)]
 		match result {
 			PF_Err_NONE => {
-				log::debug!(
-					"Executed command '{}' {} ({} exited with code {}).",
-					format!("{:?}", command).blue(),
-					"successfully".green(),
-					entry_point_name.blue(),
-					result.to_string().blue()
-				);
+				log::debug!("Executed command '{command:?}' successfully ({entry_point_name} exited with code {result}).");
 			}
 			code => {
 				// The format! only runs on the failure path, never per frame.
