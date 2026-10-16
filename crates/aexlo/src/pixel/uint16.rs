@@ -1,5 +1,6 @@
 use super::*;
 
+/// 16 bits per channel: `u16` channels in `0..=32768`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Depth16;
 
@@ -65,6 +66,7 @@ impl From<[u16; 4]> for Pixel<Depth16> {
 }
 
 impl Pixel<Depth16> {
+	/// Opaque white.
 	pub fn white() -> Self {
 		Pixel {
 			alpha: MAX_CHAN16,

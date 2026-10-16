@@ -1,5 +1,6 @@
 use super::*;
 
+/// 8 bits per channel: `u8` channels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Depth8;
 
@@ -75,6 +76,7 @@ impl From<Pixel<Depth8>> for after_effects_sys::PF_Pixel8 {
 }
 
 impl Pixel<Depth8> {
+	/// Opaque blue.
 	pub fn blue() -> Self {
 		Pixel {
 			alpha: 255,
@@ -84,6 +86,7 @@ impl Pixel<Depth8> {
 		}
 	}
 
+	/// Opaque cyan.
 	pub fn cyan() -> Self {
 		Pixel {
 			alpha: 255,
@@ -93,6 +96,7 @@ impl Pixel<Depth8> {
 		}
 	}
 
+	/// Opaque green.
 	pub fn green() -> Self {
 		Pixel {
 			alpha: 255,
@@ -102,6 +106,7 @@ impl Pixel<Depth8> {
 		}
 	}
 
+	/// Opaque purple.
 	pub fn purple() -> Self {
 		Pixel {
 			alpha: 255,
@@ -111,6 +116,7 @@ impl Pixel<Depth8> {
 		}
 	}
 
+	/// Opaque red.
 	pub fn red() -> Self {
 		Pixel {
 			alpha: 255,
@@ -120,6 +126,7 @@ impl Pixel<Depth8> {
 		}
 	}
 
+	/// Fully transparent black; same as [`Pixel::blank`].
 	pub fn transparent() -> Self {
 		Pixel {
 			alpha: 0,
@@ -129,6 +136,7 @@ impl Pixel<Depth8> {
 		}
 	}
 
+	/// Opaque white.
 	pub fn white() -> Self {
 		Pixel {
 			alpha: 255,
@@ -138,6 +146,7 @@ impl Pixel<Depth8> {
 		}
 	}
 
+	/// Opaque yellow.
 	pub fn yellow() -> Self {
 		Pixel {
 			alpha: 255,

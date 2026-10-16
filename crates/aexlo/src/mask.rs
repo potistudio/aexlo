@@ -5,13 +5,21 @@
 /// How a mask combines with the others (`PF_MaskMode_*`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MaskMode {
+	/// The mask is ignored.
 	None,
+	/// Adds the mask's area to the masks above it.
 	#[default]
 	Add,
+	/// Removes the mask's area from the masks above it.
 	Subtract,
+	/// Keeps only the area shared with the masks above it.
 	Intersect,
+	/// Like [`Add`](Self::Add), keeping the higher opacity where masks overlap.
 	Lighten,
+	/// Like [`Intersect`](Self::Intersect), keeping the lower opacity where
+	/// masks overlap.
 	Darken,
+	/// Keeps the area covered by either this mask or the ones above, not both.
 	Difference,
 	/// Real addition rather than screen (not exposed in AE's UI).
 	Accum,
@@ -39,11 +47,17 @@ impl MaskMode {
 /// `(x + tan_in_x, y + tan_in_y)`. Zero tangents give straight segments.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct MaskVertex {
+	/// Horizontal position, in layer pixels.
 	pub x: f64,
+	/// Vertical position, in layer pixels.
 	pub y: f64,
+	/// Incoming tangent, horizontal component relative to `x`.
 	pub tan_in_x: f64,
+	/// Incoming tangent, vertical component relative to `y`.
 	pub tan_in_y: f64,
+	/// Outgoing tangent, horizontal component relative to `x`.
 	pub tan_out_x: f64,
+	/// Outgoing tangent, vertical component relative to `y`.
 	pub tan_out_y: f64,
 }
 
@@ -66,10 +80,14 @@ pub struct MaskPath {
 	pub id: u32,
 	/// Shown to plugins via `PF_PathGetName`, truncated to 31 bytes.
 	pub name: String,
+	/// The path's vertices, in drawing order.
 	pub vertices: Vec<MaskVertex>,
 	/// Whether the last vertex connects back to the first.
 	pub closed: bool,
+	/// Whether the mask covers the outside of the path instead of the inside
+	/// (`PF_PathIsInverted`).
 	pub inverted: bool,
+	/// How the mask combines with the others (`PF_PathGetMaskMode`).
 	pub mode: MaskMode,
 }
 

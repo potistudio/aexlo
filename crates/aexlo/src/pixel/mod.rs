@@ -13,8 +13,11 @@ pub use layer::*;
 /// are integers (16 bpc is 15-bit, white is `32768`), 32 bpc is float.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum PixelDepthKind {
+	/// 8 bpc, `u8` channels ([`Depth8`]).
 	U8,
+	/// 16 bpc, `u16` channels in `0..=32768` ([`Depth16`]).
 	U16,
+	/// 32 bpc, `f32` channels with `1.0` as full intensity ([`Depth32`]).
 	F32,
 }
 
@@ -50,7 +53,10 @@ impl core::fmt::Display for PixelDepthKind {
 	}
 }
 
+/// A channel depth at the type level: [`Depth8`], [`Depth16`] or [`Depth32`].
+/// [`Pixel`] and [`Layer`] are generic over it.
 pub trait PixelDepth: Sized + Send + Sync + 'static {
+	/// The type of one channel (`u8`, `u16` or `f32`).
 	type Depth: Default + Copy + Clone + PartialEq + Send + Sync + core::fmt::Debug;
 
 	/// This depth as a value.
@@ -92,9 +98,13 @@ pub trait PixelDepth: Sized + Send + Sync + 'static {
 #[repr(C)]
 #[derive(Debug, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Pixel<T: PixelDepth> {
+	/// Alpha, straight (not premultiplied).
 	pub alpha: T::Depth,
+	/// Red.
 	pub red: T::Depth,
+	/// Green.
 	pub green: T::Depth,
+	/// Blue.
 	pub blue: T::Depth,
 }
 
@@ -110,6 +120,7 @@ impl<T: PixelDepth> Clone for Pixel<T> {
 }
 
 impl<T: PixelDepth> Pixel<T> {
+	/// Fully transparent black: every channel zero.
 	pub fn blank() -> Self {
 		Pixel {
 			alpha: T::Depth::default(),
@@ -119,6 +130,7 @@ impl<T: PixelDepth> Pixel<T> {
 		}
 	}
 
+	/// Opaque black.
 	pub fn black() -> Self {
 		Pixel {
 			alpha: T::max_value(),

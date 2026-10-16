@@ -1,5 +1,6 @@
 use super::*;
 
+/// 32 bits per channel: `f32` channels, `1.0` being full intensity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Depth32;
 
@@ -61,6 +62,7 @@ impl From<[f32; 4]> for Pixel<Depth32> {
 }
 
 impl Pixel<Depth32> {
+	/// Opaque white.
 	pub fn white() -> Self {
 		Pixel {
 			alpha: 1.0,

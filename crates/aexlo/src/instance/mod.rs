@@ -340,13 +340,20 @@ pub struct CustomControlEvent {
 /// Straight RGBA image of one custom-UI control after `PF_Event_DRAW`.
 #[derive(Clone)]
 pub struct CustomControlImage {
+	/// Width in pixels.
 	pub width: u32,
+	/// Height in pixels.
 	pub height: u32,
+	/// Straight (non-premultiplied) RGBA, 4 bytes per pixel, row-major.
 	pub rgba: Vec<u8>,
 }
 
 impl PluginInstance {
-	/// Call the plugin with `PF_Cmd_ABOUT` command.
+	/// Call the plugin with `PF_Cmd_ABOUT` and return the text it reports,
+	/// typically its name, version and copyright.
+	///
+	/// # Errors
+	/// [`AexloError::PluginExecutionFailed`] if the plugin rejects the command.
 	pub fn about(&mut self) -> Result<String> {
 		self.call_plugin(RawCommand::About, null_mut())?;
 
