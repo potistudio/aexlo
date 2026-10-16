@@ -1,0 +1,58 @@
+# Build, lint and test the workspace on the platforms After Effects plugins
+# exist for. The toolkit's own `aexlo check` runs separately (toolkit.yml).
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Debug info is not needed to run tests and doubles the cache size.
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml selects the toolchain and its components.
+      - run: cargo fmt --all -- --check
+
+  check:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: clippy (aexlo, diagnostics)
+        run: cargo clippy -p aexlo --all-targets --features diagnostics --locked -- -D warnings
+
+      # Fixture tests skip plugins that are not checked in (fixtures/plugins),
+      # and GPU tests skip when the runner has no device.
+      - name: test
+        run: cargo test --workspace --locked
+
+      - name: doc (aexlo)
+        run: cargo doc -p aexlo --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+      # aexlo is the only crate published to crates.io; it must stay packageable.
+      - name: package (aexlo)
+        run: cargo package -p aexlo --locked --no-verify
