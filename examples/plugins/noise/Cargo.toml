@@ -1,9 +1,11 @@
 [package]
 name = "aexlo_demo_noise"
-version = "1.0.0"
-edition = "2024"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
 description = "Development demo using aexlo - fills the output with per-pixel noise"
-authors = ["potistudio <potistudio@proton.me>"]
+authors = { workspace = true }
+license = { workspace = true }
 publish = false
 
 [lib]
@@ -11,10 +13,10 @@ name = "aexlo_demo_noise"
 crate-type = ["cdylib"]
 
 [dependencies]
-after-effects = "0.4.0"
+after-effects = { workspace = true }
 
 [build-dependencies]
-pipl = "0.1.1"
+pipl = { workspace = true }
 
 [dev-dependencies]
 # In-process preview harness: drive the plugin via `Host::from_entry_raw`

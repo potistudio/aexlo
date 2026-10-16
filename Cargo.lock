@@ -229,7 +229,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo_demo_hello_world"
-version = "1.0.0"
+version = "0.0.1"
 dependencies = [
  "aexlo",
  "aexlo-test",
@@ -239,7 +239,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo_demo_noise"
-version = "1.0.0"
+version = "0.0.1"
 dependencies = [
  "aexlo",
  "aexlo-test",
@@ -4097,7 +4097,7 @@ dependencies = [
 
 [[package]]
 name = "sdk_noise"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "aexlo",
  "chrono",

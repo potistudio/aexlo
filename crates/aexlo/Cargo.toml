@@ -6,10 +6,16 @@ rust-version = { workspace = true }
 description = "Run After Effects plugin without Adobe dependency."
 authors = { workspace = true }
 license = { workspace = true }
-repository = "https://github.com/potistudio/aexlo-rs"
+repository = { workspace = true }
 keywords = ["after-effects", "graphics", "emulator"]
 categories = ["emulator"]
 readme = "../../README.md"
+
+# After Effects plugins only exist for Windows and macOS; docs.rs builds Linux
+# by default.
+[package.metadata.docs.rs]
+all-features = true
+targets = ["x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
 
 [features]
 # Colored stdout tracing of every suite call (see `core::diagnostics`).
@@ -20,13 +26,13 @@ macros = ["dep:aexlo-macros"]
 
 [dependencies]
 aexlo-macros = { workspace = true, optional = true }
-after-effects = "0.4.0"
-after-effects-sys = "0.4.0"
+after-effects = { workspace = true }
+after-effects-sys = { workspace = true }
 bytemuck = "1.25.1"
-chrono = { version = "0.4.45", optional = true }
-colored = { version = "3.1.1", optional = true }
+chrono = { workspace = true, optional = true }
+colored = { workspace = true, optional = true }
 dlopen2 = "0.8.2"
-log = "0.4.33"
+log = { workspace = true }
 rayon = "1.12.0"
 thiserror = "2.0.18"
 

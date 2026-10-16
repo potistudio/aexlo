@@ -1,7 +1,10 @@
 [package]
 name = "aexlo_misbehave"
-version = "0.0.1"
-edition = "2024"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
 description = "A deliberately misbehaving effect for testing aexlo's toolkit"
 publish = false
 
@@ -9,4 +12,4 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-after-effects-sys = "0.4.0"
+after-effects-sys = { workspace = true }
