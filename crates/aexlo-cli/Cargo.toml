@@ -1,0 +1,46 @@
+[package]
+name = "aexlo-cli"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+description = "Command-line front-end for the aexlo After Effects plugin loader."
+authors = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+# Only `aexlo` is published; the tooling is used from git.
+publish = false
+
+# Installs as `aexlo` so `cargo install --path crates/aexlo-cli` gives an `aexlo` command.
+[[bin]]
+name = "aexlo"
+path = "src/main.rs"
+
+[dependencies]
+aexlo = { workspace = true }
+anyhow = { workspace = true }
+
+# The preset-driven toolkit (`presets`, `test`, `bench`, `check`, `worker`).
+aexlo-harness = { workspace = true }
+env_logger = { workspace = true }
+serde_json = { workspace = true }
+# The viewer's "Save as preset" edits aexlo.toml, keeping its formatting.
+toml = { workspace = true }
+toml_edit = "0.25.15"
+
+# `aexlo bench`: the timing loop, plugin/resolution resolution, and reporting are
+# shared with `cargo bench -p aexlo-bench` so both front-ends measure identically.
+aexlo-bench = { workspace = true }
+image = { workspace = true, features = ["png"] }
+
+# `aexlo dev --bin`: live preview window (minifb), source watching (notify), and
+# locating the freshly built cdylib artifact (cargo_metadata).
+cargo_metadata = "0.23.1"
+minifb = "0.28.0"
+notify = "8.2.0"
+
+# `aexlo dev --bin --web`: serve the live preview over a tiny local HTTP server.
+tiny_http = "0.12.0"
+
+[dev-dependencies]
+image = { workspace = true, features = ["png"] }
+serde_json = { workspace = true }

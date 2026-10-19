@@ -31,11 +31,21 @@ unsafe fn read_utf16(p: *const A_UTF16Char) -> Option<String> {
 }
 
 fn to_ffi_pixel(c: AppPixelF) -> PF_PixelFloat {
-	PF_PixelFloat { alpha: c.alpha, red: c.red, green: c.green, blue: c.blue }
+	PF_PixelFloat {
+		alpha: c.alpha,
+		red: c.red,
+		green: c.green,
+		blue: c.blue,
+	}
 }
 
 fn from_ffi_pixel(c: &PF_PixelFloat) -> AppPixelF {
-	AppPixelF { alpha: c.alpha, red: c.red, green: c.green, blue: c.blue }
+	AppPixelF {
+		alpha: c.alpha,
+		red: c.red,
+		green: c.green,
+		blue: c.blue,
+	}
 }
 
 /// Progress-dialog handles encode the host's [`ProgressId`] as `id + 1`, so
@@ -69,9 +79,8 @@ unsafe extern "C" fn get_language(lang_tagZ: *mut A_char) -> PF_Err {
 		return PF_Err_NONE as PF_Err;
 	}
 	with_host(|host| {
-		let buf = unsafe {
-			std::slice::from_raw_parts_mut(lang_tagZ, after_effects_sys::PF_APP_LANG_TAG_SIZE as usize)
-		};
+		let buf =
+			unsafe { std::slice::from_raw_parts_mut(lang_tagZ, after_effects_sys::PF_APP_LANG_TAG_SIZE as usize) };
 		write_c_str(buf, &host.language());
 		PF_Err_NONE as PF_Err
 	})
@@ -109,7 +118,13 @@ unsafe extern "C" fn get_bg_color(bg_colorP: *mut PF_App_Color) -> PF_Err {
 	}
 	with_host(|host| {
 		let c = host.bg_color();
-		unsafe { *bg_colorP = PF_App_Color { red: c.red, green: c.green, blue: c.blue } };
+		unsafe {
+			*bg_colorP = PF_App_Color {
+				red: c.red,
+				green: c.green,
+				blue: c.blue,
+			}
+		};
 		PF_Err_NONE as PF_Err
 	})
 }
@@ -125,7 +140,13 @@ unsafe extern "C" fn get_color(color_type: PF_App_ColorType, app_colorP: *mut PF
 	}
 	with_host(|host| {
 		let c = host.color(color_type);
-		unsafe { *app_colorP = PF_App_Color { red: c.red, green: c.green, blue: c.blue } };
+		unsafe {
+			*app_colorP = PF_App_Color {
+				red: c.red,
+				green: c.green,
+				blue: c.blue,
+			}
+		};
 		PF_Err_NONE as PF_Err
 	})
 }
@@ -165,12 +186,17 @@ unsafe extern "C" fn get_font_style_sheet(
 	);
 
 	with_host(|host| {
+		#[allow(clippy::unnecessary_cast)] // `PF_FontStyleSheet` is `u32` on macOS only.
 		let font = host.font_style_sheet(sheet as i32);
 		unsafe {
 			if let Some(name) = font_nameP0.as_mut() {
 				write_c_str(&mut name.font_nameAC, &font.name);
 			}
-			for (p, v) in [(font_numPS0, font.font_num), (sizePS0, font.size), (stylePS0, font.style)] {
+			for (p, v) in [
+				(font_numPS0, font.font_num),
+				(sizePS0, font.size),
+				(stylePS0, font.style),
+			] {
 				if let Some(p) = p.as_mut() {
 					*p = v;
 				}
@@ -316,7 +342,11 @@ unsafe extern "C" fn create_progress_dialog(
 }
 
 /// Returns `PF_Interrupt_CANCEL` when the host reports the user cancelled.
-unsafe extern "C" fn progress_dialog_update(prog_dlgP: PF_AppProgressDialogP, countL: A_long, totalL: A_long) -> PF_Err {
+unsafe extern "C" fn progress_dialog_update(
+	prog_dlgP: PF_AppProgressDialogP,
+	countL: A_long,
+	totalL: A_long,
+) -> PF_Err {
 	diag!("PFAppSuite/PF_AppProgressDialogUpdate",
 		"prog_dlgP" => format!("{:#x}", prog_dlgP as usize),
 		"countL" => countL,
@@ -425,7 +455,11 @@ mod tests {
 	struct TestHost;
 	impl AppHost for TestHost {
 		fn bg_color(&self) -> AppColor {
-			AppColor { red: 1, green: 2, blue: 3 }
+			AppColor {
+				red: 1,
+				green: 2,
+				blue: 3,
+			}
 		}
 		fn language(&self) -> String {
 			"ja_JP".into()
@@ -434,7 +468,10 @@ mod tests {
 			true
 		}
 		fn personal_info(&self) -> PersonalInfo {
-			PersonalInfo { name: "x".repeat(100), ..Default::default() }
+			PersonalInfo {
+				name: "x".repeat(100),
+				..Default::default()
+			}
 		}
 		fn pick_color(&self, _: Option<&str>, _: AppPixelF, _: bool) -> Option<AppPixelF> {
 			None
@@ -483,8 +520,14 @@ mod tests {
 			let mut dlg: PF_AppProgressDialogP = std::ptr::null_mut();
 			suite.PF_CreateNewAppProgressDialog.unwrap()(title.as_ptr(), std::ptr::null(), 0, &mut dlg);
 			assert!(!dlg.is_null());
-			assert_eq!(suite.PF_AppProgressDialogUpdate.unwrap()(dlg, 1, 20), PF_Err_NONE as PF_Err);
-			assert_eq!(suite.PF_AppProgressDialogUpdate.unwrap()(dlg, 10, 20), PF_Interrupt_CANCEL as PF_Err);
+			assert_eq!(
+				suite.PF_AppProgressDialogUpdate.unwrap()(dlg, 1, 20),
+				PF_Err_NONE as PF_Err
+			);
+			assert_eq!(
+				suite.PF_AppProgressDialogUpdate.unwrap()(dlg, 10, 20),
+				PF_Interrupt_CANCEL as PF_Err
+			);
 		}
 		use_host(HeadlessAppHost);
 		unsafe {

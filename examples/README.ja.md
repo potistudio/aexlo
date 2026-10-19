@@ -13,4 +13,13 @@
 
 minimal と sdk_noise は `-- --help` で引数の説明を表示できます。sdk_noise は既定で `target/sdk-noise.png` に書き出します。自分のアプリケーションに API を組み込む際は、まずこの 2 つのサンプルを読んでください。
 
-[playground](../playground/README.ja.md) はホストの動作を検証するツールで、[demos](../demos/) にはプラグイン側の実装があります。既存のプラグインをホストするアプリケーションを作る場合は、このサンプル集から始めてください。
+[playground](../playground/README.ja.md) はホストの動作を検証するツールです。既存のプラグインをホストするアプリケーションを作る場合は、このサンプル集から始めてください。
+
+## プラグインのサンプル
+
+[plugins/](plugins/) には、Rust で書いて aexlo でテストする After Effects プラグインがあります。ホストではなくプラグインを作る開発者向けです。
+
+| サンプル | 内容 | コマンド |
+| --- | --- | --- |
+| [hello_world](plugins/hello_world/src/lib.rs) | `#[aexlo_test::preview]` でプラグインをプロセス内でプレビューする | `cargo test -p aexlo_demo_hello_world -- --ignored` |
+| [noise](plugins/noise/aexlo.toml) | プリセット、golden、`#[aexlo_test::test]` | `cargo test -p aexlo_demo_noise` |

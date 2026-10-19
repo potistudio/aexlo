@@ -14,6 +14,7 @@ use std::time::Duration;
 
 /// How much an [`Observer`] is told.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum ObserveLevel {
 	/// One event as each command begins and ends.
 	Commands,
@@ -26,17 +27,21 @@ pub enum ObserveLevel {
 /// Whether a [`CommandEvent`] marks the start or the end of a command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandPhase {
+	/// The entry point is about to be called.
 	Begin,
+	/// The entry point returned.
 	End,
 }
 
 /// A command sent to the plugin's entry point.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CommandEvent {
 	/// The `PF_Cmd_*` value.
 	pub command: i32,
 	/// The SDK name without its prefix, e.g. `"SMART_RENDER"`.
 	pub name: &'static str,
+	/// Whether the command is starting or has finished.
 	pub phase: CommandPhase,
 	/// Time spent inside the entry point; set on [`CommandPhase::End`].
 	pub duration: Option<Duration>,
@@ -47,6 +52,7 @@ pub struct CommandEvent {
 
 /// A host suite function the plugin called.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SuiteCallEvent {
 	/// The suite and its version, e.g. `"PF_WorldSuite2"`.
 	pub suite: &'static str,
@@ -54,37 +60,49 @@ pub struct SuiteCallEvent {
 	pub function: &'static str,
 }
 
-/// A host-tracked allocation changed (see [`Strict::track_allocations`]).
+/// The plugin got memory from the host or gave it back. Reported whether or
+/// not [`Strict::track_allocations`] is on.
 ///
 /// [`Strict::track_allocations`]: crate::Strict::track_allocations
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AllocationEvent {
+	/// What was allocated or disposed.
 	pub kind: AllocationKind,
 	/// `true` for a new allocation, `false` for a disposal.
 	pub allocated: bool,
 	/// The allocation's address, as the plugin sees it.
 	pub address: usize,
+	/// The allocation's size in bytes.
 	pub bytes: usize,
 }
 
 /// What kind of host memory an [`AllocationEvent`] is about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum AllocationKind {
+	/// A memory handle (`PF_NewHandle` and the Handle Suite).
 	Handle,
+	/// A pixel world (`PF_NewWorld` and the World Suite).
 	World,
 }
 
-/// A smart-render checkout (see [`Strict::track_checkouts`]).
+/// A smart-render checkout or checkin. Reported whether or not
+/// [`Strict::track_checkouts`] is on.
 ///
 /// [`Strict::track_checkouts`]: crate::Strict::track_checkouts
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CheckoutEvent {
+	/// Which checkout call this is.
 	pub kind: CheckoutKind,
 	/// The checkout id the plugin chose, or the parameter index for params.
 	pub id: i32,
 }
 
+/// Which checkout call a [`CheckoutEvent`] reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum CheckoutKind {
 	/// `checkout_layer` during `SMART_PRE_RENDER`.
 	DeclareLayer,
@@ -104,9 +122,13 @@ pub enum CheckoutKind {
 /// Methods run synchronously inside the host, some while the plugin waits on
 /// them; keep them short and never call back into the instance.
 pub trait Observer: Send + Sync {
+	/// A command began or ended.
 	fn command(&self, _event: &CommandEvent) {}
+	/// The plugin called a host suite function (only at [`ObserveLevel::Calls`]).
 	fn suite_call(&self, _event: &SuiteCallEvent) {}
+	/// The plugin got memory from the host or gave it back.
 	fn allocation(&self, _event: &AllocationEvent) {}
+	/// The plugin checked a layer or parameter out or in.
 	fn checkout(&self, _event: &CheckoutEvent) {}
 }
 
@@ -245,6 +267,7 @@ mod tests {
 	}
 
 	#[test]
+	#[allow(clippy::unnecessary_cast)] // `PF_Cmd_*` is `u32` on macOS only.
 	fn names_commands_by_sdk_name() {
 		assert_eq!(
 			command_name(after_effects_sys::PF_Cmd_SMART_RENDER as i32),

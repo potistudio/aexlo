@@ -432,7 +432,7 @@ fn sat(c: [f64; 3]) -> f64 {
 fn set_sat(c: [f64; 3], s: f64) -> [f64; 3] {
 	let mut out = c;
 	let mut idx = [0usize, 1, 2];
-	idx.sort_by(|&a, &b| out[a].partial_cmp(&out[b]).unwrap());
+	idx.sort_by(|&a, &b| out[a].total_cmp(&out[b]));
 	let (imin, imid, imax) = (idx[0], idx[1], idx[2]);
 	if out[imax] > out[imin] {
 		out[imid] = (out[imid] - out[imin]) * s / (out[imax] - out[imin]);

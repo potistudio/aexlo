@@ -6,31 +6,35 @@
 //! # Example
 //!
 //! ```no_run
-//! use aexlo::{Host, PluginInstance};
-//! use std::path::Path;
+//! use aexlo::{Depth8, Host, Layer, ParamValue, Time};
 //!
 //! # fn main() -> aexlo::Result<()> {
 //! // Fix the host services first (`Host::install(my_app_host)?` to customize).
 //! let host = Host::get();
 //!
-//! // `try_load` loads the library, runs GLOBAL_SETUP and PARAMS_SETUP.
-//! let mut instance = host.try_load(Path::new("ExamplePlugin"))?;
+//! // Load the plugin and run GLOBAL_SETUP, PARAMS_SETUP and SEQUENCE_SETUP.
+//! // On Windows pass the `.aex` file, on macOS the `.plugin` bundle.
+//! let mut fx = host.try_load("MyEffect.aex")?;
+//! println!("{}", fx.about()?);
 //!
-//! // Query plugin info (PF_Cmd_ABOUT).
-//! let message = instance.about()?;
-//! println!("{message}");
+//! // Feed an input frame and set parameters (index 0 is the input layer).
+//! fx.set_input_layer(Layer::<Depth8>::black(1920, 1080));
+//! fx.set_param(1, ParamValue::Float(0.5))?;
+//! fx.set_time(Time::frame(0, 30));
 //!
-//! // Render a frame.
-//! instance.render()?;
+//! // Render the way After Effects picks the path: GPU, smart, then legacy.
+//! fx.render_frame()?;
+//! let output: Layer<Depth8> = fx.read_output()?;
 //! # Ok(())
 //! # }
 //! ```
 //!
 //! # Features
 //!
-//! - `diagnostics` - Enable detailed diagnostic logging for debugging
+//! - `diagnostics` - Print every suite call the plugin makes, with its
+//!   arguments, to stdout
 
-#![warn(clippy::all)]
+#![warn(clippy::all, missing_docs, clippy::missing_errors_doc)]
 // The crate mirrors the After Effects C SDK, whose suite struct fields and entry
 // points (`PF_GetAppName`, `EffectMain`, …) use non-snake-case names. Allowing it
 // crate-wide keeps the FFI surface readable without per-item annotations.
@@ -42,28 +46,21 @@ mod host;
 mod instance;
 mod mask;
 mod observe;
-mod strict;
 mod param_value;
+mod pixel;
+mod strict;
+mod time;
 mod utils;
 
 pub(crate) mod suites;
 
 pub use core::error::{AexloError, Result};
-pub use instance::PluginInstance;
+pub use instance::{PluginInstance, RenderPath};
+pub use time::Time;
 
 /// Entry point ABI for driving an in-process effect via
 /// [`Host::from_entry`].
 pub use instance::PluginEntryPoint;
-
-/// `#[aexlo::preview]` - render a plugin in-process and drop a preview PNG.
-///
-/// Expands to `aexlo-test` paths: add `aexlo-test` as a dev-dependency.
-pub use aexlo_macros::preview;
-
-/// `#[aexlo::test]` - one `#[test]` per depth and render path, starting from
-/// a manifest preset. Expands to `aexlo-test` paths: add `aexlo-test` as a
-/// dev-dependency.
-pub use aexlo_macros::test;
 
 pub use param_value::{ParamKind, ParamValue};
 
@@ -89,15 +86,12 @@ pub use host::app::{
 	PersonalInfo, ProgressId, TimeDisplayMode, TimeDisplayPref,
 };
 
-/// Diagnostic utilities (feature-gated).
-pub use core::diagnostics::{Diagnostic, DiagnosticBuilder};
-
 /// Safe pixel/layer wrappers, re-exported explicitly so additions to the
-/// `wrapper` crate don't silently widen this crate's public API.
-pub use wrapper::{AnyLayer, Depth8, Depth16, Depth32, Layer, LayerError, Pixel, PixelDepth, PixelDepthKind};
+/// `pixel` module don't silently widen this crate's public API.
+pub use pixel::{AnyLayer, Depth8, Depth16, Depth32, Layer, LayerError, Pixel, PixelDepth, PixelDepthKind};
 
 /// Observation hooks ([`PluginInstance::set_observer`]).
 pub use observe::{
-	AllocationEvent, AllocationKind, CheckoutEvent, CheckoutKind, CommandEvent, CommandPhase, LogObserver, ObserveLevel, Observer,
-	SuiteCallEvent, command_name,
+	AllocationEvent, AllocationKind, CheckoutEvent, CheckoutKind, CommandEvent, CommandPhase, LogObserver,
+	ObserveLevel, Observer, SuiteCallEvent, command_name,
 };

@@ -16,7 +16,7 @@ Today the pieces exist but do not share an input format:
 
 | Use     | Existing                                                         | Gap                                                     |
 | ------- | ---------------------------------------------------------------- | ------------------------------------------------------- |
-| Test    | `tests/e2e`, `#[aexlo::preview]`, `render_one` crash isolation    | hand-written pixel indexing, no goldens, isolation is e2e-only |
+| Test    | `tests/e2e`, `#[aexlo_test::preview]`, `render_one` crash isolation    | hand-written pixel indexing, no goldens, isolation is e2e-only |
 | Bench   | `aexlo-bench`, `aexlo bench`                                      | env vars vs flags, no baseline comparison, 8-bit only   |
 | Preview | `aexlo dev`, `dev --bin`, `preview --web`, `studio`              | four ways to say "input, params, size, time"            |
 
@@ -71,7 +71,7 @@ Today the pieces exist but do not share an input format:
 | Crate           | Role                                                                                       | Status   |
 | --------------- | ------------------------------------------------------------------------------------------ | -------- |
 | `aexlo`         | The host. Gains only observation and configuration surfaces (§5). No tooling logic.        | existing |
-| `aexlo-macros`  | `#[aexlo::preview]`, new `#[aexlo::test]`. Expand to `aexlo-harness` paths.                | existing |
+| `aexlo-macros`  | `#[aexlo_test::preview]`, new `#[aexlo_test::test]`. Expand to `aexlo-harness` paths.                | existing |
 | `aexlo-harness` | `preset` (manifest model, `inherits`, matrix expansion, application), `run` (in-process and worker), `frame`, `check`, `golden`, `bench` timing loop. | new |
 | `aexlo-test`    | The single dev-dependency for Rust plugin crates: re-exports the macros plus `Frame` assertions. | new |
 | `aexlo-bench`   | criterion benches; becomes a thin layer over `aexlo_harness::bench`.                        | existing |
@@ -218,7 +218,7 @@ parameters the harness sends `PF_Cmd_UPDATE_PARAMS_UI` once, as
 ### 4.7 Time
 
 `fps` is a number or a rational string (`"30000/1001"`). The harness calls
-`set_time(frame * step, step, scale)` with `scale/step = fps` in lowest
+`set_time(Time { value: frame * step, step, scale })` with `scale/step = fps` in lowest
 integer terms (`24` → `24/1`, `"30000/1001"` → `30000/1001`).
 
 ### 4.8 Matrix expansion and variant ids
@@ -338,7 +338,7 @@ impl PluginInstance {
 
 | Mode         | How                                           | For                                                           | Trade-off |
 | ------------ | --------------------------------------------- | ------------------------------------------------------------- | --------- |
-| `in-process` | `Host::from_entry_raw(entry)`                 | Rust plugins: `#[aexlo::test]`, `aexlo dev`                   | Debugger and `dbg!` work; a crash kills the process. |
+| `in-process` | `Host::from_entry_raw(entry)`                 | Rust plugins: `#[aexlo_test::test]`, `aexlo dev`                   | Debugger and `dbg!` work; a crash kills the process. |
 | `worker`     | `aexlo worker` subprocess, plugin `dlopen`ed   | Any plugin: `aexlo test/check/bench/preview` default          | Crash isolation; no in-process breakpoints. |
 
 The CLI defaults to `worker`. `--isolate preset` (default) reuses one worker
@@ -510,7 +510,7 @@ They synthesize an implicit preset, so both front-ends share one timing loop
 ## 11. Preview
 
 `aexlo dev` (source watch) and `aexlo preview` (artifact watch) share the
-browser viewer in `crates/cli/src/viewer.rs`. It gains:
+browser viewer in `crates/aexlo-cli/src/viewer.rs`. It gains:
 
 - a **preset picker**: renders the selected variant exactly as `test` would;
 - parameter controls (existing), initialized from the preset;
@@ -565,9 +565,9 @@ both judged failures and a harness error, the exit code is `3`.
 ## 13. Rust API
 
 ```rust
-// Cargo.toml: [dev-dependencies] aexlo-test = "0.1"
+// Cargo.toml: [dev-dependencies] aexlo-test = { git = "https://github.com/potistudio/aexlo-rs" }
 
-#[aexlo::test(depth = [8, 16, 32], render = [smart, gpu], preset = "dot_glow")]
+#[aexlo_test::test(depth = [8, 16, 32], render = [smart, gpu], preset = "dot_glow")]
 fn glow_is_symmetric(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
     fx.set_param_named("Radius", 100.0)?;
     let frame = aexlo_test::render(fx)?;
@@ -581,7 +581,7 @@ fn glow_is_symmetric(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
   `glow_is_symmetric__d16_gpu`. Unsupported variants print "skipped" and pass.
 - `preset = "..."` starts from that preset's resolved state, read from the
   nearest `aexlo.toml` at test time.
-- Unlike `#[aexlo::preview]`, tests are not `#[ignore]`d.
+- Unlike `#[aexlo_test::preview]`, tests are not `#[ignore]`d.
 - Assertions on `Frame`: `assert_golden`, `assert_close`, `assert_pixel`,
   `assert_region`, `assert_symmetric_about`, `assert_opaque`,
   `assert_finite`, all with normalized tolerances. A failure writes the same
@@ -593,7 +593,7 @@ fn glow_is_symmetric(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
 
 | Existing                                     | Becomes                                                     |
 | -------------------------------------------- | ----------------------------------------------------------- |
-| `aexlo::{save_preview, preview_mode, ...}`   | `aexlo_harness::preview`; `#[aexlo::preview]` expands to it. Users add `aexlo-test` as a dev-dependency. |
+| `aexlo::{save_preview, preview_mode, ...}`   | `aexlo_harness::preview`; `#[aexlo_test::preview]` expands to it. Users add `aexlo-test` as a dev-dependency. |
 | `tests/e2e/src/bin/render_one.rs`            | `aexlo worker`                                              |
 | `aexlo-bench` param/resolution/input helpers | `aexlo_harness::preset` + `bench`                           |
 | CLI `--set <index>=<value>`                  | Also accepts names via `param_indices`                      |
@@ -608,7 +608,7 @@ on Windows x64 where a fixture exists.
 | -- | ----- | ---------- |
 | M1 | Core: `param_indices`, generic depth I/O (16, then 32), `Observer` at `Commands` level. | A bundled fixture declaring deep color renders at 16 bpc and reads back `Layer<Depth16>`; command timings are observable. |
 | M2 | Harness: manifest, `inherits`, matrix, worker protocol, outcomes; `aexlo presets`, `aexlo render --preset`. | A manifest over two fixtures where one crashes: `aexlo test` reports one `crash` and the remaining variants still run. `render_one` removed. |
-| M3 | Test: goldens, `--bless`, `finite`/`coverage`/`deterministic`; JSON and JUnit output; `aexlo-test` with `#[aexlo::test]`. | `demos/noise` has a manifest and an `#[aexlo::test]`; changing its hash constant fails both with diff artifacts. |
+| M3 | Test: goldens, `--bless`, `finite`/`coverage`/`deterministic`; JSON and JUnit output; `aexlo-test` with `#[aexlo_test::test]`. | `examples/plugins/noise` has a manifest and an `#[aexlo_test::test]`; changing its hash constant fails both with diff artifacts. |
 | M4 | Strict: guard bands, allocation and checkout tracking; `bounds`/`allocations`/`checkouts`/`flags`; `iterate-parallel`, `depth-consistency`; fuzzing. | A test plugin that writes one row past its world fails `bounds`; one that leaks a handle fails `allocations`. |
 | M5 | Bench on presets: phase breakdown, baselines, regression exit code. `aexlo-bench` migrated. | Artificially slowing a fixture's render beyond the threshold makes `aexlo bench --baseline` exit 1. |
 | M6 | Viewer: preset picker, compare modes, time scrubber, "Save as preset". | A saved preset round-trips: the viewer shows it, then `aexlo test` runs it. |
@@ -660,5 +660,5 @@ Decisions made while building M1–M7, where the draft above left room:
 - **The test plugin** `tests/misbehave` crashes, hangs, errors, overruns,
   leaks, leaves pixels unwritten or randomizes on request; the acceptance
   tests of every milestone drive it through the real `aexlo` binary
-  (`crates/cli/tests/`).
+  (`crates/aexlo-cli/tests/`).
 

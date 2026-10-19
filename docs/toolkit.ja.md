@@ -12,7 +12,7 @@ aexlo は、すでに実際の After Effects プラグインを AE の外で実�
 
 | 用途 | 既存の機能 | 不足している点 |
 | --- | --- | --- |
-| テスト | `tests/e2e`、`#[aexlo::preview]`、`render_one` によるクラッシュ分離 | ピクセルのインデックス処理が手書き、golden がない、分離は e2e のみ |
+| テスト | `tests/e2e`、`#[aexlo_test::preview]`、`render_one` によるクラッシュ分離 | ピクセルのインデックス処理が手書き、golden がない、分離は e2e のみ |
 | ベンチマーク | `aexlo-bench`、`aexlo bench` | 環境変数とフラグで設定方法が異なる、ベースライン比較がない、8 ビットのみ |
 | プレビュー | `aexlo dev`、`dev --bin`、`preview --web`、`studio` | 「入力、パラメーター、サイズ、時間」の指定方法が 4 通りある |
 
@@ -61,7 +61,7 @@ aexlo は、すでに実際の After Effects プラグインを AE の外で実�
 | クレート | 役割 | 状態 |
 | --- | --- | --- |
 | `aexlo` | ホスト。観測と設定の API（§5）だけを追加し、ツールのロジックは持ちません。 | 既存 |
-| `aexlo-macros` | `#[aexlo::preview]` と新しい `#[aexlo::test]`。`aexlo-harness` のパスに展開します。 | 既存 |
+| `aexlo-macros` | `#[aexlo_test::preview]` と新しい `#[aexlo_test::test]`。`aexlo-harness` のパスに展開します。 | 既存 |
 | `aexlo-harness` | `preset`（マニフェストのモデル、`inherits`、マトリクスの展開、適用）、`run`（プロセス内とワーカー）、`frame`、`check`、`golden`、`bench` の計測ループ。 | 新規 |
 | `aexlo-test` | Rust プラグインクレートに追加する唯一の開発用依存関係。マクロと `Frame` のアサーションを再エクスポートします。 | 新規 |
 | `aexlo-bench` | criterion のベンチマーク。`aexlo_harness::bench` 上の薄い層になります。 | 既存 |
@@ -192,7 +192,7 @@ input = { generate = "noise", seed = 7 }
 
 ### 4.7 時間
 
-`fps` は数値または有理数を表す文字列（`"30000/1001"`）です。ハーネスは、`scale/step = fps` を既約分数の整数比（`24` → `24/1`、`"30000/1001"` → `30000/1001`）として、`set_time(frame * step, step, scale)` を呼び出します。
+`fps` は数値または有理数を表す文字列（`"30000/1001"`）です。ハーネスは、`scale/step = fps` を既約分数の整数比（`24` → `24/1`、`"30000/1001"` → `30000/1001`）として、`set_time(Time { value: frame * step, step, scale })` を呼び出します。
 
 ### 4.8 マトリクスの展開とバリアント ID
 
@@ -293,7 +293,7 @@ impl PluginInstance {
 
 | モード | 方法 | 用途 | トレードオフ |
 | --- | --- | --- | --- |
-| `in-process` | `Host::from_entry_raw(entry)` | Rust プラグイン：`#[aexlo::test]`、`aexlo dev` | デバッガーと `dbg!` が使えます。クラッシュするとプロセスが終了します。 |
+| `in-process` | `Host::from_entry_raw(entry)` | Rust プラグイン：`#[aexlo_test::test]`、`aexlo dev` | デバッガーと `dbg!` が使えます。クラッシュするとプロセスが終了します。 |
 | `worker` | `aexlo worker` サブプロセスでプラグインを `dlopen` | 任意のプラグイン：`aexlo test/check/bench/preview` の既定 | クラッシュを分離できます。プロセス内のブレークポイントは使えません。 |
 
 CLI の既定は `worker` です。`--isolate preset`（既定）はプリセットの全バリアントで 1 つのワーカーを再利用し、`--isolate variant` はバリアントごとにワーカーを起動します。`--isolate none` は CLI のプロセス内で実行します（デバッグ専用）。
@@ -429,7 +429,7 @@ aexlo bench --baseline main --threshold 5%
 
 ## 11. プレビュー
 
-`aexlo dev`（ソースの監視）と `aexlo preview`（ビルド済みプラグインの監視）は、`crates/cli/src/viewer.rs` のブラウザービューアーを共有します。次の機能を追加します。
+`aexlo dev`（ソースの監視）と `aexlo preview`（ビルド済みプラグインの監視）は、`crates/aexlo-cli/src/viewer.rs` のブラウザービューアーを共有します。次の機能を追加します。
 
 - **プリセット選択**：選択したバリアントを `test` と同じ条件でレンダリングします。
 - パラメーターのコントロール（既存）：プリセットの値で初期化します。
@@ -473,9 +473,9 @@ aexlo worker                              非表示。§6.2
 ## 13. Rust API
 
 ```rust
-// Cargo.toml: [dev-dependencies] aexlo-test = "0.1"
+// Cargo.toml: [dev-dependencies] aexlo-test = { git = "https://github.com/potistudio/aexlo-rs" }
 
-#[aexlo::test(depth = [8, 16, 32], render = [smart, gpu], preset = "dot_glow")]
+#[aexlo_test::test(depth = [8, 16, 32], render = [smart, gpu], preset = "dot_glow")]
 fn glow_is_symmetric(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
     fx.set_param_named("Radius", 100.0)?;
     let frame = aexlo_test::render(fx)?;
@@ -487,7 +487,7 @@ fn glow_is_symmetric(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
 
 - プロセス内で実行します。バリアントごとに 1 つの `#[test]` に展開し、`glow_is_symmetric__d16_gpu` のように命名します。未対応のバリアントは「skipped」と表示して合格にします。
 - `preset = "..."` は、テスト時に最も近い `aexlo.toml` から読み取った、そのプリセットの解決済みの状態を初期状態とします。
-- `#[aexlo::preview]` と異なり、テストに `#[ignore]` は付けません。
+- `#[aexlo_test::preview]` と異なり、テストに `#[ignore]` は付けません。
 - `Frame` のアサーションは `assert_golden`、`assert_close`、`assert_pixel`、`assert_region`、`assert_symmetric_about`、`assert_opaque`、`assert_finite` で、すべて正規化された許容誤差を使います。失敗時は §8.3 と同じ生成物を保存します。
 - `aexlo_test::check(fx, &["coverage", "deterministic"])` は、プロセス内のインスタンスに対して §7 のチェックを実行します。
 
@@ -495,7 +495,7 @@ fn glow_is_symmetric(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
 
 | 既存の機能 | 移行先 |
 | --- | --- |
-| `aexlo::{save_preview, preview_mode, ...}` | `aexlo_harness::preview`。`#[aexlo::preview]` はこのパスに展開します。ユーザーは `aexlo-test` を開発用依存関係に追加します。 |
+| `aexlo::{save_preview, preview_mode, ...}` | `aexlo_harness::preview`。`#[aexlo_test::preview]` はこのパスに展開します。ユーザーは `aexlo-test` を開発用依存関係に追加します。 |
 | `tests/e2e/src/bin/render_one.rs` | `aexlo worker` |
 | `aexlo-bench` のパラメーター・解像度・入力のヘルパー | `aexlo_harness::preset` + `bench` |
 | CLI の `--set <index>=<value>` | `param_indices` を通じて名前も受け付けます。 |
@@ -509,7 +509,7 @@ fn glow_is_symmetric(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
 | --- | --- | --- |
 | M1 | コア：`param_indices`、深度を汎用化した I/O（16、次に 32）、`Commands` レベルの `Observer`。 | ディープカラーを宣言する同梱のフィクスチャを 16 bpc でレンダリングし、`Layer<Depth16>` として読み戻せる。コマンドの時間を観測できる。 |
 | M2 | ハーネス：マニフェスト、`inherits`、マトリクス、ワーカープロトコル、結果の分類。`aexlo presets`、`aexlo render --preset`。 | 一方がクラッシュする 2 つのフィクスチャを扱うマニフェストで、`aexlo test` が 1 件の `crash` を報告し、残りのバリアントも実行する。`render_one` を削除。 |
-| M3 | テスト：golden、`--bless`、`finite` / `coverage` / `deterministic`、JSON と JUnit 出力、`#[aexlo::test]` を備えた `aexlo-test`。 | `demos/noise` にマニフェストと `#[aexlo::test]` があり、ハッシュ定数を変えると両方が不合格になり、差分の生成物が保存される。 |
+| M3 | テスト：golden、`--bless`、`finite` / `coverage` / `deterministic`、JSON と JUnit 出力、`#[aexlo_test::test]` を備えた `aexlo-test`。 | `examples/plugins/noise` にマニフェストと `#[aexlo_test::test]` があり、ハッシュ定数を変えると両方が不合格になり、差分の生成物が保存される。 |
 | M4 | strict：ガード領域、割り当てとチェックアウトの追跡、`bounds` / `allocations` / `checkouts` / `flags`、`iterate-parallel`、`depth-consistency`、ファジング。 | world の 1 行先に書き込むテストプラグインが `bounds` に不合格となり、ハンドルをリークするものが `allocations` に不合格となる。 |
 | M5 | プリセットのベンチマーク：フェーズ別の内訳、ベースライン、性能低下の終了コード。`aexlo-bench` の移行。 | フィクスチャのレンダリングを意図的に閾値以上遅くすると、`aexlo bench --baseline` が 1 で終了する。 |
 | M6 | ビューアー：プリセット選択、比較モード、タイムスクラバー、「Save as preset」。 | 保存したプリセットを再利用できる。ビューアーに表示され、`aexlo test` でも実行できる。 |
@@ -534,4 +534,4 @@ fn glow_is_symmetric(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
 - **`aexlo check`** は `--baseline <name>` でベースラインを指定します。指定がなければ、`.aexlo/baselines/main.json` が存在する場合に `main` を使います。
 - **`aexlo bench`** は、マニフェストがなくてもプラグインのパスを受け付けます（フラグで設定するフロントエンド）。最初の引数がプラグインを指していれば、そのプラグインを選択します。
 - **ビューアー**は `--preset` / `--manifest` でプリセットを読み込みます。`--no-open` はブラウザーを開かないようにします。「Save as preset」は、`inherits`、スイープ・編集したパラメーター、時間を書き込みます。
-- **テストプラグイン** `tests/misbehave` は、要求に応じてクラッシュ、ハング、エラー、範囲外の書き込み、リーク、ピクセルの未書き込み、ランダム化を行います。各マイルストーンの受け入れテストは、実際の `aexlo` バイナリを通じてこのプラグインを実行します（`crates/cli/tests/`）。
+- **テストプラグイン** `tests/misbehave` は、要求に応じてクラッシュ、ハング、エラー、範囲外の書き込み、リーク、ピクセルの未書き込み、ランダム化を行います。各マイルストーンの受け入れテストは、実際の `aexlo` バイナリを通じてこのプラグインを実行します（`crates/aexlo-cli/tests/`）。

@@ -23,14 +23,14 @@ The first run downloads dependencies and builds the example. A successful run pr
 cargo run -p sdk_noise
 ```
 
-This reads the bundled `input.png` and writes `target/sdk-noise.png`. The final `Saved ...` message includes the output dimensions. Read the [source](../examples/sdk_noise/src/main.rs) in order: load the plugin, supply an input layer, render, then save the PNG.
+This reads the bundled `fixtures/input.png` and writes `target/sdk-noise.png`. The final `Saved ...` message includes the output dimensions. Read the [source](../examples/sdk_noise/src/main.rs) in order: load the plugin, supply an input layer, render, then save the PNG.
 
 To use your own plugin and image, separate Cargo's arguments from the application's arguments with `--`. Quote paths containing spaces.
 
 ```sh
 # macOS example; use an .aex path on Windows.
 cargo run -p minimal -- "/path/to/MyEffect.plugin"
-cargo run -p sdk_noise -- "/path/to/MyEffect.plugin" "input.png" "target/my-effect.png"
+cargo run -p sdk_noise -- "/path/to/MyEffect.plugin" "fixtures/input.png" "target/my-effect.png"
 cargo run -p sdk_noise -- --help
 ```
 
@@ -73,16 +73,16 @@ cargo run -p aexlo-cli -- test --manifest fixtures/aexlo.toml
 | Directory | Purpose | When to explore it |
 | --- | --- | --- |
 | `examples/` | Applications using the host | Start here: minimal → sdk_noise → interactive |
+| `examples/plugins/` | Example plugins built from source and tested with aexlo | Explore plugin-side code |
 | `fixtures/` | Existing plugins and verification settings | Inspect the examples' inputs |
 | `crates/aexlo/` | Host implementation and public API | Integrate the host into your application |
-| `crates/cli/` | Verification and preview CLI | Repeat runs under consistent conditions |
-| `demos/` | Demo plugins built from source | Explore plugin-side code |
+| `crates/aexlo-cli/` | Verification and preview CLI | Repeat runs under consistent conditions |
 | `playground/` | Host API probe and runner | Investigate compatibility and unsupported APIs |
 
 ## Troubleshooting
 
 - **Plugin not found:** Check the path and platform-specific extension. On macOS, pass the entire `.plugin` bundle; on Windows, pass the `.aex` file. If a fixture is a Git LFS pointer, run `git lfs pull` to fetch its contents.
-- **Build fails:** Check the selected toolchain with `rustup show` and read the first compiler error. Building demo plugins also requires the platform's linker.
+- **Build fails:** Check the selected toolchain with `rustup show` and read the first compiler error. Building the example plugins also requires the platform's linker.
 - **Image cannot be opened:** Check the input path and use PNG. The image decoder in this example enables only PNG support.
 - **Plugin loads but rendering fails:** Try the same workflow with SDK_Noise first, then inspect the target plugin's error. The host may not provide every feature the plugin requires.
 - **GUI does not start:** Use a desktop environment with GPU access. minimal, sdk_noise, and the CLI can run from a terminal.

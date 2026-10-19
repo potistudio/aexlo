@@ -123,12 +123,13 @@ fn with_instance(effect_ref: PF_ProgPtr, f: impl FnOnce(&mut PluginInstance)) ->
 	PF_Err_NONE as PF_Err
 }
 
+#[allow(clippy::unnecessary_cast)] // `PrPixelFormat` is `u32` on macOS only.
 unsafe extern "C" fn add_supported_pixel_format(effect_ref: PF_ProgPtr, pixelFormat: PrPixelFormat) -> PF_Err {
 	diag!("PF_PixelFormatSuite/AddSupportedPixelFormat",
 		"effect_ref" => format!("{:#x}", effect_ref as usize),
 		"pixelFormat" => format!("{:#x}", pixelFormat),
 	);
-	with_instance(effect_ref, |i| i.add_supported_pixel_format(pixelFormat))
+	with_instance(effect_ref, |i| i.add_supported_pixel_format(pixelFormat as u32))
 }
 
 unsafe extern "C" fn add_supported_pixel_format_2(effect_ref: PF_ProgPtr, pixel_format: PF_PixelFormat) -> PF_Err {
@@ -142,6 +143,7 @@ unsafe extern "C" fn clear_supported_pixel_formats(effect_ref: PF_ProgPtr) -> PF
 	with_instance(effect_ref, PluginInstance::clear_supported_pixel_formats)
 }
 
+#[allow(clippy::unnecessary_cast)] // `PrPixelFormat` is `u32` on macOS only.
 unsafe extern "C" fn new_world_of_pixel_format(
 	effect_ref: PF_ProgPtr,
 	width: A_u_long,
@@ -168,7 +170,7 @@ unsafe extern "C" fn new_world_of_pixel_format(
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	};
 	let clamp = |v: A_u_long| v.min(A_long::MAX as A_u_long) as A_long;
-	unsafe { *world = alloc_world(clamp(width), clamp(height), 4 * depth.bytes(), pixelFormat) };
+	unsafe { *world = alloc_world(clamp(width), clamp(height), 4 * depth.bytes(), pixelFormat as u32) };
 	PF_Err_NONE as PF_Err
 }
 

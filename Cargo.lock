@@ -141,7 +141,6 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 name = "aexlo"
 version = "0.0.1"
 dependencies = [
- "aexlo-macros",
  "after-effects",
  "after-effects-sys",
  "bytemuck",
@@ -149,14 +148,12 @@ dependencies = [
  "colored",
  "cudarc",
  "dlopen2",
- "env_logger",
  "foreign-types",
  "log",
  "metal",
  "objc",
  "rayon",
  "thiserror 2.0.18",
- "wrapper",
 ]
 
 [[package]]
@@ -231,7 +228,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo_demo_hello_world"
-version = "1.0.0"
+version = "0.0.1"
 dependencies = [
  "aexlo",
  "aexlo-test",
@@ -241,7 +238,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo_demo_noise"
-version = "1.0.0"
+version = "0.0.1"
 dependencies = [
  "aexlo",
  "aexlo-test",
@@ -4099,7 +4096,7 @@ dependencies = [
 
 [[package]]
 name = "sdk_noise"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "aexlo",
  "chrono",
@@ -5759,14 +5756,6 @@ name = "wit-bindgen"
 version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
-
-[[package]]
-name = "wrapper"
-version = "0.0.0"
-dependencies = [
- "after-effects-sys",
- "rand",
-]
 
 [[package]]
 name = "writeable"

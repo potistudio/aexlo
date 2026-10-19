@@ -63,7 +63,7 @@ cargo build
 ## Toolkit
 
 `aexlo.toml` describes "render this plugin under these conditions" once, as
-presets; the `aexlo` CLI (`cargo install --path crates/cli`) then tests,
+presets; the `aexlo` CLI (`cargo install --path crates/aexlo-cli`) then tests,
 benchmarks and previews them. The full specification is
 [docs/toolkit.md](docs/toolkit.md).
 
@@ -93,7 +93,7 @@ aexlo check                        # what CI runs (.github/workflows/aexlo-check
 
 Every variant runs in a worker process, so a crashing plugin fails one run,
 not the suite. Rust plugins add `aexlo-test` as a dev-dependency for
-in-process `#[aexlo::test]`s with frame assertions.
+in-process `#[aexlo_test::test]`s with frame assertions.
 
 ## Implementation Progress
 

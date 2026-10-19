@@ -50,10 +50,10 @@ fn list_fixtures() -> Vec<String> {
 	names
 }
 
-/// Load the shared `input.png` as an RGBA8 buffer, if present, so effects that
+/// Load the shared `fixtures/input.png` as an RGBA8 buffer, if present, so effects that
 /// read their input layer have something meaningful to work on.
 fn load_input_image() -> Option<(Vec<u8>, u32, u32)> {
-	let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../input.png");
+	let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/input.png");
 	match image::open(&path) {
 		Ok(img) => {
 			let img = img.to_rgba8();

@@ -43,7 +43,11 @@ pub(crate) fn rgb_to_hls([r, g, b]: [f64; 3]) -> [f64; 3] {
 	}
 
 	let d = max - min;
-	let s = if l <= 0.5 { d / (max + min) } else { d / (2.0 - max - min) };
+	let s = if l <= 0.5 {
+		d / (max + min)
+	} else {
+		d / (2.0 - max - min)
+	};
 
 	let h6 = if max == r {
 		((g - b) / d).rem_euclid(6.0)

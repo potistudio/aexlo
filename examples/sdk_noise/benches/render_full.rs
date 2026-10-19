@@ -13,11 +13,13 @@ fn benchmark_rendering_full(criterion: &mut Criterion) {
 		.expect("Failed to get parent directory of executable")
 		.join(MODULE_NAME);
 
-	let mut instance = aexlo::Host::get().try_load(plugin_path.as_path()).expect("Failed to load plugin");
+	let mut instance = aexlo::Host::get()
+		.try_load(plugin_path.as_path())
+		.expect("Failed to load plugin");
 
 	criterion.bench_function("rendering", |bencher| {
 		bencher.iter(|| {
-			instance.render().unwrap();
+			instance.render_with(aexlo::RenderPath::Legacy).unwrap();
 			black_box(instance.output_size());
 		})
 	});

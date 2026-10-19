@@ -23,14 +23,14 @@ cargo run -p minimal
 cargo run -p sdk_noise
 ```
 
-同梱の `input.png` を読み込み、`target/sdk-noise.png` に書き出します。最後の `Saved ...` メッセージには出力サイズが含まれます。[ソースコード](../examples/sdk_noise/src/main.rs)を、プラグインの読み込み、入力レイヤーの設定、レンダリング、PNG の保存という順に読んでみてください。
+同梱の `fixtures/input.png` を読み込み、`target/sdk-noise.png` に書き出します。最後の `Saved ...` メッセージには出力サイズが含まれます。[ソースコード](../examples/sdk_noise/src/main.rs)を、プラグインの読み込み、入力レイヤーの設定、レンダリング、PNG の保存という順に読んでみてください。
 
 自分のプラグインや画像を使う場合は、`--` で Cargo の引数とアプリケーションの引数を区切ります。空白を含むパスは引用符で囲んでください。
 
 ```sh
 # macOS の例。Windows では .aex のパスを指定してください。
 cargo run -p minimal -- "/path/to/MyEffect.plugin"
-cargo run -p sdk_noise -- "/path/to/MyEffect.plugin" "input.png" "target/my-effect.png"
+cargo run -p sdk_noise -- "/path/to/MyEffect.plugin" "fixtures/input.png" "target/my-effect.png"
 cargo run -p sdk_noise -- --help
 ```
 
@@ -73,16 +73,16 @@ cargo run -p aexlo-cli -- test --manifest fixtures/aexlo.toml
 | ディレクトリ | 役割 | 調べるタイミング |
 | --- | --- | --- |
 | `examples/` | ホストを利用するアプリケーション | まずはここから：minimal → sdk_noise → interactive |
+| `examples/plugins/` | ソースからビルドし、aexlo でテストするサンプルプラグイン | プラグイン側のコードを調べたいとき |
 | `fixtures/` | 既存のプラグインと検証設定 | サンプルの入力を確認したいとき |
 | `crates/aexlo/` | ホストの実装と公開 API | 自分のアプリケーションにホストを組み込みたいとき |
-| `crates/cli/` | 検証・プレビュー用 CLI | 同じ条件で実行を繰り返したいとき |
-| `demos/` | ソースからビルドするデモプラグイン | プラグイン側のコードを調べたいとき |
+| `crates/aexlo-cli/` | 検証・プレビュー用 CLI | 同じ条件で実行を繰り返したいとき |
 | `playground/` | ホスト API のプローブと実行ツール | 互換性や未対応 API を調べたいとき |
 
 ## トラブルシューティング
 
 - **プラグインが見つからない：** パスとプラットフォームごとの拡張子を確認してください。macOS では `.plugin` バンドル全体、Windows では `.aex` ファイルを指定します。フィクスチャが Git LFS のポインターの場合は、`git lfs pull` で実体を取得してください。
-- **ビルドに失敗する：** `rustup show` で選択中のツールチェーンを確認し、最初のコンパイラーエラーを読んでください。デモプラグインのビルドには、プラットフォームに対応したリンカーも必要です。
+- **ビルドに失敗する：** `rustup show` で選択中のツールチェーンを確認し、最初のコンパイラーエラーを読んでください。サンプルプラグインのビルドには、プラットフォームに対応したリンカーも必要です。
 - **画像を開けない：** 入力パスを確認し、PNG を使ってください。このサンプルの画像デコーダーは PNG のみを有効にしています。
 - **プラグインは読み込めるがレンダリングに失敗する：** まず SDK_Noise で同じ手順を試し、次に対象プラグインのエラーを確認してください。ホストがプラグインに必要なすべての機能を提供しているとは限りません。
 - **GUI が起動しない：** GPU にアクセスできるデスクトップ環境を使ってください。minimal、sdk_noise、CLI はターミナルから実行できます。

@@ -1,10 +1,12 @@
 [package]
 name = "aexlo-macros"
-description = "Attribute macros for aexlo (e.g. #[aexlo::preview])."
+description = "Attribute macros for aexlo (e.g. #[aexlo_test::preview])."
 version = { workspace = true }
 license = { workspace = true }
 authors = { workspace = true }
-repository = "https://github.com/potistudio/aexlo-rs"
+repository = { workspace = true }
+# Only `aexlo` is published; the tooling is used from git.
+publish = false
 edition = { workspace = true }
 rust-version = { workspace = true }
 

@@ -70,8 +70,7 @@ pub(crate) fn for_each_index(range: Range<A_long>, f: impl Fn(A_long) + Send + S
 
 /// Per-pixel callback shape shared by every iterate entry point, generic over
 /// the pixel depth `P` (`PF_Pixel`, `PF_Pixel16` or `PF_PixelFloat`).
-type IterPixFn<P> =
-	unsafe extern "C" fn(refcon: *mut c_void, x: A_long, y: A_long, in_: *mut P, out: *mut P) -> PF_Err;
+type IterPixFn<P> = unsafe extern "C" fn(refcon: *mut c_void, x: A_long, y: A_long, in_: *mut P, out: *mut P) -> PF_Err;
 
 /// Generic engine behind `iterate`, `iterate_origin` and
 /// `iterate_origin_non_clip_src` at every pixel depth.
@@ -259,7 +258,15 @@ macro_rules! define_iterate_entries {
 			dst: *mut PF_EffectWorld,
 		) -> PF_Err {
 			#[cfg(feature = "diagnostics")]
-			emit_iterate_diag(concat!($diag_prefix, "/iterate"), src, area, std::ptr::null(), refcon, pix_fn.is_some(), dst);
+			emit_iterate_diag(
+				concat!($diag_prefix, "/iterate"),
+				src,
+				area,
+				std::ptr::null(),
+				refcon,
+				pix_fn.is_some(),
+				dst,
+			);
 
 			unsafe { iterate_pixels::<$pix>(src, area, std::ptr::null(), true, refcon, pix_fn, dst) }
 		}
@@ -276,7 +283,15 @@ macro_rules! define_iterate_entries {
 			dst: *mut PF_EffectWorld,
 		) -> PF_Err {
 			#[cfg(feature = "diagnostics")]
-			emit_iterate_diag(concat!($diag_prefix, "/iterate_origin"), src, area, origin, refcon, pix_fn.is_some(), dst);
+			emit_iterate_diag(
+				concat!($diag_prefix, "/iterate_origin"),
+				src,
+				area,
+				origin,
+				refcon,
+				pix_fn.is_some(),
+				dst,
+			);
 
 			unsafe { iterate_pixels::<$pix>(src, area, origin, true, refcon, pix_fn, dst) }
 		}
@@ -295,7 +310,12 @@ macro_rules! define_iterate_entries {
 			#[cfg(feature = "diagnostics")]
 			emit_iterate_diag(
 				concat!($diag_prefix, "/iterate_origin_non_clip_src"),
-				src, area, origin, refcon, pix_fn.is_some(), dst,
+				src,
+				area,
+				origin,
+				refcon,
+				pix_fn.is_some(),
+				dst,
 			);
 
 			unsafe { iterate_pixels::<$pix>(src, area, origin, false, refcon, pix_fn, dst) }
@@ -303,7 +323,13 @@ macro_rules! define_iterate_entries {
 	};
 }
 
-define_iterate_entries!(PF_Pixel, iterate_8_sys, iterate_origin_8_sys, iterate_origin_non_clip_src_8_sys, "Iterate8Suite");
+define_iterate_entries!(
+	PF_Pixel,
+	iterate_8_sys,
+	iterate_origin_8_sys,
+	iterate_origin_non_clip_src_8_sys,
+	"Iterate8Suite"
+);
 define_iterate_entries!(
 	PF_Pixel16,
 	iterate_16_sys,
@@ -557,7 +583,9 @@ mod tests {
 	fn serial_iteration_stays_on_the_calling_thread() {
 		let seen = Mutex::new(HashSet::new());
 		let refcon = &seen as *const _ as *mut c_void;
-		with_parallel_iterate(false, || unsafe { iterate_generic_sys(256, refcon, Some(record_thread)) });
+		with_parallel_iterate(false, || unsafe {
+			iterate_generic_sys(256, refcon, Some(record_thread))
+		});
 		assert_eq!(*seen.lock().unwrap(), HashSet::from([std::thread::current().id()]));
 
 		// The switch is scoped to the command.
@@ -565,7 +593,10 @@ mod tests {
 		seen.lock().unwrap().clear();
 		unsafe { iterate_generic_sys(256, refcon, Some(record_thread)) };
 		if rayon::current_num_threads() > 1 {
-			assert!(seen.lock().unwrap().len() > 1, "parallel iteration used a single thread");
+			assert!(
+				seen.lock().unwrap().len() > 1,
+				"parallel iteration used a single thread"
+			);
 		}
 	}
 
@@ -654,7 +685,15 @@ mod tests {
 			blue: 0,
 		};
 		let mut src_buf = vec![px; (w * h) as usize];
-		let mut dst_buf = vec![PF_Pixel16 { alpha: 0, red: 0, green: 0, blue: 0 }; (w * h) as usize];
+		let mut dst_buf = vec![
+			PF_Pixel16 {
+				alpha: 0,
+				red: 0,
+				green: 0,
+				blue: 0
+			};
+			(w * h) as usize
+		];
 		let mut src = world_over(w, h, &mut src_buf);
 		let mut dst = world_over(w, h, &mut dst_buf);
 
@@ -931,7 +970,15 @@ mod tests {
 	fn iterate_16_propagates_pixel_errors_and_rejects_null_dst() {
 		let w = 2;
 		let h = 2;
-		let mut buf = vec![PF_Pixel16 { alpha: 0, red: 0, green: 0, blue: 0 }; (w * h) as usize];
+		let mut buf = vec![
+			PF_Pixel16 {
+				alpha: 0,
+				red: 0,
+				green: 0,
+				blue: 0
+			};
+			(w * h) as usize
+		];
 		let mut world = world_over(w, h, &mut buf);
 
 		let err = unsafe {

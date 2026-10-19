@@ -1,0 +1,96 @@
+use after_effects::{self as ae};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Params {}
+
+#[derive(Debug, Default)]
+struct Plugin {}
+
+ae::define_effect!(Plugin, (), Params);
+
+impl AdobePluginGlobal for Plugin {
+	fn params_setup(
+		&self,
+		_params: &mut Parameters<Params>,
+		_in_data: InData,
+		_out_data: OutData,
+	) -> Result<(), Error> {
+		Ok(())
+	}
+
+	fn handle_command(
+		&mut self,
+		command: Command,
+		_in_data: InData,
+		_out_data: OutData,
+		_params: &mut Parameters<Params>,
+	) -> Result<(), Error> {
+		if let Command::Render { out_layer, .. } = command {
+			fill_noise(&out_layer);
+		}
+		Ok(())
+	}
+}
+
+/// Paint deterministic per-pixel RGB noise (TV-static look) into `layer`.
+///
+/// Deterministic so the render is reproducible for previews and golden tests:
+/// each pixel's color is a hash of its coordinates, no RNG state.
+fn fill_noise(layer: &ae::Layer) {
+	let (w, h) = (layer.width(), layer.height());
+	for y in 0..h {
+		for x in 0..w {
+			// One hash per pixel; spread its bytes across the channels so the
+			// noise is colored rather than grey.
+			let n = hash((y as u32).wrapping_shl(16) ^ x as u32);
+			let px = layer.as_pixel8_mut(x, y);
+			px.red = n as u8;
+			px.green = (n >> 8) as u8;
+			px.blue = (n >> 16) as u8;
+			px.alpha = 255;
+		}
+	}
+}
+
+/// A cheap integer hash (Murmur3-style finalizer) for reproducible noise.
+fn hash(mut x: u32) -> u32 {
+	x ^= x >> 16;
+	x = x.wrapping_mul(0x7feb_352d);
+	x ^= x >> 15;
+	x = x.wrapping_mul(0x846c_a68b);
+	x ^= x >> 16;
+	x
+}
+
+#[cfg(test)]
+mod preview {
+	#[aexlo_test::preview]
+	fn renders_noise_in_process(fx: &mut aexlo::PluginInstance) {
+		fx.render_frame().expect("render should succeed");
+
+		let (w, h) = fx.output_size();
+		assert!(w > 0 && h > 0, "output frame should have a non-zero size");
+
+		// The noise fill must have written a non-uniform frame: sample a few
+		// pixels and confirm they are not all identical.
+		let mut pixels = vec![0u8; w as usize * h as usize * 4];
+		fx.write_rendered_pixels(&mut pixels)
+			.expect("reading output should succeed");
+		let first = &pixels[0..4];
+		let varied = pixels.as_chunks::<4>().0.iter().any(|px| px != first);
+		assert!(varied, "noise render should not be a flat color");
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	/// The same preset `aexlo test` runs, in-process: change the noise and
+	/// both fail against golden/noise.png, leaving diff images behind.
+	#[aexlo_test::test(preset = "noise")]
+	fn noise_matches_its_golden(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {
+		let frame = aexlo_test::render(fx)?;
+		frame.assert_opaque()?;
+		aexlo_test::check(fx, &["coverage", "deterministic"])?;
+		frame.assert_golden("noise")
+	}
+}
