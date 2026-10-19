@@ -3,7 +3,7 @@
 #
 #   jobs:
 #     aexlo:
-#       uses: potistudio/aexlo-rs/.github/workflows/aexlo-check.yml@master
+#       uses: potistudio/aexlo/.github/workflows/aexlo-check.yml@master
 #       with:
 #         manifest: aexlo.toml
 #
@@ -31,7 +31,7 @@ on:
       aexlo-git:
         description: Where to install the CLI from.
         type: string
-        default: https://github.com/potistudio/aexlo-rs
+        default: https://github.com/potistudio/aexlo
       aexlo-rev:
         description: Branch, tag or commit of aexlo-git.
         type: string

@@ -39,6 +39,6 @@ fn main() {
 		Property::AE_Effect_Global_OutFlags_2(OutFlags2::SupportsThreadedRendering),
 		Property::AE_Effect_Match_Name("AEXLO Probe"),
 		Property::AE_Reserved_Info(0),
-		Property::AE_Effect_Support_URL("https://github.com/potistudio/aexlo-rs"),
+		Property::AE_Effect_Support_URL("https://github.com/potistudio/aexlo"),
 	]);
 }
