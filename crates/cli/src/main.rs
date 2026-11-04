@@ -323,52 +323,47 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 		Some(name) => Some(preset_variant(manifest.as_deref(), name)?),
 		None => None,
 	};
-	// Only the plain input case establishes that the input and output sizes
-	// agree before loading. Presets may specify separate source/output sizes.
-	let initial_size = if variant.is_none() {
-		input.as_ref().map(image::image_dimensions).transpose()?
+	// Resolve overrides before setup and decode each input only once.
+	let depth = variant.as_ref().map_or(aexlo::PixelDepthKind::U8, |v| v.depth_kind());
+	let initial = if let Some(path) = &input {
+		Some(
+			aexlo_harness::frame::load_image(path)
+				.map_err(anyhow::Error::msg)?
+				.converted(depth),
+		)
+	} else if let Some(variant) = &variant {
+		let size = variant.size.map(|[w, h]| (w, h));
+		Some(aexlo_harness::input::build(&variant.input, depth, size).map_err(anyhow::Error::msg)?)
 	} else {
 		None
 	};
-	let mut instance = match (&plugin, &variant) {
-		(Some(plugin), _) => {
-			let path = resolve_artifact(plugin)?;
-			match initial_size {
-				Some((w, h)) => aexlo::Host::get().try_load_sized(&path, w, h)?,
-				None => aexlo::Host::get().try_load(&path)?,
-			}
-		}
+	let path = match (&plugin, &variant) {
+		(Some(plugin), _) => resolve_artifact(plugin)?,
 		(None, Some(variant)) => {
 			let artifacts = toolkit::artifacts(std::slice::from_ref(variant)).map_err(anyhow::Error::msg)?;
-			let path = artifacts(&variant.plugin).context("no artifact for the preset's plugin")?;
-			match initial_size {
-				Some((w, h)) => aexlo::Host::get().try_load_sized(&path, w, h)?,
-				None => aexlo::Host::get().try_load(&path)?,
-			}
+			artifacts(&variant.plugin).context("no artifact for preset's plugin")?
 		}
 		(None, None) => bail!("render: missing <plugin> (or --preset)"),
+	};
+	let mut instance = match initial {
+		Some(layer) => {
+			let output_size = variant
+				.as_ref()
+				.and_then(|v| v.size)
+				.map(|[w, h]| (w, h))
+				.unwrap_or((layer.width(), layer.height()));
+			aexlo::Host::get().try_load_with_initial(&path, aexlo::Strict::default(), layer, output_size)?
+		}
+		None => aexlo::Host::get().try_load(&path)?,
 	};
 	if let Some(variant) = &variant {
 		if let Some(reason) = aexlo_harness::apply::unsupported(&instance, variant) {
 			bail!("preset {} does not apply: {reason}", variant.id);
 		}
-		aexlo_harness::apply::configure(&mut instance, variant).map_err(anyhow::Error::msg)?;
+		aexlo_harness::apply::configure_prepared(&mut instance, variant).map_err(anyhow::Error::msg)?;
 	}
 	if serial_iterate {
 		instance.set_parallel_iterate(false);
-	}
-
-	if let Some(path) = &input {
-		let layer = aexlo_harness::frame::load_image(path).map_err(anyhow::Error::msg)?;
-		let depth = variant.as_ref().map_or(aexlo::PixelDepthKind::U8, |v| v.depth_kind());
-		match layer.converted(depth) {
-			aexlo::AnyLayer::U8(l) => instance.set_input_layer(l),
-			aexlo::AnyLayer::U16(l) => instance.set_input_layer(l),
-			aexlo::AnyLayer::F32(l) => instance.set_input_layer(l),
-		}
-		if variant.as_ref().is_none_or(|v| v.size.is_none()) {
-			instance.set_render_size(instance.input_size().0, instance.input_size().1);
-		}
 	}
 
 	for (key, raw) in &sets {

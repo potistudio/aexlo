@@ -371,6 +371,23 @@ pub unsafe extern "C" fn EffectMain(
 	output: *mut PF_LayerDef,
 	_extra: *mut c_void,
 ) -> PF_Err {
+	if cmd == PF_Cmd_GLOBAL_SETUP || cmd == PF_Cmd_PARAMS_SETUP || cmd == PF_Cmd_SEQUENCE_SETUP {
+		if let Ok(expected) = std::env::var("AEXLO_TEST_SETUP_GEOMETRY") {
+			let actual = unsafe {
+				format!(
+					"{}x{}:{}x{}",
+					(*in_data).width,
+					(*in_data).height,
+					(*output).width,
+					(*output).height
+				)
+			};
+			if actual != expected {
+				eprintln!("setup geometry mismatch: expected {expected}, got {actual}");
+				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			}
+		}
+	}
 	#[allow(non_upper_case_globals)]
 	match cmd as _ {
 		PF_Cmd_GLOBAL_SETUP => {

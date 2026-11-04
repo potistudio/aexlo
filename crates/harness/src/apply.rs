@@ -44,7 +44,8 @@ pub fn configure(fx: &mut PluginInstance, variant: &Variant) -> Result<()> {
 }
 
 /// Configure a variant whose actual input was already installed before setup.
-pub(crate) fn configure_prepared(fx: &mut PluginInstance, variant: &Variant) -> Result<()> {
+/// The caller must provide an input of the variant's depth with the intended fit.
+pub fn configure_prepared(fx: &mut PluginInstance, variant: &Variant) -> Result<()> {
 	let depth = variant.depth_kind();
 	let size = variant.size.map(|[w, h]| (w, h));
 	let (in_w, in_h) = fx.input_size();
