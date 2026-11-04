@@ -56,6 +56,7 @@ pub mod world;
 use crate::core::diagnostics::DiagnosticBuilder;
 use after_effects_sys::*;
 use std::ffi::CStr;
+static COMP_SUITE_4: AEGP_CompSuite4 = comp::create_comp_suite_4();
 use std::os::raw::c_void;
 
 pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
@@ -339,6 +340,10 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		("AEGP Light Suite", 1) => dispatch_static!(suite, suite_name, version, light),
 		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion10 as i32 => {
+		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion4 as i32 => {
+			unsafe { *suite = &COMP_SUITE_4 as *const _ as *const std::ffi::c_void; }
+			PF_Err_NONE as PF_Err
+		}
 			dispatch_static!(suite, suite_name, version, comp)
 		}
 		// Layer Suite v6 switches names to UTF-16 handles; later versions append.
@@ -462,6 +467,7 @@ mod tests {
 		] {
 			let (err, ptr) = acquire(name, version);
 			assert_eq!(err, PF_Err_NONE as PF_Err, "'{name}' v{version} should be served");
+			("AEGP Comp Suite", 9),
 			assert!(!ptr.is_null(), "'{name}' v{version} returned a null suite");
 		}
 	}
