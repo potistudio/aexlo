@@ -313,6 +313,63 @@ pub(super) const fn create_comp_suite_10() -> AEGP_CompSuite10 {
 	}
 }
 
+// Suite 4 (wire version 9) predates UTF-16 names and the text selection flag.
+// These creation calls are unsupported by the fixed, synthetic composition;
+// their distinct ABI nevertheless requires correctly typed entry points.
+macro_rules! refuse_v4 {
+	($($fn_name:ident => $name:literal ($($arg:ident : $ty:ty),* $(,)?);)*) => {
+		$(unsafe extern "C" fn $fn_name($($arg: $ty),*) -> A_Err {
+			$(let _ = $arg;)*
+			diag!(concat!("AEGP_CompSuite4/", $name));
+			A_Err_GENERIC as A_Err
+		})*
+	};
+}
+
+refuse_v4! {
+	create_solid_v4 => "AEGP_CreateSolidInComp"(name: *const A_char, width: A_long, height: A_long, color: *const AEGP_ColorVal, comp: AEGP_CompH, duration: *const A_Time, layer: *mut AEGP_LayerH);
+	create_camera_v4 => "AEGP_CreateCameraInComp"(name: *const A_char, center: A_FloatPoint, comp: AEGP_CompH, layer: *mut AEGP_LayerH);
+	create_light_v4 => "AEGP_CreateLightInComp"(name: *const A_char, center: A_FloatPoint, comp: AEGP_CompH, layer: *mut AEGP_LayerH);
+	create_comp_v4 => "AEGP_CreateComp"(parent: AEGP_ItemH, name: *const A_char, width: A_long, height: A_long, aspect: *const A_Ratio, duration: *const A_Time, fps: *const A_Ratio, comp: *mut AEGP_CompH);
+	create_null_v4 => "AEGP_CreateNullInComp"(name: *const A_char, comp: AEGP_CompH, duration: *const A_Time, layer: *mut AEGP_LayerH);
+	create_text_v4 => "AEGP_CreateTextLayerInComp"(comp: AEGP_CompH, layer: *mut AEGP_LayerH);
+	set_work_area_v4 => "AEGP_SetCompWorkAreaStartAndDuration"(comp: AEGP_CompH, start: *mut A_Time, duration: *mut A_Time);
+}
+
+/// Builds `AEGP_CompSuite4` (wire version 9) with the original ABI.
+pub(super) const fn create_comp_suite_4() -> AEGP_CompSuite4 {
+	AEGP_CompSuite4 {
+		AEGP_GetCompFromItem: Some(get_comp_from_item),
+		AEGP_GetItemFromComp: Some(get_item_from_comp),
+		AEGP_GetCompDownsampleFactor: Some(get_comp_downsample_factor),
+		AEGP_SetCompDownsampleFactor: Some(set_comp_downsample_factor),
+		AEGP_GetCompBGColor: Some(get_comp_bg_color),
+		AEGP_GetCompFlags: Some(get_comp_flags),
+		AEGP_GetCompFramerate: Some(get_comp_framerate),
+		AEGP_SetCompFrameRate: Some(set_comp_frame_rate),
+		AEGP_GetCompShutterAnglePhase: Some(get_comp_shutter_angle_phase),
+		AEGP_GetCompShutterFrameRange: Some(get_comp_shutter_frame_range),
+		AEGP_GetCompWorkAreaStart: Some(get_comp_work_area_start),
+		AEGP_GetCompWorkAreaDuration: Some(get_comp_work_area_duration),
+		AEGP_SetCompWorkAreaStartAndDuration: Some(set_work_area_v4),
+		AEGP_CreateSolidInComp: Some(create_solid_v4),
+		AEGP_CreateCameraInComp: Some(create_camera_v4),
+		AEGP_CreateLightInComp: Some(create_light_v4),
+		AEGP_CreateComp: Some(create_comp_v4),
+		AEGP_GetNewCollectionFromCompSelection: Some(get_new_collection_from_comp_selection),
+		AEGP_SetSelection: Some(set_selection),
+		AEGP_GetCompDisplayStartTime: Some(get_comp_display_start_time),
+		AEGP_SetCompDisplayStartTime: Some(set_comp_display_start_time),
+		AEGP_SetCompDuration: Some(set_comp_duration),
+		AEGP_CreateNullInComp: Some(create_null_v4),
+		AEGP_SetCompPixelAspectRatio: Some(set_comp_pixel_aspect_ratio),
+		AEGP_CreateTextLayerInComp: Some(create_text_v4),
+		AEGP_SetCompDimensions: Some(set_comp_dimensions),
+		AEGP_DuplicateComp: Some(duplicate_comp),
+		AEGP_GetCompFrameDuration: Some(get_comp_frame_duration),
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::super::layer::COMP_DURATION_SECONDS;
@@ -325,6 +382,36 @@ mod tests {
 		let err = unsafe { suite.AEGP_GetCompFramerate.unwrap()(std::ptr::null_mut(), &mut fps) };
 		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as A_Err);
 		assert_eq!(fps, -1.0);
+	}
+
+	#[test]
+	fn suite4_preserves_common_getter_validation() {
+		let old = create_comp_suite_4();
+		let current = create_comp_suite_10();
+		let mut old_fps = -1.0;
+		let mut current_fps = -1.0;
+		let old_err = unsafe { old.AEGP_GetCompFramerate.unwrap()(std::ptr::null_mut(), &mut old_fps) };
+		let current_err = unsafe { current.AEGP_GetCompFramerate.unwrap()(std::ptr::null_mut(), &mut current_fps) };
+		assert_eq!(old_err, PF_Err_BAD_CALLBACK_PARAM as A_Err);
+		assert_eq!(old_err, current_err);
+		assert_eq!((old_fps, current_fps), (-1.0, -1.0));
+		let result = unsafe { old.AEGP_GetCompFrameDuration.unwrap()(std::ptr::null_mut(), std::ptr::null_mut()) };
+		assert_eq!(result, PF_Err_BAD_CALLBACK_PARAM as A_Err);
+	}
+
+	#[test]
+	fn suite4_legacy_creation_callbacks_refuse_without_modifying_output() {
+		let suite = create_comp_suite_4();
+		let marker = 1usize as AEGP_LayerH;
+		let mut result = marker;
+		let err = unsafe { suite.AEGP_CreateTextLayerInComp.unwrap()(std::ptr::null_mut(), &mut result) };
+		assert_eq!(err, A_Err_GENERIC as A_Err);
+		assert_eq!(result, marker);
+		let err = unsafe {
+			suite.AEGP_CreateNullInComp.unwrap()(std::ptr::null(), std::ptr::null_mut(), std::ptr::null(), &mut result)
+		};
+		assert_eq!(err, A_Err_GENERIC as A_Err);
+		assert_eq!(result, marker);
 	}
 
 	#[test]
