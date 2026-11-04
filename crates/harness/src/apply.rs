@@ -39,8 +39,15 @@ pub fn configure(fx: &mut PluginInstance, variant: &Variant) -> Result<()> {
 	let depth = variant.depth_kind();
 	let size = variant.size.map(|[w, h]| (w, h));
 	let layer = input::build(&variant.input, depth, size)?;
-	let (in_w, in_h) = (layer.width(), layer.height());
 	set_input(fx, layer);
+	configure_prepared(fx, variant)
+}
+
+/// Configure a variant whose actual input was already installed before setup.
+pub(crate) fn configure_prepared(fx: &mut PluginInstance, variant: &Variant) -> Result<()> {
+	let depth = variant.depth_kind();
+	let size = variant.size.map(|[w, h]| (w, h));
+	let (in_w, in_h) = fx.input_size();
 	let (w, h) = size.unwrap_or((in_w, in_h));
 	fx.set_render_size(w, h);
 

@@ -255,6 +255,22 @@ impl Host {
 		Ok(instance)
 	}
 
+	/// Load with the actual input layer and output geometry available to every
+	/// setup command. Strict tracking is enabled before the first command.
+	pub fn try_load_with_initial(
+		self,
+		path: impl AsRef<Path>,
+		strict: crate::Strict,
+		input: AnyLayer,
+		output_size: (u32, u32),
+	) -> Result<PluginInstance> {
+		let mut instance = PluginInstance::new_with_initial(path.as_ref(), input, output_size)?;
+		instance.set_strict(strict);
+		instance.load()?;
+		instance.finalize()?;
+		Ok(instance)
+	}
+
 	/// Load with render dimensions set before plug-in setup runs.
 	pub fn try_load_sized(self, path: impl AsRef<Path>, width: u32, height: u32) -> Result<PluginInstance> {
 		let mut instance = PluginInstance::new_sized(path.as_ref(), width, height);
@@ -324,6 +340,22 @@ impl Host {
 }
 
 impl PluginInstance {
+	fn new_with_initial(path: &Path, input: AnyLayer, output_size: (u32, u32)) -> Result<Self> {
+		let valid = |(w, h): (u32, u32)| w > 0 && h > 0 && w <= i32::MAX as u32 && h <= i32::MAX as u32;
+		if !valid((input.width(), input.height())) || !valid(output_size) {
+			return Err(AexloError::Unexpected(
+				"initial input and output dimensions must be positive and fit i32".into(),
+			));
+		}
+		let mut instance = Self::new(path);
+		match input {
+			AnyLayer::U8(layer) => instance.set_input_layer(layer),
+			AnyLayer::U16(layer) => instance.set_input_layer(layer),
+			AnyLayer::F32(layer) => instance.set_input_layer(layer),
+		}
+		instance.set_render_size(output_size.0, output_size.1);
+		Ok(instance)
+	}
 	fn new_sized(path: &Path, width: u32, height: u32) -> Self {
 		let mut instance = Self::new(path);
 		if let AnyLayer::U8(layer) = AnyLayer::filled(PixelDepthKind::U8, width, height, OPAQUE_BLACK) {
@@ -2112,6 +2144,41 @@ mod tests {
 		assert_eq!(WIDTH_SEEN.load(Ordering::SeqCst), 768);
 		assert_eq!(HEIGHT_SEEN.load(Ordering::SeqCst), 432);
 		assert_eq!(fx.output_size(), (768, 432));
+	}
+
+	#[test]
+	fn initial_input_and_distinct_output_are_visible_in_all_setup_commands() {
+		use std::sync::atomic::{AtomicUsize, Ordering};
+		static CHECKED: AtomicUsize = AtomicUsize::new(0);
+		unsafe extern "C" fn entry(
+			cmd: RawCommand,
+			input: *mut after_effects_sys::PF_InData,
+			_output: *mut after_effects_sys::PF_OutData,
+			_params: after_effects_sys::PF_ParamList,
+			world: *mut after_effects_sys::PF_LayerDef,
+			_extra: *mut c_void,
+		) -> after_effects_sys::PF_Err {
+			if matches!(
+				cmd,
+				RawCommand::GlobalSetup | RawCommand::ParamsSetup | RawCommand::SequenceSetup
+			) {
+				let (iw, ih, ow, oh) = unsafe { ((*input).width, (*input).height, (*world).width, (*world).height) };
+				if (iw, ih, ow, oh) == (19, 13, 37, 23) {
+					CHECKED.fetch_add(1, Ordering::SeqCst);
+				}
+			}
+			PF_Err_NONE as after_effects_sys::PF_Err
+		}
+		CHECKED.store(0, Ordering::SeqCst);
+		let input = AnyLayer::filled(PixelDepthKind::U16, 19, 13, OPAQUE_BLACK);
+		let mut fx = PluginInstance::new_with_initial(Path::new("<test>"), input, (37, 23)).unwrap();
+		fx.entry_point = Some(entry);
+		fx.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_owned());
+		fx.finalize().unwrap();
+		assert_eq!(CHECKED.load(Ordering::SeqCst), 3);
+		assert_eq!(fx.input_size(), (19, 13));
+		assert_eq!(fx.output_size(), (37, 23));
+		assert_eq!(fx.input_layer.kind(), PixelDepthKind::U16);
 	}
 
 	/// A zeroed `PF_ParamDef` of the given type, bypassing `add_instance_param`'s

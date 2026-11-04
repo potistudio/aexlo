@@ -245,6 +245,16 @@ pub fn run_on(
 	options: &RunOptions,
 	sink: Option<CommandSink>,
 ) -> Result<RunOutput, RunFailure> {
+	run_on_impl(fx, variant, options, sink, false)
+}
+
+fn run_on_impl(
+	fx: &mut PluginInstance,
+	variant: &Variant,
+	options: &RunOptions,
+	sink: Option<CommandSink>,
+	input_prepared: bool,
+) -> Result<RunOutput, RunFailure> {
 	if let Some(reason) = apply::unsupported(fx, variant) {
 		return Ok(RunOutput {
 			skipped: Some(reason),
@@ -265,7 +275,12 @@ pub fn run_on(
 	fx.set_strict(strict_of(&options.strict));
 	let take_trace = |recorder: &Recorder| recorder.trace.lock().map(|t| t.clone()).unwrap_or_default();
 
-	if let Err(err) = apply::configure(fx, variant) {
+	let configured = if input_prepared {
+		apply::configure_prepared(fx, variant)
+	} else {
+		apply::configure(fx, variant)
+	};
+	if let Err(err) = configured {
 		fx.set_observer(None, level);
 		return Err(RunFailure::from_error(err, take_trace(&recorder)));
 	}
@@ -349,6 +364,20 @@ pub fn run_owned(
 	sink: Option<CommandSink>,
 ) -> Result<RunOutput, RunFailure> {
 	let mut result = run_on(&mut fx, variant, options, sink);
+	let report = fx.finish();
+	if let Ok(output) = &mut result {
+		output.strict.absorb(report);
+	}
+	result
+}
+
+pub(crate) fn run_owned_prepared(
+	mut fx: PluginInstance,
+	variant: &Variant,
+	options: &RunOptions,
+	sink: Option<CommandSink>,
+) -> Result<RunOutput, RunFailure> {
+	let mut result = run_on_impl(&mut fx, variant, options, sink, true);
 	let report = fx.finish();
 	if let Ok(output) = &mut result {
 		output.strict.absorb(report);

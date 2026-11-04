@@ -21,7 +21,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::exec::{
-	CommandSink, Executor, RunFailure, RunOptions, RunOutput, StrictFindings, Timing, Trace, run_owned, strict_of,
+	CommandSink, Executor, RunFailure, RunOptions, RunOutput, StrictFindings, Timing, Trace, run_owned_prepared,
+	strict_of,
 };
 use crate::frame::Frame;
 use crate::preset::{PluginRef, Variant};
@@ -357,6 +358,13 @@ fn failed(id: u64, kind: &str, message: String, trace: Option<Trace>) -> Respons
 	}
 }
 
+fn initial_input(variant: &Variant) -> Result<(aexlo::AnyLayer, (u32, u32))> {
+	let size = variant.size.map(|[w, h]| (w, h));
+	let input = crate::input::build(&variant.input, variant.depth_kind(), size)?;
+	let output_size = size.unwrap_or((input.width(), input.height()));
+	Ok((input, output_size))
+}
+
 fn run_request(
 	id: u64,
 	artifact: &Path,
@@ -380,11 +388,15 @@ fn run_request(
 		})
 	};
 
-	let fx = match aexlo::Host::get().try_load_with(artifact, strict_of(&options.strict)) {
+	let (input, output_size) = match initial_input(variant) {
+		Ok(prepared) => prepared,
+		Err(e) => return failed(id, "harness", format!("building initial input: {e}"), None),
+	};
+	let fx = match aexlo::Host::get().try_load_with_initial(artifact, strict_of(&options.strict), input, output_size) {
 		Ok(fx) => fx,
 		Err(e) => return failed(id, "plugin", format!("loading {}: {e}", artifact.display()), None),
 	};
-	match run_owned(fx, variant, options, Some(sink)) {
+	match run_owned_prepared(fx, variant, options, Some(sink)) {
 		Ok(output) => {
 			let mut frames = Vec::with_capacity(output.frames.len());
 			for (i, frame) in output.frames.iter().enumerate() {
@@ -898,6 +910,36 @@ impl Drop for WorkerClient {
 			let _ = live.child.wait();
 		}
 		let _ = std::fs::remove_dir_all(&self.temp);
+	}
+}
+
+#[cfg(test)]
+mod initial_input_tests {
+	use super::*;
+	use crate::preset::{Fit, InputSpec, PluginSource};
+	#[test]
+	fn preserves_input_and_output_geometry_for_fitted_and_unfitted_images() {
+		let file = std::env::temp_dir().join(format!("aexlo-initial-input-{}.png", std::process::id()));
+		image::RgbImage::new(19, 13).save(&file).unwrap();
+		let plugin = PluginRef {
+			source: PluginSource::Artifact("fixture".into()),
+			entry: "EffectMain".into(),
+		};
+		let mut variant = Variant::standalone("initial", plugin);
+		variant.input = InputSpec {
+			path: Some(file.clone()),
+			fit: Some(Fit::None),
+			..InputSpec::default()
+		};
+		variant.size = Some([37, 23]);
+		let (input, output) = initial_input(&variant).unwrap();
+		assert_eq!((input.width(), input.height()), (19, 13));
+		assert_eq!(output, (37, 23));
+		variant.input.fit = Some(Fit::Stretch);
+		let (input, output) = initial_input(&variant).unwrap();
+		assert_eq!((input.width(), input.height()), (37, 23));
+		assert_eq!(output, (37, 23));
+		std::fs::remove_file(file).unwrap();
 	}
 }
 
