@@ -46,6 +46,7 @@ pub mod pixel_data;
 mod pixel_format;
 mod pixel_norm;
 mod point_param;
+pub(crate) mod register;
 pub mod sampling;
 mod stream;
 pub mod transform;
@@ -55,8 +56,8 @@ pub mod world;
 #[cfg(feature = "diagnostics")]
 use crate::core::diagnostics::DiagnosticBuilder;
 use after_effects_sys::*;
-use std::ffi::CStr;
 static COMP_SUITE_4: AEGP_CompSuite4 = comp::create_comp_suite_4();
+use std::ffi::CStr;
 use std::os::raw::c_void;
 
 pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
@@ -297,9 +298,15 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		// The App Suite's wire versions do NOT follow the struct names, and the
 		// layouts are not append-only (v5 inserts `PF_AppGetLanguage` mid-table),
 		// so each wire version must get its own exactly-shaped table.
-		("PF AE App Suite", v) if v == kPFAppSuiteVersion6 as i32 => dispatch_static!(suite, suite_name, version, ae_app6),
-		("PF AE App Suite", v) if v == kPFAppSuiteVersion5 as i32 => dispatch_static!(suite, suite_name, version, ae_app5),
-		("PF AE App Suite", v) if v == kPFAppSuiteVersion4 as i32 => dispatch_static!(suite, suite_name, version, ae_app4),
+		("PF AE App Suite", v) if v == kPFAppSuiteVersion6 as i32 => {
+			dispatch_static!(suite, suite_name, version, ae_app6)
+		}
+		("PF AE App Suite", v) if v == kPFAppSuiteVersion5 as i32 => {
+			dispatch_static!(suite, suite_name, version, ae_app5)
+		}
+		("PF AE App Suite", v) if v == kPFAppSuiteVersion4 as i32 => {
+			dispatch_static!(suite, suite_name, version, ae_app4)
+		}
 		// Adv App v2 only appends `PF_AppendInfoText`; Adv Time versions differ
 		// in their preference struct, so each gets an exactly-shaped table.
 		("PF AE Adv App Suite", 1) => dispatch_static!(suite, suite_name, version, adv_app1),
@@ -339,11 +346,13 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			dispatch_static!(suite, suite_name, version, color_settings)
 		}
 		("AEGP Light Suite", 1) => dispatch_static!(suite, suite_name, version, light),
-		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion10 as i32 => {
 		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion4 as i32 => {
-			unsafe { *suite = &COMP_SUITE_4 as *const _ as *const std::ffi::c_void; }
+			unsafe {
+				*suite = &COMP_SUITE_4 as *const _ as *const std::ffi::c_void;
+			}
 			PF_Err_NONE as PF_Err
 		}
+		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion10 as i32 => {
 			dispatch_static!(suite, suite_name, version, comp)
 		}
 		// Layer Suite v6 switches names to UTF-16 handles; later versions append.
@@ -361,6 +370,12 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		("AEGP Layer Suite", v) if v == kAEGPLayerSuiteVersion9 as i32 => {
 			dispatch_static!(suite, suite_name, version, layer9)
+		}
+		("AEGP Register Suite", 6) => {
+			unsafe {
+				*suite = &register::REGISTER as *const _ as *const std::ffi::c_void;
+			}
+			PF_Err_NONE as PF_Err
 		}
 		("AEGP Utility Suite", 1..=18) => {
 			// Lives in its own LazyLock rather than SUITE_CONTAINER (see AEGP_UTILITY_SUITE).
@@ -461,13 +476,13 @@ mod tests {
 			("AEGP Layer Suite", 13),
 			("AEGP Layer Suite", 14),
 			("AEGP Layer Suite", 15),
+			("AEGP Comp Suite", 9),
 			("AEGP Comp Suite", 21),
 			("AEGP Light Suite", 1),
 			("PF Color Settings Suite", 3),
 		] {
 			let (err, ptr) = acquire(name, version);
 			assert_eq!(err, PF_Err_NONE as PF_Err, "'{name}' v{version} should be served");
-			("AEGP Comp Suite", 9),
 			assert!(!ptr.is_null(), "'{name}' v{version} returned a null suite");
 		}
 	}

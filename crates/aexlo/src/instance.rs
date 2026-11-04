@@ -102,6 +102,8 @@ unsafe extern "C" fn receive_plugin_data(
 /// Manages its library, entry point, parameters, and execution state.
 /// All operations related to the plug-in should be invoked from this.
 pub struct PluginInstance {
+	/// Identifies AEGP registrations whose callbacks must not outlive this DLL.
+	aegp_owner: u64,
 	raw_library: Option<Library>,
 	entry_point: Option<PluginEntryPoint>,
 	entry_point_name: Option<String>,
@@ -253,6 +255,14 @@ impl Host {
 		Ok(instance)
 	}
 
+	/// Load with render dimensions set before plug-in setup runs.
+	pub fn try_load_sized(self, path: impl AsRef<Path>, width: u32, height: u32) -> Result<PluginInstance> {
+		let mut instance = PluginInstance::new_sized(path.as_ref(), width, height);
+		instance.load()?;
+		instance.finalize()?;
+		Ok(instance)
+	}
+
 	/// Drive an entry point that already lives in this process, skipping the
 	/// whole `dlopen` → cdylib → bundle path.
 	///
@@ -314,6 +324,15 @@ impl Host {
 }
 
 impl PluginInstance {
+	fn new_sized(path: &Path, width: u32, height: u32) -> Self {
+		let mut instance = Self::new(path);
+		if let AnyLayer::U8(layer) = AnyLayer::filled(PixelDepthKind::U8, width, height, OPAQUE_BLACK) {
+			instance.set_input_layer(layer);
+		}
+		instance.set_render_size(width, height);
+		instance
+	}
+
 	/// Run the post-load setup shared by every constructor: `GLOBAL_SETUP`,
 	/// `PARAMS_SETUP`, then `SEQUENCE_SETUP`. Independent of where the entry point
 	/// came from (`dlopen`ed or handed in directly).
@@ -1505,6 +1524,7 @@ impl PluginInstance {
 
 		{
 			let mut instance_placeholder = PluginInstance {
+				aegp_owner: crate::suites::register::new_owner(),
 				raw_library: None,
 				entry_point: None,
 				entry_point_name: None,
@@ -1904,6 +1924,10 @@ impl PluginInstance {
 	/// non-`PF_Err_NONE` code.
 	fn call_plugin(&mut self, command: RawCommand, extra_data: *mut ::std::os::raw::c_void) -> Result<()> {
 		let entry_point = self.entry_point.ok_or(AexloError::PluginNotLoaded)?;
+		if !matches!(command, RawCommand::SequenceSetdown | RawCommand::GlobalSetdown) {
+			crate::suites::register::dispatch_idle(self.aegp_owner);
+		}
+		let _aegp_scope = crate::suites::register::enter_owner(self.aegp_owner);
 		let effect_ref = self as *mut _ as PF_ProgPtr;
 
 		let entry_point_name = self.entry_point_name.as_deref().unwrap_or(DEFAULT_ENTRY_POINT_NAME);
@@ -2028,6 +2052,7 @@ impl PluginInstance {
 		// The entry point is missing only when `try_load` failed to resolve it,
 		// in which case the plugin was never set up.
 		if self.entry_point.is_none() || self.torn_down {
+			crate::suites::register::remove_owner(self.aegp_owner);
 			return;
 		}
 		self.torn_down = true;
@@ -2050,6 +2075,7 @@ impl PluginInstance {
 		if let Err(err) = self.call_plugin(RawCommand::GlobalSetdown, null_mut()) {
 			log::warn!("PF_Cmd_GLOBAL_SETDOWN failed during drop: {err:?}");
 		}
+		crate::suites::register::remove_owner(self.aegp_owner);
 		if let Ok(mut tracker) = self.tracker.lock() {
 			tracker.torn_down();
 		}
@@ -2059,6 +2085,34 @@ impl PluginInstance {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn initial_size_is_visible_during_sequence_setup() {
+		use std::sync::atomic::{AtomicI32, Ordering};
+		static WIDTH_SEEN: AtomicI32 = AtomicI32::new(0);
+		static HEIGHT_SEEN: AtomicI32 = AtomicI32::new(0);
+		unsafe extern "C" fn entry(
+			cmd: RawCommand,
+			input: *mut after_effects_sys::PF_InData,
+			_output: *mut after_effects_sys::PF_OutData,
+			_params: after_effects_sys::PF_ParamList,
+			_world: *mut after_effects_sys::PF_LayerDef,
+			_extra: *mut c_void,
+		) -> after_effects_sys::PF_Err {
+			if matches!(cmd, RawCommand::SequenceSetup) {
+				WIDTH_SEEN.store(unsafe { (*input).width }, Ordering::SeqCst);
+				HEIGHT_SEEN.store(unsafe { (*input).height }, Ordering::SeqCst);
+			}
+			PF_Err_NONE as after_effects_sys::PF_Err
+		}
+		let mut fx = PluginInstance::new_sized(Path::new("<test>"), 768, 432);
+		fx.entry_point = Some(entry);
+		fx.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_owned());
+		fx.finalize().unwrap();
+		assert_eq!(WIDTH_SEEN.load(Ordering::SeqCst), 768);
+		assert_eq!(HEIGHT_SEEN.load(Ordering::SeqCst), 432);
+		assert_eq!(fx.output_size(), (768, 432));
+	}
 
 	/// A zeroed `PF_ParamDef` of the given type, bypassing `add_instance_param`'s
 	/// default-normalisation concerns (all defaults are zero anyway).

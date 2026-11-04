@@ -153,6 +153,7 @@ platform's extension, e.g. `SDK_Noise` -> `SDK_Noise.plugin`.
 ";
 
 fn main() -> ExitCode {
+	let _ = env_logger::try_init();
 	let mut args = std::env::args().skip(1);
 	let command = args.next();
 	// The preset-driven commands report their own exit codes (§12 of
@@ -237,7 +238,9 @@ fn resolve_plugin(arg: &str) -> PathBuf {
 /// a prebuilt `.plugin`/`.aex`/`.dll` or a crate's source directory directly.
 fn load(plugin_arg: &str) -> Result<PluginInstance> {
 	let path = resolve_artifact(plugin_arg)?;
-	aexlo::Host::get().try_load(&path).with_context(|| format!("loading plugin {}", path.display()))
+	aexlo::Host::get()
+		.try_load(&path)
+		.with_context(|| format!("loading plugin {}", path.display()))
 }
 
 /// Resolve a plugin argument to an artifact on disk, building it first when the
@@ -320,14 +323,28 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 		Some(name) => Some(preset_variant(manifest.as_deref(), name)?),
 		None => None,
 	};
+	// Only the plain input case establishes that the input and output sizes
+	// agree before loading. Presets may specify separate source/output sizes.
+	let initial_size = if variant.is_none() {
+		input.as_ref().map(image::image_dimensions).transpose()?
+	} else {
+		None
+	};
 	let mut instance = match (&plugin, &variant) {
-		(Some(plugin), _) => load(plugin)?,
+		(Some(plugin), _) => {
+			let path = resolve_artifact(plugin)?;
+			match initial_size {
+				Some((w, h)) => aexlo::Host::get().try_load_sized(&path, w, h)?,
+				None => aexlo::Host::get().try_load(&path)?,
+			}
+		}
 		(None, Some(variant)) => {
 			let artifacts = toolkit::artifacts(std::slice::from_ref(variant)).map_err(anyhow::Error::msg)?;
 			let path = artifacts(&variant.plugin).context("no artifact for the preset's plugin")?;
-			aexlo::Host::get()
-				.try_load(&path)
-				.with_context(|| format!("loading plugin {}", path.display()))?
+			match initial_size {
+				Some((w, h)) => aexlo::Host::get().try_load_sized(&path, w, h)?,
+				None => aexlo::Host::get().try_load(&path)?,
+			}
 		}
 		(None, None) => bail!("render: missing <plugin> (or --preset)"),
 	};
@@ -349,7 +366,7 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 			aexlo::AnyLayer::U16(l) => instance.set_input_layer(l),
 			aexlo::AnyLayer::F32(l) => instance.set_input_layer(l),
 		}
-		if variant.as_ref().is_some_and(|v| v.size.is_none()) {
+		if variant.as_ref().is_none_or(|v| v.size.is_none()) {
 			instance.set_render_size(instance.input_size().0, instance.input_size().1);
 		}
 	}
@@ -384,7 +401,10 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 	let is_exr = output.extension().is_some_and(|e| e.eq_ignore_ascii_case("exr"));
 	let frame = aexlo_harness::Frame::new(instance.output().clone());
 	if is_exr {
-		frame.converted(aexlo::PixelDepthKind::F32).save(&output).map_err(anyhow::Error::msg)?;
+		frame
+			.converted(aexlo::PixelDepthKind::F32)
+			.save(&output)
+			.map_err(anyhow::Error::msg)?;
 	} else if instance.output_depth() == aexlo::PixelDepthKind::U16 {
 		frame.save(&output).map_err(anyhow::Error::msg)?;
 	} else {
@@ -419,7 +439,11 @@ fn preset_variant(manifest: Option<&Path>, name: &str) -> Result<aexlo_harness::
 		}
 		_ => bail!(
 			"no variant '{name}' (variants: {})",
-			variants.iter().map(|v| v.id.display.as_str()).collect::<Vec<_>>().join(", ")
+			variants
+				.iter()
+				.map(|v| v.id.display.as_str())
+				.collect::<Vec<_>>()
+				.join(", ")
 		),
 	}
 }
