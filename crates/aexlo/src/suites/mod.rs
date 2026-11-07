@@ -32,6 +32,7 @@ mod color_param;
 mod color_settings;
 mod comp;
 pub(crate) mod drawbot;
+mod dynamic_stream;
 mod effect;
 mod effect_ui;
 mod ffi;
@@ -69,6 +70,10 @@ static AEGP_WORLD_3: AEGP_WorldSuite3 = aegp_world::suite_3();
 static AEGP_MEMORY_1: AEGP_MemorySuite1 = aegp_memory::suite_1();
 static AEGP_ITEM_6: AEGP_ItemSuite6 = aegp_item::suite_6();
 static AEGP_STREAM_3: AEGP_StreamSuite3 = stream::create_stream_suite_3();
+static AEGP_DYNAMIC_STREAM_1: AEGP_DynamicStreamSuite1 = dynamic_stream::suite_1();
+static AEGP_DYNAMIC_STREAM_2: AEGP_DynamicStreamSuite2 = dynamic_stream::suite_2();
+static AEGP_DYNAMIC_STREAM_3: AEGP_DynamicStreamSuite3 = dynamic_stream::suite_3();
+static AEGP_DYNAMIC_STREAM_4: AEGP_DynamicStreamSuite4 = dynamic_stream::suite_4();
 static AEGP_ITEM_8: AEGP_ItemSuite8 = aegp_item::suite_8();
 static AEGP_LAYER_RENDER_OPTIONS_2: AEGP_LayerRenderOptionsSuite2 = aegp_render::layer_render_options_suite_2();
 static AEGP_RENDER_OPTIONS_4: AEGP_RenderOptionsSuite4 = aegp_render::render_options_suite_4();
@@ -359,6 +364,25 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion5 as i32 => {
 			dispatch_static!(suite, suite_name, version, stream5)
 		}
+		// Dynamic Stream wire versions 1, 2, 3 and 5 are suites 1, 2, 3 and 4.
+		// `kAEGPDynamicStreamSuiteVersion4` is 5; there is no wire version 4.
+		// Suite 4 adds mask refs, UTF-16 names and dimension separation.
+		("AEGP Dynamic Stream Suite", v) if v == kAEGPDynamicStreamSuiteVersion1 as i32 => {
+			unsafe { *suite = &AEGP_DYNAMIC_STREAM_1 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("AEGP Dynamic Stream Suite", v) if v == kAEGPDynamicStreamSuiteVersion2 as i32 => {
+			unsafe { *suite = &AEGP_DYNAMIC_STREAM_2 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("AEGP Dynamic Stream Suite", v) if v == kAEGPDynamicStreamSuiteVersion3 as i32 => {
+			unsafe { *suite = &AEGP_DYNAMIC_STREAM_3 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("AEGP Dynamic Stream Suite", v) if v == kAEGPDynamicStreamSuiteVersion4 as i32 => {
+			unsafe { *suite = &AEGP_DYNAMIC_STREAM_4 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
 		("AEGP Keyframe Suite", 4) => dispatch_static!(suite, suite_name, version, keyframe),
 		// Effect Suite v4 adds a command to EffectCallGeneric (so it is not a
 		// drop-in for v2) and appends the effect-mask calls.
@@ -554,6 +578,10 @@ mod tests {
 			("AEGP Stream Suite", 8),
 			("AEGP Stream Suite", 9),
 			("AEGP Stream Suite", 10),
+			("AEGP Dynamic Stream Suite", 1),
+			("AEGP Dynamic Stream Suite", 2),
+			("AEGP Dynamic Stream Suite", 3),
+			("AEGP Dynamic Stream Suite", 5),
 			("AEGP Keyframe Suite", 4),
 			("AEGP Effect Suite", 2),
 			("AEGP Effect Suite", 4),
@@ -590,6 +618,10 @@ mod tests {
 
 		// Fill Matte is only served at its known v2 layout.
 		let (err, _) = acquire("PF Fill Matte Suite", 3);
+		assert_ne!(err, PF_Err_NONE as PF_Err);
+
+		// Dynamic Stream suite 4 is wire version 5, not 4.
+		let (err, _) = acquire("AEGP Dynamic Stream Suite", 4);
 		assert_ne!(err, PF_Err_NONE as PF_Err);
 	}
 }
