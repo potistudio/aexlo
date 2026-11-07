@@ -184,6 +184,11 @@ pub struct PluginInstance {
 	/// released by `PF_Cmd_GPU_DEVICE_SETDOWN`.
 	gpu_data: *mut ::std::os::raw::c_void,
 
+	/// Whether `PF_Cmd_GPU_DEVICE_SETUP` has succeeded and is still awaiting its
+	/// `PF_Cmd_GPU_DEVICE_SETDOWN`. Tracked separately from [`Self::gpu_data`]
+	/// because plugins may keep their GPU state elsewhere and return null.
+	gpu_device_ready: bool,
+
 	/// Label the plugin gave its Options button via `PF_SetOptionsButtonName`.
 	options_button_name: Option<String>,
 
@@ -491,13 +496,14 @@ impl PluginInstance {
 		)?;
 
 		self.gpu_data = output.gpu_data;
+		self.gpu_device_ready = true;
 		Ok(())
 	}
 
 	/// Run `PF_Cmd_GPU_DEVICE_SETDOWN` so the plugin releases its GPU data, then drop
 	/// this instance's GPU-world registrations. Safe to call when no device was set up.
 	pub fn gpu_device_setdown(&mut self) -> Result<()> {
-		if self.gpu_data.is_null() {
+		if !self.gpu_device_ready {
 			return Ok(());
 		}
 
@@ -519,6 +525,7 @@ impl PluginInstance {
 		);
 
 		self.gpu_data = null_mut();
+		self.gpu_device_ready = false;
 		if let Some(ctx) = &self.gpu_context {
 			ctx.unregister_all_worlds();
 		}
@@ -547,7 +554,7 @@ impl PluginInstance {
 	/// Propagates any failure from device setup or the render commands. On error the
 	/// caller should fall back to CPU rendering (see [`Self::render_frame`]).
 	pub fn render_gpu(&mut self) -> Result<()> {
-		if self.gpu_data.is_null() {
+		if !self.gpu_device_ready {
 			self.gpu_device_setup()?;
 		}
 
@@ -647,7 +654,7 @@ impl PluginInstance {
 		self.render_smart_gpu()?;
 
 		// The plugin queues its work but does not wait; flush before reading back.
-		if let Some(ctx) = &self.gpu_context {
+		if let Some(ctx) = self.gpu_context.as_mut() {
 			ctx.wait_for_completion();
 		}
 
@@ -1596,6 +1603,7 @@ impl PluginInstance {
 				gpu_readback_staging: Vec::new(),
 				gpu_input_uploaded: false,
 				gpu_data: null_mut(),
+				gpu_device_ready: false,
 				options_button_name: None,
 				supported_pixel_formats: Vec::new(),
 				mask_paths: Vec::new(),
