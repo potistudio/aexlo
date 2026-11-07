@@ -51,6 +51,8 @@ COMMANDS:
     render <plugin>		Render a frame and write it to a PNG
     about  <plugin>		Print the plugin's ABOUT text
     params <plugin>    List the plugin's parameters (index, name, value)
+    dialog <plugin>    Send PF_Cmd_DO_DIALOG, the effect's Options button, and
+                       keep the process alive while a plugin window is visible
     dev    [filter]     Rerun a #[aexlo::preview] test on save + live viewer
                               (built-in `bacon` replacement; add a name to filter tests)
                               Like `cargo build`: defaults to the crate in the
@@ -201,6 +203,7 @@ fn run(command: Option<String>, args: impl Iterator<Item = String>) -> Result<()
 		}
 		"about" => cmd_about(args),
 		"params" => cmd_params(args),
+		"dialog" => cmd_dialog(args),
 		"render" => cmd_render(args),
 		"bench" => cmd_bench(args),
 		"view" => cmd_view(args),
@@ -271,15 +274,124 @@ fn cmd_about(mut args: impl Iterator<Item = String>) -> Result<()> {
 fn cmd_params(mut args: impl Iterator<Item = String>) -> Result<()> {
 	let plugin = args.next().context("params: missing <plugin>")?;
 	let instance = load(&plugin)?;
-	let values = instance.param_values();
-	if values.is_empty() {
-		println!("(plugin declares no parameters)");
-		return Ok(());
-	}
-	for (index, value) in values {
-		println!("{index:>3}  {:<24}  {}", param_name(&instance, index), describe(&value));
-	}
+	print_params(&instance);
 	Ok(())
+}
+
+fn cmd_dialog(mut args: impl Iterator<Item = String>) -> Result<()> {
+	let plugin = args.next().context("dialog: missing <plugin>")?;
+	let mut instance = load(&plugin)?;
+	println!(
+		"out_flags={:#x} out_flags2={:#x} options_button={}",
+		instance.out_flags(),
+		instance.out_flags2(),
+		instance.options_button_name().unwrap_or("(unset)")
+	);
+	print_params(&instance);
+	let message = instance.do_dialog().context("plugin rejected PF_Cmd_DO_DIALOG")?;
+	if !message.trim().is_empty() {
+		println!("{}", message.trim());
+	}
+	pump_plugin_windows();
+	Ok(())
+}
+
+fn print_params(instance: &PluginInstance) {
+	if instance.param_count() <= 1 {
+		println!("(plugin declares no parameters)");
+		return;
+	}
+	for index in 1..instance.param_count() {
+		let kind = instance
+			.param_kind(index)
+			.map(|kind| format!("{kind:?}"))
+			.unwrap_or_default();
+		let value = instance
+			.get_param(index)
+			.map(|value| describe(&value))
+			.unwrap_or_else(|| kind);
+		let hidden = if instance.param_hidden(index) { " hidden" } else { "" };
+		let flags = instance.param_ui_flags(index).unwrap_or(0);
+		println!(
+			"{index:>3}  {:<24}  {value}{hidden}  ui={flags:#x}",
+			param_name(instance, index)
+		);
+	}
+}
+
+/// Dispatch this thread's window messages while the plugin still has a window
+/// on screen. A modal Options dialog returns from `PF_Cmd_DO_DIALOG` itself.
+#[cfg(windows)]
+fn pump_plugin_windows() {
+	use std::time::Duration;
+
+	while process_has_visible_window() {
+		while peek_message() {}
+		std::thread::sleep(Duration::from_millis(16));
+	}
+}
+
+#[cfg(not(windows))]
+fn pump_plugin_windows() {}
+
+#[cfg(windows)]
+fn peek_message() -> bool {
+	#[repr(C)]
+	struct Msg {
+		hwnd: *mut std::ffi::c_void,
+		message: u32,
+		_pad: u32,
+		wparam: usize,
+		lparam: isize,
+		time: u32,
+		_pad2: u32,
+		x: i32,
+		y: i32,
+		lprivate: u32,
+		_pad3: u32,
+	}
+	#[link(name = "user32")]
+	unsafe extern "system" {
+		fn PeekMessageW(msg: *mut Msg, hwnd: *mut std::ffi::c_void, min: u32, max: u32, remove: u32) -> i32;
+		fn TranslateMessage(msg: *const Msg) -> i32;
+		fn DispatchMessageW(msg: *const Msg) -> isize;
+	}
+	let mut msg = std::mem::MaybeUninit::<Msg>::uninit();
+	let pending = unsafe { PeekMessageW(msg.as_mut_ptr(), std::ptr::null_mut(), 0, 0, 1) } != 0;
+	if pending {
+		let msg = unsafe { msg.assume_init() };
+		unsafe {
+			TranslateMessage(&msg);
+			DispatchMessageW(&msg);
+		}
+	}
+	pending
+}
+
+#[cfg(windows)]
+fn process_has_visible_window() -> bool {
+	#[link(name = "user32")]
+	unsafe extern "system" {
+		fn EnumWindows(cb: unsafe extern "system" fn(*mut std::ffi::c_void, isize) -> i32, lparam: isize) -> i32;
+		fn IsWindowVisible(hwnd: *mut std::ffi::c_void) -> i32;
+		fn GetWindowThreadProcessId(hwnd: *mut std::ffi::c_void, process: *mut u32) -> u32;
+	}
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn GetCurrentProcessId() -> u32;
+	}
+	unsafe extern "system" fn visit(hwnd: *mut std::ffi::c_void, lparam: isize) -> i32 {
+		let mut pid = 0u32;
+		let ours = GetWindowThreadProcessId(hwnd, &mut pid) != 0 && pid == GetCurrentProcessId();
+		if ours && IsWindowVisible(hwnd) != 0 {
+			*(lparam as *mut bool) = true;
+			return 0;
+		}
+		1
+	}
+	let mut found = false;
+	unsafe { EnumWindows(visit, &mut found as *mut bool as isize) };
+	found
 }
 
 fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {

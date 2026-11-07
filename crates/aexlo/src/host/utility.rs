@@ -2,7 +2,7 @@ use crate::core::diagnostics::*;
 use crate::suites::macros::stub_log;
 use after_effects_sys::*;
 use std::os::raw::c_void;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicIsize, Ordering};
 
 /// Encode a path as a null-terminated UTF-16 string, the representation
 /// `get_platform_data` hands back for `PF_PlatData_*_FILE_PATH_W` queries.
@@ -419,6 +419,23 @@ unsafe extern "C" fn get_platform_data_impl(effect_ref: PF_ProgPtr, which: PF_Pl
 	}
 
 	match which {
+		0 => {
+			// PF_PlatData_MAIN_WND. Effects parent their own editor windows here.
+			#[cfg(windows)]
+			{
+				let hwnd = host_window();
+				if hwnd.is_null() {
+					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				}
+				unsafe { *(data as *mut *mut c_void) = hwnd };
+				return PF_Err_NONE as PF_Err;
+			}
+			#[cfg(not(windows))]
+			{
+				let _ = data;
+				PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			}
+		}
 		1 | 2 => {
 			// The host currently does not load separate localized resource files,
 			// so both legacy selectors refer to the loaded plugin binary.
@@ -468,6 +485,116 @@ unsafe extern "C" fn get_platform_data_impl(effect_ref: PF_ProgPtr, which: PF_Pl
 			PF_Err_NONE as PF_Err // Return OK for unsupported, as AE does
 		}
 	}
+}
+
+/// HWND a GUI host wants plugins to treat as After Effects' main window.
+/// Zero means "create the fallback window below".
+#[cfg(windows)]
+static MAIN_WINDOW: AtomicIsize = AtomicIsize::new(0);
+
+/// Tell plugins which window is `PF_PlatData_MAIN_WND`.
+///
+/// An owned editor stays hidden for as long as its owner is hidden, so a
+/// windowed host passes its own visible HWND. `null` clears the override.
+#[cfg(windows)]
+pub(crate) fn set_main_window(hwnd: *mut c_void) {
+	MAIN_WINDOW.store(hwnd as isize, Ordering::Relaxed);
+}
+
+/// Top-level window used as `PF_PlatData_MAIN_WND`. Created on the calling
+/// thread, which is also the thread that later dispatches its messages.
+#[cfg(windows)]
+fn host_window() -> *mut c_void {
+	let chosen = MAIN_WINDOW.load(Ordering::Relaxed);
+	if chosen != 0 {
+		return chosen as *mut c_void;
+	}
+	static WINDOW: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
+	let hwnd = *WINDOW.get_or_init(|| unsafe { create_host_window() });
+	hwnd as *mut c_void
+}
+
+#[cfg(windows)]
+unsafe fn create_host_window() -> isize {
+	#[repr(C)]
+	struct WndClass {
+		style: u32,
+		wnd_proc: unsafe extern "system" fn(*mut c_void, u32, usize, isize) -> isize,
+		class_extra: i32,
+		window_extra: i32,
+		instance: *mut c_void,
+		icon: *mut c_void,
+		cursor: *mut c_void,
+		background: *mut c_void,
+		menu_name: *const u16,
+		class_name: *const u16,
+	}
+	#[link(name = "user32")]
+	unsafe extern "system" {
+		fn RegisterClassW(class: *const WndClass) -> u16;
+		fn CreateWindowExW(
+			ex_style: u32,
+			class_name: *const u16,
+			window_name: *const u16,
+			style: u32,
+			x: i32,
+			y: i32,
+			width: i32,
+			height: i32,
+			parent: *mut c_void,
+			menu: *mut c_void,
+			instance: *mut c_void,
+			param: *mut c_void,
+		) -> *mut c_void;
+		fn DefWindowProcW(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize;
+		fn ShowWindow(hwnd: *mut c_void, cmd: i32) -> i32;
+	}
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn GetModuleHandleW(module: *const u16) -> *mut c_void;
+	}
+	unsafe extern "system" fn wnd_proc(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize {
+		DefWindowProcW(hwnd, msg, wparam, lparam)
+	}
+
+	let class_name: Vec<u16> = "aexlo_host".encode_utf16().chain(std::iter::once(0)).collect();
+	let title: Vec<u16> = "aexlo".encode_utf16().chain(std::iter::once(0)).collect();
+	let instance = GetModuleHandleW(std::ptr::null());
+	let class = WndClass {
+		style: 0,
+		wnd_proc,
+		class_extra: 0,
+		window_extra: 0,
+		instance,
+		icon: std::ptr::null_mut(),
+		cursor: std::ptr::null_mut(),
+		background: 6isize as *mut c_void, // COLOR_WINDOW + 1
+		menu_name: std::ptr::null(),
+		class_name: class_name.as_ptr(),
+	};
+	RegisterClassW(&class);
+	let hwnd = CreateWindowExW(
+		0,
+		class_name.as_ptr(),
+		title.as_ptr(),
+		0x00CF_0000,
+		0x8000_0000u32 as i32,
+		0x8000_0000u32 as i32,
+		960,
+		640,
+		std::ptr::null_mut(),
+		std::ptr::null_mut(),
+		instance,
+		std::ptr::null_mut(),
+	);
+	if hwnd.is_null() {
+		log::warn!("get_platform_data: failed to create the host window");
+		return 0;
+	}
+	// Must be visible. Windows hides an owned popup while its owner is hidden,
+	// which is what made plugin editors look like a click that did nothing.
+	ShowWindow(hwnd, 5);
+	hwnd as isize
 }
 
 // ============================================================================
