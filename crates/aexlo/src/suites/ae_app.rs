@@ -63,6 +63,13 @@ fn progress_id(handle: PF_AppProgressDialogP) -> ProgressId {
 /// The default host leaves the tag empty, which the SDK's localization helper
 /// (`AELocalise::GetStringForAE`) treats as "use the base strings".
 ///
+/// The whole buffer is cleared first. `PF_APP_LANG_TAG_SIZE` is 6, and some
+/// plugins (Trapcode Particular) copy the first 5 bytes as a fixed-length tag
+/// and convert them, ignoring the terminator. Writing only the leading NUL
+/// leaves the other four bytes as whatever the caller had on the stack, and
+/// Particular throws `"bad conversion"` out of `PF_Cmd_PARAMS_SETUP` when
+/// those bytes are not a valid sequence.
+///
 /// This callback must exist even when the host has nothing to say: plugins invoke
 /// it through the suite vtable during `PF_Cmd_PARAMS_SETUP`, and a `None` (null)
 /// slot there is a hard crash (`blr` through a null pointer), not a graceful no-op.
@@ -81,6 +88,7 @@ unsafe extern "C" fn get_language(lang_tagZ: *mut A_char) -> PF_Err {
 	with_host(|host| {
 		let buf =
 			unsafe { std::slice::from_raw_parts_mut(lang_tagZ, after_effects_sys::PF_APP_LANG_TAG_SIZE as usize) };
+		buf.fill(0);
 		write_c_str(buf, &host.language());
 		PF_Err_NONE as PF_Err
 	})
@@ -533,6 +541,12 @@ mod tests {
 			let mut b: PF_Boolean = 1;
 			suite.PF_IsRenderEngine.unwrap()(&mut b);
 			assert_eq!(b, 0);
+
+			// Particular copies all five tag bytes, so an empty language must
+			// not leave the caller's previous contents in the tail.
+			let mut lang = [-1 as A_char; after_effects_sys::PF_APP_LANG_TAG_SIZE as usize];
+			suite.PF_AppGetLanguage.unwrap()(lang.as_mut_ptr());
+			assert!(lang.iter().all(|b| *b == 0));
 		}
 	}
 }
