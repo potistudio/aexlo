@@ -146,6 +146,7 @@ dependencies = [
  "after-effects",
  "after-effects-sys",
  "bytemuck",
+ "cc",
  "chrono",
  "colored",
  "cudarc",

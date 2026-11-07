@@ -31,6 +31,9 @@ thiserror = "2.0.18"
 tiny-skia = { version = "0.11.4", default-features = false, features = ["std", "simd"] }
 wrapper = { workspace = true }
 
+[build-dependencies]
+cc = "1"
+
 # Metal-backed GPU rendering is macOS-only; plugins that declare
 # PF_OutFlag2_SUPPORTS_GPU_RENDER_F32 are driven through it (see `gpu` module).
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -1,5 +1,6 @@
-//! `AEGP Layer Suite` (wire versions 11 to 15, `AEGP_LayerSuite5` to `9`) and
-//! `AEGP Light Suite` v1 over aexlo's one-layer timeline.
+//! `AEGP Layer Suite` (wire version 8, `AEGP_LayerSuite3`, and wire versions 11
+//! to 15, `AEGP_LayerSuite5` to `9`) and `AEGP Light Suite` v1 over aexlo's
+//! one-layer timeline.
 //!
 //! aexlo renders a single effect on a single layer, and that layer is the
 //! whole comp: the comp is the input layer's size, the layer starts at comp
@@ -651,6 +652,56 @@ macro_rules! layer_suite {
 			$($field: Some($fn_name),)*
 		}
 	};
+}
+
+/// Wire version 8 (`AEGP_LayerSuite3`). It has no source-item id and cannot
+/// duplicate a layer or look one up by id. Names are still `char` buffers.
+pub(super) const fn create_layer_suite_3() -> AEGP_LayerSuite3 {
+	AEGP_LayerSuite3 {
+		AEGP_GetCompNumLayers: Some(get_comp_num_layers),
+		AEGP_GetCompLayerByIndex: Some(get_comp_layer_by_index),
+		AEGP_GetActiveLayer: Some(get_active_layer),
+		AEGP_GetLayerIndex: Some(get_layer_index),
+		AEGP_GetLayerSourceItem: Some(get_layer_source_item),
+		AEGP_GetLayerParentComp: Some(get_layer_parent_comp),
+		AEGP_GetLayerQuality: Some(get_layer_quality),
+		AEGP_SetLayerQuality: Some(set_layer_quality),
+		AEGP_GetLayerFlags: Some(get_layer_flags),
+		AEGP_SetLayerFlag: Some(set_layer_flag),
+		AEGP_IsLayerVideoReallyOn: Some(is_layer_video_really_on),
+		AEGP_IsLayerAudioReallyOn: Some(is_layer_audio_really_on),
+		AEGP_GetLayerCurrentTime: Some(get_layer_current_time),
+		AEGP_GetLayerInPoint: Some(get_layer_in_point),
+		AEGP_GetLayerDuration: Some(get_layer_duration),
+		AEGP_SetLayerInPointAndDuration: Some(set_layer_in_point_and_duration),
+		AEGP_GetLayerOffset: Some(get_layer_offset),
+		AEGP_SetLayerOffset: Some(set_layer_offset),
+		AEGP_GetLayerStretch: Some(get_layer_stretch),
+		AEGP_SetLayerStretch: Some(set_layer_stretch),
+		AEGP_GetLayerTransferMode: Some(get_layer_transfer_mode),
+		AEGP_SetLayerTransferMode: Some(set_layer_transfer_mode),
+		AEGP_IsAddLayerValid: Some(is_add_layer_valid),
+		AEGP_AddLayer: Some(add_layer),
+		AEGP_ReorderLayer: Some(reorder_layer),
+		AEGP_GetLayerMaskedBounds: Some(get_layer_masked_bounds),
+		AEGP_GetLayerObjectType: Some(get_layer_object_type),
+		AEGP_IsLayer3D: Some(is_layer_3d),
+		AEGP_IsLayer2D: Some(is_layer_2d),
+		AEGP_IsVideoActive: Some(is_video_active),
+		AEGP_IsLayerUsedAsTrackMatte: Some(is_layer_used_as_track_matte),
+		AEGP_DoesLayerHaveTrackMatte: Some(does_layer_have_track_matte),
+		AEGP_ConvertCompToLayerTime: Some(convert_comp_to_layer_time),
+		AEGP_ConvertLayerToCompTime: Some(convert_layer_to_comp_time),
+		AEGP_GetLayerDancingRandValue: Some(get_layer_dancing_rand_value),
+		AEGP_GetLayerID: Some(get_layer_id),
+		AEGP_GetLayerToWorldXform: Some(get_layer_to_world_xform),
+		AEGP_GetLayerToWorldXformFromView: Some(get_layer_to_world_xform_from_view),
+		AEGP_GetLayerParent: Some(get_layer_parent),
+		AEGP_SetLayerParent: Some(set_layer_parent),
+		AEGP_DeleteLayer: Some(delete_layer),
+		AEGP_GetLayerName: Some(get_layer_name),
+		AEGP_SetLayerName: Some(set_layer_name),
+	}
 }
 
 /// Wire version 11.

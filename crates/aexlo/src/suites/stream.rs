@@ -21,6 +21,7 @@
 
 use after_effects::ParamType;
 use after_effects_sys::*;
+use std::cell::Cell;
 
 use crate::core::diagnostics::diag;
 use crate::suites::effect::{effect_ref_of, with_param};
@@ -31,7 +32,7 @@ use crate::utils;
 /// Parameter nodes are the effect's `PF_ParamDef`s. The other nodes are the
 /// fixed groups around that effect: one 2D AV layer, its transform, an effect
 /// parade of one effect, and an empty mask parade.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Node {
 	/// `ADBE AV Layer`, the layer root.
 	Layer,
@@ -64,6 +65,21 @@ pub(crate) struct Stream {
 	/// Index of this node in its parent. For [`Node::Param`], the parameter index.
 	pub(crate) index: usize,
 	pub(crate) node: Node,
+}
+
+/// Arbitrary streams stay `NO_DATA` until the effect has built its values.
+/// Reporting `ARB` while `PF_Cmd_PARAMS_SETUP` is still on the stack makes
+/// Particular throw out of its entry point.
+thread_local! {
+	static ARB_STREAMS_LIVE: Cell<bool> = const { Cell::new(false) };
+}
+
+pub(crate) fn arb_streams_live() {
+	ARB_STREAMS_LIVE.set(true);
+}
+
+pub(crate) fn arb_streams_reset() {
+	ARB_STREAMS_LIVE.set(false);
 }
 
 pub(crate) fn new_stream_handle(stream: Stream) -> AEGP_StreamRefH {
@@ -101,6 +117,9 @@ pub(crate) enum StreamValue {
 	},
 	/// The layer chosen in a layer parameter; aexlo has no layer ids, so 0.
 	LayerId,
+	/// An arbitrary-data parameter. The handle is the parameter's own value,
+	/// not a copy, so disposing the stream value must not free it.
+	Arb(PF_ArbitraryH),
 }
 
 impl StreamValue {
@@ -137,6 +156,15 @@ impl StreamValue {
 						blue: px.blue as f64 / 255.0,
 					}
 				}
+				t if t == ParamType::ArbitraryData as PF_ParamType => {
+					let handle = def.u.arb_d.value;
+					let live = ARB_STREAMS_LIVE.get();
+					if handle.is_null() || !live {
+						Self::NoData
+					} else {
+						Self::Arb(handle)
+					}
+				}
 				_ => Self::NoData,
 			}
 		}
@@ -152,6 +180,7 @@ impl StreamValue {
 			Self::ThreeD { .. } => AEGP_StreamType_ThreeD,
 			Self::Color { .. } => AEGP_StreamType_COLOR,
 			Self::LayerId => AEGP_StreamType_LAYER_ID,
+			Self::Arb(_) => AEGP_StreamType_ARB,
 		}) as AEGP_StreamType
 	}
 
@@ -159,7 +188,7 @@ impl StreamValue {
 	pub(crate) fn dimensionality(self) -> A_short {
 		match self {
 			Self::NoData => 0,
-			Self::OneD(_) | Self::LayerId => 1,
+			Self::OneD(_) | Self::LayerId | Self::Arb(_) => 1,
 			Self::TwoD { .. } => 2,
 			Self::ThreeD { .. } => 3,
 			Self::Color { .. } => 4,
@@ -200,6 +229,10 @@ macro_rules! write_val {
 				}
 			}
 			StreamValue::LayerId => out.layer_id = 0,
+			// `arbH` is bound as `A_Handle` (`*mut c_void`); the parameter stores
+			// a `PF_Handle` (`*mut *mut c_void`). The bit pattern is what the
+			// plugin casts back.
+			StreamValue::Arb(handle) => out.arbH = handle.cast(),
 		}
 	}};
 }
@@ -274,7 +307,7 @@ unsafe extern "C" fn get_valid_interpolations(
 	};
 	*out = match value {
 		StreamValue::NoData => AEGP_KeyInterpMask_NONE,
-		StreamValue::LayerId => AEGP_KeyInterpMask_HOLD,
+		StreamValue::LayerId | StreamValue::Arb(_) => AEGP_KeyInterpMask_HOLD,
 		_ => AEGP_KeyInterpMask_LINEAR | AEGP_KeyInterpMask_BEZIER | AEGP_KeyInterpMask_HOLD,
 	} as AEGP_KeyInterpolationMask;
 	PF_Err_NONE as A_Err
@@ -508,6 +541,25 @@ unsafe extern "C" fn get_stream_type(streamH: AEGP_StreamRefH, stream_typeP: *mu
 	let Some(out) = (unsafe { stream_typeP.as_mut() }) else {
 		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
 	};
+	if value == StreamValue::NoData
+		&& let Some(stream) = (unsafe { stream_of(streamH) })
+	{
+		let detail = if stream.node == Node::Param {
+			with_param(stream.effect_ref, stream.index, |def| def.param_type)
+		} else {
+			None
+		};
+		let name = if stream.node == Node::Param {
+			with_param(stream.effect_ref, stream.index, crate::host::params::param_name)
+		} else {
+			None
+		};
+		log::debug!(
+			"stream type NO_DATA node={:?} index={} param_type={detail:?} name={name:?}",
+			stream.node,
+			stream.index
+		);
+	}
 	*out = value.stream_type();
 	PF_Err_NONE as A_Err
 }
@@ -546,7 +598,8 @@ macro_rules! get_new_stream_value {
 get_new_stream_value!(get_new_stream_value_v1, AEGP_StreamValue);
 get_new_stream_value!(get_new_stream_value_v2, AEGP_StreamValue2);
 
-/// Stream values never own memory here (no arb, marker, mask or text data).
+/// Stream values never own memory here. An arbitrary handle is the parameter's
+/// own value, so disposing the stream value must not free it.
 macro_rules! dispose_stream_value {
 	($name:ident, $value_ty:ty) => {
 		unsafe extern "C" fn $name(valueP: *mut $value_ty) -> A_Err {
@@ -793,8 +846,8 @@ mod tests {
 			AEGP_StreamType_NO_DATA as AEGP_StreamType
 		);
 		assert_eq!(
-			StreamValue::OneD(1.0).stream_type(),
-			AEGP_StreamType_OneD as AEGP_StreamType
+			StreamValue::Arb(std::ptr::null_mut()).stream_type(),
+			AEGP_StreamType_ARB as AEGP_StreamType
 		);
 		let point = StreamValue::TwoD {
 			x: 1.0,

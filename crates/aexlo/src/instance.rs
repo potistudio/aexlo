@@ -44,6 +44,71 @@ const PLUGIN_DATA_ENTRY_SYMBOL: &str = "PluginDataEntryFunction2";
 const HOST_NAME: &str = "AfterEffects";
 const HOST_VERSION: &str = "25.2";
 
+/// On Windows, an effect that lets a C++ exception leave its entry point would
+/// cross a Rust frame and abort the process. The call sits in a C handler so
+/// the host reports a failed command instead.
+#[cfg(windows)]
+unsafe extern "C" {
+	fn aexlo_call_entry(
+		entry: *const c_void,
+		cmd: i32,
+		in_data: *mut c_void,
+		out_data: *mut c_void,
+		params: *mut c_void,
+		output: *mut c_void,
+		extra: *mut c_void,
+		exception_code: *mut u32,
+	) -> i32;
+}
+
+/// Calls `entry_point`. On Windows a structured exception that escapes the
+/// plugin becomes `PF_Err_INTERNAL_STRUCT_DAMAGED`.
+///
+/// # Safety
+/// `entry_point` must be the plugin's entry point, and the pointers must be
+/// the ones [`PluginInstance::call_plugin`] passes to it.
+unsafe fn call_entry(
+	entry_point: PluginEntryPoint,
+	command: RawCommand,
+	in_data: *mut after_effects_sys::PF_InData,
+	out_data: *mut after_effects_sys::PF_OutData,
+	params: after_effects_sys::PF_ParamList,
+	output: *mut after_effects_sys::PF_LayerDef,
+	extra: *mut c_void,
+) -> after_effects_sys::PF_Err {
+	#[cfg(windows)]
+	{
+		let mut code = 0u32;
+		// SAFETY: the caller upholds `call_entry`'s contract. The C wrapper
+		// invokes the same cdecl entry point and catches an exception that
+		// would otherwise abort the process.
+		let result = unsafe {
+			aexlo_call_entry(
+				entry_point as usize as *const c_void,
+				command as i32,
+				in_data.cast(),
+				out_data.cast(),
+				params.cast(),
+				output.cast(),
+				extra,
+				&mut code,
+			)
+		};
+		if code != 0 {
+			log::error!(
+				"plugin command {command:?} raised a structured exception {code:#x}; reporting PF_Err_INTERNAL_STRUCT_DAMAGED"
+			);
+			return after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED as after_effects_sys::PF_Err;
+		}
+		return result as after_effects_sys::PF_Err;
+	}
+	#[cfg(not(windows))]
+	{
+		// SAFETY: the caller upholds `call_entry`'s contract.
+		unsafe { entry_point(command, in_data, out_data, params, output, extra) }
+	}
+}
+
 /// ABI of an After Effects effect entry point (`EffectMain`): the fixed
 /// `(cmd, in_data, out_data, params, output, extra)` signature every effect
 /// exports. Handed to [`Host::from_entry`] to drive an in-process
@@ -2026,6 +2091,7 @@ impl PluginInstance {
 
 	/// Call the plugin with `PF_Cmd_PARAMS_SETUP` command.
 	fn setup_params(&mut self) -> Result<()> {
+		crate::suites::stream::arb_streams_reset();
 		self.call_plugin(RawCommand::ParamsSetup, null_mut())
 	}
 
@@ -2073,6 +2139,7 @@ impl PluginInstance {
 			self.params[index].u.arb_d.value = value;
 			self.owned_arb_values.push(index);
 		}
+		crate::suites::stream::arb_streams_live();
 	}
 
 	/// Hand the arbitrary-data values created by [`Self::setup_arbitrary_params`]
@@ -2333,7 +2400,8 @@ impl PluginInstance {
 			.and_then(|_| self.tracker.lock().ok().map(|mut t| t.begin(name)));
 
 		let result = crate::suites::iterate::with_parallel_iterate(self.parallel_iterate, || unsafe {
-			entry_point(
+			call_entry(
+				entry_point,
 				command,
 				&mut in_data,
 				&mut self.out_data,

@@ -581,7 +581,7 @@ fn invert3(m: Mat3) -> Option<Mat3> {
 
 /// Composites `source_wld`'s `src_rect` onto `dest_wld` at `(dest_x,
 /// dest_y)`, scaled by `src_opacity` (0..255) and blended per `xfer_mode`.
-unsafe extern "C" fn composite_rect_sys(
+pub(crate) unsafe extern "C" fn composite_rect_sys(
 	_effect_ref: PF_ProgPtr,
 	src_rect: *mut PF_Rect,
 	src_opacity: A_long,
@@ -987,7 +987,7 @@ unsafe extern "C" fn copy_hq_sys(
 /// and sub-percent opacity precision aren't modeled); `quality` is accepted
 /// but doesn't change behavior, since this emulator has no separate
 /// low-quality fast path.
-unsafe extern "C" fn transfer_rect_sys(
+pub(crate) unsafe extern "C" fn transfer_rect_sys(
 	_effect_ref: PF_ProgPtr,
 	_quality: PF_Quality,
 	m_flags: PF_ModeFlags,
@@ -1074,7 +1074,7 @@ unsafe extern "C" fn transfer_rect_sys(
 /// destination-to-source otherwise. Multiple matrices are premultiply-
 /// averaged (each tap weighted by its own alpha, then unpremultiplied) to
 /// approximate motion blur without fringing at transparent edges.
-unsafe extern "C" fn transform_world_sys(
+pub(crate) unsafe extern "C" fn transform_world_sys(
 	_effect_ref: PF_ProgPtr,
 	_quality: PF_Quality,
 	m_flags: PF_ModeFlags,

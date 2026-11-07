@@ -55,7 +55,7 @@ mod pixel_norm;
 mod point_param;
 pub(crate) mod register;
 pub mod sampling;
-mod stream;
+pub(crate) mod stream;
 pub mod transform;
 pub mod utility;
 pub mod world;
@@ -70,6 +70,7 @@ static AEGP_WORLD_3: AEGP_WorldSuite3 = aegp_world::suite_3();
 static AEGP_MEMORY_1: AEGP_MemorySuite1 = aegp_memory::suite_1();
 static AEGP_ITEM_6: AEGP_ItemSuite6 = aegp_item::suite_6();
 static AEGP_STREAM_3: AEGP_StreamSuite3 = stream::create_stream_suite_3();
+static AEGP_LAYER_3: AEGP_LayerSuite3 = layer::create_layer_suite_3();
 static AEGP_DYNAMIC_STREAM_1: AEGP_DynamicStreamSuite1 = dynamic_stream::suite_1();
 static AEGP_DYNAMIC_STREAM_2: AEGP_DynamicStreamSuite2 = dynamic_stream::suite_2();
 static AEGP_DYNAMIC_STREAM_3: AEGP_DynamicStreamSuite3 = dynamic_stream::suite_3();
@@ -155,7 +156,9 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	stream4: stream::create_stream_suite_4(),
 	stream5: stream::create_stream_suite_5(),
 	keyframe: keyframe::create_keyframe_suite_4(),
+	effect1: effect::create_effect_suite_1(),
 	effect2: effect::create_effect_suite_2(),
+	effect3: effect::create_effect_suite_3(),
 	effect4: effect::create_effect_suite_4(),
 	color_settings: color_settings::create_color_settings_suite_2(),
 	light: layer::create_light_suite_1(),
@@ -226,7 +229,9 @@ pub struct SuiteContainer {
 	pub stream4: AEGP_StreamSuite4,
 	pub stream5: AEGP_StreamSuite5,
 	pub keyframe: AEGP_KeyframeSuite4,
+	pub effect1: AEGP_EffectSuite1,
 	pub effect2: AEGP_EffectSuite2,
+	pub effect3: AEGP_EffectSuite3,
 	pub effect4: AEGP_EffectSuite4,
 	pub color_settings: AEGP_ColorSettingsSuite2,
 	pub light: AEGP_LightSuite1,
@@ -384,9 +389,11 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			PF_Err_NONE as PF_Err
 		}
 		("AEGP Keyframe Suite", 4) => dispatch_static!(suite, suite_name, version, keyframe),
-		// Effect Suite v4 adds a command to EffectCallGeneric (so it is not a
-		// drop-in for v2) and appends the effect-mask calls.
+		// Effect Suite v1 is v2 without DuplicateEffect. v3 adds the command
+		// argument to EffectCallGeneric; v4 appends the effect-mask calls.
+		("AEGP Effect Suite", 1) => dispatch_static!(suite, suite_name, version, effect1),
 		("AEGP Effect Suite", 2) => dispatch_static!(suite, suite_name, version, effect2),
+		("AEGP Effect Suite", 3) => dispatch_static!(suite, suite_name, version, effect3),
 		("AEGP Effect Suite", 4) => dispatch_static!(suite, suite_name, version, effect4),
 		("PF Color Settings Suite", v) if v == kAEGPColorSettingsSuiteVersion2 as i32 => {
 			dispatch_static!(suite, suite_name, version, color_settings)
@@ -442,6 +449,12 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			dispatch_static!(suite, suite_name, version, comp)
 		}
 		// Layer Suite v6 switches names to UTF-16 handles; later versions append.
+		// Wire version 8 is `AEGP_LayerSuite3`. It is not a prefix of suite 5:
+		// suite 5 inserts `GetLayerSourceItemID` and the duplicate/lookup calls.
+		("AEGP Layer Suite", v) if v == kAEGPLayerSuiteVersion3 as i32 => {
+			unsafe { *suite = &AEGP_LAYER_3 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
 		("AEGP Layer Suite", v) if v == kAEGPLayerSuiteVersion5 as i32 => {
 			dispatch_static!(suite, suite_name, version, layer5)
 		}
@@ -583,9 +596,12 @@ mod tests {
 			("AEGP Dynamic Stream Suite", 3),
 			("AEGP Dynamic Stream Suite", 5),
 			("AEGP Keyframe Suite", 4),
+			("AEGP Effect Suite", 1),
 			("AEGP Effect Suite", 2),
+			("AEGP Effect Suite", 3),
 			("AEGP Effect Suite", 4),
 			("AEGP Iterate Suite", 1),
+			("AEGP Layer Suite", 8),
 			("AEGP Layer Suite", 11),
 			("AEGP Layer Suite", 12),
 			("AEGP Layer Suite", 13),

@@ -171,7 +171,7 @@ pub(super) unsafe fn free_world(world: &mut PF_EffectWorld) {
 	world.data = null_mut();
 }
 
-pub(super) unsafe extern "C" fn dispose_world_sys(_effect_ref: PF_ProgPtr, worldP: *mut PF_EffectWorld) -> PF_Err {
+pub(crate) unsafe extern "C" fn dispose_world_sys(_effect_ref: PF_ProgPtr, worldP: *mut PF_EffectWorld) -> PF_Err {
 	if worldP.is_null() {
 		log::warn!("dispose_world: worldP is null");
 		return PF_Err_NONE as PF_Err;
@@ -297,6 +297,46 @@ unsafe extern "C" fn get_pixel_format_sys(worldP: *const PF_EffectWorld, pixel_f
 	PF_Err_NONE as PF_Err
 }
 
+/// Legacy `PF_UtilCallbacks::new_world`.
+///
+/// `PF_NewWorldFlag_DEEP_PIXELS` allocates 16 bpc (`ARGB64`). Any other flag,
+/// including `PF_NewWorldFlag_CLEAR_PIXELS`, allocates 8 bpc (`ARGB32`). The
+/// buffer is always cleared, so the clear flag needs no extra work. 32 bpc
+/// worlds are allocated through [`new_world_sys`], which is what the World
+/// Suite documents for float pixels.
+pub(crate) unsafe extern "C" fn new_world_util(
+	effect_ref: PF_ProgPtr,
+	width: A_long,
+	height: A_long,
+	flags: after_effects_sys::PF_NewWorldFlags,
+	world: *mut PF_EffectWorld,
+) -> PF_Err {
+	if effect_ref.is_null() || world.is_null() {
+		log::error!("new_world: effect_ref or world is null");
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+
+	#[allow(clippy::unnecessary_cast)] // `PF_NewWorldFlag_*` is `u32` on macOS only.
+	let deep = flags & after_effects_sys::PF_NewWorldFlag_DEEP_PIXELS as after_effects_sys::PF_NewWorldFlags != 0;
+	let (bytes, format) = if deep {
+		(8, PF_PixelFormat_ARGB64 as u32)
+	} else {
+		(4, PF_PixelFormat_ARGB32 as u32)
+	};
+	let allocated = alloc_world(width, height, bytes, format);
+	unsafe { *world = allocated };
+
+	diag!("PF_UtilCallbacks/new_world",
+		"effect_ref" => format!("{:#x}", effect_ref as usize),
+		"width" => width,
+		"height" => height,
+		"flags" => format!("{flags:#x}"),
+		"world" => format!("{:#x}", world as usize),
+	);
+
+	PF_Err_NONE as PF_Err
+}
+
 //==== Factory =============================================
 /// Builds the `PF_WorldSuite2` vtable.
 ///
@@ -307,5 +347,49 @@ pub const fn create_world_suite() -> PF_WorldSuite2 {
 		PF_NewWorld: Some(new_world_sys),
 		PF_DisposeWorld: Some(dispose_world_sys),
 		PF_GetPixelFormat: Some(get_pixel_format_sys),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn legacy_new_world_allocates_and_dispose_frees_it() {
+		let effect = 1 as PF_ProgPtr;
+		let mut world = unsafe { std::mem::zeroed() };
+		let err = unsafe {
+			new_world_util(
+				effect,
+				4,
+				3,
+				after_effects_sys::PF_NewWorldFlag_CLEAR_PIXELS as after_effects_sys::PF_NewWorldFlags,
+				&mut world,
+			)
+		};
+		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert!(!world.data.is_null());
+		assert_eq!((world.width, world.height, world.rowbytes), (4, 3, 16));
+		unsafe { *(world.data as *mut u8) = 7 };
+		assert_eq!(unsafe { dispose_world_sys(effect, &mut world) }, PF_Err_NONE as PF_Err);
+		assert!(world.data.is_null());
+
+		let err = unsafe {
+			new_world_util(
+				effect,
+				2,
+				2,
+				after_effects_sys::PF_NewWorldFlag_DEEP_PIXELS as after_effects_sys::PF_NewWorldFlags,
+				&mut world,
+			)
+		};
+		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(world.rowbytes, 16);
+		assert_eq!(unsafe { dispose_world_sys(effect, &mut world) }, PF_Err_NONE as PF_Err);
+
+		assert_eq!(
+			unsafe { new_world_util(std::ptr::null_mut(), 1, 1, 0, &mut world) },
+			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+		);
 	}
 }
