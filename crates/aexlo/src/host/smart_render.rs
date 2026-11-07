@@ -345,6 +345,16 @@ impl SmartRenderData {
 		let data = std::mem::replace(&mut self.pre_output.pre_render_data, null_mut());
 		let delete = self.pre_output.delete_pre_render_data_func.take();
 		self.input.pre_render_data = null_mut();
+		// A GPU frame's callback is not invoked. Universe Glow frees that
+		// block itself when the device finishes, and the host's later call is
+		// a double-free: `RtlFreeHeap` inside the plugin, reached from here,
+		// aborts the process (`0xC0000374`). The heap is intact when the call
+		// is skipped. CPU frames stay synchronous and the plugin does not
+		// free the block, so the callback still runs. One host allocation per
+		// GPU frame is leaked.
+		if self.is_gpu() {
+			return;
+		}
 		if let (false, Some(delete)) = (data.is_null(), delete) {
 			// SAFETY: `data` is the plugin's own pre-render data, released once
 			// through the callback it registered alongside it.

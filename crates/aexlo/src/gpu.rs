@@ -118,6 +118,9 @@ mod imp {
 		/// No-op: Metal has no notion of a thread-current context.
 		pub fn make_current(&self) {}
 
+		/// No-op: Metal has no thread-current context to release.
+		pub fn release_thread(&self) {}
+
 		/// Ensure a shared `MTLBuffer` of exactly `byte_len` bytes backs `world_ptr`,
 		/// (re)allocating when the size changed, and mark the world as a GPU world.
 		pub fn ensure_buffer(&mut self, world_ptr: usize, byte_len: usize) -> bool {
@@ -346,6 +349,16 @@ mod imp {
 			}
 		}
 
+		/// Unbind the CUDA context from the calling thread (`cuCtxSetCurrent(NULL)`).
+		///
+		/// The context stays alive. A plugin needs it current only while one of
+		/// its commands runs; [`Self::make_current`] binds it again for the next.
+		pub fn release_thread(&self) {
+			if let Err(err) = unsafe { cudarc::driver::result::ctx::set_current(std::ptr::null_mut()) } {
+				log::warn!("Failed to release CUDA context from thread: {err}");
+			}
+		}
+
 		/// Ensure a device buffer of exactly `byte_len` bytes backs `world_ptr`,
 		/// (re)allocating when the size changed, and mark the world as a GPU world.
 		pub fn ensure_buffer(&mut self, world_ptr: usize, byte_len: usize) -> bool {
@@ -533,6 +546,7 @@ mod imp {
 			std::ptr::null_mut()
 		}
 		pub fn make_current(&self) {}
+		pub fn release_thread(&self) {}
 		pub fn ensure_buffer(&mut self, _world_ptr: usize, _byte_len: usize) -> bool {
 			false
 		}
