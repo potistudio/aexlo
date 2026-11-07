@@ -5,21 +5,45 @@
 //! render context's frame rate, [`COMP_DURATION_SECONDS`](super::layer::COMP_DURATION_SECONDS) long, with After
 //! Effects' defaults for everything a new comp has (black background, full
 //! resolution, motion blur off with a 180° shutter at -90°, 16 suggested
-//! samples, adaptive limit 128, the work area spanning the comp). It is not a
-//! project item, and creating or changing anything is refused with
-//! `A_Err_GENERIC`.
+//! samples, adaptive limit 128, the work area spanning the comp). That comp is
+//! the project's one item (the same handle; see [`aegp_item`](super::aegp_item)).
+//! Creating or changing anything is refused with `A_Err_GENERIC`.
 
 use after_effects_sys::*;
 
-use super::layer::{Timeline, answer};
+use super::layer::{Timeline, answer, comp_handle, item_handle};
 use crate::core::diagnostics::diag;
 
 /// After Effects' default shutter angle and phase, in degrees.
 const SHUTTER_ANGLE: A_long = 180;
 const SHUTTER_PHASE: A_long = -90;
 
+unsafe extern "C" fn get_comp_from_item(itemH: AEGP_ItemH, compPH: *mut AEGP_CompH) -> A_Err {
+	diag!("AEGP_CompSuite10/AEGP_GetCompFromItem", "itemH" => format!("{:#x}", itemH as usize));
+	let Some(out) = (unsafe { compPH.as_mut() }) else {
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	};
+	if Timeline::of(itemH as _).is_none() {
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	}
+	*out = comp_handle(itemH as PF_ProgPtr);
+	PF_Err_NONE as A_Err
+}
+
+unsafe extern "C" fn get_item_from_comp(compH: AEGP_CompH, itemPH: *mut AEGP_ItemH) -> A_Err {
+	diag!("AEGP_CompSuite10/AEGP_GetItemFromComp", "compH" => format!("{:#x}", compH as usize));
+	let Some(out) = (unsafe { itemPH.as_mut() }) else {
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	};
+	if Timeline::of(compH as _).is_none() {
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	}
+	*out = item_handle(compH as PF_ProgPtr);
+	PF_Err_NONE as A_Err
+}
+
 fn unsupported(name: &str) -> A_Err {
-	log::warn!("AEGP_CompSuite10/{name}: aexlo's comp is fixed and is not a project item");
+	log::warn!("AEGP_CompSuite10/{name}: aexlo's comp is fixed");
 	A_Err_GENERIC as A_Err
 }
 
@@ -37,8 +61,6 @@ macro_rules! refuse {
 }
 
 refuse! {
-	get_comp_from_item => "AEGP_GetCompFromItem"(itemH: AEGP_ItemH, compPH: *mut AEGP_CompH);
-	get_item_from_comp => "AEGP_GetItemFromComp"(compH: AEGP_CompH, itemPH: *mut AEGP_ItemH);
 	set_comp_downsample_factor => "AEGP_SetCompDownsampleFactor"(compH: AEGP_CompH, dsfP: *const AEGP_DownsampleFactor);
 	set_comp_bg_color => "AEGP_SetCompBGColor"(compH: AEGP_CompH, bg_colorP: *const AEGP_ColorVal);
 	set_show_layer_name_or_source_name => "AEGP_SetShowLayerNameOrSourceName"(compH: AEGP_CompH, show_layer_namesB: A_Boolean);

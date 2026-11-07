@@ -17,6 +17,7 @@ diagnostics = []
 
 [dependencies]
 aexlo-macros = { workspace = true }
+ab_glyph = "0.2.32"
 after-effects = "0.4.0"
 after-effects-sys = "0.4.0"
 bytemuck = "1.25.1"
@@ -27,6 +28,7 @@ env_logger = "0.11.11"
 log = "0.4.33"
 rayon = "1.12.0"
 thiserror = "2.0.18"
+tiny-skia = { version = "0.11.4", default-features = false, features = ["std", "simd"] }
 wrapper = { workspace = true }
 
 # Metal-backed GPU rendering is macOS-only; plugins that declare

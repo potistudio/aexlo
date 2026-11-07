@@ -3,9 +3,9 @@
 //!
 //! * The Options button label is per instance; it is recorded on the
 //!   [`PluginInstance`] (see [`PluginInstance::options_button_name`]).
-//! * aexlo never sends `PF_Cmd_EVENT`, so there is never a live drawing
-//!   context: `PF_GetDrawingReference` / `PF_GetContextAsyncManager` report
-//!   failure with null out-params, and the overlay drawing calls draw nothing.
+//! * `PF_GetDrawingReference` returns the Drawbot frame opened for the current
+//!   `PF_Event_DRAW`. Outside a draw it fails. `PF_GetContextAsyncManager` has
+//!   no task queue and fails.
 //! * The overlay theme (colors, stroke width, vertex size, shadow offset) comes
 //!   from the installed [`AppHost`](crate::host::app::AppHost).
 
@@ -54,10 +54,19 @@ unsafe extern "C" fn get_drawing_reference(effect_contextH: PF_ContextH, referen
 	);
 
 	let _ = effect_contextH;
-	if let Some(out) = unsafe { referenceP0.as_mut() } {
-		*out = std::ptr::null_mut();
+	let Some(out) = (unsafe { referenceP0.as_mut() }) else {
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	};
+	match super::drawbot::current_draw_ref() {
+		Some(draw) => {
+			*out = draw;
+			PF_Err_NONE as PF_Err
+		}
+		None => {
+			*out = std::ptr::null_mut();
+			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+		}
 	}
-	PF_Err_BAD_CALLBACK_PARAM as PF_Err
 }
 
 unsafe extern "C" fn get_context_async_manager(

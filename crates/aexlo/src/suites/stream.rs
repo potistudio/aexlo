@@ -1,5 +1,7 @@
-//! `AEGP Stream Suite`, served at wire versions 7 (`AEGP_StreamSuite2`), 9
-//! (`AEGP_StreamSuite4`) and 10 (`AEGP_StreamSuite5`), plus the `AEGP_StreamRefH` handles it hands out.
+//! `AEGP Stream Suite`, served at wire versions 7 (`AEGP_StreamSuite2`), 8
+//! (`AEGP_StreamSuite3`), 9 (`AEGP_StreamSuite4`) and 10 (`AEGP_StreamSuite5`),
+//! plus the `AEGP_StreamRefH` handles it hands out. Version 8 keeps version 7's
+//! char names and uses version 9's `AEGP_StreamValue2`.
 //!
 //! The only streams aexlo can offer are an effect's own parameters: a stream
 //! handle is the effect's `PF_ProgPtr` plus a parameter index (the same index
@@ -617,6 +619,34 @@ pub(super) const fn create_stream_suite_2() -> AEGP_StreamSuite2 {
 		AEGP_DisposeStreamValue: Some(dispose_stream_value_v1),
 		AEGP_SetStreamValue: Some(set_stream_value_v1),
 		AEGP_GetLayerStreamValue: Some(get_layer_stream_value_v1),
+		AEGP_GetExpressionState: Some(get_expression_state),
+		AEGP_SetExpressionState: Some(set_expression_state),
+		AEGP_GetExpression: Some(get_expression),
+		AEGP_SetExpression: Some(set_expression),
+		AEGP_DuplicateStreamRef: Some(duplicate_stream_ref),
+	}
+}
+
+/// Builds the `AEGP_StreamSuite3` vtable (wire version 8).
+pub(super) const fn create_stream_suite_3() -> AEGP_StreamSuite3 {
+	AEGP_StreamSuite3 {
+		AEGP_IsStreamLegal: Some(is_stream_legal),
+		AEGP_CanVaryOverTime: Some(can_vary_over_time),
+		AEGP_GetValidInterpolations: Some(get_valid_interpolations),
+		AEGP_GetNewLayerStream: Some(get_new_layer_stream),
+		AEGP_GetEffectNumParamStreams: Some(get_effect_num_param_streams),
+		AEGP_GetNewEffectStreamByIndex: Some(get_new_effect_stream_by_index),
+		AEGP_GetNewMaskStream: Some(get_new_mask_stream),
+		AEGP_DisposeStream: Some(dispose_stream),
+		AEGP_GetStreamName: Some(get_stream_name_v1),
+		AEGP_GetStreamUnitsText: Some(get_stream_units_text),
+		AEGP_GetStreamProperties: Some(get_stream_properties),
+		AEGP_IsStreamTimevarying: Some(is_stream_timevarying),
+		AEGP_GetStreamType: Some(get_stream_type),
+		AEGP_GetNewStreamValue: Some(get_new_stream_value_v2),
+		AEGP_DisposeStreamValue: Some(dispose_stream_value_v2),
+		AEGP_SetStreamValue: Some(set_stream_value_v2),
+		AEGP_GetLayerStreamValue: Some(get_layer_stream_value_v2),
 		AEGP_GetExpressionState: Some(get_expression_state),
 		AEGP_SetExpressionState: Some(set_expression_state),
 		AEGP_GetExpression: Some(get_expression),

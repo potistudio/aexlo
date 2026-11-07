@@ -19,6 +19,10 @@ mod adv_app;
 mod adv_item;
 mod adv_time;
 mod ae_app;
+mod aegp_item;
+mod aegp_memory;
+mod aegp_render;
+mod aegp_world;
 mod angle_param;
 pub mod ansi;
 mod cache_on_load;
@@ -27,6 +31,7 @@ pub mod color_callbacks;
 mod color_param;
 mod color_settings;
 mod comp;
+pub(crate) mod drawbot;
 mod effect;
 mod effect_ui;
 mod ffi;
@@ -38,6 +43,7 @@ pub mod interface;
 pub mod iterate;
 mod keyframe;
 mod layer;
+pub(crate) use layer::enter_effect;
 pub mod macros;
 pub mod param_utils;
 mod path;
@@ -57,6 +63,17 @@ pub mod world;
 use crate::core::diagnostics::DiagnosticBuilder;
 use after_effects_sys::*;
 static COMP_SUITE_4: AEGP_CompSuite4 = comp::create_comp_suite_4();
+static AEGP_WORLD_1: AEGP_WorldSuite1 = aegp_world::suite_1();
+static AEGP_WORLD_2: AEGP_WorldSuite2 = aegp_world::suite_2();
+static AEGP_WORLD_3: AEGP_WorldSuite3 = aegp_world::suite_3();
+static AEGP_MEMORY_1: AEGP_MemorySuite1 = aegp_memory::suite_1();
+static AEGP_ITEM_6: AEGP_ItemSuite6 = aegp_item::suite_6();
+static AEGP_STREAM_3: AEGP_StreamSuite3 = stream::create_stream_suite_3();
+static AEGP_ITEM_8: AEGP_ItemSuite8 = aegp_item::suite_8();
+static AEGP_LAYER_RENDER_OPTIONS_2: AEGP_LayerRenderOptionsSuite2 = aegp_render::layer_render_options_suite_2();
+static AEGP_RENDER_OPTIONS_4: AEGP_RenderOptionsSuite4 = aegp_render::render_options_suite_4();
+static AEGP_RENDER_5: AEGP_RenderSuite5 = aegp_render::render_suite_5();
+static COLOR_SETTINGS_5: AEGP_ColorSettingsSuite5 = color_settings::create_color_settings_suite_5();
 use std::ffi::CStr;
 use std::os::raw::c_void;
 
@@ -326,10 +343,15 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("AEGP Persistent Data Suite", 3) => {
 			dispatch_static!(suite, suite_name, version, persistent_data)
 		}
-		// Stream Suite wire versions 7, 9 and 10 are AEGP_StreamSuite2, 4 and 5;
-		// they differ only in their stream value structs and expression text.
+		// Stream Suite wire versions 7, 8, 9 and 10 are AEGP_StreamSuite2, 3, 4
+		// and 5. They differ in their stream value structs and in whether names
+		// and expression text are `char` or UTF-16.
 		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion2 as i32 => {
 			dispatch_static!(suite, suite_name, version, stream2)
+		}
+		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion3 as i32 => {
+			unsafe { *suite = &AEGP_STREAM_3 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
 		}
 		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion4 as i32 => {
 			dispatch_static!(suite, suite_name, version, stream4)
@@ -344,6 +366,46 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("AEGP Effect Suite", 4) => dispatch_static!(suite, suite_name, version, effect4),
 		("PF Color Settings Suite", v) if v == kAEGPColorSettingsSuiteVersion2 as i32 => {
 			dispatch_static!(suite, suite_name, version, color_settings)
+		}
+		("PF Color Settings Suite", v) if v == kAEGPColorSettingsSuiteVersion5 as i32 => {
+			unsafe { *suite = &COLOR_SETTINGS_5 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("AEGP World Suite", v) if v == kAEGPWorldSuiteVersion1 as i32 => {
+			unsafe { *suite = &AEGP_WORLD_1 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("AEGP World Suite", v) if v == kAEGPWorldSuiteVersion2 as i32 => {
+			unsafe { *suite = &AEGP_WORLD_2 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("AEGP World Suite", v) if v == kAEGPWorldSuiteVersion3 as i32 => {
+			unsafe { *suite = &AEGP_WORLD_3 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("AEGP Memory Suite", v) if v == kAEGPMemorySuiteVersion1 as i32 => {
+			unsafe { *suite = &AEGP_MEMORY_1 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("AEGP Item Suite", v) if v == kAEGPItemSuiteVersion6 as i32 => {
+			unsafe { *suite = &AEGP_ITEM_6 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("AEGP Item Suite", v) if v == kAEGPItemSuiteVersion8 as i32 => {
+			unsafe { *suite = &AEGP_ITEM_8 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("AEGP Layer Render Options Suite", v) if v == kAEGPLayerRenderOptionsSuiteVersion2 as i32 => {
+			unsafe { *suite = &AEGP_LAYER_RENDER_OPTIONS_2 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("AEGP Render Options Suite", v) if v == kAEGPRenderOptionsSuiteVersion4 as i32 => {
+			unsafe { *suite = &AEGP_RENDER_OPTIONS_4 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("AEGP Render Suite", v) if v == kAEGPRenderSuiteVersion5 as i32 => {
+			unsafe { *suite = &AEGP_RENDER_5 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
 		}
 		("AEGP Light Suite", 1) => dispatch_static!(suite, suite_name, version, light),
 		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion4 as i32 => {
@@ -370,6 +432,30 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		("AEGP Layer Suite", v) if v == kAEGPLayerSuiteVersion9 as i32 => {
 			dispatch_static!(suite, suite_name, version, layer9)
+		}
+		("DRAWBOT Draw Suite", 1) => {
+			unsafe { *suite = &drawbot::DRAW_SUITE as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("DRAWBOT Supplier Suite", 1) => {
+			unsafe { *suite = &drawbot::SUPPLIER_SUITE as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("DRAWBOT Surface Suite", 1 | 2) => {
+			unsafe { *suite = &drawbot::SURFACE_SUITE as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("DRAWBOT Path Suite", 1) => {
+			unsafe { *suite = &drawbot::PATH_SUITE as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("DRAWBOT Pen Suite", 1) => {
+			unsafe { *suite = &drawbot::PEN_SUITE as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("DRAWBOT Image Suite", 1) => {
+			unsafe { *suite = &drawbot::IMAGE_SUITE as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
 		}
 		("AEGP Register Suite", 6) => {
 			unsafe {
@@ -465,6 +551,7 @@ mod tests {
 			("AE Plugin Helper Suite", 1),
 			("AE Plugin Helper Suite2", 2),
 			("AEGP Stream Suite", 7),
+			("AEGP Stream Suite", 8),
 			("AEGP Stream Suite", 9),
 			("AEGP Stream Suite", 10),
 			("AEGP Keyframe Suite", 4),
@@ -480,6 +567,14 @@ mod tests {
 			("AEGP Comp Suite", 21),
 			("AEGP Light Suite", 1),
 			("PF Color Settings Suite", 3),
+			("PF Color Settings Suite", 6),
+			("AEGP Memory Suite", 1),
+			("AEGP Item Suite", 10),
+			("AEGP Item Suite", 13),
+			("AEGP Layer Render Options Suite", 2),
+			("AEGP Render Options Suite", 4),
+			("AEGP Render Suite", 8),
+			("AEGP World Suite", 3),
 		] {
 			let (err, ptr) = acquire(name, version);
 			assert_eq!(err, PF_Err_NONE as PF_Err, "'{name}' v{version} should be served");

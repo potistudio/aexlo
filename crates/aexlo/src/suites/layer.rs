@@ -13,10 +13,35 @@
 //! never asks plugins to dispose of them, so there is nothing to allocate.
 //! Anything that edits the timeline is refused with `A_Err_GENERIC`.
 
+use std::cell::Cell;
+
 use after_effects_sys::*;
 
 use crate::PluginInstance;
 use crate::core::diagnostics::diag;
+
+thread_local! {
+	static CURRENT_EFFECT: Cell<PF_ProgPtr> = const { Cell::new(std::ptr::null_mut()) };
+}
+
+/// Restores the effect that was current before [`enter_effect`].
+pub(crate) struct EffectGuard(PF_ProgPtr);
+
+/// The effect behind the plugin call on this thread. Suite callbacks that take
+/// no effect reference (`AEGP_GetActiveItem`) recover the instance from it.
+pub(crate) fn enter_effect(effect_ref: PF_ProgPtr) -> EffectGuard {
+	EffectGuard(CURRENT_EFFECT.with(|slot| slot.replace(effect_ref)))
+}
+
+impl Drop for EffectGuard {
+	fn drop(&mut self) {
+		CURRENT_EFFECT.with(|slot| slot.set(self.0));
+	}
+}
+
+pub(crate) fn current_effect() -> PF_ProgPtr {
+	CURRENT_EFFECT.with(Cell::get)
+}
 
 /// Length of aexlo's comp, and of the layer that fills it.
 pub(crate) const COMP_DURATION_SECONDS: A_long = 30;
@@ -32,6 +57,11 @@ pub(crate) fn layer_handle(effect_ref: PF_ProgPtr) -> AEGP_LayerH {
 /// The comp handle for the effect behind `effect_ref`.
 pub(crate) fn comp_handle(effect_ref: PF_ProgPtr) -> AEGP_CompH {
 	effect_ref as AEGP_CompH
+}
+
+/// The project item for that comp. Same pointer: aexlo has one item, the comp.
+pub(crate) fn item_handle(effect_ref: PF_ProgPtr) -> AEGP_ItemH {
+	effect_ref as AEGP_ItemH
 }
 
 /// What the timeline looks like from the effect behind a layer or comp handle.

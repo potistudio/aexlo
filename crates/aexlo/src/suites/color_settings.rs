@@ -143,6 +143,63 @@ unsafe extern "C" fn is_rgb_color_profile(color_profileP: AEGP_ConstColorProfile
 	PF_Err_NONE as A_Err
 }
 
+unsafe extern "C" fn set_working_color_space(
+	_aegp_plugin_id: AEGP_PluginID,
+	_compH: AEGP_CompH,
+	_color_profileP: AEGP_ConstColorProfileP,
+) -> A_Err {
+	diag!("AEGP_ColorSettingsSuite5/AEGP_SetWorkingColorSpace");
+	// The working space stays sRGB. Accepting the call lets a plugin that
+	// asked for wire version 6 continue into its render.
+	PF_Err_NONE as A_Err
+}
+
+unsafe extern "C" fn is_ocio_used(_aegp_plugin_id: AEGP_PluginID, is_used_out: *mut A_Boolean) -> A_Err {
+	diag!("AEGP_ColorSettingsSuite5/AEGP_IsOCIOColorManagementUsed");
+	let Some(out) = (unsafe { is_used_out.as_mut() }) else {
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	};
+	*out = 0;
+	PF_Err_NONE as A_Err
+}
+
+unsafe extern "C" fn ocio_unavailable() -> A_Err {
+	PF_Err_BAD_CALLBACK_PARAM as A_Err
+}
+
+unsafe extern "C" fn get_ocio_configuration_file(
+	_aegp_plugin_id: AEGP_PluginID,
+	_config_filePH: *mut AEGP_MemHandle,
+) -> A_Err {
+	diag!("AEGP_ColorSettingsSuite5/AEGP_GetOCIOConfigurationFile");
+	unsafe { ocio_unavailable() }
+}
+
+unsafe extern "C" fn get_ocio_configuration_file_path(
+	_aegp_plugin_id: AEGP_PluginID,
+	_config_filePH: *mut AEGP_MemHandle,
+) -> A_Err {
+	diag!("AEGP_ColorSettingsSuite5/AEGP_GetOCIOConfigurationFilePath");
+	unsafe { ocio_unavailable() }
+}
+
+unsafe extern "C" fn get_ocio_working_color_space(
+	_aegp_plugin_id: AEGP_PluginID,
+	_ocio_working_colorspaceH: *mut AEGP_MemHandle,
+) -> A_Err {
+	diag!("AEGP_ColorSettingsSuite5/AEGPD_GetOCIOWorkingColorSpace");
+	unsafe { ocio_unavailable() }
+}
+
+unsafe extern "C" fn get_ocio_display_color_space(
+	_aegp_plugin_id: AEGP_PluginID,
+	_ocio_displayH: *mut AEGP_MemHandle,
+	_ocio_viewH: *mut AEGP_MemHandle,
+) -> A_Err {
+	diag!("AEGP_ColorSettingsSuite5/AEGPD_GetOCIODisplayColorSpace");
+	unsafe { ocio_unavailable() }
+}
+
 /// Builds the `AEGP_ColorSettingsSuite2` vtable.
 pub(super) const fn create_color_settings_suite_2() -> AEGP_ColorSettingsSuite2 {
 	AEGP_ColorSettingsSuite2 {
@@ -156,6 +213,29 @@ pub(super) const fn create_color_settings_suite_2() -> AEGP_ColorSettingsSuite2 
 		AEGP_DisposeColorProfile: Some(dispose_color_profile),
 		AEGP_GetColorProfileApproximateGamma: Some(get_color_profile_approximate_gamma),
 		AEGP_IsRGBColorProfile: Some(is_rgb_color_profile),
+	}
+}
+
+/// Wire version 6 (`kAEGPColorSettingsSuiteVersion5`). Same calls as suite 2,
+/// plus a working-space setter and OCIO queries. OCIO is not in use.
+pub(super) const fn create_color_settings_suite_5() -> AEGP_ColorSettingsSuite5 {
+	AEGP_ColorSettingsSuite5 {
+		AEGP_GetBlendingTables: Some(get_blending_tables),
+		AEGP_DoesViewHaveColorSpaceXform: Some(does_view_have_color_space_xform),
+		AEGP_XformWorkingToViewColorSpace: Some(xform_working_to_view_color_space),
+		AEGP_GetNewWorkingSpaceColorProfile: Some(get_new_working_space_color_profile),
+		AEGP_GetNewColorProfileFromICCProfile: Some(get_new_color_profile_from_icc_profile),
+		AEGP_GetNewICCProfileFromColorProfile: Some(get_new_icc_profile_from_color_profile),
+		AEGP_GetNewColorProfileDescription: Some(get_new_color_profile_description),
+		AEGP_DisposeColorProfile: Some(dispose_color_profile),
+		AEGP_GetColorProfileApproximateGamma: Some(get_color_profile_approximate_gamma),
+		AEGP_IsRGBColorProfile: Some(is_rgb_color_profile),
+		AEGP_SetWorkingColorSpace: Some(set_working_color_space),
+		AEGP_IsOCIOColorManagementUsed: Some(is_ocio_used),
+		AEGP_GetOCIOConfigurationFile: Some(get_ocio_configuration_file),
+		AEGP_GetOCIOConfigurationFilePath: Some(get_ocio_configuration_file_path),
+		AEGPD_GetOCIOWorkingColorSpace: Some(get_ocio_working_color_space),
+		AEGPD_GetOCIODisplayColorSpace: Some(get_ocio_display_color_space),
 	}
 }
 
