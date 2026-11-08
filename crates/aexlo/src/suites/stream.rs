@@ -21,7 +21,6 @@
 
 use after_effects::ParamType;
 use after_effects_sys::*;
-use std::cell::Cell;
 
 use crate::core::diagnostics::diag;
 use crate::suites::effect::{effect_ref_of, with_param};
@@ -67,19 +66,15 @@ pub(crate) struct Stream {
 	pub(crate) node: Node,
 }
 
-/// Arbitrary streams stay `NO_DATA` until the effect has built its values.
-/// Reporting `ARB` while `PF_Cmd_PARAMS_SETUP` is still on the stack makes
-/// Particular throw out of its entry point.
-thread_local! {
-	static ARB_STREAMS_LIVE: Cell<bool> = const { Cell::new(false) };
-}
-
-pub(crate) fn arb_streams_live() {
-	ARB_STREAMS_LIVE.set(true);
-}
-
-pub(crate) fn arb_streams_reset() {
-	ARB_STREAMS_LIVE.set(false);
+/// Whether the instance behind `effect_ref` has built its arbitrary-data
+/// values. Until then arbitrary streams stay `NO_DATA`: reporting `ARB`
+/// while `PF_Cmd_PARAMS_SETUP` is still on the stack makes Particular throw
+/// out of its entry point. Kept per instance, so another instance's setup
+/// (or its failure) on the same thread does not change the answer.
+fn arb_streams_live(effect_ref: PF_ProgPtr) -> bool {
+	crate::PluginInstance::get_instance_ptr(effect_ref)
+		// SAFETY: effect_ref is the live instance that is running the plugin call.
+		.is_some_and(|instance| unsafe { instance.as_ref() }.arb_streams_live())
 }
 
 pub(crate) fn new_stream_handle(stream: Stream) -> AEGP_StreamRefH {
@@ -123,7 +118,7 @@ pub(crate) enum StreamValue {
 }
 
 impl StreamValue {
-	fn of(def: &PF_ParamDef) -> Self {
+	fn of(def: &PF_ParamDef, arb_live: bool) -> Self {
 		// SAFETY: every union read is selected by `param_type`.
 		unsafe {
 			match def.param_type {
@@ -158,8 +153,7 @@ impl StreamValue {
 				}
 				t if t == ParamType::ArbitraryData as PF_ParamType => {
 					let handle = def.u.arb_d.value;
-					let live = ARB_STREAMS_LIVE.get();
-					if handle.is_null() || !live {
+					if handle.is_null() || !arb_live {
 						Self::NoData
 					} else {
 						Self::Arb(handle)
@@ -244,7 +238,10 @@ macro_rules! write_val {
 pub(crate) unsafe fn stream_value(streamH: AEGP_StreamRefH) -> Option<StreamValue> {
 	let stream = unsafe { stream_of(streamH) }?;
 	match stream.node {
-		Node::Param => with_param(stream.effect_ref, stream.index, StreamValue::of),
+		Node::Param => {
+			let arb_live = arb_streams_live(stream.effect_ref);
+			with_param(stream.effect_ref, stream.index, |def| StreamValue::of(def, arb_live))
+		}
 		// Identity 2D transform: the anchor and the position sit on the layer
 		// centre, scale is 100%, rotation is 0 and opacity is fully on.
 		Node::Anchor | Node::Position => {
@@ -471,6 +468,7 @@ unsafe extern "C" fn get_stream_properties(
 		*out = AEGP_StreamFlag_NONE as AEGP_StreamFlags;
 		return PF_Err_NONE as A_Err;
 	}
+	let arb_live = arb_streams_live(stream.effect_ref);
 	let Some((value, range)) = with_param(stream.effect_ref, stream.index, |def| {
 		// SAFETY: every union read is selected by `param_type`.
 		let range = unsafe {
@@ -488,7 +486,7 @@ unsafe extern "C" fn get_stream_properties(
 				_ => None,
 			}
 		};
-		(StreamValue::of(def), range)
+		(StreamValue::of(def, arb_live), range)
 	}) else {
 		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
 	};

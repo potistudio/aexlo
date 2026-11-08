@@ -288,6 +288,10 @@ pub struct PluginInstance {
 	/// back through `PF_Arbitrary_DISPOSE_FUNC` on drop.
 	owned_arb_values: Vec<usize>,
 
+	/// Whether [`Self::setup_arbitrary_params`] has run since the last
+	/// `PF_Cmd_PARAMS_SETUP`; arbitrary streams read `NO_DATA` until it has.
+	arb_streams_live: bool,
+
 	/// Who is told about commands and calls (see [`Self::set_observer`]).
 	observer: Option<Installed>,
 
@@ -1752,6 +1756,12 @@ impl PluginInstance {
 	///
 	/// Crate-internal because it exposes the raw `PF_ParamDef` sys type; the
 	/// public surface is [`Self::get_param`] / [`Self::param_name`].
+	/// Whether this instance's arbitrary-data values exist yet (see
+	/// [`Self::setup_arbitrary_params`]).
+	pub(crate) fn arb_streams_live(&self) -> bool {
+		self.arb_streams_live
+	}
+
 	pub(crate) fn param_by_index(&self, index: usize) -> Option<&PF_ParamDef> {
 		self.params.get(index)
 	}
@@ -1979,6 +1989,7 @@ impl PluginInstance {
 				layer_checkouts: HashMap::new(),
 				parallel_iterate: true,
 				owned_arb_values: Vec::new(),
+				arb_streams_live: false,
 				observer: None,
 				strict: crate::Strict::default(),
 				tracker: Default::default(),
@@ -2091,7 +2102,7 @@ impl PluginInstance {
 
 	/// Call the plugin with `PF_Cmd_PARAMS_SETUP` command.
 	fn setup_params(&mut self) -> Result<()> {
-		crate::suites::stream::arb_streams_reset();
+		self.arb_streams_live = false;
 		self.call_plugin(RawCommand::ParamsSetup, null_mut())
 	}
 
@@ -2139,7 +2150,7 @@ impl PluginInstance {
 			self.params[index].u.arb_d.value = value;
 			self.owned_arb_values.push(index);
 		}
-		crate::suites::stream::arb_streams_live();
+		self.arb_streams_live = true;
 	}
 
 	/// Hand the arbitrary-data values created by [`Self::setup_arbitrary_params`]
