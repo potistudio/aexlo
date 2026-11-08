@@ -180,7 +180,9 @@ fn publish_main_window(handle: &impl raw_window_handle::HasWindowHandle) {
 		let RawWindowHandle::Win32(win) = window.as_raw() else {
 			return;
 		};
-		aexlo::set_main_window(win.hwnd.get() as *mut std::ffi::c_void);
+		// SAFETY: this is the app's own live window, re-published every frame
+		// while plugins run in it.
+		unsafe { aexlo::set_main_window(win.hwnd.get() as *mut std::ffi::c_void) };
 	}
 	#[cfg(not(windows))]
 	{

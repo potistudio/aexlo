@@ -72,8 +72,14 @@ pub use time::Time;
 /// (`PF_PlatData_MAIN_WND`).
 ///
 /// Editors parented here stay invisible while this window is hidden. A GUI
-/// host passes its own visible window; `null` falls back to a host window.
-pub fn set_main_window(hwnd: *mut std::ffi::c_void) {
+/// host passes its own visible window; `null` falls back to a window aexlo
+/// creates. Only Windows has a main window; elsewhere this does nothing.
+///
+/// # Safety
+/// `hwnd` must be null or a valid `HWND` that stays valid for as long as any
+/// plugin may use it: plugins parent their windows to it and send it
+/// messages. Pass null before destroying the window.
+pub unsafe fn set_main_window(hwnd: *mut std::ffi::c_void) {
 	#[cfg(windows)]
 	crate::host::utility::set_main_window(hwnd);
 	#[cfg(not(windows))]
