@@ -8,6 +8,16 @@ use crate::error::{Error, Result};
 use crate::input;
 use crate::preset::{Iterate, RenderMode, Variant};
 
+/// The input layer `variant` renders and its output size, built before the
+/// plugin is loaded so that the setup commands already see them (plugins
+/// that remember their setup geometry render with it).
+pub fn initial_input(variant: &Variant) -> Result<(aexlo::AnyLayer, (u32, u32))> {
+	let size = variant.size.map(|[w, h]| (w, h));
+	let input = input::build(&variant.input, variant.depth_kind(), size)?;
+	let output_size = size.unwrap_or((input.width(), input.height()));
+	Ok((input, output_size))
+}
+
 /// Why `fx` cannot run `variant`, if it cannot (§4.8): such variants are
 /// skipped, not failed.
 pub fn unsupported(fx: &PluginInstance, variant: &Variant) -> Option<String> {
@@ -39,8 +49,16 @@ pub fn configure(fx: &mut PluginInstance, variant: &Variant) -> Result<()> {
 	let depth = variant.depth_kind();
 	let size = variant.size.map(|[w, h]| (w, h));
 	let layer = input::build(&variant.input, depth, size)?;
-	let (in_w, in_h) = (layer.width(), layer.height());
 	set_input(fx, layer);
+	configure_prepared(fx, variant)
+}
+
+/// Configure a variant whose actual input was already installed before setup.
+/// The caller must provide an input of the variant's depth with the intended fit.
+pub fn configure_prepared(fx: &mut PluginInstance, variant: &Variant) -> Result<()> {
+	let depth = variant.depth_kind();
+	let size = variant.size.map(|[w, h]| (w, h));
+	let (in_w, in_h) = fx.input_size();
 	let (w, h) = size.unwrap_or((in_w, in_h));
 	fx.set_render_size(w, h);
 

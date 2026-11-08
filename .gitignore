@@ -3,6 +3,7 @@
 
 # Cargo artifacts
 target/
+target-*/
 
 # Personal references
 refs/

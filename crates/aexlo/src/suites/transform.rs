@@ -579,9 +579,18 @@ fn invert3(m: Mat3) -> Option<Mat3> {
 // Suite entry points
 // ============================================================================
 
+/// Whether `world` holds 8 bpc `ARGB32` pixels, the only layout the
+/// composite and transform paths here read and write. A 16 or 32 bpc world
+/// would be walked four bytes at a time and come back corrupted.
+#[allow(clippy::unnecessary_cast)] // `PF_PixelFormat_*` and `PF_WorldFlag_*` are `u32` on macOS only.
+fn is_8bpc(world: &PF_EffectWorld) -> bool {
+	world.world_flags & PF_WorldFlag_DEEP as PF_WorldFlags == 0
+		&& unsafe { super::world::world_pixel_format(world) } == PF_PixelFormat_ARGB32 as u32
+}
+
 /// Composites `source_wld`'s `src_rect` onto `dest_wld` at `(dest_x,
 /// dest_y)`, scaled by `src_opacity` (0..255) and blended per `xfer_mode`.
-unsafe extern "C" fn composite_rect_sys(
+pub(crate) unsafe extern "C" fn composite_rect_sys(
 	_effect_ref: PF_ProgPtr,
 	src_rect: *mut PF_Rect,
 	src_opacity: A_long,
@@ -598,6 +607,10 @@ unsafe extern "C" fn composite_rect_sys(
 	let src = unsafe { &*source_wld };
 	let dst = unsafe { &*dest_wld };
 	if src.data.is_null() || dst.data.is_null() {
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+	if !is_8bpc(src) || !is_8bpc(dst) {
+		log::warn!("composite_rect: only 8 bpc worlds are supported");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
@@ -987,7 +1000,7 @@ unsafe extern "C" fn copy_hq_sys(
 /// and sub-percent opacity precision aren't modeled); `quality` is accepted
 /// but doesn't change behavior, since this emulator has no separate
 /// low-quality fast path.
-unsafe extern "C" fn transfer_rect_sys(
+pub(crate) unsafe extern "C" fn transfer_rect_sys(
 	_effect_ref: PF_ProgPtr,
 	_quality: PF_Quality,
 	m_flags: PF_ModeFlags,
@@ -1006,6 +1019,10 @@ unsafe extern "C" fn transfer_rect_sys(
 	let src = unsafe { &*src_world };
 	let dst = unsafe { &*dst_world };
 	if src.data.is_null() || dst.data.is_null() {
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+	if !is_8bpc(src) || !is_8bpc(dst) {
+		log::warn!("transfer_rect: only 8 bpc worlds are supported");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 	let mode = unsafe { &*comp_mode };
@@ -1074,7 +1091,7 @@ unsafe extern "C" fn transfer_rect_sys(
 /// destination-to-source otherwise. Multiple matrices are premultiply-
 /// averaged (each tap weighted by its own alpha, then unpremultiplied) to
 /// approximate motion blur without fringing at transparent edges.
-unsafe extern "C" fn transform_world_sys(
+pub(crate) unsafe extern "C" fn transform_world_sys(
 	_effect_ref: PF_ProgPtr,
 	_quality: PF_Quality,
 	m_flags: PF_ModeFlags,
@@ -1094,6 +1111,10 @@ unsafe extern "C" fn transform_world_sys(
 	let src = unsafe { &*src_world };
 	let dst = unsafe { &*dst_world };
 	if src.data.is_null() || dst.data.is_null() {
+		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+	}
+	if !is_8bpc(src) || !is_8bpc(dst) {
+		log::warn!("transform_world: only 8 bpc worlds are supported");
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 	let mode = unsafe { &*comp_mode };
@@ -1214,6 +1235,31 @@ pub const fn create_world_transform_suite_1() -> PF_WorldTransformSuite1 {
 #[allow(clippy::unnecessary_cast)]
 mod tests {
 	use super::*;
+
+	#[test]
+	#[allow(clippy::unnecessary_cast)] // `PF_PixelFormat_*` is `u32` on macOS only.
+	fn composite_rect_rejects_a_deep_world() {
+		let mut src = super::super::world::alloc_world(2, 2, 8, PF_PixelFormat_ARGB64 as u32);
+		let mut dst = super::super::world::alloc_world(2, 2, 4, PF_PixelFormat_ARGB32 as u32);
+		let err = unsafe {
+			composite_rect_sys(
+				std::ptr::null_mut(),
+				std::ptr::null_mut(),
+				255,
+				&mut src,
+				0,
+				0,
+				PF_Field_FRAME as PF_Field,
+				PF_Xfer_IN_FRONT as PF_XferMode,
+				&mut dst,
+			)
+		};
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as PF_Err);
+		unsafe {
+			super::super::world::free_world(&mut src);
+			super::super::world::free_world(&mut dst);
+		}
+	}
 
 	/// An owned, heap-backed `PF_EffectWorld` for exercising suite entry
 	/// points without a real host. `world.data` points into `buf`, which is

@@ -1,5 +1,5 @@
-//! `AEGP Effect Suite` (versions 2 and 4) and the `AEGP_EffectRefH` handles it
-//! takes.
+//! `AEGP Effect Suite` (wire versions 1, 2, 3 and 4) and the `AEGP_EffectRefH`
+//! handles it takes.
 //!
 //! aexlo hosts exactly one effect per [`PluginInstance`] and has no layers, so
 //! an effect handle is just the effect's `PF_ProgPtr` in a box: it is minted
@@ -7,14 +7,17 @@
 //! the Stream Suite, and freed by `AEGP_DisposeEffect`. Everything that needs a
 //! layer or the installed-effect registry is refused with `A_Err_GENERIC`.
 //!
-//! v4 adds a command to `AEGP_EffectCallGeneric` and appends the effect-mask
-//! calls; aexlo's effects have no effect masks.
+//! Wire version 1 is version 2 without `AEGP_DuplicateEffect`. Version 3 adds
+//! the command argument to `AEGP_EffectCallGeneric` (the same signature as
+//! version 4) but has no effect-mask calls. Version 4 appends those calls;
+//! aexlo's effects have no effect masks.
 
 use after_effects_sys::{
 	A_Err, A_Err_GENERIC, A_Time, A_char, A_long, A_u_long, AEGP_EffectFlags, AEGP_EffectFlags_ACTIVE,
-	AEGP_EffectIndex, AEGP_EffectRefH, AEGP_EffectSuite2, AEGP_EffectSuite4, AEGP_InstalledEffectKey, AEGP_LayerH,
-	AEGP_MaskIDVal, AEGP_PluginID, AEGP_StreamRefH, PF_Cmd, PF_Err_BAD_CALLBACK_PARAM, PF_Err_INVALID_INDEX,
-	PF_Err_NONE, PF_ParamDef, PF_ParamDefUnion, PF_ParamIndex, PF_ParamType, PF_ProgPtr,
+	AEGP_EffectIndex, AEGP_EffectRefH, AEGP_EffectSuite1, AEGP_EffectSuite2, AEGP_EffectSuite3, AEGP_EffectSuite4,
+	AEGP_InstalledEffectKey, AEGP_LayerH, AEGP_MaskIDVal, AEGP_PluginID, AEGP_StreamRefH, PF_Cmd,
+	PF_Err_BAD_CALLBACK_PARAM, PF_Err_INVALID_INDEX, PF_Err_NONE, PF_ParamDef, PF_ParamDefUnion, PF_ParamIndex,
+	PF_ParamType, PF_ProgPtr,
 };
 use std::os::raw::c_void;
 
@@ -295,6 +298,29 @@ unsafe extern "C" fn set_effect_mask(
 	unsupported("AEGP_SetEffectMask")
 }
 
+/// Builds the `AEGP_EffectSuite1` vtable. Same calls as version 2, without
+/// `AEGP_DuplicateEffect`.
+pub(super) const fn create_effect_suite_1() -> AEGP_EffectSuite1 {
+	AEGP_EffectSuite1 {
+		AEGP_GetLayerNumEffects: Some(get_layer_num_effects),
+		AEGP_GetLayerEffectByIndex: Some(get_layer_effect_by_index),
+		AEGP_GetInstalledKeyFromLayerEffect: Some(get_installed_key_from_layer_effect),
+		AEGP_GetEffectParamUnionByIndex: Some(get_effect_param_union_by_index),
+		AEGP_GetEffectFlags: Some(get_effect_flags),
+		AEGP_SetEffectFlags: Some(set_effect_flags),
+		AEGP_ReorderEffect: Some(reorder_effect),
+		AEGP_EffectCallGeneric: Some(effect_call_generic),
+		AEGP_DisposeEffect: Some(dispose_effect),
+		AEGP_ApplyEffect: Some(apply_effect),
+		AEGP_DeleteLayerEffect: Some(delete_layer_effect),
+		AEGP_GetNumInstalledEffects: Some(get_num_installed_effects),
+		AEGP_GetNextInstalledEffect: Some(get_next_installed_effect),
+		AEGP_GetEffectName: Some(get_effect_name),
+		AEGP_GetEffectMatchName: Some(get_effect_match_name),
+		AEGP_GetEffectCategory: Some(get_effect_category),
+	}
+}
+
 /// Builds the `AEGP_EffectSuite2` vtable.
 pub(super) const fn create_effect_suite_2() -> AEGP_EffectSuite2 {
 	AEGP_EffectSuite2 {
@@ -306,6 +332,30 @@ pub(super) const fn create_effect_suite_2() -> AEGP_EffectSuite2 {
 		AEGP_SetEffectFlags: Some(set_effect_flags),
 		AEGP_ReorderEffect: Some(reorder_effect),
 		AEGP_EffectCallGeneric: Some(effect_call_generic),
+		AEGP_DisposeEffect: Some(dispose_effect),
+		AEGP_ApplyEffect: Some(apply_effect),
+		AEGP_DeleteLayerEffect: Some(delete_layer_effect),
+		AEGP_GetNumInstalledEffects: Some(get_num_installed_effects),
+		AEGP_GetNextInstalledEffect: Some(get_next_installed_effect),
+		AEGP_GetEffectName: Some(get_effect_name),
+		AEGP_GetEffectMatchName: Some(get_effect_match_name),
+		AEGP_GetEffectCategory: Some(get_effect_category),
+		AEGP_DuplicateEffect: Some(duplicate_effect),
+	}
+}
+
+/// Builds the `AEGP_EffectSuite3` vtable. Same calls as version 2, but
+/// `AEGP_EffectCallGeneric` takes the command added in this version.
+pub(super) const fn create_effect_suite_3() -> AEGP_EffectSuite3 {
+	AEGP_EffectSuite3 {
+		AEGP_GetLayerNumEffects: Some(get_layer_num_effects),
+		AEGP_GetLayerEffectByIndex: Some(get_layer_effect_by_index),
+		AEGP_GetInstalledKeyFromLayerEffect: Some(get_installed_key_from_layer_effect),
+		AEGP_GetEffectParamUnionByIndex: Some(get_effect_param_union_by_index),
+		AEGP_GetEffectFlags: Some(get_effect_flags),
+		AEGP_SetEffectFlags: Some(set_effect_flags),
+		AEGP_ReorderEffect: Some(reorder_effect),
+		AEGP_EffectCallGeneric: Some(effect_call_generic_cmd),
 		AEGP_DisposeEffect: Some(dispose_effect),
 		AEGP_ApplyEffect: Some(apply_effect),
 		AEGP_DeleteLayerEffect: Some(delete_layer_effect),

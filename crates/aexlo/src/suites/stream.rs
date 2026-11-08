@@ -1,13 +1,19 @@
-//! `AEGP Stream Suite`, served at wire versions 7 (`AEGP_StreamSuite2`), 9
-//! (`AEGP_StreamSuite4`) and 10 (`AEGP_StreamSuite5`), plus the `AEGP_StreamRefH` handles it hands out.
+//! `AEGP Stream Suite`, served at wire versions 7 (`AEGP_StreamSuite2`), 8
+//! (`AEGP_StreamSuite3`), 9 (`AEGP_StreamSuite4`) and 10 (`AEGP_StreamSuite5`),
+//! plus the `AEGP_StreamRefH` handles it hands out. Version 8 keeps version 7's
+//! char names and uses version 9's `AEGP_StreamValue2`.
 //!
-//! The only streams aexlo can offer are an effect's own parameters: a stream
-//! handle is the effect's `PF_ProgPtr` plus a parameter index (the same index
-//! space as `PF_ParamDef`s, 0 being the input layer). aexlo has no timeline, so
+//! A stream handle is the effect's `PF_ProgPtr`, a node in the layer tree and,
+//! for a parameter, that parameter's index (the same index space as
+//! `PF_ParamDef`s, 0 being the input layer). aexlo has no timeline, so
 //! a stream's value is the parameter's current value at every time and it never
-//! has keyframes or expressions. Layer and mask streams, names and expressions
-//! (which need the AEGP Memory Suite) and every write are refused with
-//! `A_Err_GENERIC`.
+//! has keyframes or expressions. Mask streams, names that need the AEGP Memory
+//! Suite and every write are refused with `A_Err_GENERIC`.
+//!
+//! The same handle also names a node in the layer's dynamic-stream tree
+//! ([`super::dynamic_stream`]). A parameter node is what the calls above read.
+//! The layer, its transform and the effect group have no keyframes; the
+//! transform leaves report an identity 2D transform.
 //!
 //! The table versions differ only in their value structs (`AEGP_StreamValue`
 //! vs `AEGP_StreamValue2`, whose unions share the members written here) and,
@@ -20,21 +26,65 @@ use crate::core::diagnostics::diag;
 use crate::suites::effect::{effect_ref_of, with_param};
 use crate::utils;
 
-/// What an `AEGP_StreamRefH` points at.
-#[derive(Clone, Copy)]
-struct Stream {
-	effect_ref: PF_ProgPtr,
-	index: usize,
+/// Where an `AEGP_StreamRefH` sits in the layer's stream tree.
+///
+/// Parameter nodes are the effect's `PF_ParamDef`s. The other nodes are the
+/// fixed groups around that effect: one 2D AV layer, its transform, an effect
+/// parade of one effect, and an empty mask parade.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Node {
+	/// `ADBE AV Layer`, the layer root.
+	Layer,
+	/// `ADBE Transform Group`.
+	Transform,
+	/// `ADBE Anchor Point`.
+	Anchor,
+	/// `ADBE Position`.
+	Position,
+	/// `ADBE Scale`.
+	Scale,
+	/// `ADBE Rotate Z`.
+	Rotation,
+	/// `ADBE Opacity`.
+	Opacity,
+	/// `ADBE Effect Parade`.
+	Effects,
+	/// The one hosted effect, a named group of its parameters.
+	Effect,
+	/// `ADBE Mask Parade`. Always empty.
+	Masks,
+	/// A parameter of the hosted effect. `index` is the parameter index.
+	Param,
 }
 
-fn new_stream_handle(stream: Stream) -> AEGP_StreamRefH {
+/// What an `AEGP_StreamRefH` points at.
+#[derive(Clone, Copy)]
+pub(crate) struct Stream {
+	pub(crate) effect_ref: PF_ProgPtr,
+	/// Index of this node in its parent. For [`Node::Param`], the parameter index.
+	pub(crate) index: usize,
+	pub(crate) node: Node,
+}
+
+/// Whether the instance behind `effect_ref` has built its arbitrary-data
+/// values. Until then arbitrary streams stay `NO_DATA`: reporting `ARB`
+/// while `PF_Cmd_PARAMS_SETUP` is still on the stack makes Particular throw
+/// out of its entry point. Kept per instance, so another instance's setup
+/// (or its failure) on the same thread does not change the answer.
+fn arb_streams_live(effect_ref: PF_ProgPtr) -> bool {
+	crate::PluginInstance::get_instance_ptr(effect_ref)
+		// SAFETY: effect_ref is the live instance that is running the plugin call.
+		.is_some_and(|instance| unsafe { instance.as_ref() }.arb_streams_live())
+}
+
+pub(crate) fn new_stream_handle(stream: Stream) -> AEGP_StreamRefH {
 	Box::into_raw(Box::new(stream)) as AEGP_StreamRefH
 }
 
 /// # Safety
 /// `streamH` must be null or a handle from [`new_stream_handle`] that has not
 /// been disposed.
-unsafe fn stream_of(streamH: AEGP_StreamRefH) -> Option<Stream> {
+pub(crate) unsafe fn stream_of(streamH: AEGP_StreamRefH) -> Option<Stream> {
 	unsafe { (streamH as *const Stream).as_ref() }.copied()
 }
 
@@ -62,10 +112,13 @@ pub(crate) enum StreamValue {
 	},
 	/// The layer chosen in a layer parameter; aexlo has no layer ids, so 0.
 	LayerId,
+	/// An arbitrary-data parameter. The handle is the parameter's own value,
+	/// not a copy, so disposing the stream value must not free it.
+	Arb(PF_ArbitraryH),
 }
 
 impl StreamValue {
-	fn of(def: &PF_ParamDef) -> Self {
+	fn of(def: &PF_ParamDef, arb_live: bool) -> Self {
 		// SAFETY: every union read is selected by `param_type`.
 		unsafe {
 			match def.param_type {
@@ -98,6 +151,14 @@ impl StreamValue {
 						blue: px.blue as f64 / 255.0,
 					}
 				}
+				t if t == ParamType::ArbitraryData as PF_ParamType => {
+					let handle = def.u.arb_d.value;
+					if handle.is_null() || !arb_live {
+						Self::NoData
+					} else {
+						Self::Arb(handle)
+					}
+				}
 				_ => Self::NoData,
 			}
 		}
@@ -113,6 +174,7 @@ impl StreamValue {
 			Self::ThreeD { .. } => AEGP_StreamType_ThreeD,
 			Self::Color { .. } => AEGP_StreamType_COLOR,
 			Self::LayerId => AEGP_StreamType_LAYER_ID,
+			Self::Arb(_) => AEGP_StreamType_ARB,
 		}) as AEGP_StreamType
 	}
 
@@ -120,7 +182,7 @@ impl StreamValue {
 	pub(crate) fn dimensionality(self) -> A_short {
 		match self {
 			Self::NoData => 0,
-			Self::OneD(_) | Self::LayerId => 1,
+			Self::OneD(_) | Self::LayerId | Self::Arb(_) => 1,
 			Self::TwoD { .. } => 2,
 			Self::ThreeD { .. } => 3,
 			Self::Color { .. } => 4,
@@ -161,6 +223,10 @@ macro_rules! write_val {
 				}
 			}
 			StreamValue::LayerId => out.layer_id = 0,
+			// `arbH` is bound as `A_Handle` (`*mut c_void`); the parameter stores
+			// a `PF_Handle` (`*mut *mut c_void`). The bit pattern is what the
+			// plugin casts back.
+			StreamValue::Arb(handle) => out.arbH = handle.cast(),
 		}
 	}};
 }
@@ -171,7 +237,30 @@ macro_rules! write_val {
 /// `streamH` must satisfy [`stream_of`]'s contract.
 pub(crate) unsafe fn stream_value(streamH: AEGP_StreamRefH) -> Option<StreamValue> {
 	let stream = unsafe { stream_of(streamH) }?;
-	with_param(stream.effect_ref, stream.index, StreamValue::of)
+	match stream.node {
+		Node::Param => {
+			let arb_live = arb_streams_live(stream.effect_ref);
+			with_param(stream.effect_ref, stream.index, |def| StreamValue::of(def, arb_live))
+		}
+		// Identity 2D transform: the anchor and the position sit on the layer
+		// centre, scale is 100%, rotation is 0 and opacity is fully on.
+		Node::Anchor | Node::Position => {
+			let timeline = super::layer::Timeline::of(stream.effect_ref as *mut std::ffi::c_void)?;
+			Some(StreamValue::TwoD {
+				x: timeline.width as f64 / 2.0,
+				y: timeline.height as f64 / 2.0,
+				spatial: true,
+			})
+		}
+		Node::Scale => Some(StreamValue::TwoD {
+			x: 100.0,
+			y: 100.0,
+			spatial: false,
+		}),
+		Node::Rotation => Some(StreamValue::OneD(0.0)),
+		Node::Opacity => Some(StreamValue::OneD(100.0)),
+		_ => Some(StreamValue::NoData),
+	}
 }
 
 fn unsupported(name: &str) -> A_Err {
@@ -215,7 +304,7 @@ unsafe extern "C" fn get_valid_interpolations(
 	};
 	*out = match value {
 		StreamValue::NoData => AEGP_KeyInterpMask_NONE,
-		StreamValue::LayerId => AEGP_KeyInterpMask_HOLD,
+		StreamValue::LayerId | StreamValue::Arb(_) => AEGP_KeyInterpMask_HOLD,
 		_ => AEGP_KeyInterpMask_LINEAR | AEGP_KeyInterpMask_BEZIER | AEGP_KeyInterpMask_HOLD,
 	} as AEGP_KeyInterpolationMask;
 	PF_Err_NONE as A_Err
@@ -273,7 +362,11 @@ unsafe extern "C" fn get_new_effect_stream_by_index(
 	if with_param(effect_ref, index, |_| ()).is_none() {
 		return PF_Err_INVALID_INDEX as A_Err;
 	}
-	*out = new_stream_handle(Stream { effect_ref, index });
+	*out = new_stream_handle(Stream {
+		effect_ref,
+		index,
+		node: Node::Param,
+	});
 	PF_Err_NONE as A_Err
 }
 
@@ -311,6 +404,9 @@ unsafe extern "C" fn get_stream_name_v1(
 	};
 	if nameZ.is_null() {
 		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	}
+	if stream.node != Node::Param {
+		return super::dynamic_stream::write_name(stream, nameZ, AEGP_MAX_STREAM_NAME_SIZE as usize);
 	}
 	let Some(name) = with_param(stream.effect_ref, stream.index, |def| def.name_do_not_use_directly) else {
 		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
@@ -365,6 +461,14 @@ unsafe extern "C" fn get_stream_properties(
 	let Some(stream) = (unsafe { stream_of(streamH) }) else {
 		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
 	};
+	if stream.node != Node::Param {
+		let Some(out) = (unsafe { flagsP.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		*out = AEGP_StreamFlag_NONE as AEGP_StreamFlags;
+		return PF_Err_NONE as A_Err;
+	}
+	let arb_live = arb_streams_live(stream.effect_ref);
 	let Some((value, range)) = with_param(stream.effect_ref, stream.index, |def| {
 		// SAFETY: every union read is selected by `param_type`.
 		let range = unsafe {
@@ -382,7 +486,7 @@ unsafe extern "C" fn get_stream_properties(
 				_ => None,
 			}
 		};
-		(StreamValue::of(def), range)
+		(StreamValue::of(def, arb_live), range)
 	}) else {
 		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
 	};
@@ -435,6 +539,25 @@ unsafe extern "C" fn get_stream_type(streamH: AEGP_StreamRefH, stream_typeP: *mu
 	let Some(out) = (unsafe { stream_typeP.as_mut() }) else {
 		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
 	};
+	if value == StreamValue::NoData
+		&& let Some(stream) = (unsafe { stream_of(streamH) })
+	{
+		let detail = if stream.node == Node::Param {
+			with_param(stream.effect_ref, stream.index, |def| def.param_type)
+		} else {
+			None
+		};
+		let name = if stream.node == Node::Param {
+			with_param(stream.effect_ref, stream.index, crate::host::params::param_name)
+		} else {
+			None
+		};
+		log::debug!(
+			"stream type NO_DATA node={:?} index={} param_type={detail:?} name={name:?}",
+			stream.node,
+			stream.index
+		);
+	}
 	*out = value.stream_type();
 	PF_Err_NONE as A_Err
 }
@@ -473,7 +596,8 @@ macro_rules! get_new_stream_value {
 get_new_stream_value!(get_new_stream_value_v1, AEGP_StreamValue);
 get_new_stream_value!(get_new_stream_value_v2, AEGP_StreamValue2);
 
-/// Stream values never own memory here (no arb, marker, mask or text data).
+/// Stream values never own memory here. An arbitrary handle is the parameter's
+/// own value, so disposing the stream value must not free it.
 macro_rules! dispose_stream_value {
 	($name:ident, $value_ty:ty) => {
 		unsafe extern "C" fn $name(valueP: *mut $value_ty) -> A_Err {
@@ -625,6 +749,34 @@ pub(super) const fn create_stream_suite_2() -> AEGP_StreamSuite2 {
 	}
 }
 
+/// Builds the `AEGP_StreamSuite3` vtable (wire version 8).
+pub(super) const fn create_stream_suite_3() -> AEGP_StreamSuite3 {
+	AEGP_StreamSuite3 {
+		AEGP_IsStreamLegal: Some(is_stream_legal),
+		AEGP_CanVaryOverTime: Some(can_vary_over_time),
+		AEGP_GetValidInterpolations: Some(get_valid_interpolations),
+		AEGP_GetNewLayerStream: Some(get_new_layer_stream),
+		AEGP_GetEffectNumParamStreams: Some(get_effect_num_param_streams),
+		AEGP_GetNewEffectStreamByIndex: Some(get_new_effect_stream_by_index),
+		AEGP_GetNewMaskStream: Some(get_new_mask_stream),
+		AEGP_DisposeStream: Some(dispose_stream),
+		AEGP_GetStreamName: Some(get_stream_name_v1),
+		AEGP_GetStreamUnitsText: Some(get_stream_units_text),
+		AEGP_GetStreamProperties: Some(get_stream_properties),
+		AEGP_IsStreamTimevarying: Some(is_stream_timevarying),
+		AEGP_GetStreamType: Some(get_stream_type),
+		AEGP_GetNewStreamValue: Some(get_new_stream_value_v2),
+		AEGP_DisposeStreamValue: Some(dispose_stream_value_v2),
+		AEGP_SetStreamValue: Some(set_stream_value_v2),
+		AEGP_GetLayerStreamValue: Some(get_layer_stream_value_v2),
+		AEGP_GetExpressionState: Some(get_expression_state),
+		AEGP_SetExpressionState: Some(set_expression_state),
+		AEGP_GetExpression: Some(get_expression),
+		AEGP_SetExpression: Some(set_expression),
+		AEGP_DuplicateStreamRef: Some(duplicate_stream_ref),
+	}
+}
+
 /// Builds the `AEGP_StreamSuite4` vtable (wire version 9).
 pub(super) const fn create_stream_suite_4() -> AEGP_StreamSuite4 {
 	AEGP_StreamSuite4 {
@@ -692,8 +844,8 @@ mod tests {
 			AEGP_StreamType_NO_DATA as AEGP_StreamType
 		);
 		assert_eq!(
-			StreamValue::OneD(1.0).stream_type(),
-			AEGP_StreamType_OneD as AEGP_StreamType
+			StreamValue::Arb(std::ptr::null_mut()).stream_type(),
+			AEGP_StreamType_ARB as AEGP_StreamType
 		);
 		let point = StreamValue::TwoD {
 			x: 1.0,
@@ -725,8 +877,9 @@ mod tests {
 	fn handles_duplicate_and_dispose() {
 		let suite = create_stream_suite_4();
 		let handle = new_stream_handle(Stream {
-			effect_ref: 0x10 as PF_ProgPtr,
+			effect_ref: std::ptr::null_mut(),
 			index: 3,
+			node: Node::Param,
 		});
 		let mut dup: AEGP_StreamRefH = std::ptr::null_mut();
 		unsafe {

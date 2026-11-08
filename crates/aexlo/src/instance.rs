@@ -44,6 +44,71 @@ const PLUGIN_DATA_ENTRY_SYMBOL: &str = "PluginDataEntryFunction2";
 const HOST_NAME: &str = "AfterEffects";
 const HOST_VERSION: &str = "25.2";
 
+/// On Windows, an effect that lets a C++ exception leave its entry point would
+/// cross a Rust frame and abort the process. The call sits in a C handler so
+/// the host reports a failed command instead.
+#[cfg(windows)]
+unsafe extern "C" {
+	fn aexlo_call_entry(
+		entry: *const c_void,
+		cmd: i32,
+		in_data: *mut c_void,
+		out_data: *mut c_void,
+		params: *mut c_void,
+		output: *mut c_void,
+		extra: *mut c_void,
+		exception_code: *mut u32,
+	) -> i32;
+}
+
+/// Calls `entry_point`. On Windows a structured exception that escapes the
+/// plugin becomes `PF_Err_INTERNAL_STRUCT_DAMAGED`.
+///
+/// # Safety
+/// `entry_point` must be the plugin's entry point, and the pointers must be
+/// the ones [`PluginInstance::call_plugin`] passes to it.
+unsafe fn call_entry(
+	entry_point: PluginEntryPoint,
+	command: RawCommand,
+	in_data: *mut after_effects_sys::PF_InData,
+	out_data: *mut after_effects_sys::PF_OutData,
+	params: after_effects_sys::PF_ParamList,
+	output: *mut after_effects_sys::PF_LayerDef,
+	extra: *mut c_void,
+) -> after_effects_sys::PF_Err {
+	#[cfg(windows)]
+	{
+		let mut code = 0u32;
+		// SAFETY: the caller upholds `call_entry`'s contract. The C wrapper
+		// invokes the same cdecl entry point and catches an exception that
+		// would otherwise abort the process.
+		let result = unsafe {
+			aexlo_call_entry(
+				entry_point as usize as *const c_void,
+				command as i32,
+				in_data.cast(),
+				out_data.cast(),
+				params.cast(),
+				output.cast(),
+				extra,
+				&mut code,
+			)
+		};
+		if code != 0 {
+			log::error!(
+				"plugin command {command:?} raised a structured exception {code:#x}; reporting PF_Err_INTERNAL_STRUCT_DAMAGED"
+			);
+			return after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED as after_effects_sys::PF_Err;
+		}
+		return result as after_effects_sys::PF_Err;
+	}
+	#[cfg(not(windows))]
+	{
+		// SAFETY: the caller upholds `call_entry`'s contract.
+		unsafe { entry_point(command, in_data, out_data, params, output, extra) }
+	}
+}
+
 /// ABI of an After Effects effect entry point (`EffectMain`): the fixed
 /// `(cmd, in_data, out_data, params, output, extra)` signature every effect
 /// exports. Handed to [`Host::from_entry`] to drive an in-process
@@ -102,6 +167,8 @@ unsafe extern "C" fn receive_plugin_data(
 /// Manages its library, entry point, parameters, and execution state.
 /// All operations related to the plug-in should be invoked from this.
 pub struct PluginInstance {
+	/// Identifies AEGP registrations whose callbacks must not outlive this DLL.
+	aegp_owner: u64,
 	raw_library: Option<Library>,
 	entry_point: Option<PluginEntryPoint>,
 	entry_point_name: Option<String>,
@@ -182,8 +249,22 @@ pub struct PluginInstance {
 	/// released by `PF_Cmd_GPU_DEVICE_SETDOWN`.
 	gpu_data: *mut ::std::os::raw::c_void,
 
+	/// Whether `PF_Cmd_GPU_DEVICE_SETUP` has succeeded and is still awaiting its
+	/// `PF_Cmd_GPU_DEVICE_SETDOWN`. Tracked separately from [`Self::gpu_data`]
+	/// because plugins may keep their GPU state elsewhere and return null.
+	gpu_device_ready: bool,
+
 	/// Label the plugin gave its Options button via `PF_SetOptionsButtonName`.
 	options_button_name: Option<String>,
+
+	/// One effect-window context per custom control. After Effects creates it
+	/// for `PF_Event_NEW_CONTEXT` and hands the same handle to every later
+	/// event, so the plugin's `plugin_state` survives from activation to click.
+	ui_contexts: HashMap<usize, LiveUiContext>,
+	/// Parameters that have already received `NEW_CONTEXT` and `ACTIVATE`.
+	custom_ui_ready: std::collections::HashSet<usize>,
+	/// Latest raster of each custom-UI control, keyed by parameter index.
+	custom_controls: HashMap<usize, CustomControlImage>,
 
 	/// Pixel formats (FourCCs) registered through the "PF Pixel Format Suite".
 	supported_pixel_formats: Vec<u32>,
@@ -206,6 +287,10 @@ pub struct PluginInstance {
 	/// created for us at setup (see [`Self::setup_arbitrary_params`]); handed
 	/// back through `PF_Arbitrary_DISPOSE_FUNC` on drop.
 	owned_arb_values: Vec<usize>,
+
+	/// Whether [`Self::setup_arbitrary_params`] has run since the last
+	/// `PF_Cmd_PARAMS_SETUP`; arbitrary streams read `NO_DATA` until it has.
+	arb_streams_live: bool,
 
 	/// Who is told about commands and calls (see [`Self::set_observer`]).
 	observer: Option<Installed>,
@@ -250,6 +335,30 @@ impl Host {
 		instance.load()?;
 		instance.finalize()?;
 
+		Ok(instance)
+	}
+
+	/// Load with the actual input layer and output geometry available to every
+	/// setup command. Strict tracking is enabled before the first command.
+	pub fn try_load_with_initial(
+		self,
+		path: impl AsRef<Path>,
+		strict: crate::Strict,
+		input: AnyLayer,
+		output_size: (u32, u32),
+	) -> Result<PluginInstance> {
+		let mut instance = PluginInstance::new_with_initial(path.as_ref(), input, output_size)?;
+		instance.set_strict(strict);
+		instance.load()?;
+		instance.finalize()?;
+		Ok(instance)
+	}
+
+	/// Load with render dimensions set before plug-in setup runs.
+	pub fn try_load_sized(self, path: impl AsRef<Path>, width: u32, height: u32) -> Result<PluginInstance> {
+		let mut instance = PluginInstance::new_sized(path.as_ref(), width, height);
+		instance.load()?;
+		instance.finalize()?;
 		Ok(instance)
 	}
 
@@ -313,7 +422,99 @@ impl Host {
 	}
 }
 
+struct ControlPointer {
+	x: i32,
+	y: i32,
+	last: bool,
+}
+
+fn wants_redraw(flags: i32) -> bool {
+	let again = (after_effects_sys::PF_EO_ALWAYS_UPDATE | after_effects_sys::PF_EO_UPDATE_NOW) as after_effects_sys::PF_EventOutFlags;
+	flags & again != 0
+}
+
+struct LiveUiContext {
+	/// Keeps the context allocation alive; the handle points into it.
+	#[allow(dead_code)]
+	context: Box<after_effects_sys::PF_Context>,
+	handle: Box<*mut after_effects_sys::PF_Context>,
+}
+
+impl LiveUiContext {
+	fn new() -> Self {
+		let mut context = Box::new(after_effects_sys::PF_Context {
+			magic: after_effects_sys::PF_CONTEXT_MAGIC,
+			w_type: after_effects_sys::PF_Window_EFFECT as after_effects_sys::PF_WindowType,
+			reserved_flt: std::ptr::null_mut(),
+			plugin_state: [0; 4],
+			reserved_drawref: std::ptr::null_mut(),
+			reserved_paneP: std::ptr::null_mut(),
+			reserved_job_manageP: std::ptr::null_mut(),
+		});
+		let ptr = context.as_mut() as *mut after_effects_sys::PF_Context;
+		Self {
+			context,
+			handle: Box::new(ptr),
+		}
+	}
+
+	fn handle(&mut self) -> after_effects_sys::PF_ContextH {
+		self.handle.as_mut()
+	}
+
+	fn set_draw_ref(&mut self, draw: after_effects_sys::DRAWBOT_DrawRef) {
+		self.context.reserved_drawref = draw;
+	}
+
+	fn clear_draw_ref(&mut self) {
+		self.context.reserved_drawref = std::ptr::null_mut();
+	}
+}
+
+/// What a custom-control click or drag asked the host to do next.
+pub struct CustomControlEvent {
+	/// The plugin set `PF_EO_ALWAYS_UPDATE` or `PF_EO_UPDATE_NOW`.
+	pub redraw: bool,
+	/// The plugin set `send_drag`. The host keeps sending `PF_Event_DRAG`
+	/// until mouse-up, and that last sample has `last_time` set. A click that
+	/// never moves still needs this mouse-up; that is what commits the click.
+	pub send_drag: bool,
+}
+
+/// Straight RGBA image of one custom-UI control after `PF_Event_DRAW`.
+#[derive(Clone)]
+pub struct CustomControlImage {
+	pub width: u32,
+	pub height: u32,
+	pub rgba: Vec<u8>,
+}
+
 impl PluginInstance {
+	fn new_with_initial(path: &Path, input: AnyLayer, output_size: (u32, u32)) -> Result<Self> {
+		let valid = |(w, h): (u32, u32)| w > 0 && h > 0 && w <= i32::MAX as u32 && h <= i32::MAX as u32;
+		if !valid((input.width(), input.height())) || !valid(output_size) {
+			return Err(AexloError::Unexpected(
+				"initial input and output dimensions must be positive and fit i32".into(),
+			));
+		}
+		let mut instance = Self::new(path);
+		match input {
+			AnyLayer::U8(layer) => instance.set_input_layer(layer),
+			AnyLayer::U16(layer) => instance.set_input_layer(layer),
+			AnyLayer::F32(layer) => instance.set_input_layer(layer),
+		}
+		instance.set_render_size(output_size.0, output_size.1);
+		Ok(instance)
+	}
+	fn new_sized(path: &Path, width: u32, height: u32) -> Self {
+		let mut instance = Self::new(path);
+		if let AnyLayer::U8(layer) = AnyLayer::filled(PixelDepthKind::U8, width, height, OPAQUE_BLACK) {
+			instance.set_input_layer(layer);
+		}
+		instance.set_render_size(width, height);
+		instance
+	}
+
 	/// Run the post-load setup shared by every constructor: `GLOBAL_SETUP`,
 	/// `PARAMS_SETUP`, then `SEQUENCE_SETUP`. Independent of where the entry point
 	/// came from (`dlopen`ed or handed in directly).
@@ -331,6 +532,104 @@ impl PluginInstance {
 		self.call_plugin(RawCommand::About, null_mut())?;
 
 		Ok(self.message())
+	}
+
+	/// Send `PF_Cmd_DO_DIALOG`, the command After Effects uses when the user
+	/// presses the effect's Options button. Only effects that set
+	/// `PF_OutFlag_I_DO_DIALOG` have that button.
+	pub fn do_dialog(&mut self) -> Result<String> {
+		self.call_plugin(RawCommand::DoDialog, null_mut())?;
+		Ok(self.message())
+	}
+
+	/// Whether global setup set `PF_OutFlag_I_DO_DIALOG`, so the effect
+	/// controls window shows an Options button.
+	pub fn has_options_button(&self) -> bool {
+		self.global_out_flags & after_effects_sys::PF_OutFlag_I_DO_DIALOG as PF_OutFlags != 0
+	}
+
+	fn prepare_custom_control(&mut self, index: usize, width: i32, height: i32) {
+		if self.custom_ui_ready.contains(&index) {
+			return;
+		}
+		self.dispatch_effect_event(index, after_effects_sys::PF_Event_NEW_CONTEXT, width, height, None);
+		self.dispatch_effect_event(index, after_effects_sys::PF_Event_ACTIVATE, width, height, None);
+		self.custom_ui_ready.insert(index);
+	}
+
+	fn dispatch_effect_event(
+		&mut self,
+		index: usize,
+		event: after_effects_sys::PF_EventType,
+		width: i32,
+		height: i32,
+		pointer: Option<ControlPointer>,
+	) -> (i32, bool) {
+		let mut kept = self.ui_contexts.remove(&index).unwrap_or_else(LiveUiContext::new);
+		let mut extra: after_effects_sys::PF_EventExtra = unsafe { std::mem::zeroed() };
+		extra.contextH = kept.handle();
+		extra.e_type = event;
+		extra.effect_win.index = index as after_effects_sys::PF_ParamIndex;
+		extra.effect_win.area = after_effects_sys::PF_EA_CONTROL as after_effects_sys::PF_EffectArea;
+		extra.effect_win.current_frame = after_effects_sys::PF_Rect {
+			left: 0,
+			top: 0,
+			right: width,
+			bottom: height,
+		};
+		let drawing = event == after_effects_sys::PF_Event_DRAW
+			&& crate::suites::drawbot::begin_frame(width.max(1) as u32, height.max(1) as u32);
+		if drawing && let Some(draw) = crate::suites::drawbot::current_draw_ref() {
+			kept.set_draw_ref(draw);
+		}
+		unsafe {
+			if event == after_effects_sys::PF_Event_DRAW {
+				extra.u.draw = after_effects_sys::PF_DrawEventInfo {
+					update_rect: extra.effect_win.current_frame,
+					depth: 32,
+				};
+			} else if let Some(pointer) = pointer {
+				extra.u.do_click = after_effects_sys::PF_DoClickEventInfo {
+					when: 0,
+					screen_point: after_effects_sys::PF_Point {
+						h: pointer.x,
+						v: pointer.y,
+					},
+					num_clicks: 1,
+					modifiers: 0,
+					continue_refcon: [0; 4],
+					send_drag: (event == after_effects_sys::PF_Event_DRAG) as after_effects_sys::PF_Boolean,
+					last_time: pointer.last as after_effects_sys::PF_Boolean,
+				};
+			}
+		}
+		let result = self.call_plugin(
+			RawCommand::Event,
+			(&mut extra as *mut after_effects_sys::PF_EventExtra).cast(),
+		);
+		// The draw ref is only valid for this DRAW. A later click must not
+		// see a surface the rasteriser has already finished.
+		kept.clear_draw_ref();
+		if drawing && let Some(frame) = crate::suites::drawbot::end_frame() {
+			self.custom_controls.insert(
+				index,
+				CustomControlImage {
+					width: frame.width,
+					height: frame.height,
+					rgba: frame.rgba,
+				},
+			);
+		}
+		log::info!(
+			"effect event {event} on param {index}: {result:?} evt_out_flags={:#x}",
+			extra.evt_out_flags
+		);
+		let send_drag = matches!(
+			event,
+			after_effects_sys::PF_Event_DO_CLICK | after_effects_sys::PF_Event_DRAG
+		) && unsafe { extra.u.do_click.send_drag } != 0;
+		self.ui_contexts.insert(index, kept);
+		(extra.evt_out_flags, send_drag)
 	}
 
 	/// Call the plugin with `PF_Cmd_RENDER` command.
@@ -440,13 +739,14 @@ impl PluginInstance {
 		)?;
 
 		self.gpu_data = output.gpu_data;
+		self.gpu_device_ready = true;
 		Ok(())
 	}
 
 	/// Run `PF_Cmd_GPU_DEVICE_SETDOWN` so the plugin releases its GPU data, then drop
 	/// this instance's GPU-world registrations. Safe to call when no device was set up.
 	pub fn gpu_device_setdown(&mut self) -> Result<()> {
-		if self.gpu_data.is_null() {
+		if !self.gpu_device_ready {
 			return Ok(());
 		}
 
@@ -455,6 +755,9 @@ impl PluginInstance {
 			.as_ref()
 			.map(|ctx| ctx.framework())
 			.unwrap_or(PF_GPU_Framework_NONE as PF_GPU_Framework);
+		if let Some(ctx) = &self.gpu_context {
+			ctx.make_current();
+		}
 		let mut input = PF_GPUDeviceSetdownInput {
 			gpu_data: self.gpu_data,
 			what_gpu,
@@ -468,9 +771,11 @@ impl PluginInstance {
 		);
 
 		self.gpu_data = null_mut();
+		self.gpu_device_ready = false;
 		if let Some(ctx) = &self.gpu_context {
 			ctx.unregister_all_worlds();
 		}
+		self.release_gpu_thread();
 		result
 	}
 
@@ -479,13 +784,10 @@ impl PluginInstance {
 	fn render_smart_gpu(&mut self) -> Result<()> {
 		let mut extra = self.smart_render_data.smart_render_extra();
 
-		let result = self.call_plugin(
+		self.call_plugin(
 			RawCommand::SmartRenderGpu,
 			(&mut extra as *mut after_effects_sys::PF_SmartRenderExtra).cast(),
-		);
-
-		self.dispose_pre_render();
-		result
+		)
 	}
 
 	/// Render one frame on the GPU: set up the device (once), back the input and
@@ -496,7 +798,21 @@ impl PluginInstance {
 	/// Propagates any failure from device setup or the render commands. On error the
 	/// caller should fall back to CPU rendering (see [`Self::render_frame`]).
 	pub fn render_gpu(&mut self) -> Result<()> {
-		if self.gpu_data.is_null() {
+		let result = self.render_gpu_current();
+		// The UI thread (or any caller) may use another graphics API next.
+		// A CUDA context left current on that thread corrupts the heap.
+		self.release_gpu_thread();
+		result
+	}
+
+	fn release_gpu_thread(&self) {
+		if let Some(ctx) = &self.gpu_context {
+			ctx.release_thread();
+		}
+	}
+
+	fn render_gpu_current(&mut self) -> Result<()> {
+		if !self.gpu_device_ready {
 			self.gpu_device_setup()?;
 		}
 
@@ -593,12 +909,16 @@ impl PluginInstance {
 			self.dispose_pre_render();
 			return Err(AexloError::GpuRenderDeclined);
 		}
-		self.render_smart_gpu()?;
-
-		// The plugin queues its work but does not wait; flush before reading back.
-		if let Some(ctx) = &self.gpu_context {
+		// The plugin queues its kernels and returns. Those kernels still read the
+		// pre-render block, so it is freed only after the context has drained.
+		// Freeing it here races the GPU and corrupts the heap (Universe Glow).
+		let rendered = self.render_smart_gpu();
+		if let Some(ctx) = self.gpu_context.as_mut() {
 			ctx.wait_for_completion();
 		}
+		log::debug!("GPU render waited for the device");
+		self.dispose_pre_render();
+		rendered?;
 
 		// Phase C: read the rendered BGRA float output back into the output layer,
 		// reusing the instance's staging buffer.
@@ -1106,7 +1426,7 @@ impl PluginInstance {
 	///
 	/// This is where an effect reacts to an edit — adjusting dependent parameters
 	/// or requesting a UI refresh (typically by raising `PF_OutFlag_SEND_UPDATE_PARAMS_UI`,
-	/// after which the host follows up with [`Sel-::update_params_ui`]).
+	/// after which the host follows up with [`Self::update_params_ui`]).
 	pub fn user_changed_param(&mut self, index: usize) -> Result<()> {
 		let mut extra = after_effects_sys::PF_UserChangedParamExtra {
 			param_index: index as after_effects_sys::PF_ParamIndex,
@@ -1114,7 +1434,20 @@ impl PluginInstance {
 		self.call_plugin(
 			RawCommand::UserChangedParam,
 			(&mut extra as *mut after_effects_sys::PF_UserChangedParamExtra).cast(),
-		)
+		)?;
+		self.follow_params_ui()
+	}
+
+	/// After Effects follows `USER_CHANGED_PARAM` and handled UI events with
+	/// `PF_Cmd_UPDATE_PARAMS_UI` when the plugin raises
+	/// `PF_OutFlag_SEND_UPDATE_PARAMS_UI`.
+	fn follow_params_ui(&mut self) -> Result<()> {
+		let flag = after_effects_sys::PF_OutFlag_SEND_UPDATE_PARAMS_UI as PF_OutFlags;
+		if self.out_data.out_flags & flag == 0 {
+			return Ok(());
+		}
+		self.out_data.out_flags &= !flag;
+		self.update_params_ui()
 	}
 
 	/// Ask the plugin to refresh its parameter UI state (`PF_Cmd_UPDATE_PARAMS_UI`):
@@ -1423,6 +1756,12 @@ impl PluginInstance {
 	///
 	/// Crate-internal because it exposes the raw `PF_ParamDef` sys type; the
 	/// public surface is [`Self::get_param`] / [`Self::param_name`].
+	/// Whether this instance's arbitrary-data values exist yet (see
+	/// [`Self::setup_arbitrary_params`]).
+	pub(crate) fn arb_streams_live(&self) -> bool {
+		self.arb_streams_live
+	}
+
 	pub(crate) fn param_by_index(&self, index: usize) -> Option<&PF_ParamDef> {
 		self.params.get(index)
 	}
@@ -1440,6 +1779,109 @@ impl PluginInstance {
 	/// [`Self::set_param`]; index 0 is the input layer), or `None` if out of bounds.
 	pub fn param_kind(&self, index: usize) -> Option<crate::ParamKind> {
 		self.params.get(index).map(|p| crate::ParamKind::from_sdk(p.param_type))
+	}
+
+	/// UI flags the plugin set on the parameter (`PF_PUI_*`), or `None` if `index` is out of range.
+	pub fn param_ui_flags(&self, index: usize) -> Option<i32> {
+		self.params.get(index).map(|p| p.ui_flags)
+	}
+
+	/// Whether any parameter draws a custom control (`PF_PUI_CONTROL`).
+	///
+	/// After Effects opens that control from `PF_Cmd_EVENT`. The Options button
+	/// is a separate `PF_Cmd_DO_DIALOG`.
+	pub fn has_custom_ui(&self) -> bool {
+		let control = after_effects_sys::PF_PUI_CONTROL as i32;
+		self.params.iter().any(|param| param.ui_flags & control != 0)
+	}
+
+	/// Whether the parameter at `index` draws its own control (`PF_PUI_CONTROL`).
+	pub fn param_has_custom_ui(&self, index: usize) -> bool {
+		self.param_ui_flags(index)
+			.is_some_and(|flags| flags & after_effects_sys::PF_PUI_CONTROL as i32 != 0)
+	}
+
+	/// The size the custom control at `index` declared (`ui_width`,
+	/// `ui_height`), with `None` for an edge left at 0, which After Effects
+	/// fills from the Effect Controls panel.
+	pub fn custom_control_size(&self, index: usize) -> Option<(Option<u32>, Option<u32>)> {
+		let param = self.params.get(index)?;
+		let edge = |value: i16| u32::try_from(value).ok().filter(|v| *v > 0);
+		Some((edge(param.ui_width), edge(param.ui_height)))
+	}
+
+	/// Latest pixels painted by the custom control at `index`.
+	pub fn custom_control_image(&self, index: usize) -> Option<&CustomControlImage> {
+		self.custom_controls.get(&index)
+	}
+
+	/// Send `PF_Event_DRAW` for one custom control and keep the raster.
+	///
+	/// The returned flag is true when the plugin asked to be drawn again
+	/// (`PF_EO_ALWAYS_UPDATE` or `PF_EO_UPDATE_NOW`).
+	pub fn draw_custom_control(&mut self, index: usize, width: u32, height: u32) -> Result<bool> {
+		let width = width.max(1).min(2048) as i32;
+		let height = height.max(1).min(2048) as i32;
+		self.prepare_custom_control(index, width, height);
+		let (flags, _) = self.dispatch_effect_event(index, after_effects_sys::PF_Event_DRAW, width, height, None);
+		Ok(wants_redraw(flags))
+	}
+
+	/// Send `PF_Event_DO_CLICK` at a point in the control's own coordinates.
+	///
+	/// This is the mouse going down. When [`CustomControlEvent::send_drag`] is
+	/// set, follow it with [`Self::drag_custom_control`] through mouse-up.
+	pub fn click_custom_control(
+		&mut self,
+		index: usize,
+		x: i32,
+		y: i32,
+		width: u32,
+		height: u32,
+	) -> Result<CustomControlEvent> {
+		let width = width.max(1).min(2048) as i32;
+		let height = height.max(1).min(2048) as i32;
+		self.prepare_custom_control(index, width, height);
+		let (flags, send_drag) = self.dispatch_effect_event(
+			index,
+			after_effects_sys::PF_Event_DO_CLICK,
+			width,
+			height,
+			// `last_time` belongs to drag samples. A click is the mouse going down.
+			Some(ControlPointer { x, y, last: false }),
+		);
+		self.follow_params_ui()?;
+		Ok(CustomControlEvent {
+			redraw: wants_redraw(flags),
+			send_drag,
+		})
+	}
+
+	/// Send `PF_Event_DRAG` at a point in the control's own coordinates.
+	pub fn drag_custom_control(
+		&mut self,
+		index: usize,
+		x: i32,
+		y: i32,
+		width: u32,
+		height: u32,
+		last: bool,
+	) -> Result<CustomControlEvent> {
+		let width = width.max(1).min(2048) as i32;
+		let height = height.max(1).min(2048) as i32;
+		self.prepare_custom_control(index, width, height);
+		let (flags, send_drag) = self.dispatch_effect_event(
+			index,
+			after_effects_sys::PF_Event_DRAG,
+			width,
+			height,
+			Some(ControlPointer { x, y, last }),
+		);
+		self.follow_params_ui()?;
+		Ok(CustomControlEvent {
+			redraw: wants_redraw(flags),
+			send_drag,
+		})
 	}
 
 	/// Whether the plugin hid the parameter at `index` (`PF_PUI_INVISIBLE`),
@@ -1505,6 +1947,7 @@ impl PluginInstance {
 
 		{
 			let mut instance_placeholder = PluginInstance {
+				aegp_owner: crate::suites::register::new_owner(),
 				raw_library: None,
 				entry_point: None,
 				entry_point_name: None,
@@ -1544,13 +1987,18 @@ impl PluginInstance {
 				gpu_readback_staging: Vec::new(),
 				gpu_input_uploaded: false,
 				gpu_data: null_mut(),
+				gpu_device_ready: false,
 				options_button_name: None,
+				ui_contexts: HashMap::new(),
+				custom_ui_ready: std::collections::HashSet::new(),
+				custom_controls: HashMap::new(),
 				supported_pixel_formats: Vec::new(),
 				mask_paths: Vec::new(),
 				linked_layers: HashMap::new(),
 				layer_checkouts: HashMap::new(),
 				parallel_iterate: true,
 				owned_arb_values: Vec::new(),
+				arb_streams_live: false,
 				observer: None,
 				strict: crate::Strict::default(),
 				tracker: Default::default(),
@@ -1663,6 +2111,7 @@ impl PluginInstance {
 
 	/// Call the plugin with `PF_Cmd_PARAMS_SETUP` command.
 	fn setup_params(&mut self) -> Result<()> {
+		self.arb_streams_live = false;
 		self.call_plugin(RawCommand::ParamsSetup, null_mut())
 	}
 
@@ -1710,6 +2159,7 @@ impl PluginInstance {
 			self.params[index].u.arb_d.value = value;
 			self.owned_arb_values.push(index);
 		}
+		self.arb_streams_live = true;
 	}
 
 	/// Hand the arbitrary-data values created by [`Self::setup_arbitrary_params`]
@@ -1777,25 +2227,38 @@ impl PluginInstance {
 		info.entry_point_name
 	}
 
-	/// Resolve the plugin's entry point, preferring the name declared via
-	/// [`Self::query_declared_entry_point`] and falling back to
-	/// [`FALLBACK_ENTRY_POINT_CANDIDATES`] if that's unavailable or unresolvable.
+	/// Resolve the plugin's entry point. `PluginDataEntryFunction2` wins, then the
+	/// platform symbol recorded in the PiPL resource, then [`FALLBACK_ENTRY_POINT_CANDIDATES`].
 	fn resolve_entry_point(
 		lib: &Library,
 		pica: &after_effects_sys::SPBasicSuite,
+		binary: &Path,
 	) -> Result<(PluginEntryPoint, String)> {
 		let declared = Self::query_declared_entry_point(lib, pica);
-		let candidates = declared
-			.as_deref()
-			.into_iter()
-			.chain(FALLBACK_ENTRY_POINT_CANDIDATES.iter().copied());
+		let from_pipl = std::fs::read(binary)
+			.ok()
+			.and_then(|bytes| crate::pipl::entry_point_name(&bytes));
+		if let Some(name) = &from_pipl {
+			log::debug!("PiPL entry point '{name}'.");
+		}
+		let mut names = Vec::new();
+		for name in declared.into_iter().chain(from_pipl) {
+			if !names.iter().any(|existing: &String| existing == &name) {
+				names.push(name);
+			}
+		}
+		for name in FALLBACK_ENTRY_POINT_CANDIDATES {
+			if !names.iter().any(|existing| existing == name) {
+				names.push((*name).to_string());
+			}
+		}
 
 		let mut last_error = None;
-		for candidate in candidates {
+		for candidate in &names {
 			match unsafe { lib.symbol::<PluginEntryPoint>(candidate) } {
 				Ok(symbol) => {
 					log::info!("Resolved entry point '{}'.", candidate.blue());
-					return Ok((symbol, candidate.to_string()));
+					return Ok((symbol, candidate.clone()));
 				}
 				Err(err) => {
 					log::debug!("Entry point symbol '{}' not resolved: {}", candidate, err);
@@ -1868,7 +2331,7 @@ impl PluginInstance {
 		log::info!("Loading plugin from '{}'.", module_path_str.blue());
 
 		let lib = Library::open(&module_path)?;
-		let (entry_point, resolved_name) = Self::resolve_entry_point(&lib, self.pica.as_ref())?;
+		let (entry_point, resolved_name) = Self::resolve_entry_point(&lib, self.pica.as_ref(), &module_path)?;
 
 		self.entry_point = Some(entry_point);
 		self.entry_point_name = Some(resolved_name.clone());
@@ -1904,7 +2367,12 @@ impl PluginInstance {
 	/// non-`PF_Err_NONE` code.
 	fn call_plugin(&mut self, command: RawCommand, extra_data: *mut ::std::os::raw::c_void) -> Result<()> {
 		let entry_point = self.entry_point.ok_or(AexloError::PluginNotLoaded)?;
+		if !matches!(command, RawCommand::SequenceSetdown | RawCommand::GlobalSetdown) {
+			crate::suites::register::dispatch_idle(self.aegp_owner);
+		}
+		let _aegp_scope = crate::suites::register::enter_owner(self.aegp_owner);
 		let effect_ref = self as *mut _ as PF_ProgPtr;
+		let _current_effect = crate::suites::enter_effect(effect_ref);
 
 		let entry_point_name = self.entry_point_name.as_deref().unwrap_or(DEFAULT_ENTRY_POINT_NAME);
 
@@ -1952,7 +2420,8 @@ impl PluginInstance {
 			.and_then(|_| self.tracker.lock().ok().map(|mut t| t.begin(name)));
 
 		let result = crate::suites::iterate::with_parallel_iterate(self.parallel_iterate, || unsafe {
-			entry_point(
+			call_entry(
+				entry_point,
 				command,
 				&mut in_data,
 				&mut self.out_data,
@@ -2028,6 +2497,7 @@ impl PluginInstance {
 		// The entry point is missing only when `try_load` failed to resolve it,
 		// in which case the plugin was never set up.
 		if self.entry_point.is_none() || self.torn_down {
+			crate::suites::register::remove_owner(self.aegp_owner);
 			return;
 		}
 		self.torn_down = true;
@@ -2050,6 +2520,7 @@ impl PluginInstance {
 		if let Err(err) = self.call_plugin(RawCommand::GlobalSetdown, null_mut()) {
 			log::warn!("PF_Cmd_GLOBAL_SETDOWN failed during drop: {err:?}");
 		}
+		crate::suites::register::remove_owner(self.aegp_owner);
 		if let Ok(mut tracker) = self.tracker.lock() {
 			tracker.torn_down();
 		}
@@ -2059,6 +2530,69 @@ impl PluginInstance {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn initial_size_is_visible_during_sequence_setup() {
+		use std::sync::atomic::{AtomicI32, Ordering};
+		static WIDTH_SEEN: AtomicI32 = AtomicI32::new(0);
+		static HEIGHT_SEEN: AtomicI32 = AtomicI32::new(0);
+		unsafe extern "C" fn entry(
+			cmd: RawCommand,
+			input: *mut after_effects_sys::PF_InData,
+			_output: *mut after_effects_sys::PF_OutData,
+			_params: after_effects_sys::PF_ParamList,
+			_world: *mut after_effects_sys::PF_LayerDef,
+			_extra: *mut c_void,
+		) -> after_effects_sys::PF_Err {
+			if matches!(cmd, RawCommand::SequenceSetup) {
+				WIDTH_SEEN.store(unsafe { (*input).width }, Ordering::SeqCst);
+				HEIGHT_SEEN.store(unsafe { (*input).height }, Ordering::SeqCst);
+			}
+			PF_Err_NONE as after_effects_sys::PF_Err
+		}
+		let mut fx = PluginInstance::new_sized(Path::new("<test>"), 768, 432);
+		fx.entry_point = Some(entry);
+		fx.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_owned());
+		fx.finalize().unwrap();
+		assert_eq!(WIDTH_SEEN.load(Ordering::SeqCst), 768);
+		assert_eq!(HEIGHT_SEEN.load(Ordering::SeqCst), 432);
+		assert_eq!(fx.output_size(), (768, 432));
+	}
+
+	#[test]
+	fn initial_input_and_distinct_output_are_visible_in_all_setup_commands() {
+		use std::sync::atomic::{AtomicUsize, Ordering};
+		static CHECKED: AtomicUsize = AtomicUsize::new(0);
+		unsafe extern "C" fn entry(
+			cmd: RawCommand,
+			input: *mut after_effects_sys::PF_InData,
+			_output: *mut after_effects_sys::PF_OutData,
+			_params: after_effects_sys::PF_ParamList,
+			world: *mut after_effects_sys::PF_LayerDef,
+			_extra: *mut c_void,
+		) -> after_effects_sys::PF_Err {
+			if matches!(
+				cmd,
+				RawCommand::GlobalSetup | RawCommand::ParamsSetup | RawCommand::SequenceSetup
+			) {
+				let (iw, ih, ow, oh) = unsafe { ((*input).width, (*input).height, (*world).width, (*world).height) };
+				if (iw, ih, ow, oh) == (19, 13, 37, 23) {
+					CHECKED.fetch_add(1, Ordering::SeqCst);
+				}
+			}
+			PF_Err_NONE as after_effects_sys::PF_Err
+		}
+		CHECKED.store(0, Ordering::SeqCst);
+		let input = AnyLayer::filled(PixelDepthKind::U16, 19, 13, OPAQUE_BLACK);
+		let mut fx = PluginInstance::new_with_initial(Path::new("<test>"), input, (37, 23)).unwrap();
+		fx.entry_point = Some(entry);
+		fx.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_owned());
+		fx.finalize().unwrap();
+		assert_eq!(CHECKED.load(Ordering::SeqCst), 3);
+		assert_eq!(fx.input_size(), (19, 13));
+		assert_eq!(fx.output_size(), (37, 23));
+		assert_eq!(fx.input_layer.kind(), PixelDepthKind::U16);
+	}
 
 	/// A zeroed `PF_ParamDef` of the given type, bypassing `add_instance_param`'s
 	/// default-normalisation concerns (all defaults are zero anyway).
@@ -2177,5 +2711,40 @@ mod tests {
 		let raw = unsafe { fx.param_by_index(1).unwrap().u.fd.value };
 		assert_eq!(raw, 2 * 65536 + 32768);
 		assert_eq!(fx.get_param(1), Some(ParamValue::Fixed(2.5)));
+	}
+
+	#[test]
+	fn custom_ui_click_sees_the_context_from_new_context() {
+		use std::sync::atomic::{AtomicU32, Ordering};
+		static CLICK: AtomicU32 = AtomicU32::new(0);
+		unsafe extern "C" fn entry(
+			cmd: RawCommand,
+			_input: *mut after_effects_sys::PF_InData,
+			_output: *mut after_effects_sys::PF_OutData,
+			_params: after_effects_sys::PF_ParamList,
+			_world: *mut after_effects_sys::PF_LayerDef,
+			extra: *mut c_void,
+		) -> after_effects_sys::PF_Err {
+			if matches!(cmd, RawCommand::Event) && !extra.is_null() {
+				let extra = unsafe { &*(extra.cast::<after_effects_sys::PF_EventExtra>()) };
+				let context = unsafe { *extra.contextH };
+				if context.is_null() {
+					CLICK.store(3, Ordering::SeqCst);
+				} else if extra.e_type == after_effects_sys::PF_Event_NEW_CONTEXT {
+					unsafe { (*context).plugin_state[0] = 0xA11 };
+				} else if extra.e_type == after_effects_sys::PF_Event_DO_CLICK {
+					let stamp = unsafe { (*context).plugin_state[0] };
+					CLICK.store(if stamp == 0xA11 { 1 } else { 2 }, Ordering::SeqCst);
+				}
+			}
+			PF_Err_NONE as after_effects_sys::PF_Err
+		}
+		CLICK.store(0, Ordering::SeqCst);
+		let mut fx = PluginInstance::new_sized(Path::new("<test>"), 64, 64);
+		fx.entry_point = Some(entry);
+		fx.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_owned());
+		fx.finalize().unwrap();
+		fx.click_custom_control(1, 4, 4, 32, 16).unwrap();
+		assert_eq!(CLICK.load(Ordering::SeqCst), 1);
 	}
 }

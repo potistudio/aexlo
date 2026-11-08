@@ -42,14 +42,29 @@ mod host;
 mod instance;
 mod mask;
 mod observe;
-mod strict;
 mod param_value;
+mod pipl;
+mod strict;
 mod utils;
 
 pub(crate) mod suites;
 
 pub use core::error::{AexloError, Result};
-pub use instance::PluginInstance;
+pub use instance::{CustomControlEvent, CustomControlImage, PluginInstance};
+
+/// Window plugins should treat as After Effects' main window
+/// (`PF_PlatData_MAIN_WND`).
+///
+/// Editors parented here stay invisible while this window is hidden. A GUI
+/// host passes its own visible window; `null` falls back to a host window.
+pub fn set_main_window(hwnd: *mut std::ffi::c_void) {
+	#[cfg(windows)]
+	crate::host::utility::set_main_window(hwnd);
+	#[cfg(not(windows))]
+	{
+		let _ = hwnd;
+	}
+}
 
 /// Entry point ABI for driving an in-process effect via
 /// [`Host::from_entry`].
@@ -98,6 +113,6 @@ pub use wrapper::{AnyLayer, Depth8, Depth16, Depth32, Layer, LayerError, Pixel, 
 
 /// Observation hooks ([`PluginInstance::set_observer`]).
 pub use observe::{
-	AllocationEvent, AllocationKind, CheckoutEvent, CheckoutKind, CommandEvent, CommandPhase, LogObserver, ObserveLevel, Observer,
-	SuiteCallEvent, command_name,
+	AllocationEvent, AllocationKind, CheckoutEvent, CheckoutKind, CommandEvent, CommandPhase, LogObserver,
+	ObserveLevel, Observer, SuiteCallEvent, command_name,
 };

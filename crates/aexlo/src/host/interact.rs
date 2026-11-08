@@ -29,11 +29,6 @@ unsafe extern "C" fn checkout_param_stub(
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	}
 
-	if index == 0 {
-		log::warn!("checkout_param: index 0 is reserved for input layer");
-		return PF_Err_INVALID_INDEX as PF_Err;
-	}
-
 	//== Implementation ==//
 	// Never panic here: unwinding across the plugin's C frames is UB, so an
 	// unknown effect_ref is reported as a callback error instead.
@@ -47,7 +42,12 @@ unsafe extern "C" fn checkout_param_stub(
 	let instance = unsafe { instance.as_ref() };
 
 	if index >= instance.param_count() {
-		log::error!(
+		// The plugin passed this struct uninitialized and reads it back even
+		// after the error (Universe Glow does, then frees whatever handle it
+		// finds). Handing back the stack garbage corrupts the heap, so the
+		// failed checkout reads as an empty parameter.
+		unsafe { param.write(std::mem::zeroed()) };
+		log::debug!(
 			"checkout_param: index {} out of bounds (total={})",
 			index,
 			instance.param_count()
@@ -139,8 +139,19 @@ unsafe extern "C" fn progress_stub(effect_ref: PF_ProgPtr, current: A_long, tota
 /// Accept a custom-UI registration. aexlo has no UI and never sends
 /// `PF_Cmd_EVENT`, so the registration has nothing to drive; succeeding lets
 /// plugins with custom controls (e.g. status readouts) set up normally.
-unsafe extern "C" fn register_ui_stub(_effect_ref: PF_ProgPtr, _custom_info: *mut PF_CustomUIInfo) -> PF_Err {
-	log::debug!("register_ui: custom UI accepted (headless host, no events are sent)");
+unsafe extern "C" fn register_ui_stub(_effect_ref: PF_ProgPtr, custom_info: *mut PF_CustomUIInfo) -> PF_Err {
+	if let Some(info) = unsafe { custom_info.as_ref() } {
+		log::info!(
+			"register_ui: events={:#x} comp={}x{} layer={}x{} preview={}x{}",
+			info.events,
+			info.comp_ui_width,
+			info.comp_ui_height,
+			info.layer_ui_width,
+			info.layer_ui_height,
+			info.preview_ui_width,
+			info.preview_ui_height
+		);
+	}
 	PF_Err_NONE as PF_Err
 }
 

@@ -393,7 +393,7 @@ unsafe extern "C" fn aegp_noop_ok_stub() -> A_Err {
 }
 
 unsafe extern "C" fn aegp_register_with_aegp_stub(
-	_global_refcon: AEGP_GlobalRefcon,
+	global_refcon: AEGP_GlobalRefcon,
 	plugin_nameZ: *const A_char,
 	plugin_id: *mut AEGP_PluginID,
 ) -> A_Err {
@@ -409,7 +409,11 @@ unsafe extern "C" fn aegp_register_with_aegp_stub(
 	}
 
 	unsafe {
-		*plugin_id = NEXT_AEGP_PLUGIN_ID.fetch_add(1, Ordering::Relaxed);
+		let id = NEXT_AEGP_PLUGIN_ID.fetch_add(1, Ordering::Relaxed);
+		if !crate::suites::register::register_plugin(id, global_refcon) {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		*plugin_id = id;
 	}
 
 	PF_Err_NONE as A_Err

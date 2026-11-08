@@ -89,7 +89,7 @@ Rust プラグインでは `aexlo-test` を開発用依存関係に追加する�
 
 ## 実装の進捗
 
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 91% (32/35)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 89% (32/36)
 
 > ○ 実装済み / △ 一部実装 / × 未実装
 
@@ -105,7 +105,7 @@ Rust プラグインでは `aexlo-test` を開発用依存関係に追加する�
 | ○ Iterate8         | ○ Path Data                      |                   |                   |
 | ○ Iterate16        | ○ Path Query                     |                   |                   |
 | ○ IterateFloat     | ○ PointParam                     |                   |                   |
-| ○ Pixel Data       |                                  |                   |                   |
+| ○ Pixel Data       | × Effect Sequence Data           |                   |                   |
 | ○ Pixel Format     |                                  |                   |                   |
 | ○ Sampling8        |                                  |                   |                   |
 | ○ Sampling16       |                                  |                   |                   |
@@ -113,9 +113,42 @@ Rust プラグインでは `aexlo-test` を開発用依存関係に追加する�
 | ○ World            |                                  |                   |                   |
 | ○ World Transform  |                                  |                   |                   |
 
-△ Effect Custom UI / Overlay Theme：aexlo は `PF_Cmd_EVENT` を送信しないため、描画コンテキストがありません。テーマの値は提供しますが、描画呼び出しでは何も描画しません。
+△ Effect Custom UI / Overlay Theme：テーマの値は返します。Drawbot は `PF_Event_DRAW` のあいだ描画します。CLI は `PF_Cmd_EVENT` を送らず、埋め込み側が送ります。
 
 △ Channel：レイヤーは通常の 2D 画像であり、補助チャンネルはないものとして応答します。
+
+### AEGP
+
+⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 11% (4/36)
+
+| Project        | Streams           | Pixels                 | その他                 |
+| -------------- | ----------------- | ---------------------- | ---------------------- |
+| △ Layer        | △ Stream          | ○ World                | △ Color Settings       |
+| △ Comp         | △ Dynamic Stream  | ○ Memory               | △ Register             |
+| △ Item         | △ Keyframe        | ○ Iterate              | △ Utility              |
+| △ Light        | ○ Persistent Data | △ Render               | × Camera               |
+| △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
+| △ PF Interface | × Mask Outline    | △ Layer Render Options | × Math                 |
+| × Proj         | × Text Document   | × Composite            | × Compute Cache        |
+| × Footage      | × Text Layer      | × Canvas               | × Hash                 |
+| × Collection   |                   | × Sound Data           | × Render Async Manager |
+| × Marker       |                   |                        |                        |
+
+△ Layer / Comp / Item / Light / Effect / PF Interface / Stream / Dynamic Stream / Keyframe：コンポジションそのものである固定の 1 レイヤーを返し、キーフレームはありません。
+△ Render / Render Options / Layer Render Options：チェックアウトはエフェクト自身の入力を返します。
+△ Color Settings：作業用スペースは sRGB で、カラーマネジメントはしません。
+△ Register：アイドルフックは記録しますが、呼びません。
+△ Utility：`AEGP_ExecuteScript` はスクリプトを実行しません。
+
+### Drawbot
+
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ 100% (6/6)
+
+| ○ Draw | ○ Supplier | ○ Surface | ○ Path |
+| ------ | ---------- | --------- | ------ |
+| ○ Pen  | ○ Image    |           |        |
+
+文字は OS のサンセリフを使います。見つからないとき、`DrawString` は何も描きません。
 
 ## ライセンス
 

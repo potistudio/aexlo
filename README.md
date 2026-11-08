@@ -97,7 +97,7 @@ in-process `#[aexlo::test]`s with frame assertions.
 
 ## Implementation Progress
 
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 91% (32/35)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 89% (32/36)
 
 > ○ fully implemented / △ only partially implemented / × not implemented
 
@@ -113,7 +113,7 @@ in-process `#[aexlo::test]`s with frame assertions.
 | ○ Iterate8         | ○ Path Data                      |                   |                   |
 | ○ Iterate16        | ○ Path Query                     |                   |                   |
 | ○ IterateFloat     | ○ PointParam                     |                   |                   |
-| ○ Pixel Data       |                                  |                   |                   |
+| ○ Pixel Data       | × Effect Sequence Data           |                   |                   |
 | ○ Pixel Format     |                                  |                   |                   |
 | ○ Sampling8        |                                  |                   |                   |
 | ○ Sampling16       |                                  |                   |                   |
@@ -121,9 +121,42 @@ in-process `#[aexlo::test]`s with frame assertions.
 | ○ World            |                                  |                   |                   |
 | ○ World Transform  |                                  |                   |                   |
 
-△ Effect Custom UI / Overlay Theme: aexlo never sends `PF_Cmd_EVENT`, so there is
-no drawing context; theme values are served, drawing calls draw nothing.
+△ Effect Custom UI / Overlay Theme: theme values are served, and Drawbot draws
+during `PF_Event_DRAW`. The CLI never sends `PF_Cmd_EVENT`; an embedder does.
 △ Channel: layers are plain 2D images and report no auxiliary channels.
+
+### AEGP
+
+⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 11% (4/36)
+
+| Project        | Streams           | Pixels                 | Other                  |
+| -------------- | ----------------- | ---------------------- | ---------------------- |
+| △ Layer        | △ Stream          | ○ World                | △ Color Settings       |
+| △ Comp         | △ Dynamic Stream  | ○ Memory               | △ Register             |
+| △ Item         | △ Keyframe        | ○ Iterate              | △ Utility              |
+| △ Light        | ○ Persistent Data | △ Render               | × Camera               |
+| △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
+| △ PF Interface | × Mask Outline    | △ Layer Render Options | × Math                 |
+| × Proj         | × Text Document   | × Composite            | × Compute Cache        |
+| × Footage      | × Text Layer      | × Canvas               | × Hash                 |
+| × Collection   |                   | × Sound Data           | × Render Async Manager |
+| × Marker       |                   |                        |                        |
+
+△ Layer / Comp / Item / Light / Effect / PF Interface / Stream / Dynamic Stream / Keyframe: the project is aexlo's fixed one-layer comp, with no keyframes.
+△ Render / Render Options / Layer Render Options: checkout returns the effect's own input.
+△ Color Settings: the working space is sRGB, with no colour management.
+△ Register: idle hooks are recorded and never called.
+△ Utility: `AEGP_ExecuteScript` does not run the script.
+
+### Drawbot
+
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ 100% (6/6)
+
+| ○ Draw | ○ Supplier | ○ Surface | ○ Path |
+| ------ | ---------- | --------- | ------ |
+| ○ Pen  | ○ Image    |           |        |
+
+Text uses a system sans-serif. `DrawString` draws nothing when none is installed.
 
 ## License
 

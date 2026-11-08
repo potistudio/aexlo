@@ -34,6 +34,45 @@ fn fixture_path(plugin_name: &str) -> PathBuf {
 	fixtures_dir().join(format!("{plugin_name}.{extension}"))
 }
 
+/// One plugin the sidebar can load: a bundled fixture or a file the user picked.
+#[derive(Clone)]
+struct PluginChoice {
+	label: String,
+	path: PathBuf,
+}
+
+fn bundled_plugins() -> Vec<PluginChoice> {
+	list_fixtures()
+		.into_iter()
+		.map(|name| PluginChoice {
+			path: fixture_path(&name),
+			label: name,
+		})
+		.collect()
+}
+
+fn choice_for_path(path: &std::path::Path) -> PluginChoice {
+	let label = path
+		.file_stem()
+		.map(|stem| stem.to_string_lossy().into_owned())
+		.unwrap_or_else(|| path.display().to_string());
+	PluginChoice {
+		label,
+		path: path.to_path_buf(),
+	}
+}
+
+fn pick_plugin_path() -> Option<PathBuf> {
+	let extensions: &[&str] = if cfg!(target_os = "windows") {
+		&["aex"]
+	} else {
+		&["plugin"]
+	};
+	rfd::FileDialog::new()
+		.add_filter("After Effects plugin", extensions)
+		.pick_file()
+}
+
 /// List the available fixture names (file stems), sorted, so the sidebar can
 /// offer them in a picker.
 fn list_fixtures() -> Vec<String> {
@@ -79,6 +118,22 @@ fn param_name(instance: &PluginInstance, index: usize) -> String {
 		.unwrap_or_else(|| format!("Param {index}"))
 }
 
+/// A `PF_Param_BUTTON` that is not drawn by the plugin itself.
+struct ButtonControl {
+	index: usize,
+	name: String,
+	enabled: bool,
+}
+
+/// Pixels of one custom-UI control, ready to show in the sidebar.
+struct CustomView {
+	index: usize,
+	name: String,
+	width: u32,
+	height: u32,
+	rgba: Vec<u8>,
+}
+
 /// One editable parameter surfaced in the sidebar.
 struct ParamControl {
 	index: usize,
@@ -105,13 +160,37 @@ fn main() -> eframe::Result<()> {
 	eframe::run_native(
 		"aexlo-playground",
 		options,
-		Box::new(move |_cc| Ok(Box::new(AexloApp::new(&requested)))),
+		Box::new(move |cc| {
+			// Plugins parent editors on this window. It has to be set before
+			// load, because some effects cache `PF_PlatData_MAIN_WND`.
+			publish_main_window(cc);
+			Ok(Box::new(AexloApp::new(&requested)))
+		}),
 	)
 }
 
+/// Hand the playground's HWND to the host as `PF_PlatData_MAIN_WND`.
+fn publish_main_window(handle: &impl raw_window_handle::HasWindowHandle) {
+	#[cfg(windows)]
+	{
+		use raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
+		let Ok(window) = handle.window_handle() else {
+			return;
+		};
+		let RawWindowHandle::Win32(win) = window.as_raw() else {
+			return;
+		};
+		aexlo::set_main_window(win.hwnd.get() as *mut std::ffi::c_void);
+	}
+	#[cfg(not(windows))]
+	{
+		let _ = handle;
+	}
+}
+
 struct AexloApp {
-	/// Available fixture names and the currently selected index.
-	plugins: Vec<String>,
+	/// Available plugins and the currently selected index.
+	plugins: Vec<PluginChoice>,
 	selected: usize,
 
 	/// Loaded plugin and its state.
@@ -119,6 +198,11 @@ struct AexloApp {
 	error: Option<String>,
 	render_error: Option<String>,
 	smart_render: bool,
+	has_custom_ui: bool,
+	custom_views: Vec<CustomView>,
+	custom_animate: bool,
+	buttons: Vec<ButtonControl>,
+	options_label: Option<String>,
 	total_params: usize,
 	params: Vec<ParamControl>,
 
@@ -136,6 +220,15 @@ struct AexloApp {
 	auto_render: bool,
 	needs_render: bool,
 
+	/// True while the pointer is down on a custom control, so mouse-down
+	/// sends one `PF_Event_DO_CLICK`.
+	custom_pointer_down: bool,
+	/// The control asked for `PF_Event_DRAG` through mouse-up. A click that
+	/// does not move still has to deliver that mouse-up, with `last_time` set.
+	custom_send_drag: bool,
+	/// Last point over the custom control, used for the mouse-up sample.
+	custom_last: Option<CustomPointer>,
+
 	/// FPS tracking.
 	fps: f32,
 	frame_count: u32,
@@ -144,8 +237,19 @@ struct AexloApp {
 
 impl AexloApp {
 	fn new(requested: &str) -> Self {
-		let plugins = list_fixtures();
-		let selected = plugins.iter().position(|name| name == requested).unwrap_or(0);
+		let mut plugins = bundled_plugins();
+		let requested_path = PathBuf::from(requested);
+		let selected = if requested_path.exists() {
+			match plugins.iter().position(|plugin| plugin.path == requested_path) {
+				Some(index) => index,
+				None => {
+					plugins.insert(0, choice_for_path(&requested_path));
+					0
+				}
+			}
+		} else {
+			plugins.iter().position(|plugin| plugin.label == requested).unwrap_or(0)
+		};
 
 		let mut app = Self {
 			plugins,
@@ -154,6 +258,11 @@ impl AexloApp {
 			error: None,
 			render_error: None,
 			smart_render: false,
+			has_custom_ui: false,
+			custom_views: Vec::new(),
+			custom_animate: false,
+			buttons: Vec::new(),
+			options_label: None,
 			total_params: 0,
 			params: Vec::new(),
 			input: load_input_image(),
@@ -163,6 +272,9 @@ impl AexloApp {
 			texture: None,
 			auto_render: true,
 			needs_render: true,
+			custom_pointer_down: false,
+			custom_send_drag: false,
+			custom_last: None,
 			fps: 0.0,
 			frame_count: 0,
 			fps_update_time: std::time::Instant::now(),
@@ -180,31 +292,130 @@ impl AexloApp {
 	/// (Re)load the plugin at `self.selected`, apply the input image, and refresh
 	/// the parameter list.
 	fn load_selected(&mut self) {
-		let name = self.plugins[self.selected].clone();
-		let path = fixture_path(&name);
-		log::info!("Loading plugin '{name}' from {:?}", path);
+		let choice = self.plugins[self.selected].clone();
+		log::info!("Loading plugin '{}' from {:?}", choice.label, choice.path);
 
-		match aexlo::Host::get().try_load(&path) {
+		match aexlo::Host::get().try_load(&choice.path) {
 			Ok(mut instance) => {
-				if let Err(e) = instance.about() {
-					log::warn!("about() failedor '{name}': {e}");
-				}
+				// `PF_Cmd_ABOUT` can open a modal dialog (Looks does). Leave that
+				// to an explicit action so the playground can finish starting.
 				self.apply_input(&mut instance);
 				self.smart_render = instance.supports_smart_render();
+				self.has_custom_ui = instance.has_custom_ui();
 				self.total_params = instance.param_count();
+				self.options_label = instance.has_options_button().then(|| {
+					instance
+						.options_button_name()
+						.filter(|name| !name.is_empty())
+						.unwrap_or("Options")
+						.to_string()
+				});
 				self.instance = Some(instance);
 				self.error = None;
 				self.render_error = None;
 				self.refresh_params();
-				self.needs_render = true;
+				self.refresh_buttons();
+				self.refresh_custom_views();
+				// Drawing the control is enough to show a custom UI. Rendering a
+				// frame immediately can stall before that control is usable.
+				self.auto_render = !self.has_custom_ui;
+				self.needs_render = !self.has_custom_ui;
 			}
 			Err(e) => {
-				log::error!("Failed to load '{name}': {e}");
+				log::error!("Failed to load '{}': {e}", choice.label);
 				self.instance = None;
+				self.has_custom_ui = false;
+				self.custom_views.clear();
+				self.custom_animate = false;
+				self.buttons.clear();
+				self.options_label = None;
 				self.error = Some(e.to_string());
 				self.params.clear();
 				self.total_params = 0;
 			}
+		}
+	}
+
+	fn load_path(&mut self, path: PathBuf) {
+		if let Some(index) = self.plugins.iter().position(|plugin| plugin.path == path) {
+			self.selected = index;
+		} else {
+			self.plugins.insert(0, choice_for_path(&path));
+			self.selected = 0;
+		}
+		self.load_selected();
+	}
+
+	fn refresh_custom_views(&mut self) {
+		self.custom_views.clear();
+		self.custom_animate = false;
+		let Some(instance) = self.instance.as_mut() else {
+			return;
+		};
+		let controls: Vec<(usize, String)> = (0..instance.param_count())
+			.filter(|index| instance.param_has_custom_ui(*index))
+			.map(|index| (index, param_name(instance, index)))
+			.collect();
+		for (index, name) in controls {
+			// Draw at the size the plugin declared; 320x80 stands in for an
+			// edge it leaves to the panel.
+			let (width, height) = instance.custom_control_size(index).unwrap_or_default();
+			match instance.draw_custom_control(index, width.unwrap_or(320), height.unwrap_or(80)) {
+				Ok(again) => self.custom_animate |= again,
+				Err(err) => log::warn!("draw custom control {index}: {err}"),
+			}
+			if let Some(image) = instance.custom_control_image(index) {
+				self.custom_views.push(CustomView {
+					index,
+					name,
+					width: image.width,
+					height: image.height,
+					rgba: image.rgba.clone(),
+				});
+			}
+		}
+	}
+
+	fn refresh_buttons(&mut self) {
+		self.buttons.clear();
+		let Some(instance) = &self.instance else {
+			return;
+		};
+		for index in 1..instance.param_count() {
+			if instance.param_kind(index) != Some(aexlo::ParamKind::Button) {
+				continue;
+			}
+			if instance.param_hidden(index) || instance.param_has_custom_ui(index) {
+				continue;
+			}
+			self.buttons.push(ButtonControl {
+				index,
+				name: param_name(instance, index),
+				enabled: !instance.param_disabled(index),
+			});
+		}
+	}
+
+	fn press_button(&mut self, index: usize) {
+		let Some(instance) = self.instance.as_mut() else {
+			return;
+		};
+		if let Err(err) = instance.user_changed_param(index) {
+			self.render_error = Some(err.to_string());
+			return;
+		}
+		if let Err(err) = instance.update_params_ui() {
+			log::debug!("update_params_ui failed: {err}");
+		}
+		self.needs_render = true;
+	}
+
+	fn press_options(&mut self) {
+		let Some(instance) = self.instance.as_mut() else {
+			return;
+		};
+		if let Err(err) = instance.do_dialog() {
+			self.render_error = Some(err.to_string());
 		}
 	}
 
@@ -302,17 +513,26 @@ impl AexloApp {
 
 				// Plugin picker.
 				ui.label("Plugin");
-				let current = self.plugins.get(self.selected).cloned().unwrap_or_default();
+				let current = self
+					.plugins
+					.get(self.selected)
+					.map(|plugin| plugin.label.clone())
+					.unwrap_or_default();
 				egui::ComboBox::from_id_salt("plugin-picker")
 					.selected_text(current)
 					.width(240.0)
 					.show_ui(ui, |ui| {
-						for (i, name) in self.plugins.iter().enumerate() {
-							if ui.selectable_label(i == self.selected, name).clicked() && i != self.selected {
+						for (i, plugin) in self.plugins.iter().enumerate() {
+							if ui.selectable_label(i == self.selected, &plugin.label).clicked() && i != self.selected {
 								actions.select = Some(i);
 							}
 						}
 					});
+				if ui.button("Load plugin…").clicked()
+					&& let Some(path) = pick_plugin_path()
+				{
+					actions.load_path = Some(path);
+				}
 
 				ui.separator();
 
@@ -354,6 +574,80 @@ impl AexloApp {
 				ui.separator();
 
 				// Parameters.
+				if let Some(label) = &self.options_label
+					&& ui.button(label).clicked()
+				{
+					actions.options = true;
+				}
+				for button in &self.buttons {
+					if ui
+						.add_enabled(button.enabled, egui::Button::new(&button.name))
+						.clicked()
+					{
+						actions.press_button = Some(button.index);
+					}
+				}
+				if self.options_label.is_some() || !self.buttons.is_empty() {
+					ui.separator();
+				}
+
+				if !self.custom_views.is_empty() {
+					ui.heading("Custom controls");
+					for view in &self.custom_views {
+						ui.label(&view.name);
+						let image = egui::ColorImage::from_rgba_unmultiplied(
+							[view.width as usize, view.height as usize],
+							&view.rgba,
+						);
+						let texture = ui.ctx().load_texture(
+							format!("custom-ui-{}", view.index),
+							image,
+							egui::TextureOptions::LINEAR,
+						);
+						let response = ui.add(
+							egui::Image::new(&texture)
+								.fit_to_exact_size(egui::vec2(view.width as f32, view.height as f32))
+								.sense(egui::Sense::click_and_drag()),
+						);
+						let pos = response.interact_pointer_pos().or_else(|| response.hover_pos());
+						if let Some(pos) = pos {
+							let rect = response.rect;
+							let x = ((pos.x - rect.left()) / rect.width().max(1.0) * view.width as f32) as i32;
+							let y = ((pos.y - rect.top()) / rect.height().max(1.0) * view.height as f32) as i32;
+							let pointer = CustomPointer {
+								index: view.index,
+								x,
+								y,
+								width: view.width,
+								height: view.height,
+								drag: false,
+								last: false,
+							};
+							self.custom_last = Some(pointer.clone());
+							// After Effects sends DO_CLICK when the mouse goes down.
+							// If the plugin sets send_drag, DRAG follows until mouse-up,
+							// and that last sample is what commits a click.
+							if self.custom_pointer_down && self.custom_send_drag && response.dragged() {
+								actions.custom_pointer = Some(CustomPointer { drag: true, ..pointer });
+							} else if self.custom_pointer_down && self.custom_send_drag && response.drag_stopped() {
+								actions.custom_pointer = Some(CustomPointer {
+									drag: true,
+									last: true,
+									..pointer
+								});
+							} else if !self.custom_pointer_down
+								&& (response.is_pointer_button_down_on() || response.clicked())
+							{
+								actions.custom_pointer = Some(pointer);
+							}
+							if response.is_pointer_button_down_on() {
+								self.custom_pointer_down = true;
+							}
+						}
+					}
+					ui.separator();
+				}
+
 				ui.heading("🎛 Parameters");
 				let editable = self.params.len();
 				ui.label(format!("{editable} editable of {} total", self.total_params));
@@ -373,17 +667,48 @@ impl AexloApp {
 				});
 			});
 
+		// A click that never moves does not produce a drag-stop. The plugin
+		// still needs the mouse-up sample when it set send_drag.
+		if self.custom_pointer_down && !ui.input(|input| input.pointer.any_down()) {
+			if self.custom_send_drag
+				&& actions.custom_pointer.is_none()
+				&& let Some(pointer) = self.custom_last.clone()
+			{
+				actions.custom_pointer = Some(CustomPointer {
+					drag: true,
+					last: true,
+					..pointer
+				});
+			}
+			self.custom_pointer_down = false;
+		}
+
 		actions
 	}
 }
 
 /// Deferred results from the controls panel, applied after the panel's borrow
 /// of `self` ends.
+#[derive(Clone, Default)]
+struct CustomPointer {
+	index: usize,
+	x: i32,
+	y: i32,
+	width: u32,
+	height: u32,
+	drag: bool,
+	last: bool,
+}
+
 #[derive(Default)]
 struct PanelActions {
 	select: Option<usize>,
+	load_path: Option<PathBuf>,
 	params_changed: bool,
 	render_once: bool,
+	options: bool,
+	press_button: Option<usize>,
+	custom_pointer: Option<CustomPointer>,
 }
 
 /// Render the right widget for a parameter and report whether it changed.
@@ -428,7 +753,8 @@ fn param_widget(ui: &mut egui::Ui, control: &mut ParamControl) -> bool {
 }
 
 impl eframe::App for AexloApp {
-	fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+		publish_main_window(frame);
 		self.update_fps();
 
 		let actions = self.controls_panel(ui);
@@ -436,6 +762,75 @@ impl eframe::App for AexloApp {
 		if let Some(index) = actions.select {
 			self.selected = index;
 			self.load_selected();
+		}
+		if let Some(path) = actions.load_path {
+			self.load_path(path);
+		}
+		if actions.options {
+			self.press_options();
+			self.refresh_params();
+			self.refresh_buttons();
+			self.refresh_custom_views();
+		}
+		if let Some(index) = actions.press_button {
+			self.press_button(index);
+			self.refresh_params();
+			self.refresh_buttons();
+			self.refresh_custom_views();
+		}
+		if let Some(pointer) = actions.custom_pointer {
+			let again = if let Some(instance) = self.instance.as_mut() {
+				let result = if pointer.drag {
+					instance.drag_custom_control(
+						pointer.index,
+						pointer.x,
+						pointer.y,
+						pointer.width,
+						pointer.height,
+						pointer.last,
+					)
+				} else {
+					instance.click_custom_control(pointer.index, pointer.x, pointer.y, pointer.width, pointer.height)
+				};
+				match result {
+					Ok(event) => {
+						let mut redraw = event.redraw;
+						// Press and release can land in one frame. The plugin
+						// still needs the mouse-up drag before we move on.
+						let released = !ui.input(|input| input.pointer.any_down());
+						if !pointer.drag && event.send_drag && released {
+							match instance.drag_custom_control(
+								pointer.index,
+								pointer.x,
+								pointer.y,
+								pointer.width,
+								pointer.height,
+								true,
+							) {
+								Ok(up) => redraw |= up.redraw,
+								Err(err) => self.render_error = Some(err.to_string()),
+							}
+							self.custom_send_drag = false;
+							self.custom_pointer_down = false;
+						} else {
+							self.custom_send_drag = event.send_drag && !pointer.last;
+						}
+						redraw
+					}
+					Err(err) => {
+						self.render_error = Some(err.to_string());
+						self.custom_send_drag = false;
+						false
+					}
+				}
+			} else {
+				false
+			};
+			self.refresh_params();
+			self.refresh_buttons();
+			self.refresh_custom_views();
+			self.custom_animate |= again;
+			self.needs_render = true;
 		}
 		if actions.params_changed {
 			self.apply_params();
@@ -471,7 +866,10 @@ impl eframe::App for AexloApp {
 		});
 
 		// Keep animating only when auto-render is on; otherwise repaint on demand.
-		if self.auto_render {
+		if self.auto_render || self.custom_animate {
+			if self.custom_animate {
+				self.refresh_custom_views();
+			}
 			ctx.request_repaint();
 		}
 	}

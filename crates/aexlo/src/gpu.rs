@@ -118,6 +118,9 @@ mod imp {
 		/// No-op: Metal has no notion of a thread-current context.
 		pub fn make_current(&self) {}
 
+		/// No-op: Metal has no thread-current context to release.
+		pub fn release_thread(&self) {}
+
 		/// Ensure a shared `MTLBuffer` of exactly `byte_len` bytes backs `world_ptr`,
 		/// (re)allocating when the size changed, and mark the world as a GPU world.
 		pub fn ensure_buffer(&mut self, world_ptr: usize, byte_len: usize) -> bool {
@@ -235,26 +238,38 @@ mod imp {
 	use std::sync::Arc;
 
 	use after_effects_sys::{PF_GPU_Framework, PF_GPU_Framework_CUDA};
-	use cudarc::driver::{CudaContext, CudaSlice, CudaStream, DevicePtr};
+	use cudarc::driver::result::stream::StreamKind;
+	use cudarc::driver::{CudaContext, CudaSlice, CudaStream, DevicePtr, sys};
 
 	use super::{register_gpu_world, unregister_gpu_world};
 
-	/// Owns the CUDA primary context and stream for one plugin instance plus the
+	/// Owns the CUDA primary context and streams for one plugin instance plus the
 	/// device buffers that back its GPU worlds.
 	///
 	/// `ctx` retains the device *primary* context (`cuDevicePrimaryCtxRetain`), so
 	/// CUDA *runtime* API calls made inside the plugin (`cudaMalloc`, kernel
-	/// launches) operate in the same context as our allocations. The stream is
-	/// handed to the plugin as `PF_GPUDeviceInfo::command_queuePV` (a
-	/// `cudaStream_t`), matching AE's convention that plugin kernels launch on the
-	/// host-provided stream.
+	/// launches) operate in the same context as our allocations. `stream` carries
+	/// aexlo's own transfers; `plugin_stream` is handed to the plugin as
+	/// `PF_GPUDeviceInfo::command_queuePV` (a `cudaStream_t`), matching AE's
+	/// convention that plugin kernels launch on the host-provided stream.
 	pub struct GpuContext {
 		ctx: Arc<CudaContext>,
 		stream: Arc<CudaStream>,
+		/// A blocking stream (`CU_STREAM_DEFAULT`), so work on it is implicitly
+		/// ordered against the legacy default stream. Plugins rely on that
+		/// ordering: on a non-blocking stream Magic Bullet Looks writes its output
+		/// before its Edge Softness blur has finished.
+		plugin_stream: sys::CUstream,
 		buffers: HashMap<usize, CudaSlice<u8>>,
 		/// Allocations handed out via `AllocateDeviceMemory`, keyed by their
 		/// `CUdeviceptr` so `FreeDeviceMemory` can release them.
 		raw_allocs: HashMap<usize, CudaSlice<u8>>,
+		/// Buffers the plugin has disposed of but whose memory is not yet freed.
+		/// Plugins dispose of scratch worlds while kernels that use them are still
+		/// queued on `plugin_stream`, and a free is ordered only on `stream`, so
+		/// they are freed once [`Self::wait_for_completion`] has drained the
+		/// context.
+		retired: Vec<CudaSlice<u8>>,
 	}
 
 	impl GpuContext {
@@ -283,12 +298,21 @@ mod imp {
 					return None;
 				}
 			};
+			let plugin_stream = match cudarc::driver::result::stream::create(StreamKind::Default) {
+				Ok(plugin_stream) => plugin_stream,
+				Err(err) => {
+					log::info!("CUDA stream creation failed ({err}); GPU rendering unavailable");
+					return None;
+				}
+			};
 
 			Some(Self {
 				ctx,
 				stream,
+				plugin_stream,
 				buffers: HashMap::new(),
 				raw_allocs: HashMap::new(),
+				retired: Vec::new(),
 			})
 		}
 
@@ -304,10 +328,10 @@ mod imp {
 			self.ctx.cu_device() as usize as *mut c_void
 		}
 
-		/// The raw `CUstream` (== `cudaStream_t`), for
+		/// The raw `CUstream` (== `cudaStream_t`) the plugin launches on, for
 		/// `PF_GPUDeviceInfo::command_queuePV`.
 		pub fn queue_ptr(&self) -> *mut c_void {
-			self.stream.cu_stream() as *mut c_void
+			self.plugin_stream as *mut c_void
 		}
 
 		/// The raw `CUcontext`, for `PF_GPUDeviceInfo::contextPV`.
@@ -322,6 +346,16 @@ mod imp {
 		pub fn make_current(&self) {
 			if let Err(err) = self.ctx.bind_to_thread() {
 				log::warn!("Failed to bind CUDA context to thread: {err}");
+			}
+		}
+
+		/// Unbind the CUDA context from the calling thread (`cuCtxSetCurrent(NULL)`).
+		///
+		/// The context stays alive. A plugin needs it current only while one of
+		/// its commands runs; [`Self::make_current`] binds it again for the next.
+		pub fn release_thread(&self) {
+			if let Err(err) = unsafe { cudarc::driver::result::ctx::set_current(std::ptr::null_mut()) } {
+				log::warn!("Failed to release CUDA context from thread: {err}");
 			}
 		}
 
@@ -424,25 +458,41 @@ mod imp {
 			}
 		}
 
-		/// Release memory previously returned by [`Self::alloc_raw`].
+		/// Release memory previously returned by [`Self::alloc_raw`]. The memory
+		/// is freed at the next [`Self::wait_for_completion`].
 		pub fn free_raw(&mut self, ptr: *mut c_void) -> bool {
-			self.raw_allocs.remove(&(ptr as usize)).is_some()
+			match self.raw_allocs.remove(&(ptr as usize)) {
+				Some(buffer) => {
+					self.retired.push(buffer);
+					true
+				}
+				None => false,
+			}
 		}
 
-		/// Drop the device buffer backing `world_ptr` and its GPU-world registration.
+		/// Drop the GPU-world registration for `world_ptr`. Its device buffer is
+		/// freed at the next [`Self::wait_for_completion`].
 		pub fn release_buffer(&mut self, world_ptr: usize) -> bool {
 			unregister_gpu_world(world_ptr);
-			self.buffers.remove(&world_ptr).is_some()
+			match self.buffers.remove(&world_ptr) {
+				Some(buffer) => {
+					self.retired.push(buffer);
+					true
+				}
+				None => false,
+			}
 		}
 
-		/// Block until all outstanding GPU work has finished.
+		/// Block until all outstanding GPU work has finished, then free the
+		/// buffers the plugin released meanwhile.
 		///
 		/// A context synchronize (`cuCtxSynchronize`) waits for *every* stream in
 		/// the context - ours and any the plugin created - so a separate stream
 		/// synchronize beforehand would be pure redundant latency.
-		pub fn wait_for_completion(&self) {
-			if let Err(err) = self.ctx.synchronize() {
-				log::warn!("CUDA context synchronize failed: {err}");
+		pub fn wait_for_completion(&mut self) {
+			match self.ctx.synchronize() {
+				Ok(()) => self.retired.clear(),
+				Err(err) => log::warn!("CUDA context synchronize failed: {err}"),
 			}
 		}
 
@@ -461,6 +511,10 @@ mod imp {
 	impl Drop for GpuContext {
 		fn drop(&mut self) {
 			self.unregister_all_worlds();
+			let _ = self.ctx.synchronize();
+			// SAFETY: created in `new`, never handed out beyond the plugin, and the
+			// context has just drained everything queued on it.
+			let _ = unsafe { cudarc::driver::result::stream::destroy(self.plugin_stream) };
 		}
 	}
 }
@@ -492,6 +546,7 @@ mod imp {
 			std::ptr::null_mut()
 		}
 		pub fn make_current(&self) {}
+		pub fn release_thread(&self) {}
 		pub fn ensure_buffer(&mut self, _world_ptr: usize, _byte_len: usize) -> bool {
 			false
 		}

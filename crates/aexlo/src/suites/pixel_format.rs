@@ -128,7 +128,7 @@ unsafe extern "C" fn add_supported_pixel_format(effect_ref: PF_ProgPtr, pixelFor
 		"effect_ref" => format!("{:#x}", effect_ref as usize),
 		"pixelFormat" => format!("{:#x}", pixelFormat),
 	);
-	with_instance(effect_ref, |i| i.add_supported_pixel_format(pixelFormat))
+    with_instance(effect_ref, |i| i.add_supported_pixel_format(pixelFormat as u32))
 }
 
 unsafe extern "C" fn add_supported_pixel_format_2(effect_ref: PF_ProgPtr, pixel_format: PF_PixelFormat) -> PF_Err {
@@ -168,7 +168,7 @@ unsafe extern "C" fn new_world_of_pixel_format(
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	};
 	let clamp = |v: A_u_long| v.min(A_long::MAX as A_u_long) as A_long;
-	unsafe { *world = alloc_world(clamp(width), clamp(height), 4 * depth.bytes(), pixelFormat) };
+    unsafe { *world = alloc_world(clamp(width), clamp(height), 4 * depth.bytes(), pixelFormat as u32) };
 	PF_Err_NONE as PF_Err
 }
 

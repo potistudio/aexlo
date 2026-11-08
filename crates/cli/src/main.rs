@@ -51,6 +51,8 @@ COMMANDS:
     render <plugin>		Render a frame and write it to a PNG
     about  <plugin>		Print the plugin's ABOUT text
     params <plugin>    List the plugin's parameters (index, name, value)
+    dialog <plugin>    Send PF_Cmd_DO_DIALOG, the effect's Options button, and
+                       keep the process alive while a plugin window is visible
     dev    [filter]     Rerun a #[aexlo::preview] test on save + live viewer
                               (built-in `bacon` replacement; add a name to filter tests)
                               Like `cargo build`: defaults to the crate in the
@@ -153,6 +155,7 @@ platform's extension, e.g. `SDK_Noise` -> `SDK_Noise.plugin`.
 ";
 
 fn main() -> ExitCode {
+	let _ = env_logger::try_init();
 	let mut args = std::env::args().skip(1);
 	let command = args.next();
 	// The preset-driven commands report their own exit codes (§12 of
@@ -200,6 +203,7 @@ fn run(command: Option<String>, args: impl Iterator<Item = String>) -> Result<()
 		}
 		"about" => cmd_about(args),
 		"params" => cmd_params(args),
+		"dialog" => cmd_dialog(args),
 		"render" => cmd_render(args),
 		"bench" => cmd_bench(args),
 		"view" => cmd_view(args),
@@ -237,7 +241,9 @@ fn resolve_plugin(arg: &str) -> PathBuf {
 /// a prebuilt `.plugin`/`.aex`/`.dll` or a crate's source directory directly.
 fn load(plugin_arg: &str) -> Result<PluginInstance> {
 	let path = resolve_artifact(plugin_arg)?;
-	aexlo::Host::get().try_load(&path).with_context(|| format!("loading plugin {}", path.display()))
+	aexlo::Host::get()
+		.try_load(&path)
+		.with_context(|| format!("loading plugin {}", path.display()))
 }
 
 /// Resolve a plugin argument to an artifact on disk, building it first when the
@@ -268,15 +274,124 @@ fn cmd_about(mut args: impl Iterator<Item = String>) -> Result<()> {
 fn cmd_params(mut args: impl Iterator<Item = String>) -> Result<()> {
 	let plugin = args.next().context("params: missing <plugin>")?;
 	let instance = load(&plugin)?;
-	let values = instance.param_values();
-	if values.is_empty() {
-		println!("(plugin declares no parameters)");
-		return Ok(());
-	}
-	for (index, value) in values {
-		println!("{index:>3}  {:<24}  {}", param_name(&instance, index), describe(&value));
-	}
+	print_params(&instance);
 	Ok(())
+}
+
+fn cmd_dialog(mut args: impl Iterator<Item = String>) -> Result<()> {
+	let plugin = args.next().context("dialog: missing <plugin>")?;
+	let mut instance = load(&plugin)?;
+	println!(
+		"out_flags={:#x} out_flags2={:#x} options_button={}",
+		instance.out_flags(),
+		instance.out_flags2(),
+		instance.options_button_name().unwrap_or("(unset)")
+	);
+	print_params(&instance);
+	let message = instance.do_dialog().context("plugin rejected PF_Cmd_DO_DIALOG")?;
+	if !message.trim().is_empty() {
+		println!("{}", message.trim());
+	}
+	pump_plugin_windows();
+	Ok(())
+}
+
+fn print_params(instance: &PluginInstance) {
+	if instance.param_count() <= 1 {
+		println!("(plugin declares no parameters)");
+		return;
+	}
+	for index in 1..instance.param_count() {
+		let kind = instance
+			.param_kind(index)
+			.map(|kind| format!("{kind:?}"))
+			.unwrap_or_default();
+		let value = instance
+			.get_param(index)
+			.map(|value| describe(&value))
+			.unwrap_or_else(|| kind);
+		let hidden = if instance.param_hidden(index) { " hidden" } else { "" };
+		let flags = instance.param_ui_flags(index).unwrap_or(0);
+		println!(
+			"{index:>3}  {:<24}  {value}{hidden}  ui={flags:#x}",
+			param_name(instance, index)
+		);
+	}
+}
+
+/// Dispatch this thread's window messages while the plugin still has a window
+/// on screen. A modal Options dialog returns from `PF_Cmd_DO_DIALOG` itself.
+#[cfg(windows)]
+fn pump_plugin_windows() {
+	use std::time::Duration;
+
+	while process_has_visible_window() {
+		while peek_message() {}
+		std::thread::sleep(Duration::from_millis(16));
+	}
+}
+
+#[cfg(not(windows))]
+fn pump_plugin_windows() {}
+
+#[cfg(windows)]
+fn peek_message() -> bool {
+	#[repr(C)]
+	struct Msg {
+		hwnd: *mut std::ffi::c_void,
+		message: u32,
+		_pad: u32,
+		wparam: usize,
+		lparam: isize,
+		time: u32,
+		_pad2: u32,
+		x: i32,
+		y: i32,
+		lprivate: u32,
+		_pad3: u32,
+	}
+	#[link(name = "user32")]
+	unsafe extern "system" {
+		fn PeekMessageW(msg: *mut Msg, hwnd: *mut std::ffi::c_void, min: u32, max: u32, remove: u32) -> i32;
+		fn TranslateMessage(msg: *const Msg) -> i32;
+		fn DispatchMessageW(msg: *const Msg) -> isize;
+	}
+	let mut msg = std::mem::MaybeUninit::<Msg>::uninit();
+	let pending = unsafe { PeekMessageW(msg.as_mut_ptr(), std::ptr::null_mut(), 0, 0, 1) } != 0;
+	if pending {
+		let msg = unsafe { msg.assume_init() };
+		unsafe {
+			TranslateMessage(&msg);
+			DispatchMessageW(&msg);
+		}
+	}
+	pending
+}
+
+#[cfg(windows)]
+fn process_has_visible_window() -> bool {
+	#[link(name = "user32")]
+	unsafe extern "system" {
+		fn EnumWindows(cb: unsafe extern "system" fn(*mut std::ffi::c_void, isize) -> i32, lparam: isize) -> i32;
+		fn IsWindowVisible(hwnd: *mut std::ffi::c_void) -> i32;
+		fn GetWindowThreadProcessId(hwnd: *mut std::ffi::c_void, process: *mut u32) -> u32;
+	}
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn GetCurrentProcessId() -> u32;
+	}
+	unsafe extern "system" fn visit(hwnd: *mut std::ffi::c_void, lparam: isize) -> i32 {
+		let mut pid = 0u32;
+		let ours = GetWindowThreadProcessId(hwnd, &mut pid) != 0 && pid == GetCurrentProcessId();
+		if ours && IsWindowVisible(hwnd) != 0 {
+			*(lparam as *mut bool) = true;
+			return 0;
+		}
+		1
+	}
+	let mut found = false;
+	unsafe { EnumWindows(visit, &mut found as *mut bool as isize) };
+	found
 }
 
 fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
@@ -320,38 +435,47 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 		Some(name) => Some(preset_variant(manifest.as_deref(), name)?),
 		None => None,
 	};
-	let mut instance = match (&plugin, &variant) {
-		(Some(plugin), _) => load(plugin)?,
+	// Resolve overrides before setup and decode each input only once.
+	let depth = variant.as_ref().map_or(aexlo::PixelDepthKind::U8, |v| v.depth_kind());
+	let initial = if let Some(path) = &input {
+		Some(
+			aexlo_harness::frame::load_image(path)
+				.map_err(anyhow::Error::msg)?
+				.converted(depth),
+		)
+	} else if let Some(variant) = &variant {
+		let size = variant.size.map(|[w, h]| (w, h));
+		Some(aexlo_harness::input::build(&variant.input, depth, size).map_err(anyhow::Error::msg)?)
+	} else {
+		None
+	};
+	let path = match (&plugin, &variant) {
+		(Some(plugin), _) => resolve_artifact(plugin)?,
 		(None, Some(variant)) => {
 			let artifacts = toolkit::artifacts(std::slice::from_ref(variant)).map_err(anyhow::Error::msg)?;
-			let path = artifacts(&variant.plugin).context("no artifact for the preset's plugin")?;
-			aexlo::Host::get()
-				.try_load(&path)
-				.with_context(|| format!("loading plugin {}", path.display()))?
+			artifacts(&variant.plugin).context("no artifact for preset's plugin")?
 		}
 		(None, None) => bail!("render: missing <plugin> (or --preset)"),
+	};
+	let mut instance = match initial {
+		Some(layer) => {
+			let output_size = variant
+				.as_ref()
+				.and_then(|v| v.size)
+				.map(|[w, h]| (w, h))
+				.unwrap_or((layer.width(), layer.height()));
+			aexlo::Host::get().try_load_with_initial(&path, aexlo::Strict::default(), layer, output_size)?
+		}
+		None => aexlo::Host::get().try_load(&path)?,
 	};
 	if let Some(variant) = &variant {
 		if let Some(reason) = aexlo_harness::apply::unsupported(&instance, variant) {
 			bail!("preset {} does not apply: {reason}", variant.id);
 		}
-		aexlo_harness::apply::configure(&mut instance, variant).map_err(anyhow::Error::msg)?;
+		aexlo_harness::apply::configure_prepared(&mut instance, variant).map_err(anyhow::Error::msg)?;
 	}
 	if serial_iterate {
 		instance.set_parallel_iterate(false);
-	}
-
-	if let Some(path) = &input {
-		let layer = aexlo_harness::frame::load_image(path).map_err(anyhow::Error::msg)?;
-		let depth = variant.as_ref().map_or(aexlo::PixelDepthKind::U8, |v| v.depth_kind());
-		match layer.converted(depth) {
-			aexlo::AnyLayer::U8(l) => instance.set_input_layer(l),
-			aexlo::AnyLayer::U16(l) => instance.set_input_layer(l),
-			aexlo::AnyLayer::F32(l) => instance.set_input_layer(l),
-		}
-		if variant.as_ref().is_some_and(|v| v.size.is_none()) {
-			instance.set_render_size(instance.input_size().0, instance.input_size().1);
-		}
 	}
 
 	for (key, raw) in &sets {
@@ -384,7 +508,10 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 	let is_exr = output.extension().is_some_and(|e| e.eq_ignore_ascii_case("exr"));
 	let frame = aexlo_harness::Frame::new(instance.output().clone());
 	if is_exr {
-		frame.converted(aexlo::PixelDepthKind::F32).save(&output).map_err(anyhow::Error::msg)?;
+		frame
+			.converted(aexlo::PixelDepthKind::F32)
+			.save(&output)
+			.map_err(anyhow::Error::msg)?;
 	} else if instance.output_depth() == aexlo::PixelDepthKind::U16 {
 		frame.save(&output).map_err(anyhow::Error::msg)?;
 	} else {
@@ -419,7 +546,11 @@ fn preset_variant(manifest: Option<&Path>, name: &str) -> Result<aexlo_harness::
 		}
 		_ => bail!(
 			"no variant '{name}' (variants: {})",
-			variants.iter().map(|v| v.id.display.as_str()).collect::<Vec<_>>().join(", ")
+			variants
+				.iter()
+				.map(|v| v.id.display.as_str())
+				.collect::<Vec<_>>()
+				.join(", ")
 		),
 	}
 }
