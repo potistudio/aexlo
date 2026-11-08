@@ -254,7 +254,7 @@ fn describe(fx: &PluginInstance) -> PluginInfo {
 				index,
 				name: fx.param_name(index).unwrap_or_default(),
 				kind: fx.param_kind(index).unwrap_or(ParamKind::Other(-1)),
-				default: fx.get_param(index).map(PValue::from),
+				default: fx.get_param(index).and_then(PValue::from_param),
 				range: fx.param_slider_range(index),
 				choices: fx.param_choices(index),
 			})
@@ -654,7 +654,9 @@ impl Worker {
 		// The plugin may have changed other parameters in response.
 		let mut values = Vec::new();
 		for (i, value) in fx.param_values() {
-			let value = PValue::from(value);
+			let Some(value) = PValue::from_param(value) else {
+				continue;
+			};
 			if slot.applied.get(&i).is_some_and(|v| *v != value) {
 				slot.applied.insert(i, value.clone());
 				values.push((i, value));

@@ -1,7 +1,10 @@
 //! Parameter value type for reading and writing plugin parameters.
 
 /// A parameter value for an After Effects plugin.
+///
+/// New parameter types get new variants, so matches need a wildcard arm.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum ParamValue {
 	/// `PF_Param_FLOAT_SLIDER` - a floating-point slider value.
 	Float(f64),

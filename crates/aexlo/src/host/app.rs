@@ -111,6 +111,7 @@ pub struct InfoLine {
 
 /// How the host displays time (`PF_TimeDisplayFormat*`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum TimeDisplayMode {
 	/// `H:MM:SS:FF` (`;` separators when drop-frame).
 	#[default]

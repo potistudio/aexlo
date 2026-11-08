@@ -25,6 +25,9 @@ pub enum ObserveLevel {
 }
 
 /// Whether a [`CommandEvent`] marks the start or the end of a command.
+///
+/// A closed set: a command only ever begins and ends, so this enum is
+/// deliberately exhaustive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandPhase {
 	/// The entry point is about to be called.

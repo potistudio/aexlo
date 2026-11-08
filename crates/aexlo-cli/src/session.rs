@@ -88,6 +88,8 @@ fn manifest_value(fx: &PluginInstance, index: usize, value: &ParamValue) -> toml
 				.collect(),
 		),
 		ParamValue::Path(id) => V::Integer(*id as i64),
+		// A kind added to aexlo after this CLI: keep it readable.
+		other => V::String(format!("{other:?}")),
 	}
 }
 

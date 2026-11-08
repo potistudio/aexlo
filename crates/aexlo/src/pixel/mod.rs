@@ -11,6 +11,9 @@ pub use layer::*;
 ///
 /// After Effects calls these 8, 16 and 32 bits per channel (bpc): 8 and 16 bpc
 /// are integers (16 bpc is 15-bit, white is `32768`), 32 bpc is float.
+///
+/// A closed set: these are the only depths the After Effects SDK defines, so
+/// this enum is deliberately exhaustive and matches need no wildcard arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum PixelDepthKind {
 	/// 8 bpc, `u8` channels ([`Depth8`]).

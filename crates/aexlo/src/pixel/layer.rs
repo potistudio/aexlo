@@ -296,6 +296,9 @@ impl Layer<Depth8> {
 }
 
 /// A [`Layer`] of any depth, for code that picks the depth at run time.
+///
+/// Deliberately exhaustive: it has one variant per [`PixelDepthKind`], a
+/// closed set.
 #[derive(Clone)]
 pub enum AnyLayer {
 	/// An 8 bpc layer.

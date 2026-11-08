@@ -770,6 +770,7 @@ pub(crate) fn parse_param_value(instance: &PluginInstance, index: usize, raw: &s
 			};
 			ParamValue::Point3D { x, y, z }
 		}
+		other => bail!("parameter {index} ({:?}) can't be set from text", other.kind()),
 	};
 	Ok(value)
 }
@@ -836,5 +837,6 @@ fn describe(value: &ParamValue) -> String {
 		} => format!("color    {red},{green},{blue},{alpha}"),
 		ParamValue::Path(id) => format!("path     {id}"),
 		ParamValue::Point3D { x, y, z } => format!("point3d  {x},{y},{z}"),
+		other => format!("{other:?}"),
 	}
 }

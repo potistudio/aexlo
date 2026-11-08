@@ -747,6 +747,10 @@ fn param_widget(ui: &mut egui::Ui, control: &mut ParamControl) -> bool {
 				let cz = ui.add(egui::DragValue::new(z).speed(1.0).prefix("z ")).changed();
 				cx || cy || cz
 			}
+			_ => {
+				ui.label("(unsupported)");
+				false
+			}
 		}
 	})
 	.inner

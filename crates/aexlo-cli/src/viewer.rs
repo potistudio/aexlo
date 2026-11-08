@@ -272,6 +272,7 @@ pub(crate) fn params_json(fx: &PluginInstance) -> String {
 			} => out.push_str(&format!(
 				"\"kind\":\"color\",\"r\":{red},\"g\":{green},\"b\":{blue},\"a\":{alpha}"
 			)),
+			_ => out.push_str("\"kind\":\"unsupported\""),
 		}
 		out.push('}');
 	}

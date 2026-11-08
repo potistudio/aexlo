@@ -5,6 +5,7 @@
 /// How a mask combines with the others (`PF_MaskMode_*`).
 /// This represents the `PF_MaskMode` enum in the After Effects SDK.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum MaskMode {
 	/// The mask is ignored.
 	None,
