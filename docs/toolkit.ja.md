@@ -473,7 +473,7 @@ aexlo worker                              非表示。§6.2
 ## 13. Rust API
 
 ```rust
-// Cargo.toml: [dev-dependencies] aexlo-test = { git = "https://github.com/potistudio/aexlo-rs" }
+// Cargo.toml: [dev-dependencies] aexlo-test = { git = "https://github.com/potistudio/aexlo" }
 
 #[aexlo_test::test(depth = [8, 16, 32], render = [smart, gpu], preset = "dot_glow")]
 fn glow_is_symmetric(fx: &mut aexlo::PluginInstance) -> aexlo_test::Result {

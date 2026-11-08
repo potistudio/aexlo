@@ -37,7 +37,7 @@ After Effects 自体がプラグインに提供するインターフェースで
 
 > [!WARNING]
 > このプロジェクトは**現在、活発に開発中**です。
-> 最新の進捗は [master ブランチ](https://github.com/potistudio/aexlo-rs/tree/master)で確認できます。
+> 最新の進捗は [master ブランチ](https://github.com/potistudio/aexlo/tree/master)で確認できます。
 
 ## クイックスタート
 
@@ -49,7 +49,32 @@ After Effects 自体がプラグインに提供するインターフェースで
 > [!NOTE]
 > After Effects プラグインは Windows と macOS のみを対象としているため、現在 Linux はサポートしていません。
 
-### ビルド
+### ライブラリとして使う
+
+```bash
+cargo add aexlo@0.1.0-beta.1
+```
+
+```rust,no_run
+use aexlo::{Depth8, Host, Layer, ParamValue, Time};
+
+fn main() -> aexlo::Result<()> {
+    // Windows では `.aex` ファイル、macOS では `.plugin` バンドルを渡します。
+    let mut fx = Host::get().load("MyEffect.aex")?;
+    println!("{}", fx.about()?);
+
+    fx.set_input_layer(Layer::<Depth8>::black(1920, 1080));
+    fx.set_param(1, ParamValue::Float(0.5))?;
+    fx.set_time(Time::frame(0, 30));
+    fx.render_frame()?;
+    let output: Layer<Depth8> = fx.read_output()?;
+    Ok(())
+}
+```
+
+プラグインはネイティブコードとして、呼び出し元と同じプロセス内で動きます。信頼モデル、プロセス全体で共有される状態、スレッドの扱いは [docs.rs](https://docs.rs/aexlo) のクレートドキュメントを参照してください。
+
+### リポジトリからビルドする
 
 ```bash
 cargo build
@@ -57,8 +82,14 @@ cargo build
 
 ## ツールキット
 
-`aexlo.toml` に「この条件でこのプラグインをレンダリングする」という設定をプリセットとして一度記述すれば、`aexlo` CLI（`cargo install --path crates/aexlo-cli`）でテスト、ベンチマーク、プレビューを実行できます。
+`aexlo.toml` に「この条件でこのプラグインをレンダリングする」という設定をプリセットとして一度記述すれば、`aexlo` CLI でテスト、ベンチマーク、プレビューを実行できます。
 詳細は[ツールキット仕様書](docs/toolkit.ja.md)を参照してください。
+
+CLI とツールキットのクレートは crates.io には公開していないため、CLI はリポジトリからインストールします。
+
+```bash
+cargo install --git https://github.com/potistudio/aexlo aexlo-cli
+```
 
 ```toml
 [plugin]

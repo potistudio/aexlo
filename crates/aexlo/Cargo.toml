@@ -4,12 +4,12 @@ version = { workspace = true }
 edition = { workspace = true }
 rust-version = { workspace = true }
 
-description = "Run After Effects plugin without Adobe dependency."
+description = "Run After Effects plugins without Adobe dependencies."
 authors = { workspace = true }
 license = { workspace = true }
 repository = { workspace = true }
 keywords = ["after-effects", "graphics", "emulator"]
-categories = ["emulator"]
+categories = ["emulators"]
 readme = "../../README.md"
 
 # After Effects plugins only exist for Windows and macOS; docs.rs builds Linux
