@@ -128,7 +128,7 @@ fn initial_size_is_visible_during_sequence_setup() {
 		_world: *mut after_effects_sys::PF_LayerDef,
 		_extra: *mut c_void,
 	) -> after_effects_sys::PF_Err {
-		if cmd == RawCommand::SequenceSetup.to_sdk() {
+		if cmd == RawCommand::SequenceSetup.to_sys() {
 			WIDTH_SEEN.store(unsafe { (*input).width }, Ordering::SeqCst);
 			HEIGHT_SEEN.store(unsafe { (*input).height }, Ordering::SeqCst);
 		}
@@ -156,7 +156,7 @@ fn initial_input_and_distinct_output_are_visible_in_all_setup_commands() {
 		_extra: *mut c_void,
 	) -> after_effects_sys::PF_Err {
 		if [RawCommand::GlobalSetup, RawCommand::ParamsSetup, RawCommand::SequenceSetup]
-			.map(RawCommand::to_sdk)
+			.map(RawCommand::to_sys)
 			.contains(&cmd)
 		{
 			let (iw, ih, ow, oh) = unsafe { ((*input).width, (*input).height, (*world).width, (*world).height) };
@@ -190,7 +190,7 @@ fn custom_ui_click_sees_the_context_from_new_context() {
 		_world: *mut after_effects_sys::PF_LayerDef,
 		extra: *mut c_void,
 	) -> after_effects_sys::PF_Err {
-		if cmd == RawCommand::Event.to_sdk() && !extra.is_null() {
+		if cmd == RawCommand::Event.to_sys() && !extra.is_null() {
 			let extra = unsafe { &*(extra.cast::<after_effects_sys::PF_EventExtra>()) };
 			let context = unsafe { *extra.contextH };
 			if context.is_null() {

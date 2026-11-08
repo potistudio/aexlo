@@ -68,7 +68,7 @@ pub(crate) enum RawCommand {
 }
 
 impl RawCommand {
-	pub(crate) fn to_sdk(self) -> PF_Cmd {
+	pub(crate) fn to_sys(self) -> PF_Cmd {
 		self as PF_Cmd
 	}
 }
@@ -135,7 +135,7 @@ unsafe fn call_entry(
 		let result = unsafe {
 			aexlo_call_entry(
 				entry_point as usize as *const c_void,
-				command.to_sdk() as i32,
+				command.to_sys() as i32,
 				in_data.cast(),
 				out_data.cast(),
 				params.cast(),
@@ -155,7 +155,7 @@ unsafe fn call_entry(
 	#[cfg(not(windows))]
 	{
 		// SAFETY: the caller upholds `call_entry`'s contract.
-		unsafe { entry_point(command.to_sdk(), in_data, out_data, params, output, extra) }
+		unsafe { entry_point(command.to_sys(), in_data, out_data, params, output, extra) }
 	}
 }
 

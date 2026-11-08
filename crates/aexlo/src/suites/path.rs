@@ -349,7 +349,7 @@ unsafe extern "C" fn path_get_mask_mode(
 	let (Some(mask), Some(out)) = (unsafe { mask_by_id(effect_ref, unique_id) }, unsafe { modeP.as_mut() }) else {
 		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 	};
-	*out = mask.mode.to_sdk();
+	*out = mask.mode.to_sys();
 	PF_Err_NONE as PF_Err
 }
 
