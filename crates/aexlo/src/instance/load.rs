@@ -120,8 +120,9 @@ impl Host {
 	/// and real backtraces, unlike a `dlopen`ed cdylib).
 	///
 	/// Use this when the plugin crate is built against the *same*
-	/// `after-effects-sys` version as aexlo, so `EffectMain as PluginEntryPoint`
-	/// coerces. Otherwise reach for [`Self::from_entry_raw`].
+	/// `after-effects-sys` version as aexlo ([`crate::sys`]), so
+	/// `EffectMain as PluginEntryPoint` coerces. Otherwise reach for
+	/// [`Self::from_entry_raw`].
 	///
 	/// # Errors
 	/// [`AexloError::PluginExecutionFailed`] if the plugin rejects
