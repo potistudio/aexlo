@@ -15,6 +15,15 @@ pub enum LayerError {
 		/// The length of the buffer passed.
 		actual: usize,
 	},
+	/// The dimensions are too large for a layer: a row (`width` pixels) must
+	/// fit in `i32` bytes and `height` in `i32`, since that is how the host
+	/// and plugins describe a world, and the pixel count must fit in `usize`.
+	TooLarge {
+		/// The width passed.
+		width: u32,
+		/// The height passed.
+		height: u32,
+	},
 }
 
 impl core::fmt::Display for LayerError {
@@ -25,13 +34,32 @@ impl core::fmt::Display for LayerError {
 				"Pixel data length ({}) does not match layer dimensions ({}).",
 				actual, expected
 			),
+			Self::TooLarge { width, height } => write!(f, "Layer dimensions {width}x{height} are too large."),
 		}
 	}
 }
 
 impl std::error::Error for LayerError {}
 
+/// The number of pixels in a `width` x `height` layer at depth `D`, or `None`
+/// if the layer could not be described to the host: `as_sys` passes the height
+/// and the row stride (`width` pixels, in bytes) as `i32`.
+fn pixel_count<D: PixelDepth>(width: u32, height: u32) -> Option<usize> {
+	let row_bytes = (width as usize).checked_mul(core::mem::size_of::<Pixel<D>>())?;
+	i32::try_from(row_bytes).ok()?;
+	i32::try_from(height).ok()?;
+	(width as usize).checked_mul(height as usize)
+}
+
+/// [`pixel_count`] for constructors that cannot fail.
+fn pixel_count_or_panic<D: PixelDepth>(width: u32, height: u32) -> usize {
+	pixel_count::<D>(width, height).unwrap_or_else(|| panic!("{}", LayerError::TooLarge { width, height }))
+}
+
 /// A 2D raster of `Pixel<D>` stored in row-major order.
+///
+/// The pixels are tightly packed (a row is exactly `width` pixels, no padding),
+/// and `pixels.len() == width * height` always holds.
 pub struct Layer<D: PixelDepth> {
 	width: u32,
 	height: u32,
@@ -45,9 +73,11 @@ where
 	/// Create a layer from dimensions and a pixel buffer in row-major order.
 	///
 	/// # Errors
-	/// [`LayerError::DimensionMismatch`] if `pixels.len() != width * height`.
+	/// - [`LayerError::TooLarge`] if the dimensions cannot be described to the
+	///   host (see the variant).
+	/// - [`LayerError::DimensionMismatch`] if `pixels.len() != width * height`.
 	pub fn new(width: u32, height: u32, pixels: Vec<Pixel<D>>) -> Result<Self, LayerError> {
-		let expected = (width * height) as usize;
+		let expected = pixel_count::<D>(width, height).ok_or(LayerError::TooLarge { width, height })?;
 		if pixels.len() != expected {
 			return Err(LayerError::DimensionMismatch {
 				expected,
@@ -64,7 +94,9 @@ where
 	/// # Errors
 	/// [`LayerError::DimensionMismatch`] if `pixels.len() != width * height * 4`.
 	pub fn from_raw(pixels: Vec<u8>, width: u32, height: u32) -> Result<Layer<Depth8>, LayerError> {
-		let expected = (width * height * 4) as usize;
+		let expected = pixel_count::<Depth8>(width, height)
+			.and_then(|count| count.checked_mul(4))
+			.ok_or(LayerError::TooLarge { width, height })?;
 		if pixels.len() != expected {
 			return Err(LayerError::DimensionMismatch {
 				expected,
@@ -88,30 +120,33 @@ where
 	}
 
 	/// A layer of fully transparent black pixels ([`Pixel::blank`]).
-	pub fn blank(width: u32, height: u32) -> Self
-	where
-		Pixel<D>: Default,
-	{
-		let pixel_count = (width * height) as usize;
+	///
+	/// # Panics
+	/// If the dimensions are too large (see [`LayerError::TooLarge`]).
+	pub fn blank(width: u32, height: u32) -> Self {
+		let pixel_count = pixel_count_or_panic::<D>(width, height);
 		let pixels = vec![<Pixel<D>>::blank(); pixel_count];
 
 		Self { width, height, pixels }
 	}
 
 	/// A layer of opaque black pixels ([`Pixel::black`]).
-	pub fn black(width: u32, height: u32) -> Self
-	where
-		Pixel<D>: Default,
-	{
-		let pixel_count = (width * height) as usize;
+	///
+	/// # Panics
+	/// If the dimensions are too large (see [`LayerError::TooLarge`]).
+	pub fn black(width: u32, height: u32) -> Self {
+		let pixel_count = pixel_count_or_panic::<D>(width, height);
 		let pixels = vec![<Pixel<D>>::black(); pixel_count];
 
 		Self { width, height, pixels }
 	}
 
 	/// A layer whose pixel at `(x, y)` is `f(x, y)`.
+	///
+	/// # Panics
+	/// If the dimensions are too large (see [`LayerError::TooLarge`]).
 	pub fn from_fn(width: u32, height: u32, mut f: impl FnMut(u32, u32) -> Pixel<D>) -> Self {
-		let mut pixels = Vec::with_capacity(width as usize * height as usize);
+		let mut pixels = Vec::with_capacity(pixel_count_or_panic::<D>(width, height));
 		for y in 0..height {
 			for x in 0..width {
 				pixels.push(f(x, y));
@@ -173,27 +208,18 @@ where
 	/// Get a reference to a pixel by coordinates (x, y).
 	/// None if the coordinates is out of bounds.
 	pub fn get(&self, x: u32, y: u32) -> Option<&Pixel<D>> {
-		if x >= self.width || y >= self.height {
-			return None;
-		}
-
-		let idx = (y * self.width + x) as usize;
-
-		// SAFETY: We have already checked that x and y are within bounds, so idx is guaranteed to be valid.
-		Some(unsafe { self.pixels.get_unchecked(idx) })
+		self.index_of(x, y).and_then(|idx| self.pixels.get(idx))
 	}
 
 	/// Get a mutable reference to a pixel by coordinates (x, y).
 	/// None if the coordinates is out of bounds.
 	pub fn get_mut(&mut self, x: u32, y: u32) -> Option<&mut Pixel<D>> {
-		if x >= self.width || y >= self.height {
-			return None;
-		}
+		self.index_of(x, y).and_then(|idx| self.pixels.get_mut(idx))
+	}
 
-		let idx = (y * self.width + x) as usize;
-
-		// SAFETY: We have already checked that x and y are within bounds, so idx is guaranteed to be valid.
-		Some(unsafe { self.pixels.get_unchecked_mut(idx) })
+	/// The linear index of `(x, y)`, or `None` if it is out of bounds.
+	fn index_of(&self, x: u32, y: u32) -> Option<usize> {
+		(x < self.width && y < self.height).then(|| y as usize * self.width as usize + x as usize)
 	}
 
 	/// Iterate over pixels by reference in row-major order.
@@ -236,14 +262,15 @@ where
 			platform_ref: null_mut(),
 			reserved_long1: 0,
 			reserved_long4: null_mut(),
-			pix_aspect_ratio: after_effects_sys::PF_RationalScale { num: 1, den: 1 }, // Fixed: den should not be 0
+			pix_aspect_ratio: after_effects_sys::PF_RationalScale { num: 1, den: 1 },
 			reserved_long2: null_mut(),
 			origin_x: 0,
 			origin_y: 0,
 			reserved_long3: 0,
 			dephault: 0,
 			data,
-			rowbytes: (self.width as i32) * (std::mem::size_of::<Pixel<D>>() as i32),
+			// `pixel_count` guarantees the row stride fits in `i32`.
+			rowbytes: (self.width as usize * std::mem::size_of::<Pixel<D>>()) as i32,
 		}
 	}
 }
@@ -311,9 +338,12 @@ impl AnyLayer {
 	}
 
 	/// A `width` x `height` layer at `kind`, every pixel the normalized `rgba`.
+	///
+	/// # Panics
+	/// If the dimensions are too large (see [`LayerError::TooLarge`]).
 	pub fn filled(kind: PixelDepthKind, width: u32, height: u32, rgba: [f32; 4]) -> Self {
-		let count = width as usize * height as usize;
-		fn fill<D: PixelDepth>(width: u32, height: u32, count: usize, rgba: [f32; 4]) -> AnyLayer {
+		fn fill<D: PixelDepth>(width: u32, height: u32, rgba: [f32; 4]) -> AnyLayer {
+			let count = pixel_count_or_panic::<D>(width, height);
 			AnyLayer::new(Layer::<D> {
 				width,
 				height,
@@ -321,9 +351,9 @@ impl AnyLayer {
 			})
 		}
 		match kind {
-			PixelDepthKind::U8 => fill::<Depth8>(width, height, count, rgba),
-			PixelDepthKind::U16 => fill::<Depth16>(width, height, count, rgba),
-			PixelDepthKind::F32 => fill::<Depth32>(width, height, count, rgba),
+			PixelDepthKind::U8 => fill::<Depth8>(width, height, rgba),
+			PixelDepthKind::U16 => fill::<Depth16>(width, height, rgba),
+			PixelDepthKind::F32 => fill::<Depth32>(width, height, rgba),
 		}
 	}
 
@@ -413,7 +443,7 @@ impl AnyLayer {
 		if let Self::U8(layer) = self {
 			return layer.write_rgba_bytes(buffer);
 		}
-		let required = self.width() as usize * self.height() as usize * 4;
+		let required = with_layer!(self, l => l.len()) * 4;
 		if buffer.len() != required {
 			return Err(LayerError::DimensionMismatch {
 				expected: required,
@@ -467,8 +497,7 @@ impl<D: PixelDepth> Index<(u32, u32)> for Layer<D> {
 		let (x, y) = index;
 		assert!(x < self.width, "X coordinate out of bounds.");
 		assert!(y < self.height, "Y coordinate out of bounds.");
-		let idx = (y * self.width + x) as usize;
-		&self.pixels[idx]
+		&self.pixels[y as usize * self.width as usize + x as usize]
 	}
 }
 
@@ -477,7 +506,6 @@ impl<D: PixelDepth> IndexMut<(u32, u32)> for Layer<D> {
 		let (x, y) = index;
 		assert!(x < self.width, "X coordinate out of bounds.");
 		assert!(y < self.height, "Y coordinate out of bounds.");
-		let idx = (y * self.width + x) as usize;
-		&mut self.pixels[idx]
+		&mut self.pixels[y as usize * self.width as usize + x as usize]
 	}
 }
