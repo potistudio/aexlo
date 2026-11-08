@@ -327,7 +327,12 @@ pub fn serve() -> Result<()> {
 						output_size,
 					)),
 					Ok(None) => Ok(aexlo::Host::get().try_load(&path)),
-					Err(e) => Err(failed(id, wire_kind(e.kind), format!("building initial input: {e}"), None)),
+					Err(e) => Err(failed(
+						id,
+						wire_kind(e.kind),
+						format!("building initial input: {e}"),
+						None,
+					)),
 				};
 				match loaded {
 					Err(response) => response,
@@ -767,7 +772,11 @@ impl WorkerClient {
 		(honored, self.live.take().map(Live::kill).unwrap_or_default())
 	}
 
-	fn ensure_loaded(&mut self, artifact: &Path, variant: Option<&Variant>) -> std::result::Result<PluginInfo, RunFailure> {
+	fn ensure_loaded(
+		&mut self,
+		artifact: &Path,
+		variant: Option<&Variant>,
+	) -> std::result::Result<PluginInfo, RunFailure> {
 		if self.live.is_none() {
 			self.live = Some(Live::spawn(&self.command).map_err(|e| RunFailure::Harness { message: e.message })?);
 		}

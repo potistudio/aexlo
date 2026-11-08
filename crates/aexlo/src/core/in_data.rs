@@ -169,7 +169,12 @@ pub(crate) struct CallBindings {
 }
 
 /// Assemble the `PF_InData` handed to the plugin for one command.
-pub(crate) fn compose(host: &HostInfo, effect: &EffectState, render: &RenderContext, bindings: CallBindings) -> PF_InData {
+pub(crate) fn compose(
+	host: &HostInfo,
+	effect: &EffectState,
+	render: &RenderContext,
+	bindings: CallBindings,
+) -> PF_InData {
 	let mut in_data = unsafe { std::mem::zeroed::<PF_InData>() };
 
 	in_data.version = host.version;
