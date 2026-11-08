@@ -6,10 +6,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
 
 	let fixture = if cfg!(target_os = "windows") {
-		// The Windows plugin is a static library, so use the .aex extension.
+		// On Windows the plugin is a DLL with the .aex extension.
 		"fixtures/plugins/windows/SDK_Noise.aex"
 	} else {
-		// The macOS plugin is a bundle, so use the .plugin extension.
+		// On macOS the plugin is a .plugin bundle directory.
 		"fixtures/plugins/macos/SDK_Noise.plugin"
 	};
 
