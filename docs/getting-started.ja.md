@@ -29,7 +29,6 @@ cargo run -p sdk_noise
 
 ```sh
 # macOS の例。Windows では .aex のパスを指定してください。
-cargo run -p minimal -- "/path/to/MyEffect.plugin"
 cargo run -p sdk_noise -- "/path/to/MyEffect.plugin" "fixtures/input.png" "target/my-effect.png"
 cargo run -p sdk_noise -- --help
 ```

@@ -11,7 +11,7 @@
 | [interactive](interactive/README.ja.md) | GUI でプラグインを選択し、パラメーターを編集する | `cargo run -p interactive --release` |
 | [studio](studio/README.ja.md) | レイヤー、エフェクト、時間を組み合わせる | `cargo run -p studio --release` |
 
-minimal と sdk_noise は `-- --help` で引数の説明を表示できます。sdk_noise は既定で `target/sdk-noise.png` に書き出します。自分のアプリケーションに API を組み込む際は、まずこの 2 つのサンプルを読んでください。
+sdk_noise は `-- --help` で引数の説明を表示でき、既定で `target/sdk-noise.png` に書き出します。自分のアプリケーションに API を組み込む際は、まずこの 2 つのサンプルを読んでください。
 
 [playground](../playground/README.ja.md) はホストの動作を検証するツールです。既存のプラグインをホストするアプリケーションを作る場合は、このサンプル集から始めてください。
 

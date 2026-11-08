@@ -29,7 +29,6 @@ To use your own plugin and image, separate Cargo's arguments from the applicatio
 
 ```sh
 # macOS example; use an .aex path on Windows.
-cargo run -p minimal -- "/path/to/MyEffect.plugin"
 cargo run -p sdk_noise -- "/path/to/MyEffect.plugin" "fixtures/input.png" "target/my-effect.png"
 cargo run -p sdk_noise -- --help
 ```
