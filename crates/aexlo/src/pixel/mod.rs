@@ -53,9 +53,18 @@ impl core::fmt::Display for PixelDepthKind {
 	}
 }
 
+mod sealed {
+	/// Keeps [`PixelDepth`](super::PixelDepth) implementable only here: the
+	/// closed set of depths is what lets [`AnyLayer`](super::AnyLayer) be a
+	/// plain enum.
+	pub trait Sealed {}
+}
+
 /// A channel depth at the type level: [`Depth8`], [`Depth16`] or [`Depth32`].
 /// [`Pixel`] and [`Layer`] are generic over it.
-pub trait PixelDepth: Sized + Send + Sync + 'static {
+///
+/// This trait is sealed: the three depths After Effects has are the only ones.
+pub trait PixelDepth: sealed::Sealed + Copy + Default + core::fmt::Debug + Send + Sync + 'static {
 	/// The type of one channel (`u8`, `u16` or `f32`).
 	type Depth: Default + Copy + Clone + PartialEq + Send + Sync + core::fmt::Debug;
 
@@ -92,11 +101,13 @@ pub trait PixelDepth: Sized + Send + Sync + 'static {
 /// likewise for the 16-bit / 32-bit depths). This guarantee is relied upon when
 /// a `Layer`'s pixel buffer is handed to the host as a raw `*mut PF_Pixel`.
 ///
-/// Note that this is the *native After Effects* channel order (ARGB). Conversion
-/// helpers such as `Layer::from_raw` / `Layer::write_rgba_bytes` deal in the
-/// `RGBA` byte order used by external image formats.
+/// Note that this is the *native After Effects* channel order (ARGB), which is
+/// also the order of the `From<[_; 4]>` conversions and of
+/// [`Pixel::from_argb`]. Conversion helpers such as `Layer::from_raw` /
+/// `Layer::write_rgba_bytes` deal in the `RGBA` byte order used by external
+/// image formats ([`Pixel::from_rgba`]).
 #[repr(C)]
-#[derive(Debug, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Pixel<T: PixelDepth> {
 	/// Alpha, straight (not premultiplied).
 	pub alpha: T::Depth,
@@ -106,17 +117,6 @@ pub struct Pixel<T: PixelDepth> {
 	pub green: T::Depth,
 	/// Blue.
 	pub blue: T::Depth,
-}
-
-impl<T: PixelDepth> Clone for Pixel<T> {
-	fn clone(&self) -> Self {
-		Pixel {
-			alpha: self.alpha,
-			red: self.red,
-			green: self.green,
-			blue: self.blue,
-		}
-	}
 }
 
 impl<T: PixelDepth> Pixel<T> {
@@ -132,12 +132,84 @@ impl<T: PixelDepth> Pixel<T> {
 
 	/// Opaque black.
 	pub fn black() -> Self {
+		Self::opaque(false, false, false)
+	}
+
+	/// Opaque white.
+	pub fn white() -> Self {
+		Self::opaque(true, true, true)
+	}
+
+	/// Opaque red.
+	pub fn red() -> Self {
+		Self::opaque(true, false, false)
+	}
+
+	/// Opaque green.
+	pub fn green() -> Self {
+		Self::opaque(false, true, false)
+	}
+
+	/// Opaque blue.
+	pub fn blue() -> Self {
+		Self::opaque(false, false, true)
+	}
+
+	/// Opaque cyan.
+	pub fn cyan() -> Self {
+		Self::opaque(false, true, true)
+	}
+
+	/// Opaque magenta.
+	pub fn magenta() -> Self {
+		Self::opaque(true, false, true)
+	}
+
+	/// Opaque magenta (`#ff00ff`), under its old name.
+	#[deprecated(note = "this is magenta; use `Pixel::magenta`")]
+	pub fn purple() -> Self {
+		Self::magenta()
+	}
+
+	/// Opaque yellow.
+	pub fn yellow() -> Self {
+		Self::opaque(true, true, false)
+	}
+
+	/// Fully transparent black; same as [`Pixel::blank`].
+	pub fn transparent() -> Self {
+		Self::blank()
+	}
+
+	/// An opaque pixel whose channels are each either full intensity or zero.
+	fn opaque(red: bool, green: bool, blue: bool) -> Self {
+		let channel = |on| if on { T::max_value() } else { T::Depth::default() };
 		Pixel {
 			alpha: T::max_value(),
-			red: T::Depth::default(),
-			green: T::Depth::default(),
-			blue: T::Depth::default(),
+			red: channel(red),
+			green: channel(green),
+			blue: channel(blue),
 		}
+	}
+
+	/// A pixel from channels in the native After Effects order, `[a, r, g, b]`.
+	pub fn from_argb([alpha, red, green, blue]: [T::Depth; 4]) -> Self {
+		Pixel { alpha, red, green, blue }
+	}
+
+	/// The channels in the native After Effects order, `[a, r, g, b]`.
+	pub fn to_argb(&self) -> [T::Depth; 4] {
+		[self.alpha, self.red, self.green, self.blue]
+	}
+
+	/// A pixel from channels in the order image formats use, `[r, g, b, a]`.
+	pub fn from_rgba([red, green, blue, alpha]: [T::Depth; 4]) -> Self {
+		Pixel { alpha, red, green, blue }
+	}
+
+	/// The channels in the order image formats use, `[r, g, b, a]`.
+	pub fn to_rgba(&self) -> [T::Depth; 4] {
+		[self.red, self.green, self.blue, self.alpha]
 	}
 
 	/// The pixel as normalized `[r, g, b, a]`.

@@ -4,6 +4,8 @@ use super::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Depth32;
 
+impl sealed::Sealed for Depth32 {}
+
 impl PixelDepth for Depth32 {
 	type Depth = f32;
 	const KIND: PixelDepthKind = PixelDepthKind::F32;
@@ -50,6 +52,9 @@ impl From<after_effects_sys::PF_Pixel32> for Pixel<Depth32> {
 	}
 }
 
+/// Create a `Pixel<Depth32>` from a `[f32; 4]` in the native `[a, r, g, b]`
+/// order (see [`Pixel::from_argb`]; for `[r, g, b, a]` use
+/// [`Pixel::from_rgba`]).
 impl From<[f32; 4]> for Pixel<Depth32> {
 	fn from(buffer: [f32; 4]) -> Self {
 		Pixel {
@@ -61,14 +66,23 @@ impl From<[f32; 4]> for Pixel<Depth32> {
 	}
 }
 
-impl Pixel<Depth32> {
-	/// Opaque white.
-	pub fn white() -> Self {
-		Pixel {
-			alpha: 1.0,
-			red: 1.0,
-			green: 1.0,
-			blue: 1.0,
+/// Converts a `Pixel<Depth32>` into an `after_effects_sys::PF_Pixel32`.
+impl From<Pixel<Depth32>> for after_effects_sys::PF_Pixel32 {
+	fn from(val: Pixel<Depth32>) -> Self {
+		after_effects_sys::PF_Pixel32 {
+			alpha: val.alpha,
+			red: val.red,
+			green: val.green,
+			blue: val.blue,
 		}
+	}
+}
+
+impl Pixel<Depth32> {
+	/// Creates a `Pixel<Depth32>` from a pointer to a `PF_Pixel32` struct.
+	/// # Safety
+	/// `sys` must be valid for reads and point to an initialized `PF_Pixel32`.
+	pub unsafe fn from_sys(sys: *const after_effects_sys::PF_Pixel32) -> Self {
+		unsafe { (*sys).into() }
 	}
 }

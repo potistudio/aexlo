@@ -60,6 +60,7 @@ fn pixel_count_or_panic<D: PixelDepth>(width: u32, height: u32) -> usize {
 ///
 /// The pixels are tightly packed (a row is exactly `width` pixels, no padding),
 /// and `pixels.len() == width * height` always holds.
+#[derive(Clone)]
 pub struct Layer<D: PixelDepth> {
 	width: u32,
 	height: u32,
@@ -86,37 +87,6 @@ where
 		}
 
 		Ok(Self { width, height, pixels })
-	}
-
-	/// An 8 bpc layer from straight RGBA bytes in row-major order, as image
-	/// decoders produce them.
-	///
-	/// # Errors
-	/// [`LayerError::DimensionMismatch`] if `pixels.len() != width * height * 4`.
-	pub fn from_raw(pixels: Vec<u8>, width: u32, height: u32) -> Result<Layer<Depth8>, LayerError> {
-		let expected = pixel_count::<Depth8>(width, height)
-			.and_then(|count| count.checked_mul(4))
-			.ok_or(LayerError::TooLarge { width, height })?;
-		if pixels.len() != expected {
-			return Err(LayerError::DimensionMismatch {
-				expected,
-				actual: pixels.len(),
-			});
-		}
-
-		let converted = pixels
-			.as_chunks::<4>()
-			.0
-			.iter()
-			.map(|&[red, green, blue, alpha]| Pixel::<Depth8> {
-				red,
-				green,
-				blue,
-				alpha,
-			})
-			.collect();
-
-		Layer::<Depth8>::new(width, height, converted)
 	}
 
 	/// A layer of fully transparent black pixels ([`Pixel::blank`]).
@@ -276,6 +246,32 @@ where
 }
 
 impl Layer<Depth8> {
+	/// An 8 bpc layer from straight RGBA bytes in row-major order, as image
+	/// decoders produce them.
+	///
+	/// # Errors
+	/// [`LayerError::DimensionMismatch`] if `pixels.len() != width * height * 4`.
+	pub fn from_raw(pixels: Vec<u8>, width: u32, height: u32) -> Result<Self, LayerError> {
+		let expected = pixel_count::<Depth8>(width, height)
+			.and_then(|count| count.checked_mul(4))
+			.ok_or(LayerError::TooLarge { width, height })?;
+		if pixels.len() != expected {
+			return Err(LayerError::DimensionMismatch {
+				expected,
+				actual: pixels.len(),
+			});
+		}
+
+		let converted = pixels
+			.as_chunks::<4>()
+			.0
+			.iter()
+			.map(|&rgba| Pixel::from_rgba(rgba))
+			.collect();
+
+		Layer::new(width, height, converted)
+	}
+
 	/// Write RGBA bytes directly into an existing buffer (zero-allocation).
 	///
 	/// # Errors
@@ -292,20 +288,10 @@ impl Layer<Depth8> {
 		}
 
 		for (chunk, pixel) in buffer.as_chunks_mut::<4>().0.iter_mut().zip(self.pixels.iter()) {
-			*chunk = [pixel.red, pixel.green, pixel.blue, pixel.alpha];
+			*chunk = pixel.to_rgba();
 		}
 
 		Ok(())
-	}
-}
-
-impl<D: PixelDepth> Clone for Layer<D> {
-	fn clone(&self) -> Self {
-		Self {
-			width: self.width,
-			height: self.height,
-			pixels: self.pixels.clone(),
-		}
 	}
 }
 
@@ -371,6 +357,16 @@ impl AnyLayer {
 		with_layer!(self, l => l.width())
 	}
 
+	/// The number of pixels (width * height).
+	pub fn len(&self) -> usize {
+		with_layer!(self, l => l.len())
+	}
+
+	/// True when the layer has zero pixels.
+	pub fn is_empty(&self) -> bool {
+		self.len() == 0
+	}
+
 	/// The height in pixels.
 	pub fn height(&self) -> u32 {
 		with_layer!(self, l => l.height())
@@ -381,7 +377,7 @@ impl AnyLayer {
 		D::unwrap_ref(self)
 	}
 
-	/// The typed layer, if it is at depth `D`.
+	/// The typed layer mutably, if it is at depth `D`.
 	pub fn get_mut<D: PixelDepth>(&mut self) -> Option<&mut Layer<D>> {
 		D::unwrap_mut(self)
 	}
@@ -443,7 +439,7 @@ impl AnyLayer {
 		if let Self::U8(layer) = self {
 			return layer.write_rgba_bytes(buffer);
 		}
-		let required = with_layer!(self, l => l.len()) * 4;
+		let required = self.len() * 4;
 		if buffer.len() != required {
 			return Err(LayerError::DimensionMismatch {
 				expected: required,
@@ -476,11 +472,7 @@ impl core::fmt::Debug for AnyLayer {
 	}
 }
 
-impl<D> core::fmt::Debug for Layer<D>
-where
-	D: PixelDepth,
-	Pixel<D>: core::fmt::Debug,
-{
+impl<D: PixelDepth> core::fmt::Debug for Layer<D> {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		f.debug_struct("Layer")
 			.field("width", &self.width)

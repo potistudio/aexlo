@@ -4,6 +4,8 @@ use super::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Depth8;
 
+impl sealed::Sealed for Depth8 {}
+
 impl PixelDepth for Depth8 {
 	type Depth = u8;
 	const KIND: PixelDepthKind = PixelDepthKind::U8;
@@ -51,7 +53,9 @@ impl From<after_effects_sys::PF_Pixel8> for Pixel<Depth8> {
 	}
 }
 
-/// Create a `Pixel<Depth8>` from a `[u8; 4]` buffer.
+/// Create a `Pixel<Depth8>` from a `[u8; 4]` in the native `[a, r, g, b]`
+/// order (see [`Pixel::from_argb`]; for `[r, g, b, a]` use
+/// [`Pixel::from_rgba`]).
 impl From<[u8; 4]> for Pixel<Depth8> {
 	fn from(buffer: [u8; 4]) -> Self {
 		Pixel {
@@ -76,90 +80,10 @@ impl From<Pixel<Depth8>> for after_effects_sys::PF_Pixel8 {
 }
 
 impl Pixel<Depth8> {
-	/// Opaque blue.
-	pub fn blue() -> Self {
-		Pixel {
-			alpha: 255,
-			red: 0,
-			green: 0,
-			blue: 255,
-		}
-	}
-
-	/// Opaque cyan.
-	pub fn cyan() -> Self {
-		Pixel {
-			alpha: 255,
-			red: 0,
-			green: 255,
-			blue: 255,
-		}
-	}
-
-	/// Opaque green.
-	pub fn green() -> Self {
-		Pixel {
-			alpha: 255,
-			red: 0,
-			green: 255,
-			blue: 0,
-		}
-	}
-
-	/// Opaque purple.
-	pub fn purple() -> Self {
-		Pixel {
-			alpha: 255,
-			red: 255,
-			green: 0,
-			blue: 255,
-		}
-	}
-
-	/// Opaque red.
-	pub fn red() -> Self {
-		Pixel {
-			alpha: 255,
-			red: 255,
-			green: 0,
-			blue: 0,
-		}
-	}
-
-	/// Fully transparent black; same as [`Pixel::blank`].
-	pub fn transparent() -> Self {
-		Pixel {
-			alpha: 0,
-			red: 0,
-			green: 0,
-			blue: 0,
-		}
-	}
-
-	/// Opaque white.
-	pub fn white() -> Self {
-		Pixel {
-			alpha: 255,
-			red: 255,
-			green: 255,
-			blue: 255,
-		}
-	}
-
-	/// Opaque yellow.
-	pub fn yellow() -> Self {
-		Pixel {
-			alpha: 255,
-			red: 255,
-			green: 255,
-			blue: 0,
-		}
-	}
-
-	/// Creates a `Pixel<Depth8>` from a pointer to an `PF_Pixel8` struct.
+	/// Creates a `Pixel<Depth8>` from a pointer to a `PF_Pixel8` struct.
 	/// # Safety
-	/// This function dereferences a raw pointer.
-	pub unsafe fn from_sys(sys: *mut after_effects_sys::PF_Pixel8) -> Self {
+	/// `sys` must be valid for reads and point to an initialized `PF_Pixel8`.
+	pub unsafe fn from_sys(sys: *const after_effects_sys::PF_Pixel8) -> Self {
 		unsafe { (*sys).into() }
 	}
 }
