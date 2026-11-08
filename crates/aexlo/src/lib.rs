@@ -41,6 +41,7 @@
 #![allow(non_snake_case)]
 
 mod core;
+mod flags;
 mod gpu;
 mod host;
 mod instance;
@@ -86,6 +87,9 @@ pub fn set_main_window(hwnd: *mut std::ffi::c_void) {
 pub use instance::PluginEntryPoint;
 
 pub use param_value::{ParamKind, ParamValue};
+
+/// Typed flags and pixel formats a plugin declares.
+pub use flags::{OutFlags, OutFlags2, ParamUiFlags, PixelFormat};
 
 /// The GPU this host renders on, for machine fingerprints.
 pub use gpu::device_name as gpu_device_name;

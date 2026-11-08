@@ -311,7 +311,7 @@ fn print_params(instance: &PluginInstance) {
 			.map(|value| describe(&value))
 			.unwrap_or_else(|| kind);
 		let hidden = if instance.param_hidden(index) { " hidden" } else { "" };
-		let flags = instance.param_ui_flags(index).unwrap_or(0);
+		let flags = instance.param_ui_flags(index).unwrap_or_default();
 		println!(
 			"{index:>3}  {:<24}  {value}{hidden}  ui={flags:#x}",
 			param_name(instance, index)

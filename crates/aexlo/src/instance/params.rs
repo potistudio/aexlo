@@ -292,8 +292,10 @@ impl PluginInstance {
 	}
 
 	/// UI flags the plugin set on the parameter (`PF_PUI_*`), or `None` if `index` is out of range.
-	pub fn param_ui_flags(&self, index: usize) -> Option<i32> {
-		self.params.get(index).map(|p| p.ui_flags)
+	pub fn param_ui_flags(&self, index: usize) -> Option<crate::ParamUiFlags> {
+		self.params
+			.get(index)
+			.map(|p| crate::ParamUiFlags::from_bits(p.ui_flags as u32))
 	}
 
 	/// Whether any parameter draws a custom control (`PF_PUI_CONTROL`).
@@ -308,7 +310,7 @@ impl PluginInstance {
 	/// Whether the parameter at `index` draws its own control (`PF_PUI_CONTROL`).
 	pub fn param_has_custom_ui(&self, index: usize) -> bool {
 		self.param_ui_flags(index)
-			.is_some_and(|flags| flags & after_effects_sys::PF_PUI_CONTROL as i32 != 0)
+			.is_some_and(|flags| flags.contains(crate::ParamUiFlags::CONTROL))
 	}
 
 	/// The size the custom control at `index` declared (`ui_width`,

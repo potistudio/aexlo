@@ -120,7 +120,7 @@ impl PluginInfo {
 				.filter(|d| fx.supports_depth(*d))
 				.map(PixelDepthKind::bits)
 				.collect(),
-			formats: fx.supported_pixel_formats().to_vec(),
+			formats: fx.supported_pixel_formats().iter().map(|f| f.fourcc()).collect(),
 		}
 	}
 }

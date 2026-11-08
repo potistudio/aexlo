@@ -277,7 +277,7 @@ pub struct PluginInstance {
 	custom_controls: HashMap<usize, CustomControlImage>,
 
 	/// Pixel formats (FourCCs) registered through the "PF Pixel Format Suite".
-	supported_pixel_formats: Vec<u32>,
+	supported_pixel_formats: Vec<crate::PixelFormat>,
 
 	/// Masks on the effect's layer, served through the Path Query/Data suites.
 	mask_paths: Vec<crate::MaskPath>,
@@ -399,13 +399,13 @@ impl PluginInstance {
 	}
 
 	/// `out_flags` as the plugin declared them at `PF_Cmd_GLOBAL_SETUP`.
-	pub fn out_flags(&self) -> i32 {
-		self.global_out_flags
+	pub fn out_flags(&self) -> crate::OutFlags {
+		crate::OutFlags::from_bits(self.global_out_flags as u32)
 	}
 
 	/// `out_flags2` as the plugin declared them at `PF_Cmd_GLOBAL_SETUP`.
-	pub fn out_flags2(&self) -> i32 {
-		self.global_out_flags2
+	pub fn out_flags2(&self) -> crate::OutFlags2 {
+		crate::OutFlags2::from_bits(self.global_out_flags2 as u32)
 	}
 
 	/// Turn strict-mode instrumentation on or off for this instance (see
@@ -533,11 +533,12 @@ impl PluginInstance {
 	/// Pixel formats (`PF_PixelFormat` / `PrPixelFormat` FourCCs) the plugin
 	/// registered via the "PF Pixel Format Suite", in registration order. 8-bit
 	/// ARGB is implied and only listed if registered explicitly.
-	pub fn supported_pixel_formats(&self) -> &[u32] {
+	pub fn supported_pixel_formats(&self) -> &[crate::PixelFormat] {
 		&self.supported_pixel_formats
 	}
 
 	pub(crate) fn add_supported_pixel_format(&mut self, format: u32) {
+		let format = crate::PixelFormat::from_fourcc(format);
 		if !self.supported_pixel_formats.contains(&format) {
 			self.supported_pixel_formats.push(format);
 		}
