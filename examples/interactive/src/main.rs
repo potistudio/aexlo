@@ -357,7 +357,10 @@ impl AexloApp {
 			.map(|index| (index, param_name(instance, index)))
 			.collect();
 		for (index, name) in controls {
-			match instance.draw_custom_control(index, 320, 80) {
+			// Draw at the size the plugin declared; 320x80 stands in for an
+			// edge it leaves to the panel.
+			let (width, height) = instance.custom_control_size(index).unwrap_or_default();
+			match instance.draw_custom_control(index, width.unwrap_or(320), height.unwrap_or(80)) {
 				Ok(again) => self.custom_animate |= again,
 				Err(err) => log::warn!("draw custom control {index}: {err}"),
 			}

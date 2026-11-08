@@ -1801,6 +1801,15 @@ impl PluginInstance {
 			.is_some_and(|flags| flags & after_effects_sys::PF_PUI_CONTROL as i32 != 0)
 	}
 
+	/// The size the custom control at `index` declared (`ui_width`,
+	/// `ui_height`), with `None` for an edge left at 0, which After Effects
+	/// fills from the Effect Controls panel.
+	pub fn custom_control_size(&self, index: usize) -> Option<(Option<u32>, Option<u32>)> {
+		let param = self.params.get(index)?;
+		let edge = |value: i16| u32::try_from(value).ok().filter(|v| *v > 0);
+		Some((edge(param.ui_width), edge(param.ui_height)))
+	}
+
 	/// Latest pixels painted by the custom control at `index`.
 	pub fn custom_control_image(&self, index: usize) -> Option<&CustomControlImage> {
 		self.custom_controls.get(&index)
