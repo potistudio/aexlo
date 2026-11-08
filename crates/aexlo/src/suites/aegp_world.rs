@@ -45,6 +45,16 @@ fn alloc(kind: i32, width: i32, height: i32) -> AEGP_WorldH {
 
 /// A world filled from `layer`, subsampled by `down_x`/`down_y` (values below 1
 /// mean no subsample). Channel order is ARGB, matching `PF_Pixel`.
+fn depth_kind(kind: i32) -> wrapper::PixelDepthKind {
+	if kind == AEGP_WorldType_16 as i32 {
+		wrapper::PixelDepthKind::U16
+	} else if kind == AEGP_WorldType_32 as i32 {
+		wrapper::PixelDepthKind::F32
+	} else {
+		wrapper::PixelDepthKind::U8
+	}
+}
+
 pub(crate) fn world_from_layer(kind: i32, layer: &wrapper::AnyLayer, down_x: i32, down_y: i32) -> AEGP_WorldH {
 	let down_x = down_x.max(1) as usize;
 	let down_y = down_y.max(1) as usize;
@@ -134,7 +144,8 @@ unsafe extern "C" fn dispose_world(handle: AEGP_WorldH) -> A_Err {
 	}
 	let slot = unsafe { Box::from_raw(handle as *mut *mut World) };
 	if !slot.is_null() {
-		let _ = unsafe { Box::from_raw(*slot) };
+		let world = unsafe { Box::from_raw(*slot) };
+		super::world::untag_host_world(world.pixels.as_ptr() as usize);
 	}
 	PF_Err_NONE as A_Err
 }
@@ -199,6 +210,9 @@ unsafe extern "C" fn fill_out(handle: AEGP_WorldH, out: *mut PF_EffectWorld) -> 
 	if world.kind == AEGP_WorldType_16 as i32 {
 		flags |= PF_WorldFlag_DEEP as PF_WorldFlags;
 	}
+	// `PF_GetPixelFormat` looks worlds up by `data`; without a tag a deep
+	// world reads back as `ARGB32` and the plugin iterates it as 8 bpc.
+	super::world::tag_host_world(world.pixels.as_ptr() as usize, depth_kind(world.kind));
 	*out = PF_EffectWorld {
 		reserved0: std::ptr::null_mut(),
 		reserved1: std::ptr::null_mut(),
@@ -440,5 +454,19 @@ mod tests {
 		let world = unsafe { world_mut(handle) }.unwrap();
 		assert_eq!(&world.pixels[..4], &[255, 255, 0, 0]);
 		unsafe { dispose_world(handle) };
+	}
+
+	#[test]
+	#[allow(clippy::unnecessary_cast)] // `PF_PixelFormat_*` is `u32` on macOS only.
+	fn filled_out_float_world_reports_its_pixel_format() {
+		let handle = alloc(AEGP_WorldType_32 as i32, 2, 2);
+		let mut out: PF_EffectWorld = unsafe { std::mem::zeroed() };
+		assert_eq!(unsafe { fill_out(handle, &mut out) }, PF_Err_NONE as A_Err);
+		assert_eq!(
+			unsafe { super::super::world::world_pixel_format(&out) },
+			after_effects_sys::PF_PixelFormat_ARGB128 as u32
+		);
+		unsafe { dispose_world(handle) };
+		assert_eq!(super::super::world::allocated_format(&out), None);
 	}
 }

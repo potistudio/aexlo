@@ -530,6 +530,10 @@ fn image_from_buffer(
 	} else {
 		4
 	};
+	// A stride shorter than one row of pixels would index past the buffer.
+	if (row_bytes as usize) < width as usize * channels {
+		return None;
+	}
 	let src = unsafe { std::slice::from_raw_parts(data.cast::<u8>(), row_bytes as usize * height as usize) };
 	for y in 0..height as usize {
 		let row = &src[y * row_bytes as usize..];
@@ -1266,6 +1270,14 @@ pub(super) static IMAGE_SUITE: DRAWBOT_ImageSuite1 = DRAWBOT_ImageSuite1 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn image_from_buffer_rejects_a_stride_shorter_than_a_row() {
+		let pixels = [0u8; 3];
+		let data = pixels.as_ptr().cast();
+		assert!(image_from_buffer(1, 1, 1, kDRAWBOT_PixelLayout_24RGB, data).is_none());
+		assert!(image_from_buffer(1, 1, 3, kDRAWBOT_PixelLayout_24RGB, data).is_some());
+	}
 
 	fn surface_of(draw: DRAWBOT_DrawRef) -> DRAWBOT_SurfaceRef {
 		let mut supplier = std::ptr::null_mut();

@@ -111,10 +111,17 @@ pub(super) fn alloc_world(width: A_long, height: A_long, bytes_per_pixel: i32, f
 	}
 	crate::strict::allocated(crate::AllocationKind::World, data as usize, row_data * height as usize);
 
+	// `PF_WORLD_IS_DEEP` reads this flag, so a 16 bpc world must carry it.
+	let mut world_flags = PF_WorldFlag_WRITEABLE as PF_WorldFlags;
+	#[allow(clippy::unnecessary_cast)] // `PF_PixelFormat_*` is `u32` on macOS only.
+	if format == PF_PixelFormat_ARGB64 as u32 {
+		world_flags |= after_effects_sys::PF_WorldFlag_DEEP as PF_WorldFlags;
+	}
+
 	PF_EffectWorld {
 		reserved0: null_mut(),
 		reserved1: null_mut(),
-		world_flags: PF_WorldFlag_WRITEABLE as PF_WorldFlags,
+		world_flags,
 		data: data as *mut _,
 		rowbytes,
 		width,
@@ -370,6 +377,7 @@ mod tests {
 		assert_eq!(err, PF_Err_NONE as PF_Err);
 		assert!(!world.data.is_null());
 		assert_eq!((world.width, world.height, world.rowbytes), (4, 3, 16));
+		assert_eq!(world.world_flags & after_effects_sys::PF_WorldFlag_DEEP as PF_WorldFlags, 0);
 		unsafe { *(world.data as *mut u8) = 7 };
 		assert_eq!(unsafe { dispose_world_sys(effect, &mut world) }, PF_Err_NONE as PF_Err);
 		assert!(world.data.is_null());
@@ -385,6 +393,8 @@ mod tests {
 		};
 		assert_eq!(err, PF_Err_NONE as PF_Err);
 		assert_eq!(world.rowbytes, 16);
+		let deep = after_effects_sys::PF_WorldFlag_DEEP as PF_WorldFlags;
+		assert_ne!(world.world_flags & deep, 0);
 		assert_eq!(unsafe { dispose_world_sys(effect, &mut world) }, PF_Err_NONE as PF_Err);
 
 		assert_eq!(
