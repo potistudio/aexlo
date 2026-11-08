@@ -120,7 +120,6 @@ impl PluginInstance {
 		(extra.evt_out_flags, send_drag)
 	}
 
-
 	/// Call the plugin with `PF_Cmd_RENDER` command ([`RenderPath::Legacy`]).
 	fn render_legacy(&mut self) -> Result<()> {
 		self.reset_cpu_worlds();

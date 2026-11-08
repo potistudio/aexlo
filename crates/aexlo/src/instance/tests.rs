@@ -115,100 +115,100 @@ fn fixed_slider_uses_16_16_fixed_point() {
 	assert_eq!(fx.get_param(1), Some(ParamValue::Fixed(2.5)));
 }
 
-	#[test]
-	fn initial_size_is_visible_during_sequence_setup() {
-		use std::sync::atomic::{AtomicI32, Ordering};
-		static WIDTH_SEEN: AtomicI32 = AtomicI32::new(0);
-		static HEIGHT_SEEN: AtomicI32 = AtomicI32::new(0);
-		unsafe extern "C" fn entry(
-			cmd: RawCommand,
-			input: *mut after_effects_sys::PF_InData,
-			_output: *mut after_effects_sys::PF_OutData,
-			_params: after_effects_sys::PF_ParamList,
-			_world: *mut after_effects_sys::PF_LayerDef,
-			_extra: *mut c_void,
-		) -> after_effects_sys::PF_Err {
-			if matches!(cmd, RawCommand::SequenceSetup) {
-				WIDTH_SEEN.store(unsafe { (*input).width }, Ordering::SeqCst);
-				HEIGHT_SEEN.store(unsafe { (*input).height }, Ordering::SeqCst);
-			}
-			PF_Err_NONE as after_effects_sys::PF_Err
+#[test]
+fn initial_size_is_visible_during_sequence_setup() {
+	use std::sync::atomic::{AtomicI32, Ordering};
+	static WIDTH_SEEN: AtomicI32 = AtomicI32::new(0);
+	static HEIGHT_SEEN: AtomicI32 = AtomicI32::new(0);
+	unsafe extern "C" fn entry(
+		cmd: RawCommand,
+		input: *mut after_effects_sys::PF_InData,
+		_output: *mut after_effects_sys::PF_OutData,
+		_params: after_effects_sys::PF_ParamList,
+		_world: *mut after_effects_sys::PF_LayerDef,
+		_extra: *mut c_void,
+	) -> after_effects_sys::PF_Err {
+		if matches!(cmd, RawCommand::SequenceSetup) {
+			WIDTH_SEEN.store(unsafe { (*input).width }, Ordering::SeqCst);
+			HEIGHT_SEEN.store(unsafe { (*input).height }, Ordering::SeqCst);
 		}
-		let mut fx = PluginInstance::new_sized(Path::new("<test>"), 768, 432);
-		fx.entry_point = Some(entry);
-		fx.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_owned());
-		fx.finalize().unwrap();
-		assert_eq!(WIDTH_SEEN.load(Ordering::SeqCst), 768);
-		assert_eq!(HEIGHT_SEEN.load(Ordering::SeqCst), 432);
-		assert_eq!(fx.output_size(), (768, 432));
+		PF_Err_NONE as after_effects_sys::PF_Err
 	}
+	let mut fx = PluginInstance::new_sized(Path::new("<test>"), 768, 432);
+	fx.entry_point = Some(entry);
+	fx.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_owned());
+	fx.finalize().unwrap();
+	assert_eq!(WIDTH_SEEN.load(Ordering::SeqCst), 768);
+	assert_eq!(HEIGHT_SEEN.load(Ordering::SeqCst), 432);
+	assert_eq!(fx.output_size(), (768, 432));
+}
 
-	#[test]
-	fn initial_input_and_distinct_output_are_visible_in_all_setup_commands() {
-		use std::sync::atomic::{AtomicUsize, Ordering};
-		static CHECKED: AtomicUsize = AtomicUsize::new(0);
-		unsafe extern "C" fn entry(
-			cmd: RawCommand,
-			input: *mut after_effects_sys::PF_InData,
-			_output: *mut after_effects_sys::PF_OutData,
-			_params: after_effects_sys::PF_ParamList,
-			world: *mut after_effects_sys::PF_LayerDef,
-			_extra: *mut c_void,
-		) -> after_effects_sys::PF_Err {
-			if matches!(
-				cmd,
-				RawCommand::GlobalSetup | RawCommand::ParamsSetup | RawCommand::SequenceSetup
-			) {
-				let (iw, ih, ow, oh) = unsafe { ((*input).width, (*input).height, (*world).width, (*world).height) };
-				if (iw, ih, ow, oh) == (19, 13, 37, 23) {
-					CHECKED.fetch_add(1, Ordering::SeqCst);
-				}
+#[test]
+fn initial_input_and_distinct_output_are_visible_in_all_setup_commands() {
+	use std::sync::atomic::{AtomicUsize, Ordering};
+	static CHECKED: AtomicUsize = AtomicUsize::new(0);
+	unsafe extern "C" fn entry(
+		cmd: RawCommand,
+		input: *mut after_effects_sys::PF_InData,
+		_output: *mut after_effects_sys::PF_OutData,
+		_params: after_effects_sys::PF_ParamList,
+		world: *mut after_effects_sys::PF_LayerDef,
+		_extra: *mut c_void,
+	) -> after_effects_sys::PF_Err {
+		if matches!(
+			cmd,
+			RawCommand::GlobalSetup | RawCommand::ParamsSetup | RawCommand::SequenceSetup
+		) {
+			let (iw, ih, ow, oh) = unsafe { ((*input).width, (*input).height, (*world).width, (*world).height) };
+			if (iw, ih, ow, oh) == (19, 13, 37, 23) {
+				CHECKED.fetch_add(1, Ordering::SeqCst);
 			}
-			PF_Err_NONE as after_effects_sys::PF_Err
 		}
-		CHECKED.store(0, Ordering::SeqCst);
-		let input = AnyLayer::filled(PixelDepthKind::U16, 19, 13, OPAQUE_BLACK);
-		let mut fx = PluginInstance::new_with_initial(Path::new("<test>"), input, (37, 23)).unwrap();
-		fx.entry_point = Some(entry);
-		fx.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_owned());
-		fx.finalize().unwrap();
-		assert_eq!(CHECKED.load(Ordering::SeqCst), 3);
-		assert_eq!(fx.input_size(), (19, 13));
-		assert_eq!(fx.output_size(), (37, 23));
-		assert_eq!(fx.input_layer.kind(), PixelDepthKind::U16);
+		PF_Err_NONE as after_effects_sys::PF_Err
 	}
+	CHECKED.store(0, Ordering::SeqCst);
+	let input = AnyLayer::filled(PixelDepthKind::U16, 19, 13, OPAQUE_BLACK);
+	let mut fx = PluginInstance::new_with_initial(Path::new("<test>"), input, (37, 23)).unwrap();
+	fx.entry_point = Some(entry);
+	fx.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_owned());
+	fx.finalize().unwrap();
+	assert_eq!(CHECKED.load(Ordering::SeqCst), 3);
+	assert_eq!(fx.input_size(), (19, 13));
+	assert_eq!(fx.output_size(), (37, 23));
+	assert_eq!(fx.input_layer.kind(), PixelDepthKind::U16);
+}
 
-	#[test]
-	fn custom_ui_click_sees_the_context_from_new_context() {
-		use std::sync::atomic::{AtomicU32, Ordering};
-		static CLICK: AtomicU32 = AtomicU32::new(0);
-		unsafe extern "C" fn entry(
-			cmd: RawCommand,
-			_input: *mut after_effects_sys::PF_InData,
-			_output: *mut after_effects_sys::PF_OutData,
-			_params: after_effects_sys::PF_ParamList,
-			_world: *mut after_effects_sys::PF_LayerDef,
-			extra: *mut c_void,
-		) -> after_effects_sys::PF_Err {
-			if matches!(cmd, RawCommand::Event) && !extra.is_null() {
-				let extra = unsafe { &*(extra.cast::<after_effects_sys::PF_EventExtra>()) };
-				let context = unsafe { *extra.contextH };
-				if context.is_null() {
-					CLICK.store(3, Ordering::SeqCst);
-				} else if extra.e_type == after_effects_sys::PF_Event_NEW_CONTEXT {
-					unsafe { (*context).plugin_state[0] = 0xA11 };
-				} else if extra.e_type == after_effects_sys::PF_Event_DO_CLICK {
-					let stamp = unsafe { (*context).plugin_state[0] };
-					CLICK.store(if stamp == 0xA11 { 1 } else { 2 }, Ordering::SeqCst);
-				}
+#[test]
+fn custom_ui_click_sees_the_context_from_new_context() {
+	use std::sync::atomic::{AtomicU32, Ordering};
+	static CLICK: AtomicU32 = AtomicU32::new(0);
+	unsafe extern "C" fn entry(
+		cmd: RawCommand,
+		_input: *mut after_effects_sys::PF_InData,
+		_output: *mut after_effects_sys::PF_OutData,
+		_params: after_effects_sys::PF_ParamList,
+		_world: *mut after_effects_sys::PF_LayerDef,
+		extra: *mut c_void,
+	) -> after_effects_sys::PF_Err {
+		if matches!(cmd, RawCommand::Event) && !extra.is_null() {
+			let extra = unsafe { &*(extra.cast::<after_effects_sys::PF_EventExtra>()) };
+			let context = unsafe { *extra.contextH };
+			if context.is_null() {
+				CLICK.store(3, Ordering::SeqCst);
+			} else if extra.e_type == after_effects_sys::PF_Event_NEW_CONTEXT {
+				unsafe { (*context).plugin_state[0] = 0xA11 };
+			} else if extra.e_type == after_effects_sys::PF_Event_DO_CLICK {
+				let stamp = unsafe { (*context).plugin_state[0] };
+				CLICK.store(if stamp == 0xA11 { 1 } else { 2 }, Ordering::SeqCst);
 			}
-			PF_Err_NONE as after_effects_sys::PF_Err
 		}
-		CLICK.store(0, Ordering::SeqCst);
-		let mut fx = PluginInstance::new_sized(Path::new("<test>"), 64, 64);
-		fx.entry_point = Some(entry);
-		fx.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_owned());
-		fx.finalize().unwrap();
-		fx.click_custom_control(1, 4, 4, 32, 16).unwrap();
-		assert_eq!(CLICK.load(Ordering::SeqCst), 1);
+		PF_Err_NONE as after_effects_sys::PF_Err
 	}
+	CLICK.store(0, Ordering::SeqCst);
+	let mut fx = PluginInstance::new_sized(Path::new("<test>"), 64, 64);
+	fx.entry_point = Some(entry);
+	fx.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_owned());
+	fx.finalize().unwrap();
+	fx.click_custom_control(1, 4, 4, 32, 16).unwrap();
+	assert_eq!(CLICK.load(Ordering::SeqCst), 1);
+}
