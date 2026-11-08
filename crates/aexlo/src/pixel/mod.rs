@@ -194,7 +194,12 @@ impl<T: PixelDepth> Pixel<T> {
 
 	/// A pixel from channels in the native After Effects order, `[a, r, g, b]`.
 	pub fn from_argb([alpha, red, green, blue]: [T::Depth; 4]) -> Self {
-		Pixel { alpha, red, green, blue }
+		Pixel {
+			alpha,
+			red,
+			green,
+			blue,
+		}
 	}
 
 	/// The channels in the native After Effects order, `[a, r, g, b]`.
@@ -204,7 +209,12 @@ impl<T: PixelDepth> Pixel<T> {
 
 	/// A pixel from channels in the order image formats use, `[r, g, b, a]`.
 	pub fn from_rgba([red, green, blue, alpha]: [T::Depth; 4]) -> Self {
-		Pixel { alpha, red, green, blue }
+		Pixel {
+			alpha,
+			red,
+			green,
+			blue,
+		}
 	}
 
 	/// The channels in the order image formats use, `[r, g, b, a]`.

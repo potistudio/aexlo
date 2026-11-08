@@ -155,9 +155,13 @@ fn initial_input_and_distinct_output_are_visible_in_all_setup_commands() {
 		world: *mut after_effects_sys::PF_LayerDef,
 		_extra: *mut c_void,
 	) -> after_effects_sys::PF_Err {
-		if [RawCommand::GlobalSetup, RawCommand::ParamsSetup, RawCommand::SequenceSetup]
-			.map(RawCommand::to_sys)
-			.contains(&cmd)
+		if [
+			RawCommand::GlobalSetup,
+			RawCommand::ParamsSetup,
+			RawCommand::SequenceSetup,
+		]
+		.map(RawCommand::to_sys)
+		.contains(&cmd)
 		{
 			let (iw, ih, ow, oh) = unsafe { ((*input).width, (*input).height, (*world).width, (*world).height) };
 			if (iw, ih, ow, oh) == (19, 13, 37, 23) {
