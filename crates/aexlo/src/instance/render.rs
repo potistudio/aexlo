@@ -161,7 +161,7 @@ impl PluginInstance {
 		let mut extra = self.smart_render_data.smart_render_extra();
 
 		let result = self.call_plugin(
-			after_effects::RawCommand::SmartRender,
+			RawCommand::SmartRender,
 			(&mut extra as *mut after_effects_sys::PF_SmartRenderExtra).cast(),
 		);
 		self.end_output_guard();

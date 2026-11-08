@@ -353,7 +353,7 @@ impl PluginInstance {
 	/// handle they check out, so leaving it null crashes them.
 	fn setup_arbitrary_params(&mut self) {
 		for index in 0..self.params.len() {
-			if self.params[index].param_type != ParamType::ArbitraryData as PF_ParamType {
+			if self.params[index].param_type != PF_Param_ARBITRARY_DATA as PF_ParamType {
 				continue;
 			}
 			// SAFETY: the parameter was verified to be arbitrary data above.

@@ -154,21 +154,21 @@ impl PluginInstance {
 		// SAFETY: the union variant is selected based on `param_type`.
 		unsafe {
 			match param.param_type {
-				t if t == ParamType::FloatSlider as PF_ParamType => Some(ParamValue::Float(param.u.fs_d.value)),
-				t if t == ParamType::FixSlider as PF_ParamType => {
+				t if t == PF_Param_FLOAT_SLIDER as PF_ParamType => Some(ParamValue::Float(param.u.fs_d.value)),
+				t if t == PF_Param_FIX_SLIDER as PF_ParamType => {
 					Some(ParamValue::Fixed(utils::fixed16_to_f32(param.u.fd.value)))
 				}
-				t if t == ParamType::Slider as PF_ParamType => Some(ParamValue::Slider(param.u.sd.value)),
-				t if t == ParamType::CheckBox as PF_ParamType => Some(ParamValue::Checkbox(param.u.bd.value != 0)),
-				t if t == ParamType::PopUp as PF_ParamType => Some(ParamValue::Popup(param.u.pd.value)),
-				t if t == ParamType::Angle as PF_ParamType => {
+				t if t == PF_Param_SLIDER as PF_ParamType => Some(ParamValue::Slider(param.u.sd.value)),
+				t if t == PF_Param_CHECKBOX as PF_ParamType => Some(ParamValue::Checkbox(param.u.bd.value != 0)),
+				t if t == PF_Param_POPUP as PF_ParamType => Some(ParamValue::Popup(param.u.pd.value)),
+				t if t == PF_Param_ANGLE as PF_ParamType => {
 					Some(ParamValue::Angle(utils::fixed16_to_f32(param.u.ad.value)))
 				}
-				t if t == ParamType::Point as PF_ParamType => Some(ParamValue::Point {
+				t if t == PF_Param_POINT as PF_ParamType => Some(ParamValue::Point {
 					x: utils::fixed16_to_f32(param.u.td.x_value),
 					y: utils::fixed16_to_f32(param.u.td.y_value),
 				}),
-				t if t == ParamType::Color as PF_ParamType => {
+				t if t == PF_Param_COLOR as PF_ParamType => {
 					let px = param.u.cd.value;
 					Some(ParamValue::Color {
 						red: px.red,
@@ -177,8 +177,8 @@ impl PluginInstance {
 						alpha: px.alpha,
 					})
 				}
-				t if t == ParamType::Path as PF_ParamType => Some(ParamValue::Path(param.u.path_d.path_id)),
-				t if t == ParamType::Point3D as PF_ParamType => Some(ParamValue::Point3D {
+				t if t == PF_Param_PATH as PF_ParamType => Some(ParamValue::Path(param.u.path_d.path_id)),
+				t if t == PF_Param_POINT_3D as PF_ParamType => Some(ParamValue::Point3D {
 					x: param.u.point3d_d.x_value,
 					y: param.u.point3d_d.y_value,
 					z: param.u.point3d_d.z_value,
@@ -201,13 +201,13 @@ impl PluginInstance {
 		// the reads in `get_param`.
 		let (min, max) = unsafe {
 			match param.param_type {
-				t if t == ParamType::FloatSlider as PF_ParamType => {
+				t if t == PF_Param_FLOAT_SLIDER as PF_ParamType => {
 					(param.u.fs_d.slider_min as f64, param.u.fs_d.slider_max as f64)
 				}
-				t if t == ParamType::Slider as PF_ParamType => {
+				t if t == PF_Param_SLIDER as PF_ParamType => {
 					(param.u.sd.slider_min as f64, param.u.sd.slider_max as f64)
 				}
-				t if t == ParamType::FixSlider as PF_ParamType => (
+				t if t == PF_Param_FIX_SLIDER as PF_ParamType => (
 					utils::fixed16_to_f32(param.u.fd.slider_min) as f64,
 					utils::fixed16_to_f32(param.u.fd.slider_max) as f64,
 				),
@@ -224,7 +224,7 @@ impl PluginInstance {
 	/// choice string.
 	pub fn param_choices(&self, index: usize) -> Option<Vec<String>> {
 		let param = self.params.get(index)?;
-		if param.param_type != ParamType::PopUp as PF_ParamType {
+		if param.param_type != PF_Param_POPUP as PF_ParamType {
 			return None;
 		}
 		// Read the labels captured at PARAMS_SETUP, not the now-dangling
@@ -241,7 +241,7 @@ impl PluginInstance {
 	pub(crate) fn add_instance_param(&mut self, param: PF_ParamDef) {
 		// Capture popup choice labels now, while the plugin-owned `namesptr`
 		// string is still alive (it dies when the add-param callback returns).
-		let choices = if param.param_type == ParamType::PopUp as PF_ParamType {
+		let choices = if param.param_type == PF_Param_POPUP as PF_ParamType {
 			unsafe { crate::host::params::popup_options(&param.u.pd) }
 		} else {
 			Vec::new()

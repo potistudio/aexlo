@@ -142,7 +142,7 @@ impl PluginInstance {
 			});
 		}
 		let param_type = self.params[index].param_type;
-		if param_type != ParamType::Layer as PF_ParamType {
+		if param_type != PF_Param_LAYER as PF_ParamType {
 			return Err(AexloError::ParamTypeMismatch {
 				index,
 				expected: crate::ParamKind::Layer,

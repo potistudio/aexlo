@@ -14,13 +14,17 @@ use crate::utils;
 use crate::gpu::GPU_BYTES_PER_PIXEL;
 use crate::pixel::{AnyLayer, Depth8, Layer, Pixel, PixelDepth, PixelDepthKind};
 use crate::time::Time;
-use after_effects::{ParamType, RawCommand};
 use after_effects_sys::{
 	PF_ArbParamsExtra, PF_Arbitrary_COPY_FUNC, PF_Arbitrary_DISPOSE_FUNC, PF_Arbitrary_NEW_FUNC, PF_ArbitraryH,
 	PF_Err_INVALID_CALLBACK, PF_Err_NONE, PF_GPU_Framework, PF_GPU_Framework_NONE, PF_GPUDeviceSetdownExtra,
 	PF_GPUDeviceSetdownInput, PF_GPUDeviceSetupExtra, PF_GPUDeviceSetupInput, PF_GPUDeviceSetupOutput,
 	PF_OutFlag2_SUPPORTS_GPU_RENDER_F32, PF_OutFlags, PF_OutFlags2, PF_ParamDef, PF_ParamDefUnion, PF_ParamType,
 	PF_ProgPtr,
+};
+use after_effects_sys::{
+	PF_Cmd, PF_Param_ANGLE, PF_Param_ARBITRARY_DATA, PF_Param_CHECKBOX, PF_Param_COLOR, PF_Param_FIX_SLIDER,
+	PF_Param_FLOAT_SLIDER, PF_Param_LAYER, PF_Param_PATH, PF_Param_POINT, PF_Param_POINT_3D, PF_Param_POPUP,
+	PF_Param_SLIDER,
 };
 use dlopen2::raw::Library;
 use std::{
@@ -34,6 +38,40 @@ use std::{
 };
 
 use crate::core::constants::{DEFAULT_HEIGHT as HEIGHT, DEFAULT_WIDTH as WIDTH};
+
+/// The effect commands (`PF_Cmd_*`) aexlo sends to a plugin.
+///
+/// The discriminants are the SDK values, so `command as i32` is the wire
+/// value. The entry point itself takes the raw [`PF_Cmd`] (see
+/// [`PluginEntryPoint`]); this names the ones the host issues and logs them
+/// readably.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub(crate) enum RawCommand {
+	About = after_effects_sys::PF_Cmd_ABOUT as i32,
+	GlobalSetup = after_effects_sys::PF_Cmd_GLOBAL_SETUP as i32,
+	GlobalSetdown = after_effects_sys::PF_Cmd_GLOBAL_SETDOWN as i32,
+	ParamsSetup = after_effects_sys::PF_Cmd_PARAMS_SETUP as i32,
+	SequenceSetup = after_effects_sys::PF_Cmd_SEQUENCE_SETUP as i32,
+	SequenceSetdown = after_effects_sys::PF_Cmd_SEQUENCE_SETDOWN as i32,
+	DoDialog = after_effects_sys::PF_Cmd_DO_DIALOG as i32,
+	Render = after_effects_sys::PF_Cmd_RENDER as i32,
+	UserChangedParam = after_effects_sys::PF_Cmd_USER_CHANGED_PARAM as i32,
+	UpdateParamsUi = after_effects_sys::PF_Cmd_UPDATE_PARAMS_UI as i32,
+	Event = after_effects_sys::PF_Cmd_EVENT as i32,
+	ArbitraryCallback = after_effects_sys::PF_Cmd_ARBITRARY_CALLBACK as i32,
+	SmartPreRender = after_effects_sys::PF_Cmd_SMART_PRE_RENDER as i32,
+	SmartRender = after_effects_sys::PF_Cmd_SMART_RENDER as i32,
+	SmartRenderGpu = after_effects_sys::PF_Cmd_SMART_RENDER_GPU as i32,
+	GpuDeviceSetup = after_effects_sys::PF_Cmd_GPU_DEVICE_SETUP as i32,
+	GpuDeviceSetdown = after_effects_sys::PF_Cmd_GPU_DEVICE_SETDOWN as i32,
+}
+
+impl RawCommand {
+	pub(crate) fn to_sdk(self) -> PF_Cmd {
+		self as PF_Cmd
+	}
+}
 
 mod layers;
 mod load;
@@ -97,7 +135,7 @@ unsafe fn call_entry(
 		let result = unsafe {
 			aexlo_call_entry(
 				entry_point as usize as *const c_void,
-				command as i32,
+				command.to_sdk() as i32,
 				in_data.cast(),
 				out_data.cast(),
 				params.cast(),
@@ -117,7 +155,7 @@ unsafe fn call_entry(
 	#[cfg(not(windows))]
 	{
 		// SAFETY: the caller upholds `call_entry`'s contract.
-		unsafe { entry_point(command, in_data, out_data, params, output, extra) }
+		unsafe { entry_point(command.to_sdk(), in_data, out_data, params, output, extra) }
 	}
 }
 
@@ -126,7 +164,7 @@ unsafe fn call_entry(
 /// exports. Handed to [`Host::from_entry`] to drive an in-process
 /// effect without `dlopen`.
 pub type PluginEntryPoint = unsafe extern "C" fn(
-	cmd: RawCommand,
+	cmd: PF_Cmd,
 	in_data: *mut after_effects_sys::PF_InData,
 	out_data: *mut after_effects_sys::PF_OutData,
 	params: after_effects_sys::PF_ParamList,

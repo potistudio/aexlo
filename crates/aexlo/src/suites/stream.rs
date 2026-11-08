@@ -19,7 +19,6 @@
 //! vs `AEGP_StreamValue2`, whose unions share the members written here) and,
 //! from v5, a UTF-16 `AEGP_SetExpression`.
 
-use after_effects::ParamType;
 use after_effects_sys::*;
 
 use crate::core::diagnostics::diag;
@@ -122,27 +121,27 @@ impl StreamValue {
 		// SAFETY: every union read is selected by `param_type`.
 		unsafe {
 			match def.param_type {
-				t if t == ParamType::Layer as PF_ParamType => Self::LayerId,
-				t if t == ParamType::Slider as PF_ParamType => Self::OneD(def.u.sd.value as f64),
-				t if t == ParamType::FixSlider as PF_ParamType => {
+				t if t == PF_Param_LAYER as PF_ParamType => Self::LayerId,
+				t if t == PF_Param_SLIDER as PF_ParamType => Self::OneD(def.u.sd.value as f64),
+				t if t == PF_Param_FIX_SLIDER as PF_ParamType => {
 					Self::OneD(utils::fixed16_to_f32(def.u.fd.value) as f64)
 				}
-				t if t == ParamType::FloatSlider as PF_ParamType => Self::OneD(def.u.fs_d.value),
-				t if t == ParamType::Angle as PF_ParamType => Self::OneD(utils::fixed16_to_f32(def.u.ad.value) as f64),
-				t if t == ParamType::CheckBox as PF_ParamType => Self::OneD(def.u.bd.value as f64),
-				t if t == ParamType::PopUp as PF_ParamType => Self::OneD(def.u.pd.value as f64),
-				t if t == ParamType::Point as PF_ParamType => Self::TwoD {
+				t if t == PF_Param_FLOAT_SLIDER as PF_ParamType => Self::OneD(def.u.fs_d.value),
+				t if t == PF_Param_ANGLE as PF_ParamType => Self::OneD(utils::fixed16_to_f32(def.u.ad.value) as f64),
+				t if t == PF_Param_CHECKBOX as PF_ParamType => Self::OneD(def.u.bd.value as f64),
+				t if t == PF_Param_POPUP as PF_ParamType => Self::OneD(def.u.pd.value as f64),
+				t if t == PF_Param_POINT as PF_ParamType => Self::TwoD {
 					x: utils::fixed16_to_f32(def.u.td.x_value) as f64,
 					y: utils::fixed16_to_f32(def.u.td.y_value) as f64,
 					spatial: true,
 				},
-				t if t == ParamType::Point3D as PF_ParamType => Self::ThreeD {
+				t if t == PF_Param_POINT_3D as PF_ParamType => Self::ThreeD {
 					x: def.u.point3d_d.x_value,
 					y: def.u.point3d_d.y_value,
 					z: def.u.point3d_d.z_value,
 					spatial: true,
 				},
-				t if t == ParamType::Color as PF_ParamType => {
+				t if t == PF_Param_COLOR as PF_ParamType => {
 					let px = def.u.cd.value;
 					Self::Color {
 						alpha: px.alpha as f64 / 255.0,
@@ -151,7 +150,7 @@ impl StreamValue {
 						blue: px.blue as f64 / 255.0,
 					}
 				}
-				t if t == ParamType::ArbitraryData as PF_ParamType => {
+				t if t == PF_Param_ARBITRARY_DATA as PF_ParamType => {
 					let handle = def.u.arb_d.value;
 					if handle.is_null() || !arb_live {
 						Self::NoData
@@ -473,14 +472,14 @@ unsafe extern "C" fn get_stream_properties(
 		// SAFETY: every union read is selected by `param_type`.
 		let range = unsafe {
 			match def.param_type {
-				t if t == ParamType::Slider as PF_ParamType => {
+				t if t == PF_Param_SLIDER as PF_ParamType => {
 					Some((def.u.sd.valid_min as f64, def.u.sd.valid_max as f64))
 				}
-				t if t == ParamType::FixSlider as PF_ParamType => Some((
+				t if t == PF_Param_FIX_SLIDER as PF_ParamType => Some((
 					utils::fixed16_to_f32(def.u.fd.valid_min) as f64,
 					utils::fixed16_to_f32(def.u.fd.valid_max) as f64,
 				)),
-				t if t == ParamType::FloatSlider as PF_ParamType => {
+				t if t == PF_Param_FLOAT_SLIDER as PF_ParamType => {
 					Some((def.u.fs_d.valid_min as f64, def.u.fs_d.valid_max as f64))
 				}
 				_ => None,
