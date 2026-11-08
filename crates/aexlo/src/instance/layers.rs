@@ -60,7 +60,7 @@ impl PluginInstance {
 	/// # Errors
 	/// [`AexloError::Layer`] unless the buffer has exactly
 	/// `width * height * 4` bytes ([`Self::output_size`]).
-	pub fn write_rendered_pixels(&self, buffer: &mut [u8]) -> Result<()> {
+	pub fn write_output_rgba8(&self, buffer: &mut [u8]) -> Result<()> {
 		self.output_layer.layer().write_rgba8(buffer)?;
 		Ok(())
 	}

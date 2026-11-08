@@ -39,10 +39,10 @@ fn render(map: Option<Vec<u8>>, params: &[(usize, ParamValue)]) -> Option<Vec<u8
 		return None;
 	};
 	let mut instance: PluginInstance = aexlo::Host::get().try_load(&path).expect("failed to load plugin");
-	instance.set_input_layer(Layer::<Depth8>::from_raw(pattern(), W, H).unwrap());
+	instance.set_input_layer(Layer::<Depth8>::from_rgba8(pattern(), W, H).unwrap());
 	instance.set_render_size(W, H);
 	if let Some(map) = map {
-		let map = Layer::<Depth8>::from_raw(map, W, H).unwrap();
+		let map = Layer::<Depth8>::from_rgba8(map, W, H).unwrap();
 		instance.set_layer_param(MAP_LAYER, Some(map)).unwrap();
 	}
 	for (index, value) in params {
@@ -50,7 +50,7 @@ fn render(map: Option<Vec<u8>>, params: &[(usize, ParamValue)]) -> Option<Vec<u8
 	}
 	instance.render_frame().expect("render failed");
 	let mut out = vec![0u8; (W * H * 4) as usize];
-	instance.write_rendered_pixels(&mut out).unwrap();
+	instance.write_output_rgba8(&mut out).unwrap();
 	Some(out)
 }
 

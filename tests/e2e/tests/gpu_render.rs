@@ -13,14 +13,14 @@ fn load_sample_input() -> Layer<Depth8> {
 		.expect("failed to open workspace input.png")
 		.to_rgba8();
 	let (width, height) = img.dimensions();
-	Layer::<Depth8>::from_raw(img.into_raw(), width, height).expect("failed to wrap input.png as a Layer")
+	Layer::<Depth8>::from_rgba8(img.into_raw(), width, height).expect("failed to wrap input.png as a Layer")
 }
 
 fn read_output_rgba(instance: &PluginInstance) -> Vec<u8> {
 	let (width, height) = instance.output_size();
 	let mut buffer = vec![0u8; (width * height * 4) as usize];
 	instance
-		.write_rendered_pixels(&mut buffer)
+		.write_output_rgba8(&mut buffer)
 		.expect("write_output_rgba failed");
 	buffer
 }

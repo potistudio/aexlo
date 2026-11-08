@@ -635,7 +635,7 @@ impl Worker {
 		let Ok(fx) = &mut slot.instance else { unreachable!() };
 		fx.render_frame().map_err(|e| e.to_string())?;
 		let mut out = vec![0u8; w as usize * h as usize * 4];
-		fx.write_rendered_pixels(&mut out).map_err(|e| e.to_string())?;
+		fx.write_output_rgba8(&mut out).map_err(|e| e.to_string())?;
 		Ok(Image {
 			width: w,
 			height: h,
@@ -748,7 +748,7 @@ impl Worker {
 }
 
 fn to_layer(image: &Image) -> Result<aexlo::Layer<Depth8>, String> {
-	aexlo::Layer::<Depth8>::from_raw(image.pixels.clone(), image.width, image.height).map_err(|e| e.to_string())
+	aexlo::Layer::<Depth8>::from_rgba8(image.pixels.clone(), image.width, image.height).map_err(|e| e.to_string())
 }
 
 fn mask_path(mask: &crate::model::Mask) -> aexlo::MaskPath {

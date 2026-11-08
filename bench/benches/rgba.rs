@@ -1,4 +1,4 @@
-//! `Layer<Depth8>::write_rgba_bytes` throughput.
+//! `Layer<Depth8>::write_rgba8` throughput.
 //!
 //! Compares the current per-field copy against a `u32::rotate_right(8)`
 //! candidate (ARGB -> RGBA in one op) and a plain `memcpy` lower bound, so it
@@ -23,24 +23,24 @@ fn write_rotate(src: &[u8], buffer: &mut [u8]) {
 }
 
 fn rgba(criterion: &mut Criterion) {
-	let mut group = criterion.benchmark_group("write_rgba_bytes");
+	let mut group = criterion.benchmark_group("write_rgba8");
 
 	for resolution in ALL_RESOLUTIONS {
 		let (width, height) = (resolution.width, resolution.height);
 		let raw = (0..width * height * 4).map(|i| i as u8).collect();
-		let layer = Layer::<Depth8>::from_raw(raw, width, height).expect("layer");
+		let layer = Layer::<Depth8>::from_rgba8(raw, width, height).expect("layer");
 		let mut buffer = vec![0u8; layer.len() * 4];
 
 		// Sanity: the candidate must produce identical output.
 		let mut expected = vec![0u8; buffer.len()];
-		layer.write_rgba_bytes(&mut expected).unwrap();
+		layer.write_rgba8(&mut expected).unwrap();
 		write_rotate(layer_bytes(&layer), &mut buffer);
 		assert_eq!(expected, buffer, "rotate variant diverges");
 
 		group.throughput(Throughput::Elements(resolution.pixels()));
 
 		group.bench_function(BenchmarkId::new("current", resolution.name), |b| {
-			b.iter(|| layer.write_rgba_bytes(black_box(&mut buffer)).unwrap())
+			b.iter(|| layer.write_rgba8(black_box(&mut buffer)).unwrap())
 		});
 		group.bench_function(BenchmarkId::new("rotate", resolution.name), |b| {
 			b.iter(|| write_rotate(black_box(layer_bytes(&layer)), black_box(&mut buffer)))

@@ -27,7 +27,7 @@ pub fn build(spec: &InputSpec, depth: PixelDepthKind, size: Option<(u32, u32)>) 
 		return Ok(if layer.kind() == depth {
 			layer
 		} else {
-			layer.converted(depth)
+			layer.convert(depth)
 		});
 	}
 

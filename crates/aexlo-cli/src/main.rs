@@ -441,7 +441,7 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 		Some(
 			aexlo_harness::frame::load_image(path)
 				.map_err(anyhow::Error::msg)?
-				.converted(depth),
+				.convert(depth),
 		)
 	} else if let Some(variant) = &variant {
 		let size = variant.size.map(|[w, h]| (w, h));
@@ -508,7 +508,7 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 	let frame = aexlo_harness::Frame::new(instance.output().clone());
 	if is_exr {
 		frame
-			.converted(aexlo::PixelDepthKind::F32)
+			.convert(aexlo::PixelDepthKind::F32)
 			.save(&output)
 			.map_err(anyhow::Error::msg)?;
 	} else if instance.output_depth() == aexlo::PixelDepthKind::U16 {

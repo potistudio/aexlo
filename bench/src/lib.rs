@@ -313,7 +313,7 @@ pub fn set_input_frame(
 		// Preserve the env-driven default for callers that pass no explicit path.
 		None => bench_input(width, height),
 	};
-	let layer = Layer::<Depth8>::from_raw(pixels, width, height).map_err(|err| format!("{err}"))?;
+	let layer = Layer::<Depth8>::from_rgba8(pixels, width, height).map_err(|err| format!("{err}"))?;
 	instance.set_input_layer(layer);
 	Ok(())
 }

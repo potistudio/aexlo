@@ -106,8 +106,8 @@ pub trait PixelDepth: sealed::Sealed + Copy + Default + core::fmt::Debug + Send 
 ///
 /// Note that this is the *native After Effects* channel order (ARGB), which is
 /// also the order of the `From<[_; 4]>` conversions and of
-/// [`Pixel::from_argb`]. Conversion helpers such as `Layer::from_raw` /
-/// `Layer::write_rgba_bytes` deal in the `RGBA` byte order used by external
+/// [`Pixel::from_argb`]. Conversion helpers such as `Layer::from_rgba8` /
+/// `Layer::write_rgba8` deal in the `RGBA` byte order used by external
 /// image formats ([`Pixel::from_rgba`]).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]

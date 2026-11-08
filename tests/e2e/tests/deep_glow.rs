@@ -19,7 +19,7 @@ fn render(instance: &mut PluginInstance) -> Vec<u8> {
 	instance.render_frame().expect("render failed");
 	let (w, h) = instance.output_size();
 	let mut out = vec![0u8; (w * h * 4) as usize];
-	instance.write_rendered_pixels(&mut out).unwrap();
+	instance.write_output_rgba8(&mut out).unwrap();
 	out
 }
 
@@ -33,7 +33,7 @@ fn dot(w: u32, h: u32, cx: u32, cy: u32) -> Layer<Depth8> {
 			p[..3].fill(255);
 		}
 	}
-	Layer::<Depth8>::from_raw(px, w, h).unwrap()
+	Layer::<Depth8>::from_rgba8(px, w, h).unwrap()
 }
 
 /// The frame is progressive: every scanline is processed alike. (With an
@@ -43,7 +43,7 @@ fn renders_every_scanline_alike() {
 	let Some(mut instance) = load() else { return };
 	let img = image::open(test_e2e::sample_input_path()).unwrap().to_rgba8();
 	let (w, h) = img.dimensions();
-	instance.set_input_layer(Layer::<Depth8>::from_raw(img.into_raw(), w, h).unwrap());
+	instance.set_input_layer(Layer::<Depth8>::from_rgba8(img.into_raw(), w, h).unwrap());
 	let out = render(&mut instance);
 
 	// Columns 900..1020 at rows 300..340 sit between the watermark diagonals.

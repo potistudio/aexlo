@@ -31,7 +31,7 @@ struct Input {
 
 impl Input {
 	fn layer(&self) -> Result<Layer<Depth8>> {
-		Layer::<Depth8>::from_raw(self.rgba.clone(), self.w, self.h)
+		Layer::<Depth8>::from_rgba8(self.rgba.clone(), self.w, self.h)
 			.map_err(|e| anyhow::anyhow!("building input layer: {e}"))
 	}
 }

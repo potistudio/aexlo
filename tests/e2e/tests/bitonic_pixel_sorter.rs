@@ -31,19 +31,19 @@ fn sample_input() -> Layer<Depth8> {
 		.expect("failed to open workspace input.png")
 		.to_rgba8();
 	let (width, height) = img.dimensions();
-	Layer::<Depth8>::from_raw(img.into_raw(), width, height).unwrap()
+	Layer::<Depth8>::from_rgba8(img.into_raw(), width, height).unwrap()
 }
 
 fn rgba(layer: &Layer<Depth8>) -> Vec<u8> {
 	let mut out = vec![0u8; (layer.width() * layer.height() * 4) as usize];
-	layer.write_rgba_bytes(&mut out).unwrap();
+	layer.write_rgba8(&mut out).unwrap();
 	out
 }
 
 fn output(instance: &PluginInstance) -> Vec<u8> {
 	let (w, h) = instance.output_size();
 	let mut out = vec![0u8; (w * h * 4) as usize];
-	instance.write_rendered_pixels(&mut out).unwrap();
+	instance.write_output_rgba8(&mut out).unwrap();
 	out
 }
 
@@ -241,7 +241,7 @@ fn trigger_source_layer_selects_the_sorted_band() {
 			gradient.extend_from_slice(&[v, v, v, 255]);
 		}
 	}
-	let trigger = Layer::<Depth8>::from_raw(gradient, w, h).unwrap();
+	let trigger = Layer::<Depth8>::from_rgba8(gradient, w, h).unwrap();
 	instance.set_layer_param(TRIGGER_SOURCE, Some(trigger)).unwrap();
 	assert!(instance.layer_param(TRIGGER_SOURCE).is_some());
 	let cpu_out = render_cpu(&mut instance);
@@ -304,7 +304,7 @@ fn gpu_declined_frame_renders_on_the_cpu() {
 	}
 	let make = || -> Option<PluginInstance> {
 		let mut instance = load()?;
-		instance.set_input_layer(Layer::<Depth8>::from_raw(pixels.clone(), w, h).unwrap());
+		instance.set_input_layer(Layer::<Depth8>::from_rgba8(pixels.clone(), w, h).unwrap());
 		instance.set_render_size(w, h);
 		instance.set_param(THRESHOLD_MIN, ParamValue::Float(0.0)).unwrap();
 		instance.set_param(THRESHOLD_MAX, ParamValue::Float(100.0)).unwrap();

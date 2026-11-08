@@ -113,8 +113,8 @@ impl Frame {
 	}
 
 	/// This frame at another depth.
-	pub fn converted(&self, depth: PixelDepthKind) -> Frame {
-		Frame::new(self.layer.converted(depth))
+	pub fn convert(&self, depth: PixelDepthKind) -> Frame {
+		Frame::new(self.layer.convert(depth))
 	}
 
 	/// Compare against `reference` within `tolerance` (§8.2).
@@ -211,7 +211,7 @@ impl Frame {
 			AnyLayer::U8(layer) => {
 				let mut rgba = vec![0u8; layer.len() * 4];
 				layer
-					.write_rgba_bytes(&mut rgba)
+					.write_rgba8(&mut rgba)
 					.map_err(|e| Error::harness(e.to_string()))?;
 				image::RgbaImage::from_raw(w, h, rgba).map(|img| img.save_with_format(path, image::ImageFormat::Png))
 			}
@@ -402,7 +402,7 @@ pub fn load_image(path: &Path) -> Result<AnyLayer> {
 		}
 		other => {
 			let data = other.into_rgba8().into_raw();
-			AnyLayer::new(Layer::<Depth8>::from_raw(data, w, h).map_err(|e| Error::harness(e.to_string()))?)
+			AnyLayer::new(Layer::<Depth8>::from_rgba8(data, w, h).map_err(|e| Error::harness(e.to_string()))?)
 		}
 	})
 }

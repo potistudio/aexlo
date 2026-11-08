@@ -331,7 +331,7 @@ fn index_mut_panics_past_the_height() {
 //==== Layer: raw bytes ===============================
 #[test]
 fn from_raw_reads_rgba_bytes() {
-	let layer = Layer::<Depth8>::from_raw(vec![1, 2, 3, 4, 5, 6, 7, 8], 2, 1).unwrap();
+	let layer = Layer::<Depth8>::from_rgba8(vec![1, 2, 3, 4, 5, 6, 7, 8], 2, 1).unwrap();
 	assert_eq!(layer[(0, 0)].to_rgba(), [1, 2, 3, 4]);
 	assert_eq!(layer[(0, 0)].to_argb(), [4, 1, 2, 3]);
 	assert_eq!(layer[(1, 0)].to_rgba(), [5, 6, 7, 8]);
@@ -340,16 +340,16 @@ fn from_raw_reads_rgba_bytes() {
 #[test]
 fn from_raw_checks_the_length_and_dimensions() {
 	assert_eq!(
-		Layer::<Depth8>::from_raw(vec![0; 7], 2, 1).unwrap_err(),
+		Layer::<Depth8>::from_rgba8(vec![0; 7], 2, 1).unwrap_err(),
 		LayerError::DimensionMismatch { expected: 8, actual: 7 }
 	);
 	assert!(matches!(
-		Layer::<Depth8>::from_raw(vec![], 1 << 29, 1),
+		Layer::<Depth8>::from_rgba8(vec![], 1 << 29, 1),
 		Err(LayerError::TooLarge { .. })
 	));
 	// Would wrap to a matching length if multiplied in u32.
 	assert!(matches!(
-		Layer::<Depth8>::from_raw(vec![], 1 << 16, 1 << 14),
+		Layer::<Depth8>::from_rgba8(vec![], 1 << 16, 1 << 14),
 		Err(LayerError::DimensionMismatch { .. })
 	));
 }
@@ -357,13 +357,13 @@ fn from_raw_checks_the_length_and_dimensions() {
 #[test]
 fn write_rgba_bytes_round_trips_from_raw() {
 	let bytes: Vec<u8> = (0..24).collect();
-	let layer = Layer::<Depth8>::from_raw(bytes.clone(), 3, 2).unwrap();
+	let layer = Layer::<Depth8>::from_rgba8(bytes.clone(), 3, 2).unwrap();
 	let mut out = vec![0u8; 24];
-	layer.write_rgba_bytes(&mut out).unwrap();
+	layer.write_rgba8(&mut out).unwrap();
 	assert_eq!(out, bytes);
 
 	assert_eq!(
-		layer.write_rgba_bytes(&mut [0u8; 23]).unwrap_err(),
+		layer.write_rgba8(&mut [0u8; 23]).unwrap_err(),
 		LayerError::DimensionMismatch {
 			expected: 24,
 			actual: 23
@@ -461,14 +461,14 @@ fn any_layer_unit_rgba() {
 fn any_layer_converted_changes_the_depth_and_copies() {
 	let layer = AnyLayer::filled(PixelDepthKind::U8, 2, 2, [1.0, 0.5, 0.0, 1.0]);
 	for kind in [PixelDepthKind::U8, PixelDepthKind::U16, PixelDepthKind::F32] {
-		let converted = layer.converted(kind);
+		let converted = layer.convert(kind);
 		assert_eq!(converted.kind(), kind);
 		assert_eq!((converted.width(), converted.height()), (2, 2));
 		let [r, g, b, a] = converted.unit_rgba(0).unwrap();
 		assert_eq!((r, b, a), (1.0, 0.0, 1.0));
 		assert!((g - 0.5).abs() < 0.01, "green {g} at {kind}");
 	}
-	assert_ne!(layer.data_ptr(), layer.converted(PixelDepthKind::U8).data_ptr());
+	assert_ne!(layer.data_ptr(), layer.convert(PixelDepthKind::U8).data_ptr());
 }
 
 #[test]
@@ -494,7 +494,7 @@ fn write_rgba8_quantizes_deeper_layers() {
 
 #[test]
 fn write_rgba8_copies_8_bit_layers_verbatim_and_checks_the_length() {
-	let layer = AnyLayer::new(Layer::<Depth8>::from_raw(vec![1, 2, 3, 4], 1, 1).unwrap());
+	let layer = AnyLayer::new(Layer::<Depth8>::from_rgba8(vec![1, 2, 3, 4], 1, 1).unwrap());
 	let mut out = [0u8; 4];
 	layer.write_rgba8(&mut out).unwrap();
 	assert_eq!(out, [1, 2, 3, 4]);

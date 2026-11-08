@@ -39,13 +39,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let image = image::open(&input)?.to_rgba8();
 	let (width, height) = image.dimensions();
 	instance.set_render_size(width, height);
-	instance.set_input_layer(Layer::<Depth8>::from_raw(image.into_raw(), width, height)?);
+	instance.set_input_layer(Layer::<Depth8>::from_rgba8(image.into_raw(), width, height)?);
 
 	// 3. Select the appropriate render path and copy the result to RGBA bytes.
 	instance.render_frame()?;
 	let (width, height) = instance.output_size();
 	let mut pixels = vec![0; width as usize * height as usize * 4];
-	instance.write_rendered_pixels(&mut pixels)?;
+	instance.write_output_rgba8(&mut pixels)?;
 
 	// 4. Save a PNG. Errors propagate to the terminal instead of panicking.
 	if let Some(parent) = output.parent().filter(|path| !path.as_os_str().is_empty()) {

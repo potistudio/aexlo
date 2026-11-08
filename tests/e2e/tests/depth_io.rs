@@ -13,7 +13,9 @@ fn sample_input<D: aexlo::PixelDepth>() -> Layer<D> {
 		.expect("failed to open workspace input.png")
 		.to_rgba8();
 	let (w, h) = img.dimensions();
-	Layer::<Depth8>::from_raw(img.into_raw(), w, h).unwrap().convert::<D>()
+	Layer::<Depth8>::from_rgba8(img.into_raw(), w, h)
+		.unwrap()
+		.convert::<D>()
 }
 
 /// Every fixture's declared depths, for the record.

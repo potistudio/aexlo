@@ -251,7 +251,7 @@ impl Layer<Depth8> {
 	///
 	/// # Errors
 	/// [`LayerError::DimensionMismatch`] if `pixels.len() != width * height * 4`.
-	pub fn from_raw(pixels: Vec<u8>, width: u32, height: u32) -> Result<Self, LayerError> {
+	pub fn from_rgba8(pixels: Vec<u8>, width: u32, height: u32) -> Result<Self, LayerError> {
 		let expected = pixel_count::<Depth8>(width, height)
 			.and_then(|count| count.checked_mul(4))
 			.ok_or(LayerError::TooLarge { width, height })?;
@@ -277,7 +277,7 @@ impl Layer<Depth8> {
 	/// # Errors
 	/// [`LayerError::DimensionMismatch`] unless the buffer has exactly
 	/// `width * height * 4` bytes.
-	pub fn write_rgba_bytes(&self, buffer: &mut [u8]) -> Result<(), LayerError> {
+	pub fn write_rgba8(&self, buffer: &mut [u8]) -> Result<(), LayerError> {
 		let required = self.pixels.len() * 4;
 
 		if buffer.len() != required {
@@ -422,7 +422,7 @@ impl AnyLayer {
 	}
 
 	/// This layer at another depth (a copy, even when `kind` is unchanged).
-	pub fn converted(&self, kind: PixelDepthKind) -> AnyLayer {
+	pub fn convert(&self, kind: PixelDepthKind) -> AnyLayer {
 		fn to<E: PixelDepth>(layer: &AnyLayer) -> AnyLayer {
 			AnyLayer::new(with_layer!(layer, l => l.convert::<E>()))
 		}
@@ -440,7 +440,7 @@ impl AnyLayer {
 	/// `width * height * 4` bytes.
 	pub fn write_rgba8(&self, buffer: &mut [u8]) -> Result<(), LayerError> {
 		if let Self::U8(layer) = self {
-			return layer.write_rgba_bytes(buffer);
+			return layer.write_rgba8(buffer);
 		}
 		let required = self.len() * 4;
 		if buffer.len() != required {
