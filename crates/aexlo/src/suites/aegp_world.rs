@@ -7,7 +7,7 @@
 use after_effects_sys::{
 	A_Err, A_FpLong, A_long, A_u_long, AEGP_PlatformWorldH, AEGP_PluginID, AEGP_WorldH, AEGP_WorldSuite1,
 	AEGP_WorldSuite2, AEGP_WorldSuite3, AEGP_WorldType, AEGP_WorldType_8, AEGP_WorldType_16, AEGP_WorldType_32,
-	PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_ModeFlags, PF_Pixel8, PF_Pixel16, PF_PixelFloat,
+	PF_EffectWorld, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_ModeFlags, PF_Pixel8, PF_Pixel16, PF_PixelFloat,
 	PF_Quality, PF_Quality_HI, PF_RationalScale, PF_UnionableRect, PF_WorldFlag_DEEP, PF_WorldFlag_WRITEABLE,
 	PF_WorldFlags,
 };
@@ -438,7 +438,7 @@ mod tests {
 			pixel.copy_from_slice(&[255, 255, 255, 255]);
 			fast_blur(world, 1.0, 0);
 			let centre = world.pixels[2 * 4];
-			let side = world.pixels[1 * 4];
+			let side = world.pixels[4];
 			let far = world.pixels[0];
 			assert!(centre < 255, "centre should be averaged, was {centre}");
 			assert!(side > 0, "neighbour should receive blur, was {side}");

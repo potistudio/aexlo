@@ -401,7 +401,6 @@ mod tests {
 	use super::*;
 
 	#[test]
-	#[test]
 	fn legacy_suite_names_a_composition() {
 		let suite = suite_6();
 		let mut name = [1u8; AEGP_MAX_ITEM_NAME_SIZE as usize];

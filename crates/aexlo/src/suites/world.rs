@@ -325,6 +325,8 @@ pub(crate) unsafe extern "C" fn new_world_util(
 
 	#[allow(clippy::unnecessary_cast)] // `PF_NewWorldFlag_*` is `u32` on macOS only.
 	let deep = flags & after_effects_sys::PF_NewWorldFlag_DEEP_PIXELS as after_effects_sys::PF_NewWorldFlags != 0;
+	// `PF_PixelFormat_*` is `u32` on macOS only.
+	#[allow(clippy::unnecessary_cast)]
 	let (bytes, format) = if deep {
 		(8, PF_PixelFormat_ARGB64 as u32)
 	} else {
@@ -377,7 +379,10 @@ mod tests {
 		assert_eq!(err, PF_Err_NONE as PF_Err);
 		assert!(!world.data.is_null());
 		assert_eq!((world.width, world.height, world.rowbytes), (4, 3, 16));
-		assert_eq!(world.world_flags & after_effects_sys::PF_WorldFlag_DEEP as PF_WorldFlags, 0);
+		assert_eq!(
+			world.world_flags & after_effects_sys::PF_WorldFlag_DEEP as PF_WorldFlags,
+			0
+		);
 		unsafe { *(world.data as *mut u8) = 7 };
 		assert_eq!(unsafe { dispose_world_sys(effect, &mut world) }, PF_Err_NONE as PF_Err);
 		assert!(world.data.is_null());

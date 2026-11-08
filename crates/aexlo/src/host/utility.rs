@@ -2,7 +2,7 @@ use crate::core::diagnostics::*;
 use crate::suites::macros::stub_log;
 use after_effects_sys::*;
 use std::os::raw::c_void;
-use std::sync::atomic::{AtomicI32, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicI32, Ordering};
 
 /// Encode a path as a null-terminated UTF-16 string, the representation
 /// `get_platform_data` hands back for `PF_PlatData_*_FILE_PATH_W` queries.

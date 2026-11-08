@@ -429,7 +429,8 @@ struct ControlPointer {
 }
 
 fn wants_redraw(flags: i32) -> bool {
-	let again = (after_effects_sys::PF_EO_ALWAYS_UPDATE | after_effects_sys::PF_EO_UPDATE_NOW) as after_effects_sys::PF_EventOutFlags;
+	let again = (after_effects_sys::PF_EO_ALWAYS_UPDATE | after_effects_sys::PF_EO_UPDATE_NOW)
+		as after_effects_sys::PF_EventOutFlags;
 	flags & again != 0
 }
 
@@ -582,26 +583,24 @@ impl PluginInstance {
 		if drawing && let Some(draw) = crate::suites::drawbot::current_draw_ref() {
 			kept.set_draw_ref(draw);
 		}
-		unsafe {
-			if event == after_effects_sys::PF_Event_DRAW {
-				extra.u.draw = after_effects_sys::PF_DrawEventInfo {
-					update_rect: extra.effect_win.current_frame,
-					depth: 32,
-				};
-			} else if let Some(pointer) = pointer {
-				extra.u.do_click = after_effects_sys::PF_DoClickEventInfo {
-					when: 0,
-					screen_point: after_effects_sys::PF_Point {
-						h: pointer.x,
-						v: pointer.y,
-					},
-					num_clicks: 1,
-					modifiers: 0,
-					continue_refcon: [0; 4],
-					send_drag: (event == after_effects_sys::PF_Event_DRAG) as after_effects_sys::PF_Boolean,
-					last_time: pointer.last as after_effects_sys::PF_Boolean,
-				};
-			}
+		if event == after_effects_sys::PF_Event_DRAW {
+			extra.u.draw = after_effects_sys::PF_DrawEventInfo {
+				update_rect: extra.effect_win.current_frame,
+				depth: 32,
+			};
+		} else if let Some(pointer) = pointer {
+			extra.u.do_click = after_effects_sys::PF_DoClickEventInfo {
+				when: 0,
+				screen_point: after_effects_sys::PF_Point {
+					h: pointer.x,
+					v: pointer.y,
+				},
+				num_clicks: 1,
+				modifiers: 0,
+				continue_refcon: [0; 4],
+				send_drag: (event == after_effects_sys::PF_Event_DRAG) as after_effects_sys::PF_Boolean,
+				last_time: pointer.last as after_effects_sys::PF_Boolean,
+			};
 		}
 		let result = self.call_plugin(
 			RawCommand::Event,
@@ -1820,8 +1819,8 @@ impl PluginInstance {
 	/// The returned flag is true when the plugin asked to be drawn again
 	/// (`PF_EO_ALWAYS_UPDATE` or `PF_EO_UPDATE_NOW`).
 	pub fn draw_custom_control(&mut self, index: usize, width: u32, height: u32) -> Result<bool> {
-		let width = width.max(1).min(2048) as i32;
-		let height = height.max(1).min(2048) as i32;
+		let width = width.clamp(1, 2048) as i32;
+		let height = height.clamp(1, 2048) as i32;
 		self.prepare_custom_control(index, width, height);
 		let (flags, _) = self.dispatch_effect_event(index, after_effects_sys::PF_Event_DRAW, width, height, None);
 		Ok(wants_redraw(flags))
@@ -1839,8 +1838,8 @@ impl PluginInstance {
 		width: u32,
 		height: u32,
 	) -> Result<CustomControlEvent> {
-		let width = width.max(1).min(2048) as i32;
-		let height = height.max(1).min(2048) as i32;
+		let width = width.clamp(1, 2048) as i32;
+		let height = height.clamp(1, 2048) as i32;
 		self.prepare_custom_control(index, width, height);
 		let (flags, send_drag) = self.dispatch_effect_event(
 			index,
@@ -1867,8 +1866,8 @@ impl PluginInstance {
 		height: u32,
 		last: bool,
 	) -> Result<CustomControlEvent> {
-		let width = width.max(1).min(2048) as i32;
-		let height = height.max(1).min(2048) as i32;
+		let width = width.clamp(1, 2048) as i32;
+		let height = height.clamp(1, 2048) as i32;
 		self.prepare_custom_control(index, width, height);
 		let (flags, send_drag) = self.dispatch_effect_event(
 			index,

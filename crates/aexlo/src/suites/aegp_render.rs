@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
 
 use after_effects_sys::{
-	A_Boolean, A_Err, A_LRect, A_Time, A_long, A_short, A_u_long, AEGP_AsyncFrameRequestRefcon, AEGP_AsyncRequestId,
+	A_Boolean, A_Err, A_LRect, A_Time, A_short, A_u_long, AEGP_AsyncFrameRequestRefcon, AEGP_AsyncRequestId,
 	AEGP_CancelRefcon, AEGP_ChannelOrder, AEGP_EffectRefH, AEGP_FrameReceiptH, AEGP_ItemH, AEGP_ItemQuality,
 	AEGP_ItemQuality_BEST, AEGP_LayerH, AEGP_LayerRenderOptionsH, AEGP_LayerRenderOptionsSuite2, AEGP_MatteMode,
 	AEGP_MemHandle, AEGP_PlatformWorldH, AEGP_PluginID, AEGP_RenderOptionsH, AEGP_RenderOptionsSuite4,
@@ -324,7 +324,10 @@ unsafe extern "C" fn render_and_checkout_frame(
 		};
 		(options.effect_ref, options.world_type, options.down_x, options.down_y)
 	};
-	match checkout_input(effect_ref, world_type as i32, down_x, down_y) {
+	// `AEGP_WorldType` is `i32` on Windows and `u32` on macOS.
+	#[allow(clippy::unnecessary_cast)]
+	let world_type = world_type as i32;
+	match checkout_input(effect_ref, world_type, down_x, down_y) {
 		Ok(receipt) => {
 			*out = receipt;
 			PF_Err_NONE as A_Err

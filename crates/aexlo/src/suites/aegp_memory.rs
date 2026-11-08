@@ -160,7 +160,7 @@ mod tests {
 				suite.AEGP_LockMemHandle.unwrap()(handle, &mut ptr),
 				PF_Err_NONE as A_Err
 			);
-			assert_eq!(unsafe { *handle } as usize, ptr as usize);
+			assert_eq!(*handle as usize, ptr as usize);
 			std::ptr::write_bytes(ptr.cast::<u8>(), 0x5a, 4);
 			suite.AEGP_UnlockMemHandle.unwrap()(handle);
 			assert_eq!(suite.AEGP_FreeMemHandle.unwrap()(handle), PF_Err_NONE as A_Err);

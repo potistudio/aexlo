@@ -32,7 +32,7 @@ const MAX_EDGE: u32 = 2048;
 macro_rules! drawbot_consts {
 	($($ty:ident { $($name:ident),* $(,)? })*) => {
 		$($(
-			#[allow(non_upper_case_globals)]
+			#[allow(non_upper_case_globals, dead_code)]
 			const $name: $ty = after_effects_sys::$name as $ty;
 		)*)*
 	};
@@ -289,8 +289,10 @@ fn read_color(color: *const DRAWBOT_ColorRGBA) -> Option<Rgba> {
 }
 
 fn paint_of(color: Rgba, anti_alias: bool) -> Paint<'static> {
-	let mut paint = Paint::default();
-	paint.anti_alias = anti_alias;
+	let mut paint = Paint {
+		anti_alias,
+		..Paint::default()
+	};
 	if let Some(packed) = tiny_skia::Color::from_rgba(color.red, color.green, color.blue, color.alpha) {
 		paint.set_color(packed);
 	}
@@ -425,6 +427,7 @@ fn read_utf16(text: *const DRAWBOT_UTF16Char) -> String {
 	String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, len) })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_text(
 	surface: &mut Surface,
 	color: Rgba,
@@ -509,6 +512,7 @@ fn blend_coverage(pixmap: &mut Pixmap, mask: &Option<Mask>, x: i32, y: i32, cove
 	}
 }
 
+#[allow(non_upper_case_globals)]
 fn image_from_buffer(
 	width: i32,
 	height: i32,
@@ -723,22 +727,22 @@ unsafe extern "C" fn flag(out_flag: *mut DRAWBOT_Boolean, value: u8) -> SPErr {
 
 unsafe extern "C" fn supports_bgra(supplier: DRAWBOT_SupplierRef, out_flag: *mut DRAWBOT_Boolean) -> SPErr {
 	let _ = supplier;
-	flag(out_flag, 1)
+	unsafe { flag(out_flag, 1) }
 }
 
 unsafe extern "C" fn prefers_bgra(supplier: DRAWBOT_SupplierRef, out_flag: *mut DRAWBOT_Boolean) -> SPErr {
 	let _ = supplier;
-	flag(out_flag, 1)
+	unsafe { flag(out_flag, 1) }
 }
 
 unsafe extern "C" fn supports_argb(supplier: DRAWBOT_SupplierRef, out_flag: *mut DRAWBOT_Boolean) -> SPErr {
 	let _ = supplier;
-	flag(out_flag, 1)
+	unsafe { flag(out_flag, 1) }
 }
 
 unsafe extern "C" fn prefers_argb(supplier: DRAWBOT_SupplierRef, out_flag: *mut DRAWBOT_Boolean) -> SPErr {
 	let _ = supplier;
-	flag(out_flag, 0)
+	unsafe { flag(out_flag, 0) }
 }
 
 unsafe extern "C" fn retain(object: DRAWBOT_ObjectRef) -> SPErr {
@@ -963,7 +967,7 @@ unsafe extern "C" fn within_clip(
 			&& next.y + next.height <= surface.clip.y + surface.clip.height
 	})
 	.unwrap_or(false);
-	flag(out_within, u8::from(inside))
+	unsafe { flag(out_within, u8::from(inside)) }
 }
 
 unsafe extern "C" fn transform(surface: DRAWBOT_SurfaceRef, matrix: *const DRAWBOT_MatrixF32) -> SPErr {
@@ -1045,12 +1049,14 @@ unsafe extern "C" fn draw_image(
 	};
 	with_surface(surface, |surface| {
 		let mask = clip_mask(surface);
-		let mut paint = PixmapPaint::default();
-		paint.opacity = alpha.clamp(0.0, 1.0);
-		paint.quality = if surface.interpolation == kDRAWBOT_InterpolationPolicy_None {
-			FilterQuality::Nearest
-		} else {
-			FilterQuality::Bilinear
+		let paint = PixmapPaint {
+			opacity: alpha.clamp(0.0, 1.0),
+			quality: if surface.interpolation == kDRAWBOT_InterpolationPolicy_None {
+				FilterQuality::Nearest
+			} else {
+				FilterQuality::Bilinear
+			},
+			..PixmapPaint::default()
 		};
 		let placement = Transform::from_row(1.0 / scale, 0.0, 0.0, 1.0 / scale, origin.x, origin.y);
 		surface.pixmap.draw_pixmap(
