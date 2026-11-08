@@ -29,6 +29,50 @@
 //! # }
 //! ```
 //!
+//! # Trust and process model
+//!
+//! A plugin is native code, loaded into this process with no sandbox. Loading
+//! one is what this crate is for, so [`Host::load`] and [`Loader::load`] are
+//! safe functions, the way spawning a process is: what the plugin's code does
+//! is outside Rust's guarantees. A buggy plugin can corrupt memory, crash or
+//! abort the process that embeds aexlo, so only load plugins you trust.
+//!
+//! aexlo's own callbacks catch their panics and report
+//! `PF_Err_INTERNAL_STRUCT_DAMAGED` to the plugin rather than letting them
+//! abort the process, but a crash inside the plugin cannot be caught
+//! in-process. When a crashing plugin must not take the application down, run
+//! it in a worker process, as the `aexlo` CLI and its toolkit do for every
+//! variant.
+//!
+//! ## Process-wide state
+//!
+//! Some host state belongs to the process, not to a [`PluginInstance`]:
+//!
+//! - The [`AppHost`] is fixed once per process ([`Host::install`] or
+//!   [`Host::get`]) and cannot be swapped afterwards, even between tests.
+//! - AEGP Persistent Data (preferences) is one in-memory store shared by every
+//!   plugin and instance, and is never written to disk.
+//! - AEGP registrations, GPU worlds and allocation tracking live in
+//!   process-wide registries keyed by instance, so instances coexist.
+//!
+//! ## Threads
+//!
+//! [`PluginInstance`] is neither `Send` nor `Sync`. After Effects drives an
+//! effect instance from one thread at a time, and plugins keep thread-affine
+//! state (GPU contexts, Windows `HWND`s, thread-local storage), so create, use
+//! and drop each instance on the same thread. To render off a UI thread,
+//! create the instance on a worker thread and send that thread commands.
+//!
+//! ```compile_fail
+//! fn assert_send<T: Send>() {}
+//! assert_send::<aexlo::PluginInstance>();
+//! ```
+//!
+//! Separate instances may run on separate threads at once: aexlo's
+//! process-wide state is behind locks, and its own test suites run instances
+//! in parallel. Whether a plugin's globals tolerate that is up to the plugin
+//! (it declares `OutFlags2::SUPPORTS_THREADED_RENDERING` when they do).
+//!
 //! # Features
 //!
 //! - `diagnostics` - Print every suite call the plugin makes, with its
