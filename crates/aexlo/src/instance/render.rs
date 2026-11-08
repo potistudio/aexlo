@@ -24,6 +24,9 @@ impl PluginInstance {
 	/// Send `PF_Cmd_DO_DIALOG`, the command After Effects uses when the user
 	/// presses the effect's Options button. Only effects that set
 	/// `PF_OutFlag_I_DO_DIALOG` have that button.
+	///
+	/// # Errors
+	/// [`AexloError::PluginExecutionFailed`] if the plugin rejects the command.
 	pub fn do_dialog(&mut self) -> Result<String> {
 		self.call_plugin(RawCommand::DoDialog, null_mut())?;
 		Ok(self.message())

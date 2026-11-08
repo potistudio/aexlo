@@ -81,6 +81,10 @@ impl Host {
 
 	/// Load with the actual input layer and output geometry available to every
 	/// setup command. Strict tracking is enabled before the first command.
+	///
+	/// # Errors
+	/// [`AexloError::InvalidSize`] if the input or output size is zero or does
+	/// not fit in `i32`, otherwise the same errors as [`Self::try_load`].
 	pub fn try_load_with_initial(
 		self,
 		path: impl AsRef<Path>,
@@ -96,6 +100,9 @@ impl Host {
 	}
 
 	/// Load with render dimensions set before plug-in setup runs.
+	///
+	/// # Errors
+	/// The same errors as [`Self::try_load`].
 	pub fn try_load_sized(self, path: impl AsRef<Path>, width: u32, height: u32) -> Result<PluginInstance> {
 		let mut instance = PluginInstance::new_sized(path.as_ref(), width, height);
 		instance.load()?;

@@ -329,6 +329,10 @@ impl PluginInstance {
 	///
 	/// The returned flag is true when the plugin asked to be drawn again
 	/// (`PF_EO_ALWAYS_UPDATE` or `PF_EO_UPDATE_NOW`).
+	///
+	/// # Errors
+	/// Currently never fails; the plugin's own return code for the event is
+	/// only logged.
 	pub fn draw_custom_control(&mut self, index: usize, width: u32, height: u32) -> Result<bool> {
 		let width = width.clamp(1, 2048) as i32;
 		let height = height.clamp(1, 2048) as i32;
@@ -341,6 +345,10 @@ impl PluginInstance {
 	///
 	/// This is the mouse going down. When [`CustomControlEvent::send_drag`] is
 	/// set, follow it with [`Self::drag_custom_control`] through mouse-up.
+	///
+	/// # Errors
+	/// [`AexloError::PluginExecutionFailed`] if the plugin rejects the
+	/// parameter-UI update that follows the click.
 	pub fn click_custom_control(
 		&mut self,
 		index: usize,
@@ -368,6 +376,10 @@ impl PluginInstance {
 	}
 
 	/// Send `PF_Event_DRAG` at a point in the control's own coordinates.
+	///
+	/// # Errors
+	/// [`AexloError::PluginExecutionFailed`] if the plugin rejects the
+	/// parameter-UI update that follows the drag.
 	pub fn drag_custom_control(
 		&mut self,
 		index: usize,
