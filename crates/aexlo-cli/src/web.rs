@@ -82,7 +82,7 @@ pub fn run(manifest: &Path, options: Options<'_>) -> Result<()> {
 				Ok(copy) => {
 					let path = copy.clone();
 					session.set_loader(Box::new(move || {
-						aexlo::Host::get().try_load(&path).context("loading plugin")
+						aexlo::Host::get().load(&path).context("loading plugin")
 					}));
 					match session.reload(&viewer) {
 						Ok(()) => {

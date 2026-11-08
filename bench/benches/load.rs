@@ -1,6 +1,6 @@
 //! Plugin load / initialization cost.
 //!
-//! Measures a full [`aexlo::Host::try_load`], i.e. opening the binary,
+//! Measures a full [`aexlo::Host::load`], i.e. opening the binary,
 //! resolving the entry point, and running `PF_Cmd_GLOBAL_SETUP` +
 //! `PF_Cmd_PARAMS_SETUP`. This is the fixed price paid before the first frame
 //! can render, and it varies widely between a trivial effect and one that
@@ -23,7 +23,7 @@ fn load(criterion: &mut Criterion) {
 	for (label, path) in &plugins {
 		// Validate once so a broken artifact is skipped instead of panicking
 		// inside the timed loop, and dump its parameter configuration.
-		match aexlo::Host::get().try_load(path) {
+		match aexlo::Host::get().load(path) {
 			Ok(instance) => {
 				println!("aexlo-bench: {label}: {}", capabilities(&instance));
 				print_params(label, &instance);
@@ -36,7 +36,7 @@ fn load(criterion: &mut Criterion) {
 
 		group.bench_function(label, |bencher| {
 			bencher.iter(|| {
-				let instance = aexlo::Host::get().try_load(black_box(path.as_path())).unwrap();
+				let instance = aexlo::Host::get().load(black_box(path.as_path())).unwrap();
 				black_box(instance);
 			});
 		});

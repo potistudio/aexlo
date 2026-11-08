@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let host = aexlo::Host::get();
 
 	// Load the plugin.
-	let mut instance = host.try_load(&plugin_path)?;
+	let mut instance = host.load(&plugin_path)?;
 
 	// Print the plugin's ABOUT message.
 	println!("{}", instance.about()?);

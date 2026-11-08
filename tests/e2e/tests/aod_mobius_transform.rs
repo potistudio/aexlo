@@ -26,7 +26,7 @@ fn render(params: &[(usize, ParamValue)]) -> Option<Vec<u8>> {
 		eprintln!("skipping: fixture 'AOD_MobiusTransform' not present locally");
 		return None;
 	};
-	let mut instance: PluginInstance = aexlo::Host::get().try_load(&path).expect("failed to load plugin");
+	let mut instance: PluginInstance = aexlo::Host::get().load(&path).expect("failed to load plugin");
 	instance.set_parallel_iterate(false);
 	let (px, w, h) = pattern();
 	instance.set_input_layer(Layer::<Depth8>::from_rgba8(px, w, h).unwrap());

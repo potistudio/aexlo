@@ -242,7 +242,7 @@ fn resolve_plugin(arg: &str) -> PathBuf {
 fn load(plugin_arg: &str) -> Result<PluginInstance> {
 	let path = resolve_artifact(plugin_arg)?;
 	aexlo::Host::get()
-		.try_load(&path)
+		.load(&path)
 		.with_context(|| format!("loading plugin {}", path.display()))
 }
 
@@ -464,9 +464,13 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 				.and_then(|v| v.size)
 				.map(|[w, h]| (w, h))
 				.unwrap_or((layer.width(), layer.height()));
-			aexlo::Host::get().try_load_with_initial(&path, aexlo::Strict::default(), layer, output_size)?
+			aexlo::Host::get()
+				.loader(&path)
+				.input(layer)
+				.output_size(output_size.0, output_size.1)
+				.load()?
 		}
-		None => aexlo::Host::get().try_load(&path)?,
+		None => aexlo::Host::get().load(&path)?,
 	};
 	if let Some(variant) = &variant {
 		if let Some(reason) = aexlo_harness::apply::unsupported(&instance, variant) {

@@ -231,8 +231,13 @@ where
 			// so `--isolate none` renders the same frame. An input that cannot
 			// be built is left for `apply::configure` to report as invalid.
 			match crate::apply::initial_input(variant) {
-				Ok((input, output_size)) => aexlo::Host::get().try_load_with_initial(path, strict, input, output_size),
-				Err(_) => aexlo::Host::get().try_load_with(path, strict),
+				Ok((input, (width, height))) => aexlo::Host::get()
+					.loader(path)
+					.strict(strict)
+					.input(input)
+					.output_size(width, height)
+					.load(),
+				Err(_) => aexlo::Host::get().loader(path).strict(strict).load(),
 			}
 		});
 		return variants.iter().map(|v| run_one(&mut executor, v)).collect();

@@ -396,7 +396,7 @@ where
 	F: FnMut(&Variant, aexlo::Strict) -> aexlo::Result<PluginInstance>,
 {
 	/// `load` makes a fresh instance for each run, with strict mode on from
-	/// the start, e.g. `|_, strict| aexlo::Host::get().try_load_with(path, strict)`.
+	/// the start, e.g. `|_, strict| aexlo::Host::get().loader(path).strict(strict).load()`.
 	pub fn new(load: F) -> Self {
 		Self { load }
 	}

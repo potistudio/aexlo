@@ -431,7 +431,7 @@ struct TestFlags {
 fn plugin_info(config: &RunnerConfig, plugin: &PluginRef) -> Result<aexlo_harness::worker::PluginInfo, Error> {
 	if config.isolate == Isolate::None {
 		let path = (config.artifacts)(plugin).ok_or_else(|| Error::harness("no artifact for the plugin"))?;
-		let fx = aexlo::Host::get().try_load(&path).map_err(Error::from)?;
+		let fx = aexlo::Host::get().load(&path).map_err(Error::from)?;
 		return Ok(aexlo_harness::worker::PluginInfo::of(&fx));
 	}
 	let mut client = aexlo_harness::worker::WorkerClient::new(config.worker.clone(), config.artifacts.clone())?;

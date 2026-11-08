@@ -291,7 +291,7 @@ impl PluginInstance {
 ```
 
 Per instance, like `set_parallel_iterate`. With everything off, the host's
-allocation paths and costs are unchanged. `Host::try_load_with(path, strict)`
+allocation paths and costs are unchanged. `Host::loader(path).strict(strict).load()`
 turns strict mode on before `GLOBAL_SETUP`, so setup allocations are tracked
 too, and `PluginInstance::finish(self) -> StrictReport` sets the plugin down
 and reports what it never released. Worlds allocated during a render command

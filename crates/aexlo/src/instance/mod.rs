@@ -80,6 +80,7 @@ mod render;
 #[cfg(test)]
 mod tests;
 
+pub use load::Loader;
 pub use render::RenderPath;
 
 const DEFAULT_ENTRY_POINT_NAME: &str = "EffectMain";
@@ -173,7 +174,7 @@ pub type PluginEntryPoint = unsafe extern "C" fn(
 ) -> after_effects_sys::PF_Err;
 
 /// Independent instance of an After Effects Plug-in.
-/// It is created by loading a plug-in with [`Host::try_load`] or by driving an in-process entry point with [`Host::from_entry`].
+/// It is created by loading a plug-in with [`Host::load`] or by driving an in-process entry point with [`Host::from_entry`].
 /// Manages its library, entry point, parameters, and execution state.
 /// All operations related to the plug-in should be invoked from this.
 pub struct PluginInstance {

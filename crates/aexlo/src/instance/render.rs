@@ -175,7 +175,7 @@ impl PluginInstance {
 	/// `PF_Cmd_GLOBAL_SETUP`, i.e. it can render on the GPU into 32-bit-float
 	/// `PF_PixelFormat_GPU_BGRA128` worlds ([`RenderPath::Gpu`]).
 	///
-	/// Only meaningful once global setup has run (i.e. after [`Host::try_load`]).
+	/// Only meaningful once global setup has run (i.e. after [`Host::load`]).
 	pub fn supports_gpu(&self) -> bool {
 		// Escape hatch for benchmarking / debugging the CPU path even on GPU-capable
 		// effects: setting AEXLO_DISABLE_GPU forces the CPU render path.
@@ -461,7 +461,7 @@ impl PluginInstance {
 	/// pair ([`RenderPath::Smart`]) rather than the legacy `PF_Cmd_RENDER`
 	/// ([`RenderPath::Legacy`]).
 	///
-	/// Only meaningful once global setup has run (i.e. after [`Host::try_load`]).
+	/// Only meaningful once global setup has run (i.e. after [`Host::load`]).
 	pub fn supports_smart_render(&self) -> bool {
 		let flag = after_effects_sys::PF_OutFlag2_SUPPORTS_SMART_RENDER as after_effects_sys::PF_OutFlags2;
 		self.global_out_flags2 & flag != 0

@@ -295,7 +295,7 @@ impl AexloApp {
 		let choice = self.plugins[self.selected].clone();
 		log::info!("Loading plugin '{}' from {:?}", choice.label, choice.path);
 
-		match aexlo::Host::get().try_load(&choice.path) {
+		match aexlo::Host::get().load(&choice.path) {
 			Ok(mut instance) => {
 				// `PF_Cmd_ABOUT` can open a modal dialog (Looks does). Leave that
 				// to an explicit action so the playground can finish starting.

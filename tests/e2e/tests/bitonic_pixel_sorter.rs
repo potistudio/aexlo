@@ -23,7 +23,7 @@ fn load() -> Option<PluginInstance> {
 		eprintln!("skipping: fixture 'BitonicPixelSorter' not present locally");
 		return None;
 	};
-	Some(aexlo::Host::get().try_load(&path).expect("failed to load plugin"))
+	Some(aexlo::Host::get().load(&path).expect("failed to load plugin"))
 }
 
 fn sample_input() -> Layer<Depth8> {

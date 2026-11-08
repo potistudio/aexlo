@@ -100,7 +100,7 @@ impl PluginInstance {
 	/// 16 bpc with `PF_OutFlag_DEEP_COLOR_AWARE`, 32 bpc with
 	/// `PF_OutFlag2_FLOAT_COLOR_AWARE`.
 	///
-	/// Only meaningful once global setup has run (i.e. after [`Host::try_load`]).
+	/// Only meaningful once global setup has run (i.e. after [`Host::load`]).
 	pub fn supports_depth(&self, depth: PixelDepthKind) -> bool {
 		match depth {
 			PixelDepthKind::U8 => true,

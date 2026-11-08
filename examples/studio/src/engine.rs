@@ -206,7 +206,7 @@ impl Slot {
 	fn load(plugin: &str) -> Self {
 		let path = plugins::resolve(plugin);
 		log::info!("loading {plugin} from {}", path.display());
-		let instance = aexlo::Host::get().try_load(&path).map_err(|e| e.to_string());
+		let instance = aexlo::Host::get().load(&path).map_err(|e| e.to_string());
 		let info = instance.as_ref().ok().map(|fx| Arc::new(describe(fx)));
 		let mut slot = Self {
 			plugin: plugin.to_string(),

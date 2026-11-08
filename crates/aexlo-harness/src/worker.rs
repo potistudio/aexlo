@@ -320,13 +320,12 @@ pub fn serve() -> Result<()> {
 					phase: "begin".into(),
 				}));
 				let loaded = match variant.as_deref().map(initial_input).transpose() {
-					Ok(Some((input, output_size))) => Ok(aexlo::Host::get().try_load_with_initial(
-						&path,
-						aexlo::Strict::default(),
-						input,
-						output_size,
-					)),
-					Ok(None) => Ok(aexlo::Host::get().try_load(&path)),
+					Ok(Some((input, (width, height)))) => Ok(aexlo::Host::get()
+						.loader(&path)
+						.input(input)
+						.output_size(width, height)
+						.load()),
+					Ok(None) => Ok(aexlo::Host::get().load(&path)),
 					Err(e) => Err(failed(
 						id,
 						wire_kind(e.kind),
@@ -419,7 +418,13 @@ fn run_request(
 		Ok(prepared) => prepared,
 		Err(e) => return failed(id, wire_kind(e.kind), format!("building initial input: {e}"), None),
 	};
-	let fx = match aexlo::Host::get().try_load_with_initial(artifact, strict_of(&options.strict), input, output_size) {
+	let fx = match aexlo::Host::get()
+		.loader(artifact)
+		.strict(strict_of(&options.strict))
+		.input(input)
+		.output_size(output_size.0, output_size.1)
+		.load()
+	{
 		Ok(fx) => fx,
 		Err(e) => return failed(id, "plugin", format!("loading {}: {e}", artifact.display()), None),
 	};

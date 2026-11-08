@@ -157,7 +157,7 @@ fn reload(
 	}
 	let (path, input) = (copy.clone(), input.clone());
 	session.set_loader(Box::new(move || {
-		let mut fx = aexlo::Host::get().try_load(&path).context("loading plugin")?;
+		let mut fx = aexlo::Host::get().load(&path).context("loading plugin")?;
 		// Install the input layer before the first render, so a fresh
 		// instance never shows a frame built from the default test image (a
 		// preset's own input replaces it).

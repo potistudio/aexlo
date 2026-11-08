@@ -37,9 +37,7 @@ fn nothing_plugin_is_a_true_passthrough() {
 		return;
 	};
 
-	let mut instance = aexlo::Host::get()
-		.try_load(&plugin_path)
-		.expect("failed to load plugin");
+	let mut instance = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 	let (input, expected) = load_sample_input();
 	instance.set_input_layer(input);
 
@@ -61,9 +59,7 @@ fn fill_color_produces_exact_uniform_output() {
 		return;
 	};
 
-	let mut instance = aexlo::Host::get()
-		.try_load(&plugin_path)
-		.expect("failed to load plugin");
+	let mut instance = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 	let (input, _) = load_sample_input();
 	instance.set_input_layer(input);
 

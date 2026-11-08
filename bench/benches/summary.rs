@@ -60,7 +60,7 @@ fn main() {
 
 	let mut measurements = Vec::new();
 	for (label, path) in &plugins {
-		let modes = match aexlo::Host::get().try_load(path) {
+		let modes = match aexlo::Host::get().load(path) {
 			Ok(probe) => bench_modes(&probe),
 			Err(err) => {
 				eprintln!("aexlo-bench: {label}: load failed, skipping: {err:?}");

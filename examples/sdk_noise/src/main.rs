@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	// 1. Load a compiled plugin through the host.
 	println!("Loading {}", plugin.display());
-	let mut instance = Host::get().try_load(&plugin)?;
+	let mut instance = Host::get().load(&plugin)?;
 	println!("{}", instance.about()?);
 
 	// 2. Use the actual image dimensions when constructing the input layer.

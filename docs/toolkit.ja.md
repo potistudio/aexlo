@@ -256,7 +256,7 @@ impl PluginInstance {
 }
 ```
 
-`set_parallel_iterate` と同様に、インスタンスごとに設定します。すべて無効なら、ホストの割り当て経路とコストは変わりません。`Host::try_load_with(path, strict)` は `GLOBAL_SETUP` より前に strict モードを有効にするため、セットアップ中の割り当ても追跡します。`PluginInstance::finish(self) -> StrictReport` はプラグインの終了処理を行い、解放されなかったものを報告します。レンダリングコマンド中に割り当てた world は、そのコマンドの終了までに破棄する必要があります。それ以外は `GLOBAL_SETDOWN` までに破棄します。
+`set_parallel_iterate` と同様に、インスタンスごとに設定します。すべて無効なら、ホストの割り当て経路とコストは変わりません。`Host::loader(path).strict(strict).load()` は `GLOBAL_SETUP` より前に strict モードを有効にするため、セットアップ中の割り当ても追跡します。`PluginInstance::finish(self) -> StrictReport` はプラグインの終了処理を行い、解放されなかったものを報告します。レンダリングコマンド中に割り当てた world は、そのコマンドの終了までに破棄する必要があります。それ以外は `GLOBAL_SETDOWN` までに破棄します。
 
 | 機能 | 仕組み | 検出対象 |
 | --- | --- | --- |

@@ -126,7 +126,7 @@ fn run(args: &[String]) -> anyhow::Result<()> {
 	} else {
 		let dll = build_probe(release)?;
 		println!("{} {}", "loading".dimmed(), dll.display());
-		aexlo::Host::get().try_load(&dll)?
+		aexlo::Host::get().load(&dll)?
 	};
 
 	println!("{} {}", "about:".bold(), instance.about()?);

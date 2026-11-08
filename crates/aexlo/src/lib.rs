@@ -14,7 +14,7 @@
 //!
 //! // Load the plugin and run GLOBAL_SETUP, PARAMS_SETUP and SEQUENCE_SETUP.
 //! // On Windows pass the `.aex` file, on macOS the `.plugin` bundle.
-//! let mut fx = host.try_load("MyEffect.aex")?;
+//! let mut fx = host.load("MyEffect.aex")?;
 //! println!("{}", fx.about()?);
 //!
 //! // Feed an input frame and set parameters (index 0 is the input layer).
@@ -65,7 +65,7 @@ pub(crate) mod suites;
 pub use after_effects_sys as sys;
 
 pub use core::error::{AexloError, Result};
-pub use instance::{CustomControlEvent, CustomControlImage, PluginInstance, RenderPath};
+pub use instance::{CustomControlEvent, CustomControlImage, Loader, PluginInstance, RenderPath};
 pub use time::Time;
 
 /// Window plugins should treat as After Effects' main window

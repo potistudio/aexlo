@@ -562,7 +562,7 @@ pub fn measure(
 	}
 
 	let mut instance = aexlo::Host::get()
-		.try_load(path)
+		.load(path)
 		.map_err(|e| format!("load failed: {e:?}"))?;
 	let _ = instance.about();
 	let caps = capabilities(&instance);

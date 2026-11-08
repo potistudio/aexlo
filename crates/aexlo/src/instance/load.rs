@@ -45,73 +45,59 @@ unsafe extern "C" fn receive_plugin_data(
 
 /// Plugin constructors. Taking a [`Host`] guarantees the process-wide
 /// [`AppHost`](crate::AppHost) is fixed before any plugin code runs.
+///
+/// The plugin's code runs inside this process with no sandbox: see
+/// [the crate docs](crate#trust-and-process-model).
 impl Host {
-	/// Load a plugin from `path` under this host, then run it through global and params setup.
+	/// Load the plugin at `path` with default options and run it through
+	/// `PF_Cmd_GLOBAL_SETUP`, `PF_Cmd_PARAMS_SETUP` and `PF_Cmd_SEQUENCE_SETUP`.
+	///
+	/// Shorthand for `host.loader(path).load()`; use [`Self::loader`] to set
+	/// strict mode or the frame size before setup runs.
+	///
+	/// # Errors
+	/// As [`Loader::load`].
+	pub fn load(self, path: impl AsRef<Path>) -> Result<PluginInstance> {
+		self.loader(path).load()
+	}
+
+	/// Start loading the plugin at `path`; finish with [`Loader::load`].
 	///
 	/// `path` is the plugin artifact exactly as it exists on disk: a bare
 	/// `.aex`/`.dll` file on Windows, or a `.plugin` bundle directory on macOS.
 	/// Callers never need to branch on platform -- if `path` is a directory it's
 	/// treated as a bundle and the actual binary under `Contents/MacOS/` is
 	/// resolved automatically; if it's a file, it's loaded as-is.
-	///
-	/// # Errors
-	/// Returns an error if the binary can't be located or opened, if no entry
-	/// point symbol can be resolved, or if the plugin rejects the
-	/// `PF_Cmd_GLOBAL_SETUP`, `PF_Cmd_PARAMS_SETUP`, or `PF_Cmd_SEQUENCE_SETUP`
-	/// commands.
-	pub fn try_load(self, path: impl AsRef<Path>) -> Result<PluginInstance> {
-		self.try_load_with(path, crate::Strict::default())
+	pub fn loader(self, path: impl AsRef<Path>) -> Loader {
+		Loader::new(Source::Path(path.as_ref().to_path_buf()))
 	}
 
-	/// [`Self::try_load`] with strict mode on from the very first command, so
-	/// what the plugin allocates during setup is tracked too (see
-	/// [`PluginInstance::finish`]).
+	/// Drive an entry point that already lives in this process with default
+	/// options. Shorthand for `host.entry_loader(entry).load()`.
 	///
 	/// # Errors
-	/// As [`Self::try_load`].
-	pub fn try_load_with(self, path: impl AsRef<Path>, strict: crate::Strict) -> Result<PluginInstance> {
-		let mut instance = PluginInstance::new(path.as_ref());
-		instance.set_strict(strict);
-
-		instance.load()?;
-		instance.finalize()?;
-
-		Ok(instance)
+	/// As [`Loader::load`].
+	///
+	/// # Safety
+	/// As [`Self::entry_loader`].
+	pub unsafe fn from_entry(self, entry: PluginEntryPoint) -> Result<PluginInstance> {
+		unsafe { self.entry_loader(entry) }.load()
 	}
 
-	/// Load with the actual input layer and output geometry available to every
-	/// setup command. Strict tracking is enabled before the first command.
+	/// [`Self::from_entry`] for an entry point given by address. Shorthand for
+	/// `host.entry_loader_raw(entry_addr).load()`.
 	///
 	/// # Errors
-	/// [`AexloError::InvalidSize`] if the input or output size is zero or does
-	/// not fit in `i32`, otherwise the same errors as [`Self::try_load`].
-	pub fn try_load_with_initial(
-		self,
-		path: impl AsRef<Path>,
-		strict: crate::Strict,
-		input: AnyLayer,
-		output_size: (u32, u32),
-	) -> Result<PluginInstance> {
-		let mut instance = PluginInstance::new_with_initial(path.as_ref(), input, output_size)?;
-		instance.set_strict(strict);
-		instance.load()?;
-		instance.finalize()?;
-		Ok(instance)
-	}
-
-	/// Load with render dimensions set before plug-in setup runs.
+	/// As [`Loader::load`].
 	///
-	/// # Errors
-	/// The same errors as [`Self::try_load`].
-	pub fn try_load_sized(self, path: impl AsRef<Path>, width: u32, height: u32) -> Result<PluginInstance> {
-		let mut instance = PluginInstance::new_sized(path.as_ref(), width, height);
-		instance.load()?;
-		instance.finalize()?;
-		Ok(instance)
+	/// # Safety
+	/// As [`Self::entry_loader_raw`].
+	pub unsafe fn from_entry_raw(self, entry_addr: usize) -> Result<PluginInstance> {
+		unsafe { self.entry_loader_raw(entry_addr) }.load()
 	}
 
-	/// Drive an entry point that already lives in this process, skipping the
-	/// whole `dlopen` → cdylib → bundle path.
+	/// Start driving an entry point that already lives in this process,
+	/// skipping the whole `dlopen` → cdylib → bundle path.
 	///
 	/// The intended caller is a plugin's own `#[test]`/example: the
 	/// `after-effects` `define_effect!` macro exports `EffectMain` as a plain
@@ -122,27 +108,16 @@ impl Host {
 	/// Use this when the plugin crate is built against the *same*
 	/// `after-effects-sys` version as aexlo ([`crate::sys`]), so
 	/// `EffectMain as PluginEntryPoint` coerces. Otherwise reach for
-	/// [`Self::from_entry_raw`].
-	///
-	/// # Errors
-	/// [`AexloError::PluginExecutionFailed`] if the plugin rejects
-	/// `PF_Cmd_GLOBAL_SETUP`, `PF_Cmd_PARAMS_SETUP` or `PF_Cmd_SEQUENCE_SETUP`.
+	/// [`Self::entry_loader_raw`].
 	///
 	/// # Safety
 	/// `entry` must be a valid AE effect entry point that is ABI-compatible with
 	/// [`PluginEntryPoint`] and stays callable for the lifetime of the instance.
-	pub unsafe fn from_entry(self, entry: PluginEntryPoint) -> Result<PluginInstance> {
-		let mut instance = PluginInstance::new(Path::new("<in-process>"));
-
-		instance.entry_point = Some(entry);
-		instance.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_string());
-		// No `raw_library`: the entry point is already resident in this process.
-		instance.finalize()?;
-
-		Ok(instance)
+	pub unsafe fn entry_loader(self, entry: PluginEntryPoint) -> Loader {
+		Loader::new(Source::Entry(entry))
 	}
 
-	/// Like [`Self::from_entry`], but takes the entry point's raw address and
+	/// Like [`Self::entry_loader`], but takes the entry point's raw address and
 	/// transmutes it to the expected ABI.
 	///
 	/// This exists for the common case where the plugin crate pulls a *different*
@@ -151,34 +126,158 @@ impl Host {
 	/// identical. Passing the address (`EffectMain as usize`) sidesteps the type
 	/// mismatch, making ABI compatibility the caller's explicit promise.
 	///
-	/// # Errors
-	/// As [`Self::from_entry`].
-	///
 	/// # Safety
 	/// `entry_addr` must be the address of a function that is ABI-compatible with
 	/// [`PluginEntryPoint`] and stays callable for the lifetime of the instance.
-	pub unsafe fn from_entry_raw(self, entry_addr: usize) -> Result<PluginInstance> {
-		unsafe { self.from_entry_raw_with(entry_addr, crate::Strict::default()) }
+	pub unsafe fn entry_loader_raw(self, entry_addr: usize) -> Loader {
+		// SAFETY: the caller promises `entry_addr` is such a function.
+		let entry: PluginEntryPoint = unsafe { std::mem::transmute(entry_addr) };
+		Loader::new(Source::Entry(entry))
+	}
+}
+
+/// Where a [`Loader`] gets the plugin's entry point from.
+enum Source {
+	/// A plugin binary or bundle on disk, `dlopen`ed by [`Loader::load`].
+	Path(PathBuf),
+	/// An entry point already resident in this process.
+	Entry(PluginEntryPoint),
+}
+
+/// Options for loading a plugin, applied before its first command runs.
+///
+/// Made by [`Host::loader`] (a plugin on disk) or [`Host::entry_loader`] (an
+/// in-process entry point):
+///
+/// ```no_run
+/// use aexlo::{Depth8, Host, Layer, Strict};
+///
+/// # fn main() -> aexlo::Result<()> {
+/// let fx = Host::get()
+///     .loader("MyEffect.aex")
+///     .strict(Strict::all())
+///     .input(Layer::<Depth8>::black(1920, 1080))
+///     .load()?;
+/// # Ok(())
+/// # }
+/// ```
+#[must_use = "a Loader does nothing until `load` is called"]
+pub struct Loader {
+	source: Source,
+	strict: crate::Strict,
+	size: Option<(u32, u32)>,
+	input: Option<AnyLayer>,
+	output_size: Option<(u32, u32)>,
+}
+
+impl Loader {
+	fn new(source: Source) -> Self {
+		Self {
+			source,
+			strict: crate::Strict::default(),
+			size: None,
+			input: None,
+			output_size: None,
+		}
 	}
 
-	/// [`Self::from_entry_raw`] with strict mode on from the first command.
+	/// Turn strict mode on from the very first command, so what the plugin
+	/// allocates during setup is tracked too (see [`PluginInstance::finish`]).
+	pub fn strict(mut self, strict: crate::Strict) -> Self {
+		self.strict = strict;
+		self
+	}
+
+	/// Set the frame size every setup command sees: an opaque black 8 bpc
+	/// input and an output of `width` x `height`. [`Self::input`] and
+	/// [`Self::output_size`] override either side.
+	pub fn size(mut self, width: u32, height: u32) -> Self {
+		self.size = Some((width, height));
+		self
+	}
+
+	/// Set the input layer every setup command sees. Its depth is the
+	/// project depth. The output takes its size unless [`Self::output_size`]
+	/// or [`Self::size`] sets one.
+	pub fn input(mut self, input: impl Into<AnyLayer>) -> Self {
+		self.input = Some(input.into());
+		self
+	}
+
+	/// Set the output size every setup command sees.
+	pub fn output_size(mut self, width: u32, height: u32) -> Self {
+		self.output_size = Some((width, height));
+		self
+	}
+
+	/// Load the plugin and run it through `PF_Cmd_GLOBAL_SETUP`,
+	/// `PF_Cmd_PARAMS_SETUP` and `PF_Cmd_SEQUENCE_SETUP`.
 	///
 	/// # Errors
-	/// As [`Self::from_entry`].
-	///
-	/// # Safety
-	/// As [`Self::from_entry_raw`].
-	pub unsafe fn from_entry_raw_with(self, entry_addr: usize, strict: crate::Strict) -> Result<PluginInstance> {
-		let entry: PluginEntryPoint = unsafe { std::mem::transmute(entry_addr) };
-		let mut instance = PluginInstance::new(Path::new("<in-process>"));
-		instance.set_strict(strict);
+	/// - [`AexloError::InvalidSize`] if a size is zero or does not fit in `i32`.
+	/// - [`AexloError::PluginNotFound`] / [`AexloError::AmbiguousBundle`] if the
+	///   binary can't be located, [`AexloError::PluginLoad`] if it can't be
+	///   opened or exports no entry point.
+	/// - [`AexloError::PluginExecutionFailed`] if the plugin rejects a setup
+	///   command.
+	pub fn load(self) -> Result<PluginInstance> {
+		let input = match (self.input, self.size) {
+			(Some(input), _) => Some(input),
+			(None, Some((width, height))) => {
+				check_size(width, height)?;
+				Some(AnyLayer::filled(PixelDepthKind::U8, width, height, OPAQUE_BLACK))
+			}
+			(None, None) => None,
+		};
+		let output_size = self
+			.output_size
+			.or(self.size)
+			.or_else(|| input.as_ref().map(|layer| (layer.width(), layer.height())));
+		if let Some(input) = &input {
+			check_size(input.width(), input.height())?;
+		}
+		if let Some((width, height)) = output_size {
+			check_size(width, height)?;
+		}
 
-		instance.entry_point = Some(entry);
-		instance.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_string());
+		let path = match &self.source {
+			Source::Path(path) => path.as_path(),
+			Source::Entry(_) => Path::new("<in-process>"),
+		};
+		let mut instance = PluginInstance::new(path);
+		if let Some(input) = input {
+			match input {
+				AnyLayer::U8(layer) => instance.set_input_layer(layer),
+				AnyLayer::U16(layer) => instance.set_input_layer(layer),
+				AnyLayer::F32(layer) => instance.set_input_layer(layer),
+			}
+		}
+		if let Some((width, height)) = output_size {
+			instance.set_render_size(width, height);
+		}
+		instance.set_strict(self.strict);
+
+		match self.source {
+			Source::Path(_) => instance.load()?,
+			Source::Entry(entry) => {
+				instance.entry_point = Some(entry);
+				instance.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_string());
+				// No `raw_library`: the entry point is already resident in this process.
+			}
+		}
 		instance.finalize()?;
 
 		Ok(instance)
 	}
+}
+
+/// [`AexloError::InvalidSize`] unless `width` x `height` is a size After
+/// Effects can represent.
+fn check_size(width: u32, height: u32) -> Result<()> {
+	if width == 0 || height == 0 || width > i32::MAX as u32 || height > i32::MAX as u32 {
+		return Err(AexloError::InvalidSize { width, height });
+	}
+	Ok(())
 }
 
 impl Drop for PluginInstance {
@@ -193,31 +292,6 @@ impl Drop for PluginInstance {
 }
 
 impl PluginInstance {
-	pub(super) fn new_with_initial(path: &Path, input: AnyLayer, output_size: (u32, u32)) -> Result<Self> {
-		let valid = |(w, h): (u32, u32)| w > 0 && h > 0 && w <= i32::MAX as u32 && h <= i32::MAX as u32;
-		for (width, height) in [(input.width(), input.height()), output_size] {
-			if !valid((width, height)) {
-				return Err(AexloError::InvalidSize { width, height });
-			}
-		}
-		let mut instance = Self::new(path);
-		match input {
-			AnyLayer::U8(layer) => instance.set_input_layer(layer),
-			AnyLayer::U16(layer) => instance.set_input_layer(layer),
-			AnyLayer::F32(layer) => instance.set_input_layer(layer),
-		}
-		instance.set_render_size(output_size.0, output_size.1);
-		Ok(instance)
-	}
-	pub(super) fn new_sized(path: &Path, width: u32, height: u32) -> Self {
-		let mut instance = Self::new(path);
-		if let AnyLayer::U8(layer) = AnyLayer::filled(PixelDepthKind::U8, width, height, OPAQUE_BLACK) {
-			instance.set_input_layer(layer);
-		}
-		instance.set_render_size(width, height);
-		instance
-	}
-
 	/// Run the post-load setup shared by every constructor: `GLOBAL_SETUP`,
 	/// `PARAMS_SETUP`, then `SEQUENCE_SETUP`. Independent of where the entry point
 	/// came from (`dlopen`ed or handed in directly).
@@ -710,7 +784,7 @@ impl PluginInstance {
 
 	/// Set the plugin down once, in After Effects' order.
 	pub(super) fn teardown(&mut self) {
-		// The entry point is missing only when `try_load` failed to resolve it,
+		// The entry point is missing only when `load` failed to resolve it,
 		// in which case the plugin was never set up.
 		if self.entry_point.is_none() || self.torn_down {
 			crate::suites::register::remove_owner(self.aegp_owner);

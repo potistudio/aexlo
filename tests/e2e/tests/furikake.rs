@@ -21,7 +21,7 @@ fn render(params: &[(usize, ParamValue)]) -> Option<Vec<u8>> {
 		eprintln!("skipping: fixture 'Furikake' not present locally");
 		return None;
 	};
-	let mut instance: PluginInstance = aexlo::Host::get().try_load(&path).expect("failed to load plugin");
+	let mut instance: PluginInstance = aexlo::Host::get().load(&path).expect("failed to load plugin");
 	instance.set_input_layer(Layer::<Depth8>::from_rgba8(vec![0; (W * H * 4) as usize], W, H).unwrap());
 	instance.set_render_size(W, H);
 	for (index, value) in params {

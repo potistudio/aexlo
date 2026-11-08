@@ -12,7 +12,7 @@ changes required.
 | Target          | What it measures                                                        |
 | --------------- | ----------------------------------------------------------------------- |
 | `render_matrix` | Render throughput (pixels/sec) across a **plugin × mode × resolution × parameter** matrix. |
-| `load`          | Plugin **load / initialization** cost: `try_load` = open binary + resolve entry point + `GLOBAL_SETUP` + `PARAMS_SETUP`. |
+| `load`          | Plugin **load / initialization** cost: `load` = open binary + resolve entry point + `GLOBAL_SETUP` + `PARAMS_SETUP`. |
 | `summary`       | Cross-plugin **leaderboard** at one resolution, sorted by throughput, with **CSV/JSON export** and GPU-vs-CPU speedups. |
 
 ## Running

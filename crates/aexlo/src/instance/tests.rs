@@ -134,10 +134,10 @@ fn initial_size_is_visible_during_sequence_setup() {
 		}
 		PF_Err_NONE as after_effects_sys::PF_Err
 	}
-	let mut fx = PluginInstance::new_sized(Path::new("<test>"), 768, 432);
-	fx.entry_point = Some(entry);
-	fx.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_owned());
-	fx.finalize().unwrap();
+	let fx = unsafe { Host::get().entry_loader(entry) }
+		.size(768, 432)
+		.load()
+		.unwrap();
 	assert_eq!(WIDTH_SEEN.load(Ordering::SeqCst), 768);
 	assert_eq!(HEIGHT_SEEN.load(Ordering::SeqCst), 432);
 	assert_eq!(fx.output_size(), (768, 432));
@@ -172,10 +172,11 @@ fn initial_input_and_distinct_output_are_visible_in_all_setup_commands() {
 	}
 	CHECKED.store(0, Ordering::SeqCst);
 	let input = AnyLayer::filled(PixelDepthKind::U16, 19, 13, OPAQUE_BLACK);
-	let mut fx = PluginInstance::new_with_initial(Path::new("<test>"), input, (37, 23)).unwrap();
-	fx.entry_point = Some(entry);
-	fx.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_owned());
-	fx.finalize().unwrap();
+	let fx = unsafe { Host::get().entry_loader(entry) }
+		.input(input)
+		.output_size(37, 23)
+		.load()
+		.unwrap();
 	assert_eq!(CHECKED.load(Ordering::SeqCst), 3);
 	assert_eq!(fx.input_size(), (19, 13));
 	assert_eq!(fx.output_size(), (37, 23));
@@ -209,10 +210,7 @@ fn custom_ui_click_sees_the_context_from_new_context() {
 		PF_Err_NONE as after_effects_sys::PF_Err
 	}
 	CLICK.store(0, Ordering::SeqCst);
-	let mut fx = PluginInstance::new_sized(Path::new("<test>"), 64, 64);
-	fx.entry_point = Some(entry);
-	fx.entry_point_name = Some(DEFAULT_ENTRY_POINT_NAME.to_owned());
-	fx.finalize().unwrap();
+	let mut fx = unsafe { Host::get().entry_loader(entry) }.size(64, 64).load().unwrap();
 	fx.click_custom_control(1, 4, 4, 32, 16).unwrap();
 	assert_eq!(CLICK.load(Ordering::SeqCst), 1);
 }

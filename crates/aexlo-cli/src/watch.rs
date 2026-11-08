@@ -1,7 +1,7 @@
 //! `aexlo dev --bin [-p <package>]` - a live preview window.
 //!
 //! Watches a plugin crate's sources; on every save it rebuilds the cdylib,
-//! `try_load`s the fresh artifact, renders a frame, and blits it into a single
+//! `load`s the fresh artifact, renders a frame, and blits it into a single
 //! persistent [`minifb`] window. Because the window host must outlive each
 //! recompile, this uses the build+`dlopen` path (not the in-process
 //! `from_entry`, whose host *is* the thing being recompiled).
@@ -151,7 +151,7 @@ pub(crate) fn stage_and_load(artifact: &Path, generation: u64) -> Result<(Plugin
 	let staged = std::env::temp_dir().join(format!("aexlo-stage-{generation}.{ext}"));
 	copy_built(artifact, &staged).with_context(|| format!("staging {}", artifact.display()))?;
 
-	let fx = aexlo::Host::get().try_load(&staged).context("loading plugin")?;
+	let fx = aexlo::Host::get().load(&staged).context("loading plugin")?;
 	Ok((fx, staged))
 }
 
