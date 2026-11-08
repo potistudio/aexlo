@@ -236,3 +236,6 @@ impl<T: PixelDepth> Pixel<T> {
 pub use float32::Depth32;
 pub use uint8::Depth8;
 pub use uint16::Depth16;
+
+#[cfg(test)]
+mod tests;
