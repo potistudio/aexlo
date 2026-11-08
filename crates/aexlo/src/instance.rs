@@ -425,7 +425,7 @@ struct ControlPointer {
 }
 
 fn wants_redraw(flags: i32) -> bool {
-	let again = after_effects_sys::PF_EO_ALWAYS_UPDATE | after_effects_sys::PF_EO_UPDATE_NOW;
+	let again = (after_effects_sys::PF_EO_ALWAYS_UPDATE | after_effects_sys::PF_EO_UPDATE_NOW) as after_effects_sys::PF_EventOutFlags;
 	flags & again != 0
 }
 
@@ -566,7 +566,7 @@ impl PluginInstance {
 		extra.contextH = kept.handle();
 		extra.e_type = event;
 		extra.effect_win.index = index as after_effects_sys::PF_ParamIndex;
-		extra.effect_win.area = after_effects_sys::PF_EA_CONTROL;
+		extra.effect_win.area = after_effects_sys::PF_EA_CONTROL as after_effects_sys::PF_EffectArea;
 		extra.effect_win.current_frame = after_effects_sys::PF_Rect {
 			left: 0,
 			top: 0,
@@ -594,8 +594,8 @@ impl PluginInstance {
 					num_clicks: 1,
 					modifiers: 0,
 					continue_refcon: [0; 4],
-					send_drag: i8::from(event == after_effects_sys::PF_Event_DRAG),
-					last_time: i8::from(pointer.last),
+					send_drag: (event == after_effects_sys::PF_Event_DRAG) as after_effects_sys::PF_Boolean,
+					last_time: pointer.last as after_effects_sys::PF_Boolean,
 				};
 			}
 		}

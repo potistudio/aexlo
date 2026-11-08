@@ -23,6 +23,39 @@ use tiny_skia::{
 
 const MAX_EDGE: u32 = 2048;
 
+/// Re-declares Drawbot enum constants with the typedef the callbacks receive.
+///
+/// bindgen types the SDK's anonymous enums as `c_uint` on macOS and `c_int`
+/// on Windows, while `DRAWBOT_PixelLayout` and its siblings are `c_int` on
+/// both. These local items shadow the glob import so comparisons and match
+/// patterns type-check on either platform.
+macro_rules! drawbot_consts {
+	($($ty:ident { $($name:ident),* $(,)? })*) => {
+		$($(
+			#[allow(non_upper_case_globals)]
+			const $name: $ty = after_effects_sys::$name as $ty;
+		)*)*
+	};
+}
+
+drawbot_consts! {
+	DRAWBOT_PixelLayout {
+		kDRAWBOT_PixelLayout_24RGB,
+		kDRAWBOT_PixelLayout_24BGR,
+		kDRAWBOT_PixelLayout_32RGB,
+		kDRAWBOT_PixelLayout_32BGR,
+		kDRAWBOT_PixelLayout_32ARGB_Straight,
+		kDRAWBOT_PixelLayout_32ARGB_Premul,
+		kDRAWBOT_PixelLayout_32BGRA_Straight,
+		kDRAWBOT_PixelLayout_32BGRA_Premul,
+	}
+	DRAWBOT_TextAlignment { kDRAWBOT_TextAlignment_Center, kDRAWBOT_TextAlignment_Right }
+	DRAWBOT_TextTruncation { kDRAWBOT_TextTruncation_None }
+	DRAWBOT_InterpolationPolicy { kDRAWBOT_InterpolationPolicy_None }
+	DRAWBOT_AntiAliasPolicy { kDRAWBOT_AntiAliasPolicy_None, kDRAWBOT_AntiAliasPolicy_High }
+	DRAWBOT_FillType { kDRAWBOT_FillType_EvenOdd, kDRAWBOT_FillType_Winding }
+}
+
 struct Heap {
 	next: usize,
 	objects: HashMap<usize, Object>,
