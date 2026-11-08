@@ -565,18 +565,16 @@ impl PluginInstance {
 	///
 	/// The layer and comp the plugin sees through the AEGP suites run at the
 	/// same frame rate. Plugins start at [`Time::default`], frame 0 at 30 fps.
-	///
-	/// # Panics
-	/// If `time.step` or `time.scale` is not positive: plugins divide by both.
 	pub fn set_time(&mut self, time: Time) {
-		assert!(time.step > 0 && time.scale > 0, "time step and scale must be positive");
-		self.render_context.set_time(time.value, time.step, time.scale);
+		let (value, step, scale) = time.into_parts();
+		self.render_context.set_time(value, step, scale);
 	}
 
 	/// The time set by [`Self::set_time`].
 	pub fn time(&self) -> Time {
 		let (value, step, scale) = self.render_context.time();
-		Time { value, step, scale }
+		// Only `set_time` writes the render context's time, and it takes a `Time`.
+		Time::new(value, step, scale).expect("the render context holds a valid time")
 	}
 
 	/// Release the plugin's pre-render data, attributing what it frees.

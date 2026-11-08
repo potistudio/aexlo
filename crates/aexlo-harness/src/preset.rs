@@ -181,11 +181,8 @@ impl Time {
 		let current = i32::try_from(current)
 			.map_err(|_| Error::invalid(format!("frame {} is out of range at {} fps", self.frame, self.fps)))?;
 		let step = i32::try_from(step).map_err(|_| Error::invalid(format!("fps {} is out of range", self.fps)))?;
-		Ok(aexlo::Time {
-			value: current,
-			step,
-			scale: self.fps.num,
-		})
+		aexlo::Time::new(current, step, self.fps.num)
+			.ok_or_else(|| Error::invalid(format!("fps {} is out of range", self.fps)))
 	}
 }
 
@@ -606,11 +603,7 @@ mod tests {
 		};
 		assert_eq!(
 			time.as_ae().unwrap(),
-			aexlo::Time {
-				value: 12 * 1001,
-				step: 1001,
-				scale: 30000
-			}
+			aexlo::Time::new(12 * 1001, 1001, 30000).unwrap()
 		);
 		let time = Time {
 			frame: 12,
