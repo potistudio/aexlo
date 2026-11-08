@@ -13,6 +13,10 @@ jobs:
     with:
       manifest: fixtures/aexlo.toml
       aexlo-path: .
+      # macOS only until a real Windows build is committed:
+      # fixtures/plugins/windows/SDK_Noise.aex is a symlink to a local
+      # After Effects install, so the runner never finds the plugin.
+      os: '["macos-latest"]'
 
   noise-demo:
     uses: ./.github/workflows/aexlo-check.yml
