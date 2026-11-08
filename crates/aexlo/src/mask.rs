@@ -3,24 +3,32 @@
 //! Suite" (see [`PluginInstance::set_mask_paths`](crate::PluginInstance::set_mask_paths)).
 
 /// How a mask combines with the others (`PF_MaskMode_*`).
+/// This represents the `PF_MaskMode` enum in the After Effects SDK.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MaskMode {
 	/// The mask is ignored.
 	None,
+
 	/// Adds the mask's area to the masks above it.
 	#[default]
 	Add,
+
 	/// Removes the mask's area from the masks above it.
 	Subtract,
+
 	/// Keeps only the area shared with the masks above it.
 	Intersect,
+
 	/// Like [`Add`](Self::Add), keeping the higher opacity where masks overlap.
 	Lighten,
+
 	/// Like [`Intersect`](Self::Intersect), keeping the lower opacity where
 	/// masks overlap.
 	Darken,
+
 	/// Keeps the area covered by either this mask or the ones above, not both.
 	Difference,
+
 	/// Real addition rather than screen (not exposed in AE's UI).
 	Accum,
 }
@@ -28,6 +36,7 @@ pub enum MaskMode {
 impl MaskMode {
 	pub(crate) fn to_sys(self) -> after_effects_sys::PF_MaskMode {
 		use after_effects_sys::*;
+
 		(match self {
 			MaskMode::None => PF_MaskMode_NONE,
 			MaskMode::Add => PF_MaskMode_ADD,

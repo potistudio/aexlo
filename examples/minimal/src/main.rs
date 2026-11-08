@@ -1,18 +1,32 @@
 //! Load an existing After Effects plugin and print its ABOUT message.
 
-use aexlo::Host;
-use std::path::PathBuf;
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-	let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+	//* ---- Resolve the path to the example plugin. ------------------------ */
+	// The plugin is located in the `fixtures/plugins/` directory.
+	let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+
 	let fixture = if cfg!(target_os = "windows") {
+		// The Windows plugin is a static library, so use the .aex extension.
 		"fixtures/plugins/windows/SDK_Noise.aex"
 	} else {
+		// The macOS plugin is a bundle, so use the .plugin extension.
 		"fixtures/plugins/macos/SDK_Noise.plugin"
 	};
+
 	let plugin_path = root.join(fixture);
 	println!("Loading {}", plugin_path.display());
-	let mut instance = Host::get().try_load(&plugin_path)?;
+	//* --------------------------------------------------------------------- */
+	//*
+	//* ---- Execute the plugin. -------------------------------------------- */
+	// Create a host.
+	let host = aexlo::Host::get();
+
+	// Load the plugin.
+	let mut instance = host.try_load(&plugin_path)?;
+
+	// Print the plugin's ABOUT message.
 	println!("{}", instance.about()?);
+
 	Ok(())
+	//* --------------------------------------------------------------------- */
 }

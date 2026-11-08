@@ -3,6 +3,7 @@ name = "aexlo"
 version = { workspace = true }
 edition = { workspace = true }
 rust-version = { workspace = true }
+
 description = "Run After Effects plugin without Adobe dependency."
 authors = { workspace = true }
 license = { workspace = true }
@@ -31,7 +32,10 @@ dlopen2 = "0.8.2"
 log = { workspace = true }
 rayon = "1.12.0"
 thiserror = "2.0.18"
-tiny-skia = { version = "0.11.4", default-features = false, features = ["std", "simd"] }
+tiny-skia = { version = "0.11.4", default-features = false, features = [
+	"std",
+	"simd",
+] }
 
 [build-dependencies]
 cc = "1"
