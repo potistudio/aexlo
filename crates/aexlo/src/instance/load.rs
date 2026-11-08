@@ -37,7 +37,9 @@ unsafe extern "C" fn receive_plugin_data(
 			return PF_Err_INVALID_CALLBACK as after_effects_sys::A_Err;
 		}
 
+		// SAFETY: Both pointers are non-null (checked above): `in_ptr` is the `PluginDataInfo` aexlo passed to `PluginDataEntryFunction2`, and the name is the plugin's NUL-terminated string.
 		let info = unsafe { &mut *(in_ptr as *mut PluginDataInfo) };
+		// SAFETY: As above, for the entry point name.
 		let name = unsafe { CStr::from_ptr(in_entry_point_name as *const std::os::raw::c_char) };
 		info.entry_point_name = Some(name.to_string_lossy().into_owned());
 
@@ -83,6 +85,7 @@ impl Host {
 	/// # Safety
 	/// As [`Self::entry_loader`].
 	pub unsafe fn from_entry(self, entry: PluginEntryPoint) -> Result<PluginInstance> {
+		// SAFETY: The caller upholds `entry_loader`'s contract.
 		unsafe { self.entry_loader(entry) }.load()
 	}
 
@@ -95,6 +98,7 @@ impl Host {
 	/// # Safety
 	/// As [`Self::entry_loader_raw`].
 	pub unsafe fn from_entry_raw(self, entry_addr: usize) -> Result<PluginInstance> {
+		// SAFETY: The caller upholds `entry_loader_raw`'s contract.
 		unsafe { self.entry_loader_raw(entry_addr) }.load()
 	}
 
@@ -440,6 +444,7 @@ impl PluginInstance {
 			}
 
 			let mut value: PF_ArbitraryH = null_mut();
+			// SAFETY: `PF_ArbParamsExtra` is a plain C struct (integers, raw pointers, unions of those), for which all-zero bytes are a valid value.
 			let mut extra: PF_ArbParamsExtra = unsafe { std::mem::zeroed() };
 			extra.which_function = PF_Arbitrary_NEW_FUNC as _;
 			extra.id = arb.id;
@@ -448,6 +453,7 @@ impl PluginInstance {
 			let created = self.call_plugin(RawCommand::ArbitraryCallback, &mut extra as *mut _ as *mut c_void);
 
 			if (created.is_err() || value.is_null()) && !arb.dephault.is_null() {
+				// SAFETY: `PF_ArbParamsExtra` is a plain C struct (integers, raw pointers, unions of those), for which all-zero bytes are a valid value.
 				let mut extra: PF_ArbParamsExtra = unsafe { std::mem::zeroed() };
 				extra.which_function = PF_Arbitrary_COPY_FUNC as _;
 				extra.id = arb.id;
@@ -476,6 +482,7 @@ impl PluginInstance {
 		for index in std::mem::take(&mut self.owned_arb_values) {
 			// SAFETY: only arbitrary-data parameters are recorded as owned.
 			let arb = unsafe { self.params[index].u.arb_d };
+			// SAFETY: `PF_ArbParamsExtra` is a plain C struct (integers, raw pointers, unions of those), for which all-zero bytes are a valid value.
 			let mut extra: PF_ArbParamsExtra = unsafe { std::mem::zeroed() };
 			extra.which_function = PF_Arbitrary_DISPOSE_FUNC as _;
 			extra.id = arb.id;
@@ -511,12 +518,14 @@ impl PluginInstance {
 	/// `PluginDataEntryFunction2` protocol -- the same self-description mechanism
 	/// After Effects itself uses instead of parsing a binary PiPL resource.
 	fn query_declared_entry_point(lib: &Library, pica: &after_effects_sys::SPBasicSuite) -> Option<String> {
+		// SAFETY: The SDK fixes `PluginDataEntryFunction2`'s signature as `PluginDataEntryFn`.
 		let entry_fn = unsafe { lib.symbol::<PluginDataEntryFn>(PLUGIN_DATA_ENTRY_SYMBOL) }.ok()?;
 
 		let mut info = PluginDataInfo::default();
 		let host_name = CString::new(HOST_NAME).ok()?;
 		let host_version = CString::new(HOST_VERSION).ok()?;
 
+		// SAFETY: `entry_fn` has the SDK's signature; every argument is a live local or the instance's PICA suite.
 		let result = unsafe {
 			entry_fn(
 				&mut info as *mut PluginDataInfo as after_effects_sys::PF_PluginDataPtr,
@@ -563,6 +572,7 @@ impl PluginInstance {
 
 		let mut last_error = None;
 		for candidate in &names {
+			// SAFETY: Every AE effect entry point has the SDK's fixed `EffectMain` signature, `PluginEntryPoint`.
 			match unsafe { lib.symbol::<PluginEntryPoint>(candidate) } {
 				Ok(symbol) => {
 					log::info!("Resolved entry point '{candidate}'.");
@@ -728,6 +738,7 @@ impl PluginInstance {
 			.as_ref()
 			.and_then(|_| self.tracker.lock().ok().map(|mut t| t.begin(name)));
 
+		// SAFETY: `call_entry`'s contract: the entry point comes from this plugin, and every pointer is this instance's live `in_data`/`out_data`/params/output.
 		let result = crate::suites::iterate::with_parallel_iterate(self.parallel_iterate, || unsafe {
 			call_entry(
 				entry_point,

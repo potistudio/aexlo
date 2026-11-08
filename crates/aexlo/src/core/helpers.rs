@@ -7,6 +7,7 @@ pub struct OutDataBuilder {
 
 impl OutDataBuilder {
 	pub fn new() -> Self {
+		// SAFETY: `PF_OutData` is a plain C struct (integers, raw pointers, unions of those), for which all-zero bytes are a valid value.
 		let mut out_data = unsafe { std::mem::zeroed::<PF_OutData>() };
 
 		// Defaults
@@ -35,6 +36,7 @@ pub struct LayerDefBuilder {
 
 impl LayerDefBuilder {
 	pub fn new() -> Self {
+		// SAFETY: `PF_LayerDef` is a plain C struct (integers, raw pointers, unions of those), for which all-zero bytes are a valid value.
 		let mut layer = unsafe { std::mem::zeroed::<PF_LayerDef>() };
 		layer.pix_aspect_ratio = PF_RationalScale { num: 1, den: 1 };
 		Self { layer }

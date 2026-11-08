@@ -42,6 +42,7 @@ unsafe extern "C" fn checkout_layer_stub(
 		// `checkout_layer_pixels`.
 		let (layer_w, layer_h) = match PluginInstance::get_instance_ptr(effect_ref) {
 			Some(mut instance) => {
+				// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`).
 				let instance = unsafe { instance.as_mut() };
 				let index = usize::try_from(index).unwrap_or(0);
 				instance.record_layer_checkout(checkout_idL, index);
@@ -75,6 +76,7 @@ unsafe extern "C" fn checkout_layer_stub(
 
 		// The plugin passes an uninitialized `PF_CheckoutResult` and reads the layer
 		// bounds back out of it; leaving it unwritten hands the plugin stack garbage.
+		// SAFETY: `checkout_result` is non-null (checked above) and points at the plugin's `PF_CheckoutResult`.
 		unsafe { *checkout_result = result };
 
 		diag!("PF_PreRenderCallbacks/checkout_layer",
@@ -125,7 +127,9 @@ unsafe extern "C" fn checkout_layer_pixels_stub(
 		// instance's persistent world for the layer this id checked out, mirroring
 		// `checkout_output`; an unlinked layer parameter yields null.
 		crate::strict::checkout(crate::CheckoutKind::CheckoutLayerPixels, _checkout_idL, 0);
+		// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`). `pixels` is non-null (checked above).
 		let world = unsafe { instance.as_mut() }.checked_out_world(_checkout_idL);
+		// SAFETY: `pixels` is non-null (checked above) and is the plugin's out-slot for the world pointer.
 		unsafe { *pixels = world.unwrap_or(null_mut()) };
 
 		diag!("PF_SmartRenderCallbacks/checkout_layer_pixels",
@@ -175,10 +179,12 @@ unsafe extern "C" fn checkout_output_sys(effect_ref: PF_ProgPtr, output: *mut *m
 
 		// Hand back a pointer into the instance's persistent output world, not a
 		// pointer to a temporary `as_sys()` value (which would dangle immediately).
+		// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`). `output` is non-null (checked above).
 		unsafe { *output = instance.as_mut().output_world_ptr() };
 
 		diag!("PF_SmartRenderCallbacks/checkout_output",
 			"effect_ref" => format!("{:#x}", effect_ref as usize),
+			// SAFETY: `output` is non-null (checked above) and was just written.
 			"output (out)" => format!("{:#x}", unsafe { *output } as usize);
 			result: format!("`output` is set to internal output layer {:#x}", output as usize),
 		);

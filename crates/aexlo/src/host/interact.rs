@@ -40,6 +40,7 @@ unsafe extern "C" fn checkout_param_stub(
 			);
 			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		};
+		// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`).
 		let instance = unsafe { instance.as_ref() };
 
 		if index >= instance.param_count() {
@@ -47,6 +48,7 @@ unsafe extern "C" fn checkout_param_stub(
 			// after the error (Universe Glow does, then frees whatever handle it
 			// finds). Handing back the stack garbage corrupts the heap, so the
 			// failed checkout reads as an empty parameter.
+			// SAFETY: `param` is non-null (checked above) and points at the plugin's `PF_ParamDef` slot; `write` doesn't read the uninitialized value.
 			unsafe { param.write(std::mem::zeroed()) };
 			log::debug!(
 				"checkout_param: index {} out of bounds (total={})",
@@ -56,8 +58,8 @@ unsafe extern "C" fn checkout_param_stub(
 			return PF_Err_INVALID_INDEX as PF_Err;
 		}
 
-		// SAFETY: We have validated that the index is within bounds and the param pointer is not null.
 		let src_param = instance.param_by_index(index).unwrap();
+		// SAFETY: `param` is non-null (checked above), and `src_param` is a live parameter of this instance.
 		unsafe { *param = *src_param };
 		// Checking a param back in matters for layer params (their pixels).
 		if src_param.param_type == PF_Param_LAYER as PF_ParamType {
@@ -85,6 +87,7 @@ unsafe extern "C" fn checkin_param_stub(_effect_ref: PF_ProgPtr, _param: *mut PF
 			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
 
+		// SAFETY: `_param` is non-null (checked above) and points at a parameter the plugin checked out.
 		if unsafe { (*_param).param_type } == PF_Param_LAYER as PF_ParamType {
 			crate::strict::checkout(crate::CheckoutKind::CheckinParam, 0, _param as usize);
 		}
@@ -101,6 +104,7 @@ unsafe extern "C" fn add_param_sys(effect_ref: PF_ProgPtr, _index: PF_ParamIndex
 		}
 
 		// Copy the param definition and store it
+		// SAFETY: `def` is non-null (checked above) and points at the plugin's parameter definition for this call.
 		let param = unsafe { *def };
 
 		// Store the param in instance via ParamManager
@@ -151,6 +155,7 @@ unsafe extern "C" fn progress_stub(effect_ref: PF_ProgPtr, current: A_long, tota
 /// plugins with custom controls (e.g. status readouts) set up normally.
 unsafe extern "C" fn register_ui_stub(_effect_ref: PF_ProgPtr, custom_info: *mut PF_CustomUIInfo) -> PF_Err {
 	crate::core::ffi::guard("register_ui_stub", || {
+		// SAFETY: `as_ref` handles null; otherwise `custom_info` points at the plugin's `PF_CustomUIInfo` for this call.
 		if let Some(info) = unsafe { custom_info.as_ref() } {
 			log::info!(
 				"register_ui: events={:#x} comp={}x{} layer={}x{} preview={}x{}",

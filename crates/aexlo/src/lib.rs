@@ -78,7 +78,14 @@
 //! - `diagnostics` - Print every suite call the plugin makes, with its
 //!   arguments, to stdout
 
-#![warn(clippy::all, missing_docs, clippy::missing_errors_doc)]
+#![warn(
+	clippy::all,
+	missing_docs,
+	clippy::missing_errors_doc,
+	clippy::undocumented_unsafe_blocks
+)]
+// Tests call FFI fakes directly; their `unsafe` blocks need no proof.
+#![cfg_attr(test, allow(clippy::undocumented_unsafe_blocks))]
 // The crate mirrors the After Effects C SDK, whose suite struct fields and entry
 // points (`PF_GetAppName`, `EffectMain`, …) use non-snake-case names. Allowing it
 // crate-wide keeps the FFI surface readable without per-item annotations.

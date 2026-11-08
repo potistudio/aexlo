@@ -53,6 +53,7 @@ fn encode_path_legacy(path: &std::path::Path) -> Option<Vec<u8>> {
 		if wide[..wide.len() - 1].contains(&0) {
 			return None;
 		}
+		// SAFETY: `wide` is NUL-terminated (`-1` length) and the output buffer is null with size 0, which asks for the needed size.
 		let needed = unsafe {
 			WideCharToMultiByte(
 				1,
@@ -69,6 +70,7 @@ fn encode_path_legacy(path: &std::path::Path) -> Option<Vec<u8>> {
 			return None;
 		}
 		let mut bytes = vec![0; needed as usize];
+		// SAFETY: `bytes` holds exactly `needed` bytes, the size the previous call asked for.
 		let written = unsafe {
 			WideCharToMultiByte(
 				1,
@@ -87,6 +89,7 @@ fn encode_path_legacy(path: &std::path::Path) -> Option<Vec<u8>> {
 		// Reject substitutions and best-fit mappings: returning a different path
 		// as success is worse than reporting that the legacy encoding cannot hold it.
 		let mut round_trip = vec![0; wide.len()];
+		// SAFETY: `bytes` is NUL-terminated (`-1` length) and `round_trip` holds `round_trip.len()` units.
 		let decoded = unsafe {
 			MultiByteToWideChar(
 				1,
@@ -161,7 +164,9 @@ unsafe extern "C" fn copy_sys(
 		// Copy src into dst row by row: the worlds may have different strides, and
 		// each row only owns `rowbytes` bytes, so copying more (or advancing by
 		// anything but the stride) reads/writes out of bounds.
+		// SAFETY: `src` and `dst` are non-null (checked above) and point at the plugin's worlds for this call.
 		let src_ref = &unsafe { *src };
+		// SAFETY: As above, for `dst`.
 		let dst_ref = &mut unsafe { *dst };
 
 		if !src_ref.data.is_null() && !dst_ref.data.is_null() {
@@ -171,9 +176,12 @@ unsafe extern "C" fn copy_sys(
 			let bytes_per_row = src_stride.min(dst_stride);
 
 			for row in 0..rows {
+				// SAFETY: `row < rows`, and `rows` and both strides come from the worlds, so each row start stays inside its buffer.
 				let src_ptr = unsafe { (src_ref.data as *const u8).add(row * src_stride) };
+				// SAFETY: As above, for the destination world.
 				let dst_ptr = unsafe { (dst_ref.data as *mut u8).add(row * dst_stride) };
 
+				// SAFETY: Each row owns at least `bytes_per_row` bytes in both worlds, and `src` and `dst` are distinct buffers.
 				unsafe { std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, bytes_per_row) };
 			}
 		}
@@ -254,7 +262,9 @@ unsafe extern "C" fn iterate_stub(
 		// AE's dst-only iteration -- rather than rejecting it as a bad parameter.
 		let src = if src.is_null() { dst } else { src };
 
+		// SAFETY: `dst` is non-null (checked above), and `src` is either non-null or `dst`.
 		let src_world = unsafe { &*src };
+		// SAFETY: As above, for `dst`.
 		let dst_world = unsafe { &*dst };
 
 		if src_world.data.is_null() || dst_world.data.is_null() {
@@ -262,6 +272,7 @@ unsafe extern "C" fn iterate_stub(
 		}
 
 		let mut rect = if !area.is_null() {
+			// SAFETY: `area` is non-null in this branch and points at the plugin's rect.
 			unsafe { *area }
 		} else {
 			PF_Rect {
@@ -321,6 +332,7 @@ unsafe extern "C" fn iterate_stub(
 					let src_pixel = src_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel;
 					let dst_pixel = dst_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel;
 
+					// SAFETY: `func` is the plugin's pixel callback; `src_pixel`/`dst_pixel` are inside the rect clamped to both worlds above.
 					let err = unsafe { func(refcon_ptr, current_x, current_y, src_pixel, dst_pixel) };
 					if err != PF_Err_NONE as i32 {
 						error_capsule.store(err, Ordering::Relaxed);
@@ -380,6 +392,7 @@ unsafe extern "C" fn get_platform_data_impl(effect_ref: PF_ProgPtr, which: PF_Pl
 					if hwnd.is_null() {
 						return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 					}
+					// SAFETY: `data` is non-null (checked above) and the SDK makes it a `void**` out-slot for `PF_PlatData_MAIN_WND`.
 					unsafe { *(data as *mut *mut c_void) = hwnd };
 					return PF_Err_NONE as PF_Err;
 				}
@@ -395,12 +408,14 @@ unsafe extern "C" fn get_platform_data_impl(effect_ref: PF_ProgPtr, which: PF_Pl
 				let Some(instance) = crate::PluginInstance::get_instance_ptr(effect_ref) else {
 					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 				};
+				// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`).
 				let Some(path) = (unsafe { instance.as_ref() }).resolved_binary_path() else {
 					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 				};
 				let Some(bytes) = encode_path_legacy(path) else {
 					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 				};
+				// SAFETY: `data` is non-null (checked above), and the SDK sizes it for `AEFX_MAX_PATH` bytes; `encode_path_legacy` fails beyond that.
 				unsafe {
 					std::ptr::copy_nonoverlapping(bytes.as_ptr(), data.cast::<u8>(), bytes.len());
 				}
@@ -413,6 +428,7 @@ unsafe extern "C" fn get_platform_data_impl(effect_ref: PF_ProgPtr, which: PF_Pl
 					log::warn!("get_platform_data: no instance for effect_ref");
 					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 				};
+				// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`).
 				let Some(path) = unsafe { instance.as_ref() }.resolved_binary_path() else {
 					log::warn!("get_platform_data: plugin path not set (in-process entry point?)");
 					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
@@ -423,6 +439,7 @@ unsafe extern "C" fn get_platform_data_impl(effect_ref: PF_ProgPtr, which: PF_Pl
 				let dst = data as *mut u16;
 				const AEFX_MAX_PATH: usize = 260;
 				let copy_len = wide.len().min(AEFX_MAX_PATH);
+				// SAFETY: `data` is non-null (checked above), and the SDK sizes it for `AEFX_MAX_PATH` UTF-16 units; `copy_len` is clamped to that.
 				unsafe {
 					std::ptr::copy_nonoverlapping(wide.as_ptr(), dst, copy_len);
 					// Ensure null termination if truncated
@@ -464,6 +481,7 @@ fn host_window() -> *mut c_void {
 		return chosen as *mut c_void;
 	}
 	static WINDOW: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
+	// SAFETY: `create_host_window` has no preconditions; it runs once, on the thread that will pump its messages.
 	let hwnd = *WINDOW.get_or_init(|| unsafe { create_host_window() });
 	hwnd as *mut c_void
 }

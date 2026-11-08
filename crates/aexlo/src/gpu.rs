@@ -150,6 +150,7 @@ mod imp {
 			if (buffer.length() as usize) < data.len() {
 				return false;
 			}
+			// SAFETY: `buffer` is a CPU-visible shared-storage `MTLBuffer` of at least `data.len()` bytes (checked above), and a Rust slice never overlaps it.
 			unsafe {
 				std::ptr::copy_nonoverlapping(data.as_ptr(), buffer.contents() as *mut u8, data.len());
 			}
@@ -164,6 +165,7 @@ mod imp {
 			if (buffer.length() as usize) < out.len() {
 				return false;
 			}
+			// SAFETY: `buffer` is a CPU-visible shared-storage `MTLBuffer` of at least `out.len()` bytes (checked above), and a Rust slice never overlaps it.
 			unsafe {
 				std::ptr::copy_nonoverlapping(buffer.contents() as *const u8, out.as_mut_ptr(), out.len());
 			}
@@ -279,6 +281,7 @@ mod imp {
 			// cudarc panics (rather than erroring) when the driver library is
 			// missing entirely; probe for it first so machines without an NVIDIA
 			// driver degrade to the CPU path.
+			// SAFETY: `is_culib_present` only tries to load the driver library; it takes no pointers.
 			if !unsafe { cudarc::driver::sys::is_culib_present() } {
 				log::info!("CUDA driver library not found; GPU rendering unavailable");
 				return None;
@@ -354,6 +357,7 @@ mod imp {
 		/// The context stays alive. A plugin needs it current only while one of
 		/// its commands runs; [`Self::make_current`] binds it again for the next.
 		pub fn release_thread(&self) {
+			// SAFETY: Binding a null context is how CUDA unbinds the current one; no pointer is dereferenced.
 			if let Err(err) = unsafe { cudarc::driver::result::ctx::set_current(std::ptr::null_mut()) } {
 				log::warn!("Failed to release CUDA context from thread: {err}");
 			}

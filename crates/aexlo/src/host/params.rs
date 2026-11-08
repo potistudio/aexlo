@@ -8,6 +8,7 @@ use std::ffi::CStr;
 
 /// Normalizes a parameter value to its default value.
 pub(crate) fn normalize_param_value_to_default(mut param: PF_ParamDef) -> PF_ParamDef {
+	// SAFETY: `param_type` says which `u` variant the plugin filled in, and only that variant is read.
 	unsafe {
 		#[allow(non_upper_case_globals)]
 		match param.param_type {
@@ -61,6 +62,7 @@ enum PointValue {
 /// plugins pixel values, resolving the default when the effect is applied.
 fn default_point(param: &PF_ParamDef, width: u32, height: u32) -> Option<PointValue> {
 	let (w, h) = (width as f64, height as f64);
+	// SAFETY: `param_type` says which `u` variant the plugin filled in, and only that variant is read.
 	unsafe {
 		#[allow(non_upper_case_globals)]
 		match param.param_type {
@@ -85,6 +87,7 @@ fn default_point(param: &PF_ParamDef, width: u32, height: u32) -> Option<PointVa
 }
 
 fn current_point(param: &PF_ParamDef) -> Option<PointValue> {
+	// SAFETY: `param_type` says which `u` variant the plugin filled in, and only that variant is read.
 	unsafe {
 		#[allow(non_upper_case_globals)]
 		match param.param_type {
@@ -171,6 +174,7 @@ pub(crate) fn param_type_name(param_type: PF_ParamType) -> &'static str {
 
 /// Returns a string with details about the parameter, based on its type and fields.
 pub(crate) fn param_details(param: &PF_ParamDef) -> String {
+	// SAFETY: `param_type` says which `u` variant the plugin filled in, and only that variant is read.
 	unsafe {
 		#[allow(non_upper_case_globals)]
 		match param.param_type {
@@ -250,6 +254,7 @@ pub(crate) fn param_details(param: &PF_ParamDef) -> String {
 }
 
 pub(crate) fn popup_options(popup: &PF_PopupDef) -> Vec<String> {
+	// SAFETY: Called for popup parameters only, while the add-param callback runs: `namesptr` is then null or the plugin's NUL-terminated label string.
 	unsafe {
 		if popup.u.namesptr.is_null() {
 			return Vec::new();
@@ -281,6 +286,7 @@ pub fn add_param_to_instance(effect_ref: PF_ProgPtr, param: PF_ParamDef) -> Resu
 
 	let instance = crate::instance::PluginInstance::get_instance_ptr(effect_ref);
 	if let Some(mut instance_ptr) = instance {
+		// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`).
 		let instance = unsafe { instance_ptr.as_mut() };
 		let mut normalized_param = normalize_param_value_to_default(param);
 		let (width, height) = instance.input_size();

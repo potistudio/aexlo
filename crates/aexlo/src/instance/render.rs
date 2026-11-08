@@ -56,6 +56,7 @@ impl PluginInstance {
 		pointer: Option<ControlPointer>,
 	) -> (i32, bool) {
 		let mut kept = self.ui_contexts.remove(&index).unwrap_or_else(LiveUiContext::new);
+		// SAFETY: `PF_EventExtra` is a plain C struct (integers, raw pointers, unions of those), for which all-zero bytes are a valid value.
 		let mut extra: after_effects_sys::PF_EventExtra = unsafe { std::mem::zeroed() };
 		extra.contextH = kept.handle();
 		extra.e_type = event;
@@ -114,7 +115,7 @@ impl PluginInstance {
 		);
 		let send_drag = matches!(
 			event,
-			after_effects_sys::PF_Event_DO_CLICK | after_effects_sys::PF_Event_DRAG
+			after_effects_sys::PF_Event_DO_CLICK | after_effects_sys::PF_Event_DRAG // SAFETY: `event` is a click or drag here, so the plugin's reply is in `u.do_click`.
 		) && unsafe { extra.u.do_click.send_drag } != 0;
 		self.ui_contexts.insert(index, kept);
 		(extra.evt_out_flags, send_drag)

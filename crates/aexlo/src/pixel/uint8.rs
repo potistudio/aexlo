@@ -84,6 +84,7 @@ impl Pixel<Depth8> {
 	/// # Safety
 	/// `sys` must be valid for reads and point to an initialized `PF_Pixel8`.
 	pub unsafe fn from_sys(sys: *const after_effects_sys::PF_Pixel8) -> Self {
+		// SAFETY: The caller guarantees `sys` is valid for reads and initialized.
 		unsafe { (*sys).into() }
 	}
 }

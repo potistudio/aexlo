@@ -14,6 +14,29 @@
 //! compat suite, whose type-erased pointer slots can't be built in a `const`
 //! context - it lives in its own [`LazyLock`](utility::AEGP_UTILITY_SUITE)
 //! instead, but is otherwise the same shared-static model.
+//!
+//! # Safety model
+//!
+//! Every callback here is `unsafe extern "C"` and trusts the plugin the way
+//! After Effects does. Rather than repeat it at each of the hundreds of
+//! `unsafe` blocks, these premises cover them (`undocumented_unsafe_blocks`
+//! is allowed in this module tree; blocks that rely on anything more say so
+//! with their own `SAFETY:` comment):
+//!
+//! - **Out-pointers** are written only after a null check. The plugin owns
+//!   them and sizes them as the SDK documents for that call.
+//! - **In-pointers** (worlds, rects, C strings, handles) are null-checked or
+//!   come straight from the SDK contract for the call; strings are
+//!   NUL-terminated and live for the duration of the call.
+//! - **`effect_ref`** is the `PluginInstance` aexlo passed in `in_data`, and
+//!   the plugin calls back during one of that instance's commands
+//!   (see `PluginInstance::get_instance_ptr`).
+//! - **Handles and worlds** the plugin passes back were created by these
+//!   suites; their bookkeeping (`handle`, `world`, `aegp_memory`, ...) rejects
+//!   ones it does not know.
+//! - **Unions** (`PF_ParamDef::u`, `PF_EventExtra::u`, ...) are read only in
+//!   the variant their tag (`param_type`, `e_type`, ...) selects.
+#![allow(clippy::undocumented_unsafe_blocks)]
 
 mod adv_app;
 mod adv_item;

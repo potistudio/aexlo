@@ -242,6 +242,7 @@ impl PluginInstance {
 		// Capture popup choice labels now, while the plugin-owned `namesptr`
 		// string is still alive (it dies when the add-param callback returns).
 		let choices = if param.param_type == PF_Param_POPUP as PF_ParamType {
+			// SAFETY: Only read for popup parameters, whose `u` holds `pd`.
 			unsafe { crate::host::params::popup_options(&param.u.pd) }
 		} else {
 			Vec::new()
