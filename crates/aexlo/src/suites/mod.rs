@@ -521,20 +521,22 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 // `version` is only read by the diagnostics build; suppress the unused warning otherwise.
 #[cfg_attr(not(feature = "diagnostics"), allow(unused_variables))]
 pub unsafe extern "C" fn rusty_release_suite(name: *const ::std::os::raw::c_char, version: i32) -> PF_Err {
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("SPBasicSuite/ReleaseSuite")
-		.add_arg("name", format!("{:?}", unsafe { CStr::from_ptr(name) }))
-		.add_arg("version", version)
-		.emit();
+	crate::core::ffi::guard("rusty_release_suite", || {
+		#[cfg(feature = "diagnostics")]
+		DiagnosticBuilder::new()
+			.set_name("SPBasicSuite/ReleaseSuite")
+			.add_arg("name", format!("{:?}", unsafe { CStr::from_ptr(name) }))
+			.add_arg("version", version)
+			.emit();
 
-	if name.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+		if name.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	// Every suite is a process-wide shared static (see the module docs); nothing
-	// is allocated per acquire, so releasing one is a no-op.
-	PF_Err_NONE as PF_Err
+		// Every suite is a process-wide shared static (see the module docs); nothing
+		// is allocated per acquire, so releasing one is a no-op.
+		PF_Err_NONE as PF_Err
+	})
 }
 
 #[cfg(test)]

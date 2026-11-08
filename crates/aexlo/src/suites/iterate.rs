@@ -392,68 +392,70 @@ pub(crate) unsafe extern "C" fn iterate_lut_sys(
 	b_lut0: *mut A_u_char,
 	dst: *mut PF_EffectWorld,
 ) -> PF_Err {
-	// Copy each table up front: a local array is cheap, can be shared across the
-	// rayon rows below, and a null table falls back to the identity mapping.
-	let load_lut = |lut: *mut A_u_char| -> [u8; 256] {
-		if lut.is_null() {
-			std::array::from_fn(|i| i as u8)
-		} else {
-			// SAFETY: a non-null LUT is a 256-entry table per the AE contract.
-			std::array::from_fn(|i| unsafe { *lut.add(i) })
-		}
-	};
-	let a_lut = load_lut(a_lut0);
-	let r_lut = load_lut(r_lut0);
-	let g_lut = load_lut(g_lut0);
-	let b_lut = load_lut(b_lut0);
+	crate::core::ffi::guard("iterate_lut_sys", || {
+		// Copy each table up front: a local array is cheap, can be shared across the
+		// rayon rows below, and a null table falls back to the identity mapping.
+		let load_lut = |lut: *mut A_u_char| -> [u8; 256] {
+			if lut.is_null() {
+				std::array::from_fn(|i| i as u8)
+			} else {
+				// SAFETY: a non-null LUT is a 256-entry table per the AE contract.
+				std::array::from_fn(|i| unsafe { *lut.add(i) })
+			}
+		};
+		let a_lut = load_lut(a_lut0);
+		let r_lut = load_lut(r_lut0);
+		let g_lut = load_lut(g_lut0);
+		let b_lut = load_lut(b_lut0);
 
-	// The LUT is applied by our own per-pixel closure, so route through the same
-	// engine with a private trampoline: refcon carries the tables.
-	struct LutTables {
-		a: [u8; 256],
-		r: [u8; 256],
-		g: [u8; 256],
-		b: [u8; 256],
-	}
-	unsafe extern "C" fn apply_lut(
-		refcon: *mut c_void,
-		_x: A_long,
-		_y: A_long,
-		in_: *mut PF_Pixel,
-		out: *mut PF_Pixel,
-	) -> PF_Err {
-		// SAFETY: refcon is the LutTables local below; in_/out come from iterate_pixels.
-		let luts = unsafe { &*(refcon as *const LutTables) };
-		let px = unsafe { *in_ };
+		// The LUT is applied by our own per-pixel closure, so route through the same
+		// engine with a private trampoline: refcon carries the tables.
+		struct LutTables {
+			a: [u8; 256],
+			r: [u8; 256],
+			g: [u8; 256],
+			b: [u8; 256],
+		}
+		unsafe extern "C" fn apply_lut(
+			refcon: *mut c_void,
+			_x: A_long,
+			_y: A_long,
+			in_: *mut PF_Pixel,
+			out: *mut PF_Pixel,
+		) -> PF_Err {
+			// SAFETY: refcon is the LutTables local below; in_/out come from iterate_pixels.
+			let luts = unsafe { &*(refcon as *const LutTables) };
+			let px = unsafe { *in_ };
+			unsafe {
+				*out = PF_Pixel {
+					alpha: luts.a[px.alpha as usize],
+					red: luts.r[px.red as usize],
+					green: luts.g[px.green as usize],
+					blue: luts.b[px.blue as usize],
+				};
+			}
+			PF_Err_NONE as PF_Err
+		}
+
+		let tables = LutTables {
+			a: a_lut,
+			r: r_lut,
+			g: g_lut,
+			b: b_lut,
+		};
+
 		unsafe {
-			*out = PF_Pixel {
-				alpha: luts.a[px.alpha as usize],
-				red: luts.r[px.red as usize],
-				green: luts.g[px.green as usize],
-				blue: luts.b[px.blue as usize],
-			};
+			iterate_pixels::<PF_Pixel>(
+				src,
+				area,
+				std::ptr::null(),
+				true,
+				&tables as *const LutTables as *mut c_void,
+				Some(apply_lut),
+				dst,
+			)
 		}
-		PF_Err_NONE as PF_Err
-	}
-
-	let tables = LutTables {
-		a: a_lut,
-		r: r_lut,
-		g: g_lut,
-		b: b_lut,
-	};
-
-	unsafe {
-		iterate_pixels::<PF_Pixel>(
-			src,
-			area,
-			std::ptr::null(),
-			true,
-			&tables as *const LutTables as *mut c_void,
-			Some(apply_lut),
-			dst,
-		)
-	}
+	})
 }
 
 /// Real `iterate_generic`: run `fn_func` for every `i` in `0..iterationsL`,
@@ -466,52 +468,56 @@ pub(crate) unsafe extern "C" fn iterate_generic_sys(
 		unsafe extern "C" fn(refconPV: *mut c_void, thread_indexL: A_long, i: A_long, iterationsL: A_long) -> PF_Err,
 	>,
 ) -> PF_Err {
-	let Some(func) = fn_func else {
-		log::error!("iterate_generic: fn_func is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
+	crate::core::ffi::guard("iterate_generic_sys", || {
+		let Some(func) = fn_func else {
+			log::error!("iterate_generic: fn_func is null");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
 
-	if iterationsL <= 0 {
-		return PF_Err_NONE as PF_Err;
-	}
-
-	// Cast refcon to usize so it can cross the rayon closure; the plugin owns
-	// its thread-safety by contract (same as `iterate`).
-	let refcon_addr = refconPV as usize;
-
-	let error_capsule = AtomicI64::new(PF_Err_NONE as i64);
-
-	for_each_index(0..iterationsL, |i| {
-		if error_capsule.load(Ordering::Relaxed) != PF_Err_NONE as i64 {
-			return;
+		if iterationsL <= 0 {
+			return PF_Err_NONE as PF_Err;
 		}
 
-		let thread_index = rayon::current_thread_index().unwrap_or(0) as A_long;
+		// Cast refcon to usize so it can cross the rayon closure; the plugin owns
+		// its thread-safety by contract (same as `iterate`).
+		let refcon_addr = refconPV as usize;
 
-		// SAFETY: `func` is the plugin's iteration callback; each `i` is visited
-		// exactly once and the plugin guarantees refcon thread-safety per the
-		// iterate_generic contract.
-		let err = unsafe { func(refcon_addr as *mut c_void, thread_index, i, iterationsL) };
-		if err != PF_Err_NONE as PF_Err {
-			error_capsule.store(err as i64, Ordering::Relaxed);
-		}
-	});
+		let error_capsule = AtomicI64::new(PF_Err_NONE as i64);
 
-	error_capsule.load(Ordering::Relaxed) as PF_Err
+		for_each_index(0..iterationsL, |i| {
+			if error_capsule.load(Ordering::Relaxed) != PF_Err_NONE as i64 {
+				return;
+			}
+
+			let thread_index = rayon::current_thread_index().unwrap_or(0) as A_long;
+
+			// SAFETY: `func` is the plugin's iteration callback; each `i` is visited
+			// exactly once and the plugin guarantees refcon thread-safety per the
+			// iterate_generic contract.
+			let err = unsafe { func(refcon_addr as *mut c_void, thread_index, i, iterationsL) };
+			if err != PF_Err_NONE as PF_Err {
+				error_capsule.store(err as i64, Ordering::Relaxed);
+			}
+		});
+
+		error_capsule.load(Ordering::Relaxed) as PF_Err
+	})
 }
 
 /// `AEGP_GetNumThreads`: how many threads `AEGP_IterateGeneric` may call back
 /// on (1 under serial iteration), so plugins can size per-thread buffers.
 unsafe extern "C" fn aegp_get_num_threads_sys(num_threadsPL: *mut A_long) -> A_Err {
-	let Some(out) = (unsafe { num_threadsPL.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*out = if PARALLEL_ITERATE.get() {
-		rayon::current_num_threads() as A_long
-	} else {
-		1
-	};
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("aegp_get_num_threads_sys", || {
+		let Some(out) = (unsafe { num_threadsPL.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		*out = if PARALLEL_ITERATE.get() {
+			rayon::current_num_threads() as A_long
+		} else {
+			1
+		};
+		PF_Err_NONE as A_Err
+	})
 }
 
 // ============================================================================

@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 use std::ffi::CStr;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
 
 use after_effects_sys::{
 	A_Boolean, A_Err, A_FpLong, A_char, A_long, A_u_long, AEGP_MemHandle, AEGP_PersistentBlobH,
@@ -37,6 +37,11 @@ enum Value {
 
 /// Process-wide preference store, keyed by `(section, value)`.
 static STORE: LazyLock<Mutex<HashMap<(String, String), Value>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// [`STORE`], usable even after a guarded callback panicked while holding it.
+fn store() -> MutexGuard<'static, HashMap<(String, String), Value>> {
+	STORE.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// Opaque, never-dereferenced token handed back as the "application blob".
 ///
@@ -83,21 +88,25 @@ unsafe fn write_str(bytes: &[u8], bufZ: *mut A_char, buf_size: A_u_long, actual:
 }
 
 unsafe extern "C" fn get_application_blob(blobPH: *mut AEGP_PersistentBlobH) -> A_Err {
-	if !blobPH.is_null() {
-		unsafe { *blobPH = blob_handle() };
-	}
-	0
+	crate::core::ffi::guard("get_application_blob", || {
+		if !blobPH.is_null() {
+			unsafe { *blobPH = blob_handle() };
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn get_num_sections(_blobH: AEGP_PersistentBlobH, num: *mut A_long) -> A_Err {
-	if !num.is_null() {
-		let store = STORE.lock().unwrap();
-		let mut sections: Vec<&String> = store.keys().map(|(s, _)| s).collect();
-		sections.sort();
-		sections.dedup();
-		unsafe { *num = sections.len() as A_long };
-	}
-	0
+	crate::core::ffi::guard("get_num_sections", || {
+		if !num.is_null() {
+			let store = store();
+			let mut sections: Vec<&String> = store.keys().map(|(s, _)| s).collect();
+			sections.sort();
+			sections.dedup();
+			unsafe { *num = sections.len() as A_long };
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn get_section_key_by_index(
@@ -106,20 +115,22 @@ unsafe extern "C" fn get_section_key_by_index(
 	max_section_size: A_long,
 	section_keyZ: *mut A_char,
 ) -> A_Err {
-	let store = STORE.lock().unwrap();
-	let mut sections: Vec<String> = store.keys().map(|(s, _)| s.clone()).collect();
-	sections.sort();
-	sections.dedup();
-	let name = sections.get(section_index as usize).cloned().unwrap_or_default();
-	unsafe {
-		write_str(
-			name.as_bytes(),
-			section_keyZ,
-			max_section_size.max(0) as A_u_long,
-			std::ptr::null_mut(),
-		)
-	};
-	0
+	crate::core::ffi::guard("get_section_key_by_index", || {
+		let store = store();
+		let mut sections: Vec<String> = store.keys().map(|(s, _)| s.clone()).collect();
+		sections.sort();
+		sections.dedup();
+		let name = sections.get(section_index as usize).cloned().unwrap_or_default();
+		unsafe {
+			write_str(
+				name.as_bytes(),
+				section_keyZ,
+				max_section_size.max(0) as A_u_long,
+				std::ptr::null_mut(),
+			)
+		};
+		0
+	})
 }
 
 unsafe extern "C" fn does_key_exist(
@@ -128,17 +139,19 @@ unsafe extern "C" fn does_key_exist(
 	value_keyZ: *const A_char,
 	existsPB: *mut A_Boolean,
 ) -> A_Err {
-	log::debug!("AEGP_DoesKeyExist [{}] {}", unsafe { key(section_keyZ) }, unsafe {
-		key(value_keyZ)
-	});
-	let exists = {
-		let store = STORE.lock().unwrap();
-		store.contains_key(&(unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) }))
-	};
-	if !existsPB.is_null() {
-		unsafe { *existsPB = A_Boolean::from(exists) };
-	}
-	0
+	crate::core::ffi::guard("does_key_exist", || {
+		log::debug!("AEGP_DoesKeyExist [{}] {}", unsafe { key(section_keyZ) }, unsafe {
+			key(value_keyZ)
+		});
+		let exists = {
+			let store = store();
+			store.contains_key(&(unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) }))
+		};
+		if !existsPB.is_null() {
+			unsafe { *existsPB = A_Boolean::from(exists) };
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn get_num_keys(
@@ -146,13 +159,15 @@ unsafe extern "C" fn get_num_keys(
 	section_keyZ: *const A_char,
 	num: *mut A_long,
 ) -> A_Err {
-	if !num.is_null() {
-		let section = unsafe { key(section_keyZ) };
-		let store = STORE.lock().unwrap();
-		let count = store.keys().filter(|(s, _)| *s == section).count();
-		unsafe { *num = count as A_long };
-	}
-	0
+	crate::core::ffi::guard("get_num_keys", || {
+		if !num.is_null() {
+			let section = unsafe { key(section_keyZ) };
+			let store = store();
+			let count = store.keys().filter(|(s, _)| *s == section).count();
+			unsafe { *num = count as A_long };
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn get_value_key_by_index(
@@ -162,24 +177,26 @@ unsafe extern "C" fn get_value_key_by_index(
 	max_key_size: A_long,
 	value_keyZ: *mut A_char,
 ) -> A_Err {
-	let section = unsafe { key(section_keyZ) };
-	let store = STORE.lock().unwrap();
-	let mut values: Vec<String> = store
-		.keys()
-		.filter(|(s, _)| *s == section)
-		.map(|(_, v)| v.clone())
-		.collect();
-	values.sort();
-	let name = values.get(key_index as usize).cloned().unwrap_or_default();
-	unsafe {
-		write_str(
-			name.as_bytes(),
-			value_keyZ,
-			max_key_size.max(0) as A_u_long,
-			std::ptr::null_mut(),
-		)
-	};
-	0
+	crate::core::ffi::guard("get_value_key_by_index", || {
+		let section = unsafe { key(section_keyZ) };
+		let store = store();
+		let mut values: Vec<String> = store
+			.keys()
+			.filter(|(s, _)| *s == section)
+			.map(|(_, v)| v.clone())
+			.collect();
+		values.sort();
+		let name = values.get(key_index as usize).cloned().unwrap_or_default();
+		unsafe {
+			write_str(
+				name.as_bytes(),
+				value_keyZ,
+				max_key_size.max(0) as A_u_long,
+				std::ptr::null_mut(),
+			)
+		};
+		0
+	})
 }
 
 unsafe extern "C" fn get_data_handle(
@@ -190,12 +207,14 @@ unsafe extern "C" fn get_data_handle(
 	_defaultH0: AEGP_MemHandle,
 	valuePH: *mut AEGP_MemHandle,
 ) -> A_Err {
-	// We don't vend AEGP_MemHandles; report "no data" (NULL handle) per the SDK's
-	// zero-sized-handle convention. Not reached by the license path.
-	if !valuePH.is_null() {
-		unsafe { *valuePH = std::ptr::null_mut() };
-	}
-	0
+	crate::core::ffi::guard("get_data_handle", || {
+		// We don't vend AEGP_MemHandles; report "no data" (NULL handle) per the SDK's
+		// zero-sized-handle convention. Not reached by the license path.
+		if !valuePH.is_null() {
+			unsafe { *valuePH = std::ptr::null_mut() };
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn get_data(
@@ -206,29 +225,31 @@ unsafe extern "C" fn get_data(
 	defaultPV0: *const std::os::raw::c_void,
 	bufPV: *mut std::os::raw::c_void,
 ) -> A_Err {
-	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
-	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
-	let size = data_sizeLu as usize;
-	let mut store = STORE.lock().unwrap();
-	if let Some(Value::Data(bytes)) = store.get(&k)
-		&& bytes.len() == size
-		&& !bufPV.is_null()
-	{
-		unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), bufPV as *mut u8, size) };
-		return 0;
-	}
-	// Not found (or size mismatch): fall back to the default, writing it back to
-	// the store as the SDK specifies.
-	let default: Vec<u8> = if defaultPV0.is_null() {
-		vec![0u8; size]
-	} else {
-		unsafe { std::slice::from_raw_parts(defaultPV0 as *const u8, size) }.to_vec()
-	};
-	if !bufPV.is_null() && size > 0 {
-		unsafe { std::ptr::copy_nonoverlapping(default.as_ptr(), bufPV as *mut u8, size) };
-	}
-	store.insert(k, Value::Data(default));
-	0
+	crate::core::ffi::guard("get_data", || {
+		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
+		let size = data_sizeLu as usize;
+		let mut store = store();
+		if let Some(Value::Data(bytes)) = store.get(&k)
+			&& bytes.len() == size
+			&& !bufPV.is_null()
+		{
+			unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), bufPV as *mut u8, size) };
+			return 0;
+		}
+		// Not found (or size mismatch): fall back to the default, writing it back to
+		// the store as the SDK specifies.
+		let default: Vec<u8> = if defaultPV0.is_null() {
+			vec![0u8; size]
+		} else {
+			unsafe { std::slice::from_raw_parts(defaultPV0 as *const u8, size) }.to_vec()
+		};
+		if !bufPV.is_null() && size > 0 {
+			unsafe { std::ptr::copy_nonoverlapping(default.as_ptr(), bufPV as *mut u8, size) };
+		}
+		store.insert(k, Value::Data(default));
+		0
+	})
 }
 
 unsafe extern "C" fn get_string(
@@ -240,17 +261,19 @@ unsafe extern "C" fn get_string(
 	bufZ: *mut A_char,
 	actual_buf_sizeLu0: *mut A_u_long,
 ) -> A_Err {
-	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
-	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
-	let mut store = STORE.lock().unwrap();
-	if let Some(Value::Str(bytes)) = store.get(&k) {
-		unsafe { write_str(bytes, bufZ, buf_sizeLu, actual_buf_sizeLu0) };
-		return 0;
-	}
-	let default = unsafe { key(defaultZ0) };
-	unsafe { write_str(default.as_bytes(), bufZ, buf_sizeLu, actual_buf_sizeLu0) };
-	store.insert(k, Value::Str(default.into_bytes()));
-	0
+	crate::core::ffi::guard("get_string", || {
+		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
+		let mut store = store();
+		if let Some(Value::Str(bytes)) = store.get(&k) {
+			unsafe { write_str(bytes, bufZ, buf_sizeLu, actual_buf_sizeLu0) };
+			return 0;
+		}
+		let default = unsafe { key(defaultZ0) };
+		unsafe { write_str(default.as_bytes(), bufZ, buf_sizeLu, actual_buf_sizeLu0) };
+		store.insert(k, Value::Str(default.into_bytes()));
+		0
+	})
 }
 
 unsafe extern "C" fn get_long(
@@ -260,20 +283,22 @@ unsafe extern "C" fn get_long(
 	defaultL: A_long,
 	valuePL: *mut A_long,
 ) -> A_Err {
-	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
-	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
-	let mut store = STORE.lock().unwrap();
-	let value = match store.get(&k) {
-		Some(Value::Long(v)) => *v,
-		_ => {
-			store.insert(k, Value::Long(defaultL));
-			defaultL
+	crate::core::ffi::guard("get_long", || {
+		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
+		let mut store = store();
+		let value = match store.get(&k) {
+			Some(Value::Long(v)) => *v,
+			_ => {
+				store.insert(k, Value::Long(defaultL));
+				defaultL
+			}
+		};
+		if !valuePL.is_null() {
+			unsafe { *valuePL = value };
 		}
-	};
-	if !valuePL.is_null() {
-		unsafe { *valuePL = value };
-	}
-	0
+		0
+	})
 }
 
 unsafe extern "C" fn get_fp_long(
@@ -283,20 +308,22 @@ unsafe extern "C" fn get_fp_long(
 	defaultF: A_FpLong,
 	valuePF: *mut A_FpLong,
 ) -> A_Err {
-	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
-	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
-	let mut store = STORE.lock().unwrap();
-	let value = match store.get(&k) {
-		Some(Value::FpLong(v)) => *v,
-		_ => {
-			store.insert(k, Value::FpLong(defaultF));
-			defaultF
+	crate::core::ffi::guard("get_fp_long", || {
+		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
+		let mut store = store();
+		let value = match store.get(&k) {
+			Some(Value::FpLong(v)) => *v,
+			_ => {
+				store.insert(k, Value::FpLong(defaultF));
+				defaultF
+			}
+		};
+		if !valuePF.is_null() {
+			unsafe { *valuePF = value };
 		}
-	};
-	if !valuePF.is_null() {
-		unsafe { *valuePF = value };
-	}
-	0
+		0
+	})
 }
 
 unsafe extern "C" fn set_data_handle(
@@ -305,9 +332,11 @@ unsafe extern "C" fn set_data_handle(
 	_value_keyZ: *const A_char,
 	_valueH: AEGP_MemHandle,
 ) -> A_Err {
-	// We can't read foreign AEGP_MemHandles without the memory suite; accept and
-	// drop. Not reached by the license path.
-	0
+	crate::core::ffi::guard("set_data_handle", || {
+		// We can't read foreign AEGP_MemHandles without the memory suite; accept and
+		// drop. Not reached by the license path.
+		0
+	})
 }
 
 unsafe extern "C" fn set_data(
@@ -317,15 +346,17 @@ unsafe extern "C" fn set_data(
 	data_sizeLu: A_u_long,
 	dataPV: *const std::os::raw::c_void,
 ) -> A_Err {
-	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
-	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
-	let bytes = if dataPV.is_null() {
-		Vec::new()
-	} else {
-		unsafe { std::slice::from_raw_parts(dataPV as *const u8, data_sizeLu as usize) }.to_vec()
-	};
-	STORE.lock().unwrap().insert(k, Value::Data(bytes));
-	0
+	crate::core::ffi::guard("set_data", || {
+		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
+		let bytes = if dataPV.is_null() {
+			Vec::new()
+		} else {
+			unsafe { std::slice::from_raw_parts(dataPV as *const u8, data_sizeLu as usize) }.to_vec()
+		};
+		store().insert(k, Value::Data(bytes));
+		0
+	})
 }
 
 unsafe extern "C" fn set_string(
@@ -334,13 +365,15 @@ unsafe extern "C" fn set_string(
 	value_keyZ: *const A_char,
 	strZ: *const A_char,
 ) -> A_Err {
-	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
-	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
-	STORE
-		.lock()
-		.unwrap()
-		.insert(k, Value::Str(unsafe { key(strZ) }.into_bytes()));
-	0
+	crate::core::ffi::guard("set_string", || {
+		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
+		STORE
+			.lock()
+			.unwrap()
+			.insert(k, Value::Str(unsafe { key(strZ) }.into_bytes()));
+		0
+	})
 }
 
 unsafe extern "C" fn set_long(
@@ -349,10 +382,12 @@ unsafe extern "C" fn set_long(
 	value_keyZ: *const A_char,
 	valueL: A_long,
 ) -> A_Err {
-	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
-	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
-	STORE.lock().unwrap().insert(k, Value::Long(valueL));
-	0
+	crate::core::ffi::guard("set_long", || {
+		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
+		store().insert(k, Value::Long(valueL));
+		0
+	})
 }
 
 unsafe extern "C" fn set_fp_long(
@@ -361,10 +396,12 @@ unsafe extern "C" fn set_fp_long(
 	value_keyZ: *const A_char,
 	valueF: A_FpLong,
 ) -> A_Err {
-	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
-	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
-	STORE.lock().unwrap().insert(k, Value::FpLong(valueF));
-	0
+	crate::core::ffi::guard("set_fp_long", || {
+		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
+		store().insert(k, Value::FpLong(valueF));
+		0
+	})
 }
 
 unsafe extern "C" fn delete_entry(
@@ -372,18 +409,22 @@ unsafe extern "C" fn delete_entry(
 	section_keyZ: *const A_char,
 	value_keyZ: *const A_char,
 ) -> A_Err {
-	let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
-	log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
-	STORE.lock().unwrap().remove(&k);
-	0
+	crate::core::ffi::guard("delete_entry", || {
+		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
+		store().remove(&k);
+		0
+	})
 }
 
 unsafe extern "C" fn get_prefs_directory(unicode_pathPH: *mut AEGP_MemHandle) -> A_Err {
-	// "empty string if no file": we have no prefs directory, so report none.
-	if !unicode_pathPH.is_null() {
-		unsafe { *unicode_pathPH = std::ptr::null_mut() };
-	}
-	0
+	crate::core::ffi::guard("get_prefs_directory", || {
+		// "empty string if no file": we have no prefs directory, so report none.
+		if !unicode_pathPH.is_null() {
+			unsafe { *unicode_pathPH = std::ptr::null_mut() };
+		}
+		0
+	})
 }
 
 /// Build the `AEGP Persistent Data Suite` v3 vtable.

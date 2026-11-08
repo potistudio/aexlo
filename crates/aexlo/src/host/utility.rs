@@ -145,47 +145,49 @@ unsafe extern "C" fn copy_sys(
 	_src_rect: *mut PF_Rect,
 	_dst_rect: *mut PF_Rect,
 ) -> PF_Err {
-	//== Validation ==//
-	if src.is_null() {
-		log::warn!("copy: src pointer is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	if dst.is_null() {
-		log::warn!("copy: dst pointer is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	//== Implementation ==//
-	// Copy src into dst row by row: the worlds may have different strides, and
-	// each row only owns `rowbytes` bytes, so copying more (or advancing by
-	// anything but the stride) reads/writes out of bounds.
-	let src_ref = &unsafe { *src };
-	let dst_ref = &mut unsafe { *dst };
-
-	if !src_ref.data.is_null() && !dst_ref.data.is_null() {
-		let rows = src_ref.height.min(dst_ref.height).max(0) as usize;
-		let src_stride = src_ref.rowbytes.max(0) as usize;
-		let dst_stride = dst_ref.rowbytes.max(0) as usize;
-		let bytes_per_row = src_stride.min(dst_stride);
-
-		for row in 0..rows {
-			let src_ptr = unsafe { (src_ref.data as *const u8).add(row * src_stride) };
-			let dst_ptr = unsafe { (dst_ref.data as *mut u8).add(row * dst_stride) };
-
-			unsafe { std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, bytes_per_row) };
+	crate::core::ffi::guard("copy_sys", || {
+		//== Validation ==//
+		if src.is_null() {
+			log::warn!("copy: src pointer is null");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-	}
 
-	diag!("UtilityCallbacks/copy",
-		"effect_ref" => _effect_ref as usize,
-		"src" => format!("{:?}", src),
-		"dst" => format!("{:?}", dst),
-		"src_rect" => format!("{:?}", _src_rect),
-		"dst_rect" => format!("{:?}", _dst_rect),
-	);
+		if dst.is_null() {
+			log::warn!("copy: dst pointer is null");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	PF_Err_NONE as PF_Err
+		//== Implementation ==//
+		// Copy src into dst row by row: the worlds may have different strides, and
+		// each row only owns `rowbytes` bytes, so copying more (or advancing by
+		// anything but the stride) reads/writes out of bounds.
+		let src_ref = &unsafe { *src };
+		let dst_ref = &mut unsafe { *dst };
+
+		if !src_ref.data.is_null() && !dst_ref.data.is_null() {
+			let rows = src_ref.height.min(dst_ref.height).max(0) as usize;
+			let src_stride = src_ref.rowbytes.max(0) as usize;
+			let dst_stride = dst_ref.rowbytes.max(0) as usize;
+			let bytes_per_row = src_stride.min(dst_stride);
+
+			for row in 0..rows {
+				let src_ptr = unsafe { (src_ref.data as *const u8).add(row * src_stride) };
+				let dst_ptr = unsafe { (dst_ref.data as *mut u8).add(row * dst_stride) };
+
+				unsafe { std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, bytes_per_row) };
+			}
+		}
+
+		diag!("UtilityCallbacks/copy",
+			"effect_ref" => _effect_ref as usize,
+			"src" => format!("{:?}", src),
+			"dst" => format!("{:?}", dst),
+			"src_rect" => format!("{:?}", _src_rect),
+			"dst_rect" => format!("{:?}", _dst_rect),
+		);
+
+		PF_Err_NONE as PF_Err
+	})
 }
 
 stub_log!(gaussian_kernel_stub,
@@ -218,116 +220,118 @@ unsafe extern "C" fn iterate_stub(
 	>,
 	dst: *mut PF_EffectWorld,
 ) -> PF_Err {
-	#[cfg(not(feature = "diagnostics"))]
-	let _ = (in_data, progress_base, progress_final);
+	crate::core::ffi::guard("iterate_stub", || {
+		#[cfg(not(feature = "diagnostics"))]
+		let _ = (in_data, progress_base, progress_final);
 
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("UtilityCallbacks/iterate")
-		.add_arg("in_data", format!("{:?}", in_data))
-		.add_arg("progress_base", progress_base)
-		.add_arg("progress_final", progress_final)
-		.add_arg("src", format!("{:?}", src))
-		.add_arg(
-			"area",
-			if !area.is_null() {
-				format!("{:?}", area)
-			} else {
-				"(null)".to_string()
-			},
-		)
-		.add_arg("refcon", format!("{:?}", refcon))
-		.add_arg("pix_fn", if pix_fn.is_some() { "Some" } else { "None" })
-		.add_arg("dst", format!("{:?}", dst))
-		.emit();
+		#[cfg(feature = "diagnostics")]
+		DiagnosticBuilder::new()
+			.set_name("UtilityCallbacks/iterate")
+			.add_arg("in_data", format!("{:?}", in_data))
+			.add_arg("progress_base", progress_base)
+			.add_arg("progress_final", progress_final)
+			.add_arg("src", format!("{:?}", src))
+			.add_arg(
+				"area",
+				if !area.is_null() {
+					format!("{:?}", area)
+				} else {
+					"(null)".to_string()
+				},
+			)
+			.add_arg("refcon", format!("{:?}", refcon))
+			.add_arg("pix_fn", if pix_fn.is_some() { "Some" } else { "None" })
+			.add_arg("dst", format!("{:?}", dst))
+			.emit();
 
-	if dst.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	// A null `src` is legal: the SDK's `iterate` then walks `dst` only, which is
-	// how generator effects (no input layer) invoke it. Fall back to `dst` as the
-	// source so the bounds and the per-pixel `in`/`out` pointers coincide, matching
-	// AE's dst-only iteration -- rather than rejecting it as a bad parameter.
-	let src = if src.is_null() { dst } else { src };
-
-	let src_world = unsafe { &*src };
-	let dst_world = unsafe { &*dst };
-
-	if src_world.data.is_null() || dst_world.data.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	let mut rect = if !area.is_null() {
-		unsafe { *area }
-	} else {
-		PF_Rect {
-			left: 0,
-			top: 0,
-			right: dst_world.width,
-			bottom: dst_world.height,
+		if dst.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-	};
 
-	rect.left = rect.left.max(0);
-	rect.top = rect.top.max(0);
-	rect.right = rect.right.min(src_world.width);
-	rect.bottom = rect.bottom.min(src_world.height);
-	rect.right = rect.right.min(dst_world.width);
-	rect.bottom = rect.bottom.min(dst_world.height);
+		// A null `src` is legal: the SDK's `iterate` then walks `dst` only, which is
+		// how generator effects (no input layer) invoke it. Fall back to `dst` as the
+		// source so the bounds and the per-pixel `in`/`out` pointers coincide, matching
+		// AE's dst-only iteration -- rather than rejecting it as a bad parameter.
+		let src = if src.is_null() { dst } else { src };
 
-	let start_x = rect.left;
-	let start_y = rect.top;
-	let end_x = rect.right;
-	let end_y = rect.bottom;
+		let src_world = unsafe { &*src };
+		let dst_world = unsafe { &*dst };
 
-	let width = (end_x - start_x).max(0);
-	let height = (end_y - start_y).max(0);
+		if src_world.data.is_null() || dst_world.data.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	if width == 0 || height == 0 {
-		return PF_Err_NONE as PF_Err;
-	}
-
-	let src_base_addr = src_world.data as usize;
-	let src_rowbytes = src_world.rowbytes as isize;
-	let dst_base_addr = dst_world.data as usize;
-	let dst_rowbytes = dst_world.rowbytes as isize;
-	let pixel_size = std::mem::size_of::<PF_Pixel>();
-
-	debug_assert!(
-		src_world.rowbytes >= (src_world.width * pixel_size as i32),
-		"Source rowbytes smaller than width * pixel_size"
-	);
-
-	let refcon_addr = refcon as usize;
-	let error_capsule = AtomicI32::new(PF_Err_NONE as i32);
-
-	if let Some(func) = pix_fn {
-		crate::suites::iterate::for_each_index(0..height, |y_offset| {
-			if error_capsule.load(Ordering::Relaxed) != PF_Err_NONE as i32 {
-				return;
+		let mut rect = if !area.is_null() {
+			unsafe { *area }
+		} else {
+			PF_Rect {
+				left: 0,
+				top: 0,
+				right: dst_world.width,
+				bottom: dst_world.height,
 			}
+		};
 
-			let current_y = start_y + y_offset;
-			let src_row_ptr = (src_base_addr as *const u8).wrapping_offset((current_y as isize) * src_rowbytes);
-			let dst_row_ptr = (dst_base_addr as *mut u8).wrapping_offset((current_y as isize) * dst_rowbytes);
-			let refcon_ptr = refcon_addr as *mut c_void;
+		rect.left = rect.left.max(0);
+		rect.top = rect.top.max(0);
+		rect.right = rect.right.min(src_world.width);
+		rect.bottom = rect.bottom.min(src_world.height);
+		rect.right = rect.right.min(dst_world.width);
+		rect.bottom = rect.bottom.min(dst_world.height);
 
-			for x_offset in 0..width {
-				let current_x = start_x + x_offset;
-				let src_pixel = src_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel;
-				let dst_pixel = dst_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel;
+		let start_x = rect.left;
+		let start_y = rect.top;
+		let end_x = rect.right;
+		let end_y = rect.bottom;
 
-				let err = unsafe { func(refcon_ptr, current_x, current_y, src_pixel, dst_pixel) };
-				if err != PF_Err_NONE as i32 {
-					error_capsule.store(err, Ordering::Relaxed);
+		let width = (end_x - start_x).max(0);
+		let height = (end_y - start_y).max(0);
+
+		if width == 0 || height == 0 {
+			return PF_Err_NONE as PF_Err;
+		}
+
+		let src_base_addr = src_world.data as usize;
+		let src_rowbytes = src_world.rowbytes as isize;
+		let dst_base_addr = dst_world.data as usize;
+		let dst_rowbytes = dst_world.rowbytes as isize;
+		let pixel_size = std::mem::size_of::<PF_Pixel>();
+
+		debug_assert!(
+			src_world.rowbytes >= (src_world.width * pixel_size as i32),
+			"Source rowbytes smaller than width * pixel_size"
+		);
+
+		let refcon_addr = refcon as usize;
+		let error_capsule = AtomicI32::new(PF_Err_NONE as i32);
+
+		if let Some(func) = pix_fn {
+			crate::suites::iterate::for_each_index(0..height, |y_offset| {
+				if error_capsule.load(Ordering::Relaxed) != PF_Err_NONE as i32 {
 					return;
 				}
-			}
-		});
-	}
 
-	error_capsule.load(Ordering::Relaxed) as PF_Err
+				let current_y = start_y + y_offset;
+				let src_row_ptr = (src_base_addr as *const u8).wrapping_offset((current_y as isize) * src_rowbytes);
+				let dst_row_ptr = (dst_base_addr as *mut u8).wrapping_offset((current_y as isize) * dst_rowbytes);
+				let refcon_ptr = refcon_addr as *mut c_void;
+
+				for x_offset in 0..width {
+					let current_x = start_x + x_offset;
+					let src_pixel = src_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel;
+					let dst_pixel = dst_row_ptr.wrapping_add((current_x as usize) * pixel_size) as *mut PF_Pixel;
+
+					let err = unsafe { func(refcon_ptr, current_x, current_y, src_pixel, dst_pixel) };
+					if err != PF_Err_NONE as i32 {
+						error_capsule.store(err, Ordering::Relaxed);
+						return;
+					}
+				}
+			});
+		}
+
+		error_capsule.load(Ordering::Relaxed) as PF_Err
+	})
 }
 
 stub_log!(get_callback_addr_stub,
@@ -339,8 +343,10 @@ stub_log!(get_callback_addr_stub,
 );
 
 unsafe extern "C" fn app_stub(_effect_ref: PF_ProgPtr, _selector: A_long, _args: ...) -> PF_Err {
-	log::warn!("STUB: app called");
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("app_stub", || {
+		log::warn!("STUB: app called");
+		PF_Err_NONE as PF_Err
+	})
 }
 
 // ============================================================================
@@ -352,85 +358,87 @@ const PF_PLAT_DATA_EXE_FILE_PATH_W: PF_PlatDataID = 7;
 const PF_PLAT_DATA_RES_FILE_PATH_W: PF_PlatDataID = 8;
 
 unsafe extern "C" fn get_platform_data_impl(effect_ref: PF_ProgPtr, which: PF_PlatDataID, data: *mut c_void) -> PF_Err {
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("get_platform_data")
-		.add_arg("which", which)
-		.add_arg("data", format!("{:?}", data))
-		.emit();
+	crate::core::ffi::guard("get_platform_data_impl", || {
+		#[cfg(feature = "diagnostics")]
+		DiagnosticBuilder::new()
+			.set_name("get_platform_data")
+			.add_arg("which", which)
+			.add_arg("data", format!("{:?}", data))
+			.emit();
 
-	if data.is_null() {
-		log::warn!("get_platform_data: data pointer is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+		if data.is_null() {
+			log::warn!("get_platform_data: data pointer is null");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	match which {
-		0 => {
-			// PF_PlatData_MAIN_WND. Effects parent their own editor windows here.
-			#[cfg(windows)]
-			{
-				let hwnd = host_window();
-				if hwnd.is_null() {
+		match which {
+			0 => {
+				// PF_PlatData_MAIN_WND. Effects parent their own editor windows here.
+				#[cfg(windows)]
+				{
+					let hwnd = host_window();
+					if hwnd.is_null() {
+						return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+					}
+					unsafe { *(data as *mut *mut c_void) = hwnd };
+					return PF_Err_NONE as PF_Err;
+				}
+				#[cfg(not(windows))]
+				{
+					let _ = data;
+					PF_Err_BAD_CALLBACK_PARAM as PF_Err
+				}
+			}
+			1 | 2 => {
+				// The host currently does not load separate localized resource files,
+				// so both legacy selectors refer to the loaded plugin binary.
+				let Some(instance) = crate::PluginInstance::get_instance_ptr(effect_ref) else {
 					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				};
+				let Some(path) = (unsafe { instance.as_ref() }).resolved_binary_path() else {
+					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				};
+				let Some(bytes) = encode_path_legacy(path) else {
+					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				};
+				unsafe {
+					std::ptr::copy_nonoverlapping(bytes.as_ptr(), data.cast::<u8>(), bytes.len());
 				}
-				unsafe { *(data as *mut *mut c_void) = hwnd };
-				return PF_Err_NONE as PF_Err;
+				PF_Err_NONE as PF_Err
 			}
-			#[cfg(not(windows))]
-			{
-				let _ = data;
-				PF_Err_BAD_CALLBACK_PARAM as PF_Err
-			}
-		}
-		1 | 2 => {
-			// The host currently does not load separate localized resource files,
-			// so both legacy selectors refer to the loaded plugin binary.
-			let Some(instance) = crate::PluginInstance::get_instance_ptr(effect_ref) else {
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-			};
-			let Some(path) = (unsafe { instance.as_ref() }).resolved_binary_path() else {
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-			};
-			let Some(bytes) = encode_path_legacy(path) else {
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-			};
-			unsafe {
-				std::ptr::copy_nonoverlapping(bytes.as_ptr(), data.cast::<u8>(), bytes.len());
-			}
-			PF_Err_NONE as PF_Err
-		}
-		PF_PLAT_DATA_EXE_FILE_PATH_W | PF_PLAT_DATA_RES_FILE_PATH_W => {
-			// The path is per instance (recovered via effect_ref), so loading a
-			// second plugin can't clobber the first one's answer.
-			let Some(instance) = crate::PluginInstance::get_instance_ptr(effect_ref) else {
-				log::warn!("get_platform_data: no instance for effect_ref");
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-			};
-			let Some(path) = unsafe { instance.as_ref() }.resolved_binary_path() else {
-				log::warn!("get_platform_data: plugin path not set (in-process entry point?)");
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-			};
+			PF_PLAT_DATA_EXE_FILE_PATH_W | PF_PLAT_DATA_RES_FILE_PATH_W => {
+				// The path is per instance (recovered via effect_ref), so loading a
+				// second plugin can't clobber the first one's answer.
+				let Some(instance) = crate::PluginInstance::get_instance_ptr(effect_ref) else {
+					log::warn!("get_platform_data: no instance for effect_ref");
+					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				};
+				let Some(path) = unsafe { instance.as_ref() }.resolved_binary_path() else {
+					log::warn!("get_platform_data: plugin path not set (in-process entry point?)");
+					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				};
 
-			// Copy the UTF-16 path into the output buffer (max AEFX_MAX_PATH = 260)
-			let wide = encode_path_utf16(path);
-			let dst = data as *mut u16;
-			const AEFX_MAX_PATH: usize = 260;
-			let copy_len = wide.len().min(AEFX_MAX_PATH);
-			unsafe {
-				std::ptr::copy_nonoverlapping(wide.as_ptr(), dst, copy_len);
-				// Ensure null termination if truncated
-				if wide.len() > AEFX_MAX_PATH {
-					*dst.add(AEFX_MAX_PATH - 1) = 0;
+				// Copy the UTF-16 path into the output buffer (max AEFX_MAX_PATH = 260)
+				let wide = encode_path_utf16(path);
+				let dst = data as *mut u16;
+				const AEFX_MAX_PATH: usize = 260;
+				let copy_len = wide.len().min(AEFX_MAX_PATH);
+				unsafe {
+					std::ptr::copy_nonoverlapping(wide.as_ptr(), dst, copy_len);
+					// Ensure null termination if truncated
+					if wide.len() > AEFX_MAX_PATH {
+						*dst.add(AEFX_MAX_PATH - 1) = 0;
+					}
 				}
+				log::debug!("get_platform_data: returned plugin path (len={})", copy_len);
+				PF_Err_NONE as PF_Err
 			}
-			log::debug!("get_platform_data: returned plugin path (len={})", copy_len);
-			PF_Err_NONE as PF_Err
+			_ => {
+				log::warn!("get_platform_data: unsupported which={}", which);
+				PF_Err_NONE as PF_Err // Return OK for unsupported, as AE does
+			}
 		}
-		_ => {
-			log::warn!("get_platform_data: unsupported which={}", which);
-			PF_Err_NONE as PF_Err // Return OK for unsupported, as AE does
-		}
-	}
+	})
 }
 
 /// HWND a GUI host wants plugins to treat as After Effects' main window.

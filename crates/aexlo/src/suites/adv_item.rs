@@ -34,66 +34,76 @@ unsafe extern "C" fn move_time_step(
 	time_dir: PF_Step,
 	num_stepsL: A_long,
 ) -> PF_Err {
-	diag!("PF_AdvItemSuite/PF_MoveTimeStep",
-		"in_data" => format!("{:#x}", in_data as usize),
-		"world" => format!("{:#x}", world as usize),
-		"time_dir" => time_dir,
-		"num_stepsL" => num_stepsL,
-	);
-	let _ = world;
+	crate::core::ffi::guard("move_time_step", || {
+		diag!("PF_AdvItemSuite/PF_MoveTimeStep",
+			"in_data" => format!("{:#x}", in_data as usize),
+			"world" => format!("{:#x}", world as usize),
+			"time_dir" => time_dir,
+			"num_stepsL" => num_stepsL,
+		);
+		let _ = world;
 
-	with_host(|host| {
-		host.move_time_step(unsafe { effect_of(in_data) }, signed_steps(time_dir, num_stepsL));
-		PF_Err_NONE as PF_Err
+		with_host(|host| {
+			host.move_time_step(unsafe { effect_of(in_data) }, signed_steps(time_dir, num_stepsL));
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
 unsafe extern "C" fn move_time_step_active_item(time_dir: PF_Step, num_stepsL: A_long) -> PF_Err {
-	diag!("PF_AdvItemSuite/PF_MoveTimeStepActiveItem",
-		"time_dir" => time_dir,
-		"num_stepsL" => num_stepsL,
-	);
+	crate::core::ffi::guard("move_time_step_active_item", || {
+		diag!("PF_AdvItemSuite/PF_MoveTimeStepActiveItem",
+			"time_dir" => time_dir,
+			"num_stepsL" => num_stepsL,
+		);
 
-	with_host(|host| {
-		host.move_time_step(0, signed_steps(time_dir, num_stepsL));
-		PF_Err_NONE as PF_Err
+		with_host(|host| {
+			host.move_time_step(0, signed_steps(time_dir, num_stepsL));
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
 unsafe extern "C" fn touch_active_item() -> PF_Err {
-	diag!("PF_AdvItemSuite/PF_TouchActiveItem");
+	crate::core::ffi::guard("touch_active_item", || {
+		diag!("PF_AdvItemSuite/PF_TouchActiveItem");
 
-	with_host(|host| {
-		host.touch_active_item();
-		PF_Err_NONE as PF_Err
+		with_host(|host| {
+			host.touch_active_item();
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
 unsafe extern "C" fn force_rerender(in_data: *mut PF_InData, world: *mut PF_EffectWorld) -> PF_Err {
-	diag!("PF_AdvItemSuite/PF_ForceRerender",
-		"in_data" => format!("{:#x}", in_data as usize),
-		"world" => format!("{:#x}", world as usize),
-	);
-	let _ = world;
+	crate::core::ffi::guard("force_rerender", || {
+		diag!("PF_AdvItemSuite/PF_ForceRerender",
+			"in_data" => format!("{:#x}", in_data as usize),
+			"world" => format!("{:#x}", world as usize),
+		);
+		let _ = world;
 
-	with_host(|host| {
-		host.force_rerender(unsafe { effect_of(in_data) });
-		PF_Err_NONE as PF_Err
+		with_host(|host| {
+			host.force_rerender(unsafe { effect_of(in_data) });
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
 unsafe extern "C" fn effect_is_active_or_enabled(contextH: PF_ContextH, enabledPB: *mut PF_Boolean) -> PF_Err {
-	diag!("PF_AdvItemSuite/PF_EffectIsActiveOrEnabled",
-		"contextH" => format!("{:#x}", contextH as usize),
-		"enabledPB" => format!("{:#x}", enabledPB as usize),
-	);
+	crate::core::ffi::guard("effect_is_active_or_enabled", || {
+		diag!("PF_AdvItemSuite/PF_EffectIsActiveOrEnabled",
+			"contextH" => format!("{:#x}", contextH as usize),
+			"enabledPB" => format!("{:#x}", enabledPB as usize),
+		);
 
-	if enabledPB.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	with_host(|host| {
-		unsafe { *enabledPB = host.effect_is_active_or_enabled(contextH as usize) as PF_Boolean };
-		PF_Err_NONE as PF_Err
+		if enabledPB.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		with_host(|host| {
+			unsafe { *enabledPB = host.effect_is_active_or_enabled(contextH as usize) as PF_Boolean };
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 

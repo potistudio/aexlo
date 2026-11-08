@@ -603,28 +603,32 @@ fn add_arc(verbs: &mut Vec<Verb>, center: (f32, f32), radius: f32, start: f32, s
 }
 
 unsafe extern "C" fn get_supplier(in_drawbot_ref: DRAWBOT_DrawRef, out_supplier: *mut DRAWBOT_SupplierRef) -> SPErr {
-	let _ = in_drawbot_ref;
-	if let Some(slot) = unsafe { out_supplier.as_mut() } {
-		*slot = 1usize as DRAWBOT_SupplierRef;
-	}
-	0
+	crate::core::ffi::guard("get_supplier", || {
+		let _ = in_drawbot_ref;
+		if let Some(slot) = unsafe { out_supplier.as_mut() } {
+			*slot = 1usize as DRAWBOT_SupplierRef;
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn get_surface(in_drawbot_ref: DRAWBOT_DrawRef, out_surface: *mut DRAWBOT_SurfaceRef) -> SPErr {
-	let surface = with_heap(|heap| match heap.objects.get(&id_of(in_drawbot_ref.cast())) {
-		Some(Object {
-			kind: Kind::Session { surface },
-			..
-		}) => Some(*surface),
-		_ => None,
-	});
-	let Some(surface) = surface else {
-		return 4;
-	};
-	if let Some(slot) = unsafe { out_surface.as_mut() } {
-		*slot = surface as DRAWBOT_SurfaceRef;
-	}
-	0
+	crate::core::ffi::guard("get_surface", || {
+		let surface = with_heap(|heap| match heap.objects.get(&id_of(in_drawbot_ref.cast())) {
+			Some(Object {
+				kind: Kind::Session { surface },
+				..
+			}) => Some(*surface),
+			_ => None,
+		});
+		let Some(surface) = surface else {
+			return 4;
+		};
+		if let Some(slot) = unsafe { out_surface.as_mut() } {
+			*slot = surface as DRAWBOT_SurfaceRef;
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn new_pen(
@@ -633,19 +637,21 @@ unsafe extern "C" fn new_pen(
 	size: f32,
 	out_pen: *mut DRAWBOT_PenRef,
 ) -> SPErr {
-	let _ = supplier;
-	let Some(color) = read_color(color) else {
-		return 4;
-	};
-	let id = insert(Kind::Pen(Pen {
-		color,
-		width: if size <= 0.0 { 1.0 } else { size },
-		dashes: Vec::new(),
-	}));
-	if let Some(slot) = unsafe { out_pen.as_mut() } {
-		*slot = id as DRAWBOT_PenRef;
-	}
-	0
+	crate::core::ffi::guard("new_pen", || {
+		let _ = supplier;
+		let Some(color) = read_color(color) else {
+			return 4;
+		};
+		let id = insert(Kind::Pen(Pen {
+			color,
+			width: if size <= 0.0 { 1.0 } else { size },
+			dashes: Vec::new(),
+		}));
+		if let Some(slot) = unsafe { out_pen.as_mut() } {
+			*slot = id as DRAWBOT_PenRef;
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn new_brush(
@@ -653,40 +659,48 @@ unsafe extern "C" fn new_brush(
 	color: *const DRAWBOT_ColorRGBA,
 	out_brush: *mut DRAWBOT_BrushRef,
 ) -> SPErr {
-	let _ = supplier;
-	let Some(color) = read_color(color) else {
-		return 4;
-	};
-	let id = insert(Kind::Brush(color));
-	if let Some(slot) = unsafe { out_brush.as_mut() } {
-		*slot = id as DRAWBOT_BrushRef;
-	}
-	0
+	crate::core::ffi::guard("new_brush", || {
+		let _ = supplier;
+		let Some(color) = read_color(color) else {
+			return 4;
+		};
+		let id = insert(Kind::Brush(color));
+		if let Some(slot) = unsafe { out_brush.as_mut() } {
+			*slot = id as DRAWBOT_BrushRef;
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn supports_text(supplier: DRAWBOT_SupplierRef, out_supports: *mut DRAWBOT_Boolean) -> SPErr {
-	let _ = supplier;
-	if let Some(out) = unsafe { out_supports.as_mut() } {
-		*out = u8::from(system_font().is_some());
-	}
-	0
+	crate::core::ffi::guard("supports_text", || {
+		let _ = supplier;
+		if let Some(out) = unsafe { out_supports.as_mut() } {
+			*out = u8::from(system_font().is_some());
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn default_font_size(supplier: DRAWBOT_SupplierRef, out_size: *mut f32) -> SPErr {
-	let _ = supplier;
-	if let Some(out) = unsafe { out_size.as_mut() } {
-		*out = 12.0;
-	}
-	0
+	crate::core::ffi::guard("default_font_size", || {
+		let _ = supplier;
+		if let Some(out) = unsafe { out_size.as_mut() } {
+			*out = 12.0;
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn new_font(supplier: DRAWBOT_SupplierRef, size: f32, out_font: *mut DRAWBOT_FontRef) -> SPErr {
-	let _ = supplier;
-	let id = insert(Kind::Font { size: size.max(1.0) });
-	if let Some(slot) = unsafe { out_font.as_mut() } {
-		*slot = id as DRAWBOT_FontRef;
-	}
-	0
+	crate::core::ffi::guard("new_font", || {
+		let _ = supplier;
+		let id = insert(Kind::Font { size: size.max(1.0) });
+		if let Some(slot) = unsafe { out_font.as_mut() } {
+			*slot = id as DRAWBOT_FontRef;
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn new_image(
@@ -698,105 +712,127 @@ unsafe extern "C" fn new_image(
 	data: *const std::ffi::c_void,
 	out_image: *mut DRAWBOT_ImageRef,
 ) -> SPErr {
-	let _ = supplier;
-	let Some(pixmap) = image_from_buffer(width, height, row_bytes, layout, data) else {
-		return 4;
-	};
-	let id = insert(Kind::Image(Image { pixmap, scale: 1.0 }));
-	if let Some(slot) = unsafe { out_image.as_mut() } {
-		*slot = id as DRAWBOT_ImageRef;
-	}
-	0
-}
-
-unsafe extern "C" fn new_path(supplier: DRAWBOT_SupplierRef, out_path: *mut DRAWBOT_PathRef) -> SPErr {
-	let _ = supplier;
-	let id = insert(Kind::Path(Vec::new()));
-	if let Some(slot) = unsafe { out_path.as_mut() } {
-		*slot = id as DRAWBOT_PathRef;
-	}
-	0
-}
-
-unsafe extern "C" fn flag(out_flag: *mut DRAWBOT_Boolean, value: u8) -> SPErr {
-	if let Some(out) = unsafe { out_flag.as_mut() } {
-		*out = value;
-	}
-	0
-}
-
-unsafe extern "C" fn supports_bgra(supplier: DRAWBOT_SupplierRef, out_flag: *mut DRAWBOT_Boolean) -> SPErr {
-	let _ = supplier;
-	unsafe { flag(out_flag, 1) }
-}
-
-unsafe extern "C" fn prefers_bgra(supplier: DRAWBOT_SupplierRef, out_flag: *mut DRAWBOT_Boolean) -> SPErr {
-	let _ = supplier;
-	unsafe { flag(out_flag, 1) }
-}
-
-unsafe extern "C" fn supports_argb(supplier: DRAWBOT_SupplierRef, out_flag: *mut DRAWBOT_Boolean) -> SPErr {
-	let _ = supplier;
-	unsafe { flag(out_flag, 1) }
-}
-
-unsafe extern "C" fn prefers_argb(supplier: DRAWBOT_SupplierRef, out_flag: *mut DRAWBOT_Boolean) -> SPErr {
-	let _ = supplier;
-	unsafe { flag(out_flag, 0) }
-}
-
-unsafe extern "C" fn retain(object: DRAWBOT_ObjectRef) -> SPErr {
-	let found = with_heap(|heap| {
-		let Some(object) = heap.objects.get_mut(&id_of(object.cast())) else {
-			return false;
-		};
-		object.refs = object.refs.saturating_add(1);
-		true
-	});
-	if found { 0 } else { 4 }
-}
-
-unsafe extern "C" fn release(object: DRAWBOT_ObjectRef) -> SPErr {
-	with_heap(|heap| {
-		let id = id_of(object.cast());
-		let Some(stored) = heap.objects.get_mut(&id) else {
+	crate::core::ffi::guard("new_image", || {
+		let _ = supplier;
+		let Some(pixmap) = image_from_buffer(width, height, row_bytes, layout, data) else {
 			return 4;
 		};
-		// The frame and its surface stay until [`end_frame`]. Plugins only own
-		// the objects they created with `New*`.
-		if matches!(stored.kind, Kind::Session { .. } | Kind::Surface(_)) {
-			return 0;
-		}
-		stored.refs = stored.refs.saturating_sub(1);
-		if stored.refs == 0 {
-			heap.objects.remove(&id);
+		let id = insert(Kind::Image(Image { pixmap, scale: 1.0 }));
+		if let Some(slot) = unsafe { out_image.as_mut() } {
+			*slot = id as DRAWBOT_ImageRef;
 		}
 		0
 	})
 }
 
-unsafe extern "C" fn push_state(surface: DRAWBOT_SurfaceRef) -> SPErr {
-	with_surface(surface, |surface| {
-		surface.stack.push(SurfaceState {
-			transform: surface.transform,
-			clip: surface.clip,
-			anti_alias: surface.anti_alias,
-			interpolation: surface.interpolation,
+unsafe extern "C" fn new_path(supplier: DRAWBOT_SupplierRef, out_path: *mut DRAWBOT_PathRef) -> SPErr {
+	crate::core::ffi::guard("new_path", || {
+		let _ = supplier;
+		let id = insert(Kind::Path(Vec::new()));
+		if let Some(slot) = unsafe { out_path.as_mut() } {
+			*slot = id as DRAWBOT_PathRef;
+		}
+		0
+	})
+}
+
+unsafe extern "C" fn flag(out_flag: *mut DRAWBOT_Boolean, value: u8) -> SPErr {
+	crate::core::ffi::guard("flag", || {
+		if let Some(out) = unsafe { out_flag.as_mut() } {
+			*out = value;
+		}
+		0
+	})
+}
+
+unsafe extern "C" fn supports_bgra(supplier: DRAWBOT_SupplierRef, out_flag: *mut DRAWBOT_Boolean) -> SPErr {
+	crate::core::ffi::guard("supports_bgra", || {
+		let _ = supplier;
+		unsafe { flag(out_flag, 1) }
+	})
+}
+
+unsafe extern "C" fn prefers_bgra(supplier: DRAWBOT_SupplierRef, out_flag: *mut DRAWBOT_Boolean) -> SPErr {
+	crate::core::ffi::guard("prefers_bgra", || {
+		let _ = supplier;
+		unsafe { flag(out_flag, 1) }
+	})
+}
+
+unsafe extern "C" fn supports_argb(supplier: DRAWBOT_SupplierRef, out_flag: *mut DRAWBOT_Boolean) -> SPErr {
+	crate::core::ffi::guard("supports_argb", || {
+		let _ = supplier;
+		unsafe { flag(out_flag, 1) }
+	})
+}
+
+unsafe extern "C" fn prefers_argb(supplier: DRAWBOT_SupplierRef, out_flag: *mut DRAWBOT_Boolean) -> SPErr {
+	crate::core::ffi::guard("prefers_argb", || {
+		let _ = supplier;
+		unsafe { flag(out_flag, 0) }
+	})
+}
+
+unsafe extern "C" fn retain(object: DRAWBOT_ObjectRef) -> SPErr {
+	crate::core::ffi::guard("retain", || {
+		let found = with_heap(|heap| {
+			let Some(object) = heap.objects.get_mut(&id_of(object.cast())) else {
+				return false;
+			};
+			object.refs = object.refs.saturating_add(1);
+			true
 		});
-	});
-	0
+		if found { 0 } else { 4 }
+	})
+}
+
+unsafe extern "C" fn release(object: DRAWBOT_ObjectRef) -> SPErr {
+	crate::core::ffi::guard("release", || {
+		with_heap(|heap| {
+			let id = id_of(object.cast());
+			let Some(stored) = heap.objects.get_mut(&id) else {
+				return 4;
+			};
+			// The frame and its surface stay until [`end_frame`]. Plugins only own
+			// the objects they created with `New*`.
+			if matches!(stored.kind, Kind::Session { .. } | Kind::Surface(_)) {
+				return 0;
+			}
+			stored.refs = stored.refs.saturating_sub(1);
+			if stored.refs == 0 {
+				heap.objects.remove(&id);
+			}
+			0
+		})
+	})
+}
+
+unsafe extern "C" fn push_state(surface: DRAWBOT_SurfaceRef) -> SPErr {
+	crate::core::ffi::guard("push_state", || {
+		with_surface(surface, |surface| {
+			surface.stack.push(SurfaceState {
+				transform: surface.transform,
+				clip: surface.clip,
+				anti_alias: surface.anti_alias,
+				interpolation: surface.interpolation,
+			});
+		});
+		0
+	})
 }
 
 unsafe extern "C" fn pop_state(surface: DRAWBOT_SurfaceRef) -> SPErr {
-	with_surface(surface, |surface| {
-		if let Some(state) = surface.stack.pop() {
-			surface.transform = state.transform;
-			surface.clip = state.clip;
-			surface.anti_alias = state.anti_alias;
-			surface.interpolation = state.interpolation;
-		}
-	});
-	0
+	crate::core::ffi::guard("pop_state", || {
+		with_surface(surface, |surface| {
+			if let Some(state) = surface.stack.pop() {
+				surface.transform = state.transform;
+				surface.clip = state.clip;
+				surface.anti_alias = state.anti_alias;
+				surface.interpolation = state.interpolation;
+			}
+		});
+		0
+	})
 }
 
 unsafe extern "C" fn paint_rect(
@@ -804,25 +840,27 @@ unsafe extern "C" fn paint_rect(
 	color: *const DRAWBOT_ColorRGBA,
 	rect: *const DRAWBOT_RectF32,
 ) -> SPErr {
-	let (Some(color), Some(rect)) = (read_color(color), (unsafe { rect.as_ref() })) else {
-		return 4;
-	};
-	with_surface(surface, |surface| {
-		let Some(rect) = tiny_skia::Rect::from_xywh(rect.left, rect.top, rect.width, rect.height) else {
-			return;
+	crate::core::ffi::guard("paint_rect", || {
+		let (Some(color), Some(rect)) = (read_color(color), (unsafe { rect.as_ref() })) else {
+			return 4;
 		};
-		let mut builder = PathBuilder::new();
-		builder.push_rect(rect);
-		let Some(path) = builder.finish() else {
-			return;
-		};
-		let mask = clip_mask(surface);
-		let paint = paint_of(color, surface.anti_alias);
-		surface
-			.pixmap
-			.fill_path(&path, &paint, FillRule::Winding, surface.transform, mask.as_ref());
-	});
-	0
+		with_surface(surface, |surface| {
+			let Some(rect) = tiny_skia::Rect::from_xywh(rect.left, rect.top, rect.width, rect.height) else {
+				return;
+			};
+			let mut builder = PathBuilder::new();
+			builder.push_rect(rect);
+			let Some(path) = builder.finish() else {
+				return;
+			};
+			let mask = clip_mask(surface);
+			let paint = paint_of(color, surface.anti_alias);
+			surface
+				.pixmap
+				.fill_path(&path, &paint, FillRule::Winding, surface.transform, mask.as_ref());
+		});
+		0
+	})
 }
 
 unsafe extern "C" fn fill_path(
@@ -831,89 +869,93 @@ unsafe extern "C" fn fill_path(
 	path: DRAWBOT_PathRef,
 	fill: DRAWBOT_FillType,
 ) -> SPErr {
-	let Some((color, verbs)) = with_heap(|heap| {
-		let color = match heap.objects.get(&id_of(brush.cast())) {
-			Some(Object {
-				kind: Kind::Brush(color),
-				..
-			}) => *color,
-			_ => return None,
+	crate::core::ffi::guard("fill_path", || {
+		let Some((color, verbs)) = with_heap(|heap| {
+			let color = match heap.objects.get(&id_of(brush.cast())) {
+				Some(Object {
+					kind: Kind::Brush(color),
+					..
+				}) => *color,
+				_ => return None,
+			};
+			let verbs = match heap.objects.get(&id_of(path.cast())) {
+				Some(Object {
+					kind: Kind::Path(verbs),
+					..
+				}) => verbs.clone(),
+				_ => return None,
+			};
+			Some((color, verbs))
+		}) else {
+			return 4;
 		};
-		let verbs = match heap.objects.get(&id_of(path.cast())) {
-			Some(Object {
-				kind: Kind::Path(verbs),
-				..
-			}) => verbs.clone(),
-			_ => return None,
+		let Some(path) = replay(&verbs) else {
+			return 0;
 		};
-		Some((color, verbs))
-	}) else {
-		return 4;
-	};
-	let Some(path) = replay(&verbs) else {
-		return 0;
-	};
-	let rule = if fill == kDRAWBOT_FillType_EvenOdd {
-		FillRule::EvenOdd
-	} else {
-		FillRule::Winding
-	};
-	with_surface(surface, |surface| {
-		let mask = clip_mask(surface);
-		let paint = paint_of(color, surface.anti_alias);
-		surface
-			.pixmap
-			.fill_path(&path, &paint, rule, surface.transform, mask.as_ref());
-	});
-	0
+		let rule = if fill == kDRAWBOT_FillType_EvenOdd {
+			FillRule::EvenOdd
+		} else {
+			FillRule::Winding
+		};
+		with_surface(surface, |surface| {
+			let mask = clip_mask(surface);
+			let paint = paint_of(color, surface.anti_alias);
+			surface
+				.pixmap
+				.fill_path(&path, &paint, rule, surface.transform, mask.as_ref());
+		});
+		0
+	})
 }
 
 unsafe extern "C" fn stroke_path(surface: DRAWBOT_SurfaceRef, pen: DRAWBOT_PenRef, path: DRAWBOT_PathRef) -> SPErr {
-	let Some((pen, verbs)) = with_heap(|heap| {
-		let pen = match heap.objects.get(&id_of(pen.cast())) {
-			Some(Object {
-				kind: Kind::Pen(pen), ..
-			}) => Pen {
-				color: pen.color,
+	crate::core::ffi::guard("stroke_path", || {
+		let Some((pen, verbs)) = with_heap(|heap| {
+			let pen = match heap.objects.get(&id_of(pen.cast())) {
+				Some(Object {
+					kind: Kind::Pen(pen), ..
+				}) => Pen {
+					color: pen.color,
+					width: pen.width,
+					dashes: pen.dashes.clone(),
+				},
+				_ => return None,
+			};
+			let verbs = match heap.objects.get(&id_of(path.cast())) {
+				Some(Object {
+					kind: Kind::Path(verbs),
+					..
+				}) => verbs.clone(),
+				_ => return None,
+			};
+			Some((pen, verbs))
+		}) else {
+			return 4;
+		};
+		let Some(path) = replay(&verbs) else {
+			return 0;
+		};
+		with_surface(surface, |surface| {
+			let mask = clip_mask(surface);
+			let paint = paint_of(pen.color, surface.anti_alias);
+			let dash = if pen.dashes.is_empty() {
+				None
+			} else {
+				StrokeDash::new(pen.dashes.clone(), 0.0)
+			};
+			let stroke = Stroke {
 				width: pen.width,
-				dashes: pen.dashes.clone(),
-			},
-			_ => return None,
-		};
-		let verbs = match heap.objects.get(&id_of(path.cast())) {
-			Some(Object {
-				kind: Kind::Path(verbs),
-				..
-			}) => verbs.clone(),
-			_ => return None,
-		};
-		Some((pen, verbs))
-	}) else {
-		return 4;
-	};
-	let Some(path) = replay(&verbs) else {
-		return 0;
-	};
-	with_surface(surface, |surface| {
-		let mask = clip_mask(surface);
-		let paint = paint_of(pen.color, surface.anti_alias);
-		let dash = if pen.dashes.is_empty() {
-			None
-		} else {
-			StrokeDash::new(pen.dashes.clone(), 0.0)
-		};
-		let stroke = Stroke {
-			width: pen.width,
-			miter_limit: 4.0,
-			line_cap: LineCap::Butt,
-			line_join: LineJoin::Miter,
-			dash,
-		};
-		surface
-			.pixmap
-			.stroke_path(&path, &paint, &stroke, surface.transform, mask.as_ref());
-	});
-	0
+				miter_limit: 4.0,
+				line_cap: LineCap::Butt,
+				line_join: LineJoin::Miter,
+				dash,
+			};
+			surface
+				.pixmap
+				.stroke_path(&path, &paint, &stroke, surface.transform, mask.as_ref());
+		});
+		0
+	})
 }
 
 unsafe extern "C" fn clip(
@@ -921,32 +963,36 @@ unsafe extern "C" fn clip(
 	supplier: DRAWBOT_SupplierRef,
 	rect: *const DRAWBOT_Rect32,
 ) -> SPErr {
-	let _ = supplier;
-	let Some(rect) = (unsafe { rect.as_ref() }) else {
-		return 4;
-	};
-	with_surface(surface, |surface| {
-		let bounds_w = surface.pixmap.width() as i32;
-		let bounds_h = surface.pixmap.height() as i32;
-		let next = device_rect(surface.transform, rect, bounds_w, bounds_h);
-		surface.clip = intersect_clip(surface.clip, next, bounds_w, bounds_h);
-	});
-	0
+	crate::core::ffi::guard("clip", || {
+		let _ = supplier;
+		let Some(rect) = (unsafe { rect.as_ref() }) else {
+			return 4;
+		};
+		with_surface(surface, |surface| {
+			let bounds_w = surface.pixmap.width() as i32;
+			let bounds_h = surface.pixmap.height() as i32;
+			let next = device_rect(surface.transform, rect, bounds_w, bounds_h);
+			surface.clip = intersect_clip(surface.clip, next, bounds_w, bounds_h);
+		});
+		0
+	})
 }
 
 unsafe extern "C" fn clip_bounds(surface: DRAWBOT_SurfaceRef, out_rect: *mut DRAWBOT_Rect32) -> SPErr {
-	let Some(rect) = with_surface(surface, |surface| surface.clip) else {
-		return 4;
-	};
-	if let Some(out) = unsafe { out_rect.as_mut() } {
-		*out = DRAWBOT_Rect32 {
-			left: rect.x,
-			top: rect.y,
-			width: rect.width,
-			height: rect.height,
+	crate::core::ffi::guard("clip_bounds", || {
+		let Some(rect) = with_surface(surface, |surface| surface.clip) else {
+			return 4;
 		};
-	}
-	0
+		if let Some(out) = unsafe { out_rect.as_mut() } {
+			*out = DRAWBOT_Rect32 {
+				left: rect.x,
+				top: rect.y,
+				width: rect.width,
+				height: rect.height,
+			};
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn within_clip(
@@ -954,31 +1000,35 @@ unsafe extern "C" fn within_clip(
 	rect: *const DRAWBOT_Rect32,
 	out_within: *mut DRAWBOT_Boolean,
 ) -> SPErr {
-	let Some(rect) = (unsafe { rect.as_ref() }) else {
-		return 4;
-	};
-	let inside = with_surface(surface, |surface| {
-		let bounds_w = surface.pixmap.width() as i32;
-		let bounds_h = surface.pixmap.height() as i32;
-		let next = device_rect(surface.transform, rect, bounds_w, bounds_h);
-		next.x >= surface.clip.x
-			&& next.y >= surface.clip.y
-			&& next.x + next.width <= surface.clip.x + surface.clip.width
-			&& next.y + next.height <= surface.clip.y + surface.clip.height
+	crate::core::ffi::guard("within_clip", || {
+		let Some(rect) = (unsafe { rect.as_ref() }) else {
+			return 4;
+		};
+		let inside = with_surface(surface, |surface| {
+			let bounds_w = surface.pixmap.width() as i32;
+			let bounds_h = surface.pixmap.height() as i32;
+			let next = device_rect(surface.transform, rect, bounds_w, bounds_h);
+			next.x >= surface.clip.x
+				&& next.y >= surface.clip.y
+				&& next.x + next.width <= surface.clip.x + surface.clip.width
+				&& next.y + next.height <= surface.clip.y + surface.clip.height
+		})
+		.unwrap_or(false);
+		unsafe { flag(out_within, u8::from(inside)) }
 	})
-	.unwrap_or(false);
-	unsafe { flag(out_within, u8::from(inside)) }
 }
 
 unsafe extern "C" fn transform(surface: DRAWBOT_SurfaceRef, matrix: *const DRAWBOT_MatrixF32) -> SPErr {
-	let Some(matrix) = (unsafe { matrix.as_ref() }) else {
-		return 4;
-	};
-	let incoming = from_drawbot_matrix(matrix);
-	with_surface(surface, |surface| {
-		surface.transform = surface.transform.pre_concat(incoming);
-	});
-	0
+	crate::core::ffi::guard("transform", || {
+		let Some(matrix) = (unsafe { matrix.as_ref() }) else {
+			return 4;
+		};
+		let incoming = from_drawbot_matrix(matrix);
+		with_surface(surface, |surface| {
+			surface.transform = surface.transform.pre_concat(incoming);
+		});
+		0
+	})
 }
 
 unsafe extern "C" fn draw_string(
@@ -991,42 +1041,44 @@ unsafe extern "C" fn draw_string(
 	truncation: DRAWBOT_TextTruncation,
 	truncation_width: f32,
 ) -> SPErr {
-	let Some((color, size)) = with_heap(|heap| {
-		let color = match heap.objects.get(&id_of(brush.cast())) {
-			Some(Object {
-				kind: Kind::Brush(color),
-				..
-			}) => *color,
-			_ => return None,
+	crate::core::ffi::guard("draw_string", || {
+		let Some((color, size)) = with_heap(|heap| {
+			let color = match heap.objects.get(&id_of(brush.cast())) {
+				Some(Object {
+					kind: Kind::Brush(color),
+					..
+				}) => *color,
+				_ => return None,
+			};
+			let size = match heap.objects.get(&id_of(font.cast())) {
+				Some(Object {
+					kind: Kind::Font { size },
+					..
+				}) => *size,
+				_ => return None,
+			};
+			Some((color, size))
+		}) else {
+			return 4;
 		};
-		let size = match heap.objects.get(&id_of(font.cast())) {
-			Some(Object {
-				kind: Kind::Font { size },
-				..
-			}) => *size,
-			_ => return None,
+		let Some(origin) = (unsafe { origin.as_ref() }) else {
+			return 4;
 		};
-		Some((color, size))
-	}) else {
-		return 4;
-	};
-	let Some(origin) = (unsafe { origin.as_ref() }) else {
-		return 4;
-	};
-	let text = read_utf16(text);
-	with_surface(surface, |surface| {
-		draw_text(
-			surface,
-			color,
-			size,
-			&text,
-			(origin.x, origin.y),
-			alignment,
-			truncation,
-			truncation_width,
-		);
-	});
-	0
+		let text = read_utf16(text);
+		with_surface(surface, |surface| {
+			draw_text(
+				surface,
+				color,
+				size,
+				&text,
+				(origin.x, origin.y),
+				alignment,
+				truncation,
+				truncation_width,
+			);
+		});
+		0
+	})
 }
 
 unsafe extern "C" fn draw_image(
@@ -1035,97 +1087,111 @@ unsafe extern "C" fn draw_image(
 	origin: *const DRAWBOT_PointF32,
 	alpha: f32,
 ) -> SPErr {
-	let Some((pixmap, scale)) = with_heap(|heap| match heap.objects.get(&id_of(image.cast())) {
-		Some(Object {
-			kind: Kind::Image(image),
-			..
-		}) => Some((image.pixmap.clone(), image.scale.max(0.01))),
-		_ => None,
-	}) else {
-		return 4;
-	};
-	let Some(origin) = (unsafe { origin.as_ref() }) else {
-		return 4;
-	};
-	with_surface(surface, |surface| {
-		let mask = clip_mask(surface);
-		let paint = PixmapPaint {
-			opacity: alpha.clamp(0.0, 1.0),
-			quality: if surface.interpolation == kDRAWBOT_InterpolationPolicy_None {
-				FilterQuality::Nearest
-			} else {
-				FilterQuality::Bilinear
-			},
-			..PixmapPaint::default()
+	crate::core::ffi::guard("draw_image", || {
+		let Some((pixmap, scale)) = with_heap(|heap| match heap.objects.get(&id_of(image.cast())) {
+			Some(Object {
+				kind: Kind::Image(image),
+				..
+			}) => Some((image.pixmap.clone(), image.scale.max(0.01))),
+			_ => None,
+		}) else {
+			return 4;
 		};
-		let placement = Transform::from_row(1.0 / scale, 0.0, 0.0, 1.0 / scale, origin.x, origin.y);
-		surface.pixmap.draw_pixmap(
-			0,
-			0,
-			pixmap.as_ref(),
-			&paint,
-			surface.transform.pre_concat(placement),
-			mask.as_ref(),
-		);
-	});
-	0
+		let Some(origin) = (unsafe { origin.as_ref() }) else {
+			return 4;
+		};
+		with_surface(surface, |surface| {
+			let mask = clip_mask(surface);
+			let paint = PixmapPaint {
+				opacity: alpha.clamp(0.0, 1.0),
+				quality: if surface.interpolation == kDRAWBOT_InterpolationPolicy_None {
+					FilterQuality::Nearest
+				} else {
+					FilterQuality::Bilinear
+				},
+				..PixmapPaint::default()
+			};
+			let placement = Transform::from_row(1.0 / scale, 0.0, 0.0, 1.0 / scale, origin.x, origin.y);
+			surface.pixmap.draw_pixmap(
+				0,
+				0,
+				pixmap.as_ref(),
+				&paint,
+				surface.transform.pre_concat(placement),
+				mask.as_ref(),
+			);
+		});
+		0
+	})
 }
 
 unsafe extern "C" fn set_interp(surface: DRAWBOT_SurfaceRef, policy: DRAWBOT_InterpolationPolicy) -> SPErr {
-	with_surface(surface, |surface| surface.interpolation = policy);
-	0
+	crate::core::ffi::guard("set_interp", || {
+		with_surface(surface, |surface| surface.interpolation = policy);
+		0
+	})
 }
 
 unsafe extern "C" fn get_interp(surface: DRAWBOT_SurfaceRef, out_interp: *mut DRAWBOT_InterpolationPolicy) -> SPErr {
-	let Some(policy) = with_surface(surface, |surface| surface.interpolation) else {
-		return 4;
-	};
-	if let Some(out) = unsafe { out_interp.as_mut() } {
-		*out = policy;
-	}
-	0
+	crate::core::ffi::guard("get_interp", || {
+		let Some(policy) = with_surface(surface, |surface| surface.interpolation) else {
+			return 4;
+		};
+		if let Some(out) = unsafe { out_interp.as_mut() } {
+			*out = policy;
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn set_aa(surface: DRAWBOT_SurfaceRef, policy: DRAWBOT_AntiAliasPolicy) -> SPErr {
-	with_surface(surface, |surface| {
-		surface.anti_alias = policy != kDRAWBOT_AntiAliasPolicy_None;
-	});
-	0
+	crate::core::ffi::guard("set_aa", || {
+		with_surface(surface, |surface| {
+			surface.anti_alias = policy != kDRAWBOT_AntiAliasPolicy_None;
+		});
+		0
+	})
 }
 
 unsafe extern "C" fn get_aa(surface: DRAWBOT_SurfaceRef, out_policy: *mut DRAWBOT_AntiAliasPolicy) -> SPErr {
-	let Some(anti_alias) = with_surface(surface, |surface| surface.anti_alias) else {
-		return 4;
-	};
-	if let Some(out) = unsafe { out_policy.as_mut() } {
-		*out = if anti_alias {
-			kDRAWBOT_AntiAliasPolicy_High
-		} else {
-			kDRAWBOT_AntiAliasPolicy_None
+	crate::core::ffi::guard("get_aa", || {
+		let Some(anti_alias) = with_surface(surface, |surface| surface.anti_alias) else {
+			return 4;
 		};
-	}
-	0
+		if let Some(out) = unsafe { out_policy.as_mut() } {
+			*out = if anti_alias {
+				kDRAWBOT_AntiAliasPolicy_High
+			} else {
+				kDRAWBOT_AntiAliasPolicy_None
+			};
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn flush(surface: DRAWBOT_SurfaceRef) -> SPErr {
-	let _ = surface;
-	0
+	crate::core::ffi::guard("flush", || {
+		let _ = surface;
+		0
+	})
 }
 
 unsafe extern "C" fn screen_scale(surface: DRAWBOT_SurfaceRef, out_scale: *mut f32) -> SPErr {
-	let _ = surface;
-	if let Some(out) = unsafe { out_scale.as_mut() } {
-		*out = 1.0;
-	}
-	0
+	crate::core::ffi::guard("screen_scale", || {
+		let _ = surface;
+		if let Some(out) = unsafe { out_scale.as_mut() } {
+			*out = 1.0;
+		}
+		0
+	})
 }
 
 unsafe extern "C" fn path_move(path: DRAWBOT_PathRef, x: f32, y: f32) -> SPErr {
-	with_path(path, |verbs| verbs.push(Verb::Move(x, y)))
+	crate::core::ffi::guard("path_move", || with_path(path, |verbs| verbs.push(Verb::Move(x, y))))
 }
 
 unsafe extern "C" fn path_line(path: DRAWBOT_PathRef, x: f32, y: f32) -> SPErr {
-	with_path(path, |verbs| verbs.push(Verb::Line(x, y)))
+	crate::core::ffi::guard("path_line", || with_path(path, |verbs| verbs.push(Verb::Line(x, y))))
 }
 
 unsafe extern "C" fn bezier(
@@ -1134,27 +1200,31 @@ unsafe extern "C" fn bezier(
 	p2: *const DRAWBOT_PointF32,
 	p3: *const DRAWBOT_PointF32,
 ) -> SPErr {
-	let (Some(p1), Some(p2), Some(p3)) = (unsafe { p1.as_ref() }, unsafe { p2.as_ref() }, unsafe { p3.as_ref() })
-	else {
-		return 4;
-	};
-	with_path(path, |verbs| {
-		verbs.push(Verb::Cubic(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y))
+	crate::core::ffi::guard("bezier", || {
+		let (Some(p1), Some(p2), Some(p3)) = (unsafe { p1.as_ref() }, unsafe { p2.as_ref() }, unsafe { p3.as_ref() })
+		else {
+			return 4;
+		};
+		with_path(path, |verbs| {
+			verbs.push(Verb::Cubic(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y))
+		})
 	})
 }
 
 unsafe extern "C" fn add_rect(path: DRAWBOT_PathRef, rect: *const DRAWBOT_RectF32) -> SPErr {
-	let Some(rect) = (unsafe { rect.as_ref() }) else {
-		return 4;
-	};
-	let right = rect.left + rect.width;
-	let bottom = rect.top + rect.height;
-	with_path(path, |verbs| {
-		verbs.push(Verb::Move(rect.left, rect.top));
-		verbs.push(Verb::Line(right, rect.top));
-		verbs.push(Verb::Line(right, bottom));
-		verbs.push(Verb::Line(rect.left, bottom));
-		verbs.push(Verb::Close);
+	crate::core::ffi::guard("add_rect", || {
+		let Some(rect) = (unsafe { rect.as_ref() }) else {
+			return 4;
+		};
+		let right = rect.left + rect.width;
+		let bottom = rect.top + rect.height;
+		with_path(path, |verbs| {
+			verbs.push(Verb::Move(rect.left, rect.top));
+			verbs.push(Verb::Line(right, rect.top));
+			verbs.push(Verb::Line(right, bottom));
+			verbs.push(Verb::Line(rect.left, bottom));
+			verbs.push(Verb::Close);
+		})
 	})
 }
 
@@ -1165,54 +1235,60 @@ unsafe extern "C" fn path_arc(
 	start: f32,
 	sweep: f32,
 ) -> SPErr {
-	let Some(center) = (unsafe { center.as_ref() }) else {
-		return 4;
-	};
-	with_path(path, |verbs| add_arc(verbs, (center.x, center.y), radius, start, sweep))
+	crate::core::ffi::guard("path_arc", || {
+		let Some(center) = (unsafe { center.as_ref() }) else {
+			return 4;
+		};
+		with_path(path, |verbs| add_arc(verbs, (center.x, center.y), radius, start, sweep))
+	})
 }
 
 unsafe extern "C" fn path_close(path: DRAWBOT_PathRef) -> SPErr {
-	with_path(path, |verbs| verbs.push(Verb::Close))
+	crate::core::ffi::guard("path_close", || with_path(path, |verbs| verbs.push(Verb::Close)))
 }
 
 unsafe extern "C" fn set_dash(pen: DRAWBOT_PenRef, dashes: *const f32, pattern_size: i32) -> SPErr {
-	if pattern_size < 0 || (pattern_size > 0 && dashes.is_null()) {
-		return 4;
-	}
-	let pattern = if pattern_size == 0 {
-		Vec::new()
-	} else {
-		unsafe { std::slice::from_raw_parts(dashes, pattern_size as usize) }.to_vec()
-	};
-	let updated = with_heap(|heap| {
-		let Some(object) = heap.objects.get_mut(&id_of(pen.cast())) else {
-			return false;
-		};
-		match &mut object.kind {
-			Kind::Pen(pen) => {
-				pen.dashes = pattern;
-				true
-			}
-			_ => false,
+	crate::core::ffi::guard("set_dash", || {
+		if pattern_size < 0 || (pattern_size > 0 && dashes.is_null()) {
+			return 4;
 		}
-	});
-	if updated { 0 } else { 4 }
+		let pattern = if pattern_size == 0 {
+			Vec::new()
+		} else {
+			unsafe { std::slice::from_raw_parts(dashes, pattern_size as usize) }.to_vec()
+		};
+		let updated = with_heap(|heap| {
+			let Some(object) = heap.objects.get_mut(&id_of(pen.cast())) else {
+				return false;
+			};
+			match &mut object.kind {
+				Kind::Pen(pen) => {
+					pen.dashes = pattern;
+					true
+				}
+				_ => false,
+			}
+		});
+		if updated { 0 } else { 4 }
+	})
 }
 
 unsafe extern "C" fn set_scale(image: DRAWBOT_ImageRef, scale: f32) -> SPErr {
-	let updated = with_heap(|heap| {
-		let Some(object) = heap.objects.get_mut(&id_of(image.cast())) else {
-			return false;
-		};
-		match &mut object.kind {
-			Kind::Image(image) => {
-				image.scale = if scale <= 0.0 { 1.0 } else { scale };
-				true
+	crate::core::ffi::guard("set_scale", || {
+		let updated = with_heap(|heap| {
+			let Some(object) = heap.objects.get_mut(&id_of(image.cast())) else {
+				return false;
+			};
+			match &mut object.kind {
+				Kind::Image(image) => {
+					image.scale = if scale <= 0.0 { 1.0 } else { scale };
+					true
+				}
+				_ => false,
 			}
-			_ => false,
-		}
-	});
-	if updated { 0 } else { 4 }
+		});
+		if updated { 0 } else { 4 }
+	})
 }
 
 pub(super) static DRAW_SUITE: DRAWBOT_DrawbotSuite1 = DRAWBOT_DrawbotSuite1 {

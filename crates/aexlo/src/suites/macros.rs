@@ -12,7 +12,6 @@
 ///     out_sdk_string: *mut PrSDKString
 /// );
 /// ```
-#[macro_export]
 macro_rules! stub_log {
     ( $fn_name:ident, $( $arg_name:ident : $arg_ty:ty ),* $(,)? ) => {
         #[allow(non_snake_case)]

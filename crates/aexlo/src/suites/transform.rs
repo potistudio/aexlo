@@ -12,128 +12,130 @@ pub unsafe extern "C" fn Copy_sys(
 	src_r: *mut PF_Rect,
 	dst_r: *mut PF_Rect,
 ) -> PF_Err {
-	// Handle null source/dest pointers gracefully
-	if src.is_null() || dst.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	// Check if src and dst point to the same buffer
-	if std::ptr::eq(src, dst) {
-		// Same buffer - nothing to copy
-		return PF_Err_NONE as PF_Err;
-	}
-
-	let src_world = &mut unsafe { *src };
-	let dst_world = &mut unsafe { *dst };
-
-	// Calculate buffer addresses for overlap detection
-	// Buffers overlap if: src_addr <= dst_addr + dst_size && dst_addr <= src_addr + src_size
-	let src_addr = src_world.data as usize;
-	let dst_addr = dst_world.data as usize;
-	let src_size = (src_world.height as usize) * (src_world.rowbytes as usize);
-	let dst_size = (dst_world.height as usize) * (dst_world.rowbytes as usize);
-	let src_end = src_addr.saturating_add(src_size);
-	let dst_end = dst_addr.saturating_add(dst_size);
-	let buffers_overlap = !(src_end <= dst_addr || dst_end <= src_addr);
-
-	// Determine source rectangle
-	let src_rect = if !src_r.is_null() {
-		unsafe { *src_r }
-	} else {
-		PF_Rect {
-			left: 0,
-			top: 0,
-			right: src_world.width,
-			bottom: src_world.height,
+	crate::core::ffi::guard("Copy_sys", || {
+		// Handle null source/dest pointers gracefully
+		if src.is_null() || dst.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-	};
 
-	// Determine destination point (top-left)
-	let (dst_x, dst_y) = if !dst_r.is_null() {
-		((unsafe { *dst_r }).left, (unsafe { *dst_r }).top)
-	} else {
-		(src_rect.left, src_rect.top)
-	};
+		// Check if src and dst point to the same buffer
+		if std::ptr::eq(src, dst) {
+			// Same buffer - nothing to copy
+			return PF_Err_NONE as PF_Err;
+		}
 
-	// Calculate copy dimensions
-	let copy_width = (src_rect.right - src_rect.left).max(0);
-	let copy_height = (src_rect.bottom - src_rect.top).max(0);
+		let src_world = &mut unsafe { *src };
+		let dst_world = &mut unsafe { *dst };
 
-	if copy_width == 0 || copy_height == 0 {
-		return PF_Err_NONE as PF_Err; // Nothing to copy
-	}
+		// Calculate buffer addresses for overlap detection
+		// Buffers overlap if: src_addr <= dst_addr + dst_size && dst_addr <= src_addr + src_size
+		let src_addr = src_world.data as usize;
+		let dst_addr = dst_world.data as usize;
+		let src_size = (src_world.height as usize) * (src_world.rowbytes as usize);
+		let dst_size = (dst_world.height as usize) * (dst_world.rowbytes as usize);
+		let src_end = src_addr.saturating_add(src_size);
+		let dst_end = dst_addr.saturating_add(dst_size);
+		let buffers_overlap = !(src_end <= dst_addr || dst_end <= src_addr);
 
-	// Clipping: Ensure we don't read/write out of bounds
-	// Source clipping
-	let src_clamped_left = src_rect.left.max(0);
-	let src_clamped_top = src_rect.top.max(0);
-	// We also need to clip width/height based on src bounds
-	let src_avail_width = src_world.width - src_clamped_left;
-	let src_avail_height = src_world.height - src_clamped_top;
-
-	// Dest clipping
-	let dst_clamped_left = dst_x.max(0); // If negative dst, we must increment src start
-	let dst_clamped_top = dst_y.max(0);
-
-	let dst_avail_width = dst_world.width - dst_clamped_left;
-	let dst_avail_height = dst_world.height - dst_clamped_top;
-
-	// Adjust for negative destination offsets (if dst_x < 0, we skip pixels in src)
-	let skip_x = if dst_x < 0 { -dst_x } else { 0 };
-	let skip_y = if dst_y < 0 { -dst_y } else { 0 };
-
-	// Final dimensions to copy
-	let final_width = (copy_width - skip_x).min(src_avail_width).min(dst_avail_width);
-	let final_height = (copy_height - skip_y).min(src_avail_height).min(dst_avail_height);
-
-	if final_width <= 0 || final_height <= 0 {
-		return PF_Err_NONE as PF_Err;
-	}
-
-	// Calculate starting offsets
-	let actual_src_left = src_clamped_left + skip_x;
-	let actual_src_top = src_clamped_top + skip_y;
-	let actual_dst_left = dst_x + skip_x;
-	let actual_dst_top = dst_y + skip_y;
-
-	// Prepare data for parallel execution
-	// We cast to usize to pass across threads safely (assuming buffers are accessible/pinned)
-	let src_buffer_addr = src_world.data as usize;
-	let src_rowbytes = src_world.rowbytes as isize;
-	let dst_buffer_addr = dst_world.data as usize;
-	let dst_rowbytes = dst_world.rowbytes as isize;
-
-	// Size of a pixel in bytes. PF_EffectWorld usually PF_Pixel8 (4 bytes).
-	// But strictly it depends on deep color.
-	// For now assuming PF_Pixel8 (ARGB 8-bit).
-	let pixel_size = std::mem::size_of::<PF_Pixel8>();
-
-	// Parallel Copy
-	(0..final_height).into_par_iter().for_each(|y| {
-		let current_src_y = actual_src_top + y;
-		let current_dst_y = actual_dst_top + y;
-
-		// Calculate row start addresses
-		// Note: data is *mut c_void, treating as *mut u8 for offset
-		let src_row_ptr = (src_buffer_addr as *const u8).wrapping_offset((current_src_y as isize) * src_rowbytes);
-		let dst_row_ptr = (dst_buffer_addr as *mut u8).wrapping_offset((current_dst_y as isize) * dst_rowbytes);
-
-		// Calculate signal offsets within the row
-		let src_pixel_ptr = src_row_ptr.wrapping_add((actual_src_left as usize) * pixel_size);
-		let dst_pixel_ptr = dst_row_ptr.wrapping_add((actual_dst_left as usize) * pixel_size);
-
-		// Use std::ptr::copy if buffers overlap (safe for overlapping regions),
-		// otherwise use copy_nonoverlapping for better performance
-		unsafe {
-			if buffers_overlap {
-				std::ptr::copy(src_pixel_ptr, dst_pixel_ptr, (final_width as usize) * pixel_size);
-			} else {
-				std::ptr::copy_nonoverlapping(src_pixel_ptr, dst_pixel_ptr, (final_width as usize) * pixel_size);
+		// Determine source rectangle
+		let src_rect = if !src_r.is_null() {
+			unsafe { *src_r }
+		} else {
+			PF_Rect {
+				left: 0,
+				top: 0,
+				right: src_world.width,
+				bottom: src_world.height,
 			}
-		}
-	});
+		};
 
-	PF_Err_NONE as PF_Err
+		// Determine destination point (top-left)
+		let (dst_x, dst_y) = if !dst_r.is_null() {
+			((unsafe { *dst_r }).left, (unsafe { *dst_r }).top)
+		} else {
+			(src_rect.left, src_rect.top)
+		};
+
+		// Calculate copy dimensions
+		let copy_width = (src_rect.right - src_rect.left).max(0);
+		let copy_height = (src_rect.bottom - src_rect.top).max(0);
+
+		if copy_width == 0 || copy_height == 0 {
+			return PF_Err_NONE as PF_Err; // Nothing to copy
+		}
+
+		// Clipping: Ensure we don't read/write out of bounds
+		// Source clipping
+		let src_clamped_left = src_rect.left.max(0);
+		let src_clamped_top = src_rect.top.max(0);
+		// We also need to clip width/height based on src bounds
+		let src_avail_width = src_world.width - src_clamped_left;
+		let src_avail_height = src_world.height - src_clamped_top;
+
+		// Dest clipping
+		let dst_clamped_left = dst_x.max(0); // If negative dst, we must increment src start
+		let dst_clamped_top = dst_y.max(0);
+
+		let dst_avail_width = dst_world.width - dst_clamped_left;
+		let dst_avail_height = dst_world.height - dst_clamped_top;
+
+		// Adjust for negative destination offsets (if dst_x < 0, we skip pixels in src)
+		let skip_x = if dst_x < 0 { -dst_x } else { 0 };
+		let skip_y = if dst_y < 0 { -dst_y } else { 0 };
+
+		// Final dimensions to copy
+		let final_width = (copy_width - skip_x).min(src_avail_width).min(dst_avail_width);
+		let final_height = (copy_height - skip_y).min(src_avail_height).min(dst_avail_height);
+
+		if final_width <= 0 || final_height <= 0 {
+			return PF_Err_NONE as PF_Err;
+		}
+
+		// Calculate starting offsets
+		let actual_src_left = src_clamped_left + skip_x;
+		let actual_src_top = src_clamped_top + skip_y;
+		let actual_dst_left = dst_x + skip_x;
+		let actual_dst_top = dst_y + skip_y;
+
+		// Prepare data for parallel execution
+		// We cast to usize to pass across threads safely (assuming buffers are accessible/pinned)
+		let src_buffer_addr = src_world.data as usize;
+		let src_rowbytes = src_world.rowbytes as isize;
+		let dst_buffer_addr = dst_world.data as usize;
+		let dst_rowbytes = dst_world.rowbytes as isize;
+
+		// Size of a pixel in bytes. PF_EffectWorld usually PF_Pixel8 (4 bytes).
+		// But strictly it depends on deep color.
+		// For now assuming PF_Pixel8 (ARGB 8-bit).
+		let pixel_size = std::mem::size_of::<PF_Pixel8>();
+
+		// Parallel Copy
+		(0..final_height).into_par_iter().for_each(|y| {
+			let current_src_y = actual_src_top + y;
+			let current_dst_y = actual_dst_top + y;
+
+			// Calculate row start addresses
+			// Note: data is *mut c_void, treating as *mut u8 for offset
+			let src_row_ptr = (src_buffer_addr as *const u8).wrapping_offset((current_src_y as isize) * src_rowbytes);
+			let dst_row_ptr = (dst_buffer_addr as *mut u8).wrapping_offset((current_dst_y as isize) * dst_rowbytes);
+
+			// Calculate signal offsets within the row
+			let src_pixel_ptr = src_row_ptr.wrapping_add((actual_src_left as usize) * pixel_size);
+			let dst_pixel_ptr = dst_row_ptr.wrapping_add((actual_dst_left as usize) * pixel_size);
+
+			// Use std::ptr::copy if buffers overlap (safe for overlapping regions),
+			// otherwise use copy_nonoverlapping for better performance
+			unsafe {
+				if buffers_overlap {
+					std::ptr::copy(src_pixel_ptr, dst_pixel_ptr, (final_width as usize) * pixel_size);
+				} else {
+					std::ptr::copy_nonoverlapping(src_pixel_ptr, dst_pixel_ptr, (final_width as usize) * pixel_size);
+				}
+			}
+		});
+
+		PF_Err_NONE as PF_Err
+	})
 }
 
 // ============================================================================
@@ -601,61 +603,63 @@ pub(crate) unsafe extern "C" fn composite_rect_sys(
 	xfer_mode: PF_XferMode,
 	dest_wld: *mut PF_EffectWorld,
 ) -> PF_Err {
-	if source_wld.is_null() || dest_wld.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	let src = unsafe { &*source_wld };
-	let dst = unsafe { &*dest_wld };
-	if src.data.is_null() || dst.data.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	if !is_8bpc(src) || !is_8bpc(dst) {
-		log::warn!("composite_rect: only 8 bpc worlds are supported");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	let rect = if !src_rect.is_null() {
-		unsafe { *src_rect }
-	} else {
-		PF_Rect {
-			left: 0,
-			top: 0,
-			right: src.width,
-			bottom: src.height,
+	crate::core::ffi::guard("composite_rect_sys", || {
+		if source_wld.is_null() || dest_wld.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-	};
-	let left = rect.left.max(0);
-	let top = rect.top.max(0);
-	let width = (rect.right.min(src.width) - left).max(0);
-	let height = (rect.bottom.min(src.height) - top).max(0);
-	if width == 0 || height == 0 {
-		return PF_Err_NONE as PF_Err;
-	}
-
-	let opacity = src_opacity.clamp(0, 255) as f64 / 255.0;
-	let src_raw = RawWorld::from(src);
-	let dst_raw = RawWorld::from(dst);
-
-	(0..height).into_par_iter().for_each(|row| {
-		let dy = dest_y + row;
-		if skip_row_for_field(dy, field_rdr) {
-			return;
+		let src = unsafe { &*source_wld };
+		let dst = unsafe { &*dest_wld };
+		if src.data.is_null() || dst.data.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-		let sy = top + row;
-		for col in 0..width {
-			let dx = dest_x + col;
-			let sx = left + col;
-			let sp = unsafe { src_raw.read(sx, sy) };
-			let (mut src_a, src_c) = to_straight(sp, false);
-			src_a *= opacity;
-			let dp = unsafe { dst_raw.read(dx, dy) };
-			let (dst_a, dst_c) = to_straight(dp, false);
-			let (out_a, out_c) = composite_pixel(src_a, src_c, dst_a, dst_c, xfer_mode);
-			unsafe { dst_raw.write(dx, dy, from_straight(out_a, out_c)) };
+		if !is_8bpc(src) || !is_8bpc(dst) {
+			log::warn!("composite_rect: only 8 bpc worlds are supported");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-	});
 
-	PF_Err_NONE as PF_Err
+		let rect = if !src_rect.is_null() {
+			unsafe { *src_rect }
+		} else {
+			PF_Rect {
+				left: 0,
+				top: 0,
+				right: src.width,
+				bottom: src.height,
+			}
+		};
+		let left = rect.left.max(0);
+		let top = rect.top.max(0);
+		let width = (rect.right.min(src.width) - left).max(0);
+		let height = (rect.bottom.min(src.height) - top).max(0);
+		if width == 0 || height == 0 {
+			return PF_Err_NONE as PF_Err;
+		}
+
+		let opacity = src_opacity.clamp(0, 255) as f64 / 255.0;
+		let src_raw = RawWorld::from(src);
+		let dst_raw = RawWorld::from(dst);
+
+		(0..height).into_par_iter().for_each(|row| {
+			let dy = dest_y + row;
+			if skip_row_for_field(dy, field_rdr) {
+				return;
+			}
+			let sy = top + row;
+			for col in 0..width {
+				let dx = dest_x + col;
+				let sx = left + col;
+				let sp = unsafe { src_raw.read(sx, sy) };
+				let (mut src_a, src_c) = to_straight(sp, false);
+				src_a *= opacity;
+				let dp = unsafe { dst_raw.read(dx, dy) };
+				let (dst_a, dst_c) = to_straight(dp, false);
+				let (out_a, out_c) = composite_pixel(src_a, src_c, dst_a, dst_c, xfer_mode);
+				unsafe { dst_raw.write(dx, dy, from_straight(out_a, out_c)) };
+			}
+		});
+
+		PF_Err_NONE as PF_Err
+	})
 }
 
 /// Cross-fades `src1`/`src2` into `dst` at a constant `ratio` (16.16 fixed,
@@ -668,43 +672,45 @@ unsafe extern "C" fn blend_sys(
 	ratio: PF_Fixed,
 	dst: *mut PF_EffectWorld,
 ) -> PF_Err {
-	if src1.is_null() || src2.is_null() || dst.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	let s1 = unsafe { &*src1 };
-	let s2 = unsafe { &*src2 };
-	let d = unsafe { &*dst };
-	if s1.data.is_null() || s2.data.is_null() || d.data.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	let t = (ratio as f64 / 65536.0).clamp(0.0, 1.0);
-	let width = s1.width.min(s2.width).min(d.width).max(0);
-	let height = s1.height.min(s2.height).min(d.height).max(0);
-	if width == 0 || height == 0 {
-		return PF_Err_NONE as PF_Err;
-	}
-
-	let r1 = RawWorld::from(s1);
-	let r2 = RawWorld::from(s2);
-	let rd = RawWorld::from(d);
-
-	(0..height).into_par_iter().for_each(|y| {
-		for x in 0..width {
-			let p1 = unsafe { r1.read(x, y) };
-			let p2 = unsafe { r2.read(x, y) };
-			let lerp8 = |a: u8, b: u8| ((a as f64) + (b as f64 - a as f64) * t).round().clamp(0.0, 255.0) as u8;
-			let out = PF_Pixel8 {
-				alpha: lerp8(p1.alpha, p2.alpha),
-				red: lerp8(p1.red, p2.red),
-				green: lerp8(p1.green, p2.green),
-				blue: lerp8(p1.blue, p2.blue),
-			};
-			unsafe { rd.write(x, y, out) };
+	crate::core::ffi::guard("blend_sys", || {
+		if src1.is_null() || src2.is_null() || dst.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-	});
+		let s1 = unsafe { &*src1 };
+		let s2 = unsafe { &*src2 };
+		let d = unsafe { &*dst };
+		if s1.data.is_null() || s2.data.is_null() || d.data.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	PF_Err_NONE as PF_Err
+		let t = (ratio as f64 / 65536.0).clamp(0.0, 1.0);
+		let width = s1.width.min(s2.width).min(d.width).max(0);
+		let height = s1.height.min(s2.height).min(d.height).max(0);
+		if width == 0 || height == 0 {
+			return PF_Err_NONE as PF_Err;
+		}
+
+		let r1 = RawWorld::from(s1);
+		let r2 = RawWorld::from(s2);
+		let rd = RawWorld::from(d);
+
+		(0..height).into_par_iter().for_each(|y| {
+			for x in 0..width {
+				let p1 = unsafe { r1.read(x, y) };
+				let p2 = unsafe { r2.read(x, y) };
+				let lerp8 = |a: u8, b: u8| ((a as f64) + (b as f64 - a as f64) * t).round().clamp(0.0, 255.0) as u8;
+				let out = PF_Pixel8 {
+					alpha: lerp8(p1.alpha, p2.alpha),
+					red: lerp8(p1.red, p2.red),
+					green: lerp8(p1.green, p2.green),
+					blue: lerp8(p1.blue, p2.blue),
+				};
+				unsafe { rd.write(x, y, out) };
+			}
+		});
+
+		PF_Err_NONE as PF_Err
+	})
 }
 
 fn quantize(v: f64, no_clamp: bool) -> u8 {
@@ -794,126 +800,128 @@ unsafe extern "C" fn convolve_sys(
 	b_kernel: *mut c_void,
 	dst: *mut PF_EffectWorld,
 ) -> PF_Err {
-	if src.is_null() || dst.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	if std::ptr::eq(src, dst) {
-		log::error!("PF_WorldTransformSuite1::convolve: src and dst must be different buffers");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	let s = unsafe { &*src };
-	let d = unsafe { &*dst };
-	if s.data.is_null() || d.data.is_null() || kernel_size <= 0 {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	let rect = if !area.is_null() {
-		unsafe { *area }
-	} else {
-		PF_Rect {
-			left: 0,
-			top: 0,
-			right: s.width,
-			bottom: s.height,
+	crate::core::ffi::guard("convolve_sys", || {
+		if src.is_null() || dst.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-	};
-	let left = rect.left.max(0);
-	let top = rect.top.max(0);
-	let width = (rect.right.min(s.width).min(d.width) - left).max(0);
-	let height = (rect.bottom.min(s.height).min(d.height) - top).max(0);
-	if width == 0 || height == 0 {
-		return PF_Err_NONE as PF_Err;
-	}
+		if std::ptr::eq(src, dst) {
+			log::error!("PF_WorldTransformSuite1::convolve: src and dst must be different buffers");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		let s = unsafe { &*src };
+		let d = unsafe { &*dst };
+		if s.data.is_null() || d.data.is_null() || kernel_size <= 0 {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	let is_1d = flags & PF_KernelFlag_1D != 0;
-	let vertical = flags & PF_KernelFlag_VERTICAL != 0;
-	let normalized = flags & PF_KernelFlag_NORMALIZED != 0;
-	let no_clamp = flags & PF_KernelFlag_NO_CLAMP != 0;
-	let replicate = flags & PF_KernelFlag_REPLICATE_BORDERS != 0;
-	let alpha_weighted = flags & PF_KernelFlag_ALPHA_WEIGHT_CONVOLVE != 0;
-	let kernel_type = flags & (PF_KernelFlag_USE_CHAR | PF_KernelFlag_USE_FIXED);
-
-	let taps: Vec<(i32, i32)> = if is_1d {
-		(0..kernel_size)
-			.map(|i| {
-				let offset = i - kernel_size / 2;
-				if vertical { (0, offset) } else { (offset, 0) }
-			})
-			.collect()
-	} else {
-		let mut v = Vec::with_capacity((kernel_size * kernel_size).max(0) as usize);
-		for ky in 0..kernel_size {
-			for kx in 0..kernel_size {
-				v.push((kx - kernel_size / 2, ky - kernel_size / 2));
+		let rect = if !area.is_null() {
+			unsafe { *area }
+		} else {
+			PF_Rect {
+				left: 0,
+				top: 0,
+				right: s.width,
+				bottom: s.height,
 			}
+		};
+		let left = rect.left.max(0);
+		let top = rect.top.max(0);
+		let width = (rect.right.min(s.width).min(d.width) - left).max(0);
+		let height = (rect.bottom.min(s.height).min(d.height) - top).max(0);
+		if width == 0 || height == 0 {
+			return PF_Err_NONE as PF_Err;
 		}
-		v
-	};
 
-	struct Channel {
-		weights: Vec<f64>,
-		sum: f64,
-	}
-	let build_channel = |ptr: *mut c_void| -> Option<Channel> {
-		if ptr.is_null() {
-			return None;
-		}
-		let weights: Vec<f64> = (0..taps.len())
-			.map(|i| match kernel_type {
-				PF_KernelFlag_USE_CHAR => (unsafe { *(ptr as *const i8).add(i) }) as f64,
-				PF_KernelFlag_USE_FIXED => (unsafe { *(ptr as *const PF_Fixed).add(i) }) as f64 / 65536.0,
-				_ => (unsafe { *(ptr as *const A_long).add(i) }) as f64,
-			})
-			.collect();
-		let sum = weights.iter().sum();
-		Some(Channel { weights, sum })
-	};
+		let is_1d = flags & PF_KernelFlag_1D != 0;
+		let vertical = flags & PF_KernelFlag_VERTICAL != 0;
+		let normalized = flags & PF_KernelFlag_NORMALIZED != 0;
+		let no_clamp = flags & PF_KernelFlag_NO_CLAMP != 0;
+		let replicate = flags & PF_KernelFlag_REPLICATE_BORDERS != 0;
+		let alpha_weighted = flags & PF_KernelFlag_ALPHA_WEIGHT_CONVOLVE != 0;
+		let kernel_type = flags & (PF_KernelFlag_USE_CHAR | PF_KernelFlag_USE_FIXED);
 
-	let ch_a = build_channel(a_kernel);
-	let ch_r = build_channel(r_kernel);
-	let ch_g = build_channel(g_kernel);
-	let ch_b = build_channel(b_kernel);
-
-	let src_raw = RawWorld::from(s);
-	let dst_raw = RawWorld::from(d);
-	let ctx = ConvolveCtx {
-		world: src_raw,
-		taps: &taps[..],
-		replicate,
-		normalized,
-	};
-
-	(0..height).into_par_iter().for_each(|row| {
-		let y = top + row;
-		for col in 0..width {
-			let x = left + col;
-			let here = unsafe { src_raw.read(x, y) };
-
-			let conv = |ch: &Option<Channel>, extract: fn(PF_Pixel8) -> f64, fallback: u8| -> u8 {
-				match ch {
-					Some(ch) => {
-						let v = if alpha_weighted {
-							convolve_value_alpha_weighted(ctx, x, y, &ch.weights, extract)
-						} else {
-							convolve_value(ctx, x, y, &ch.weights, ch.sum, extract)
-						};
-						quantize(v, no_clamp)
-					}
-					None => fallback,
+		let taps: Vec<(i32, i32)> = if is_1d {
+			(0..kernel_size)
+				.map(|i| {
+					let offset = i - kernel_size / 2;
+					if vertical { (0, offset) } else { (offset, 0) }
+				})
+				.collect()
+		} else {
+			let mut v = Vec::with_capacity((kernel_size * kernel_size).max(0) as usize);
+			for ky in 0..kernel_size {
+				for kx in 0..kernel_size {
+					v.push((kx - kernel_size / 2, ky - kernel_size / 2));
 				}
-			};
+			}
+			v
+		};
 
-			let out = PF_Pixel8 {
-				alpha: conv(&ch_a, |p| p.alpha as f64, here.alpha),
-				red: conv(&ch_r, |p| p.red as f64, here.red),
-				green: conv(&ch_g, |p| p.green as f64, here.green),
-				blue: conv(&ch_b, |p| p.blue as f64, here.blue),
-			};
-			unsafe { dst_raw.write(x, y, out) };
+		struct Channel {
+			weights: Vec<f64>,
+			sum: f64,
 		}
-	});
+		let build_channel = |ptr: *mut c_void| -> Option<Channel> {
+			if ptr.is_null() {
+				return None;
+			}
+			let weights: Vec<f64> = (0..taps.len())
+				.map(|i| match kernel_type {
+					PF_KernelFlag_USE_CHAR => (unsafe { *(ptr as *const i8).add(i) }) as f64,
+					PF_KernelFlag_USE_FIXED => (unsafe { *(ptr as *const PF_Fixed).add(i) }) as f64 / 65536.0,
+					_ => (unsafe { *(ptr as *const A_long).add(i) }) as f64,
+				})
+				.collect();
+			let sum = weights.iter().sum();
+			Some(Channel { weights, sum })
+		};
 
-	PF_Err_NONE as PF_Err
+		let ch_a = build_channel(a_kernel);
+		let ch_r = build_channel(r_kernel);
+		let ch_g = build_channel(g_kernel);
+		let ch_b = build_channel(b_kernel);
+
+		let src_raw = RawWorld::from(s);
+		let dst_raw = RawWorld::from(d);
+		let ctx = ConvolveCtx {
+			world: src_raw,
+			taps: &taps[..],
+			replicate,
+			normalized,
+		};
+
+		(0..height).into_par_iter().for_each(|row| {
+			let y = top + row;
+			for col in 0..width {
+				let x = left + col;
+				let here = unsafe { src_raw.read(x, y) };
+
+				let conv = |ch: &Option<Channel>, extract: fn(PF_Pixel8) -> f64, fallback: u8| -> u8 {
+					match ch {
+						Some(ch) => {
+							let v = if alpha_weighted {
+								convolve_value_alpha_weighted(ctx, x, y, &ch.weights, extract)
+							} else {
+								convolve_value(ctx, x, y, &ch.weights, ch.sum, extract)
+							};
+							quantize(v, no_clamp)
+						}
+						None => fallback,
+					}
+				};
+
+				let out = PF_Pixel8 {
+					alpha: conv(&ch_a, |p| p.alpha as f64, here.alpha),
+					red: conv(&ch_r, |p| p.red as f64, here.red),
+					green: conv(&ch_g, |p| p.green as f64, here.green),
+					blue: conv(&ch_b, |p| p.blue as f64, here.blue),
+				};
+				unsafe { dst_raw.write(x, y, out) };
+			}
+		});
+
+		PF_Err_NONE as PF_Err
+	})
 }
 
 /// Like [`Copy_sys`], but resamples with bilinear filtering, so `src_r` and
@@ -926,70 +934,72 @@ unsafe extern "C" fn copy_hq_sys(
 	src_r: *mut PF_Rect,
 	dst_r: *mut PF_Rect,
 ) -> PF_Err {
-	if src.is_null() || dst.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	let s = unsafe { &*src };
-	let d = unsafe { &*dst };
-	if s.data.is_null() || d.data.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	let src_rect = if !src_r.is_null() {
-		unsafe { *src_r }
-	} else {
-		PF_Rect {
-			left: 0,
-			top: 0,
-			right: s.width,
-			bottom: s.height,
+	crate::core::ffi::guard("copy_hq_sys", || {
+		if src.is_null() || dst.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-	};
-	let dst_rect = if !dst_r.is_null() {
-		unsafe { *dst_r }
-	} else {
-		PF_Rect {
-			left: 0,
-			top: 0,
-			right: d.width,
-			bottom: d.height,
+		let s = unsafe { &*src };
+		let d = unsafe { &*dst };
+		if s.data.is_null() || d.data.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-	};
 
-	let src_w = (src_rect.right - src_rect.left).max(0);
-	let src_h = (src_rect.bottom - src_rect.top).max(0);
-	let dst_left = dst_rect.left.max(0);
-	let dst_top = dst_rect.top.max(0);
-	let dst_w = (dst_rect.right.min(d.width) - dst_left).max(0);
-	let dst_h = (dst_rect.bottom.min(d.height) - dst_top).max(0);
-	if src_w == 0 || src_h == 0 || dst_w == 0 || dst_h == 0 {
-		return PF_Err_NONE as PF_Err;
-	}
+		let src_rect = if !src_r.is_null() {
+			unsafe { *src_r }
+		} else {
+			PF_Rect {
+				left: 0,
+				top: 0,
+				right: s.width,
+				bottom: s.height,
+			}
+		};
+		let dst_rect = if !dst_r.is_null() {
+			unsafe { *dst_r }
+		} else {
+			PF_Rect {
+				left: 0,
+				top: 0,
+				right: d.width,
+				bottom: d.height,
+			}
+		};
 
-	let scale_x = src_w as f64 / dst_w as f64;
-	let scale_y = src_h as f64 / dst_h as f64;
-	let src_raw = RawWorld::from(s);
-	let dst_raw = RawWorld::from(d);
-
-	(0..dst_h).into_par_iter().for_each(|row| {
-		let dy = dst_top + row;
-		let sy = src_rect.top as f64 + (row as f64 + 0.5) * scale_y - 0.5;
-		for col in 0..dst_w {
-			let dx = dst_left + col;
-			let sx = src_rect.left as f64 + (col as f64 + 0.5) * scale_x - 0.5;
-			let (a, r, g, b) = unsafe { src_raw.sample_bilinear(sx, sy) };
-			let to_u8 = |v: f64| v.round().clamp(0.0, 255.0) as u8;
-			let px = PF_Pixel8 {
-				alpha: to_u8(a),
-				red: to_u8(r),
-				green: to_u8(g),
-				blue: to_u8(b),
-			};
-			unsafe { dst_raw.write(dx, dy, px) };
+		let src_w = (src_rect.right - src_rect.left).max(0);
+		let src_h = (src_rect.bottom - src_rect.top).max(0);
+		let dst_left = dst_rect.left.max(0);
+		let dst_top = dst_rect.top.max(0);
+		let dst_w = (dst_rect.right.min(d.width) - dst_left).max(0);
+		let dst_h = (dst_rect.bottom.min(d.height) - dst_top).max(0);
+		if src_w == 0 || src_h == 0 || dst_w == 0 || dst_h == 0 {
+			return PF_Err_NONE as PF_Err;
 		}
-	});
 
-	PF_Err_NONE as PF_Err
+		let scale_x = src_w as f64 / dst_w as f64;
+		let scale_y = src_h as f64 / dst_h as f64;
+		let src_raw = RawWorld::from(s);
+		let dst_raw = RawWorld::from(d);
+
+		(0..dst_h).into_par_iter().for_each(|row| {
+			let dy = dst_top + row;
+			let sy = src_rect.top as f64 + (row as f64 + 0.5) * scale_y - 0.5;
+			for col in 0..dst_w {
+				let dx = dst_left + col;
+				let sx = src_rect.left as f64 + (col as f64 + 0.5) * scale_x - 0.5;
+				let (a, r, g, b) = unsafe { src_raw.sample_bilinear(sx, sy) };
+				let to_u8 = |v: f64| v.round().clamp(0.0, 255.0) as u8;
+				let px = PF_Pixel8 {
+					alpha: to_u8(a),
+					red: to_u8(r),
+					green: to_u8(g),
+					blue: to_u8(b),
+				};
+				unsafe { dst_raw.write(dx, dy, px) };
+			}
+		});
+
+		PF_Err_NONE as PF_Err
+	})
 }
 
 /// `composite_rect`'s more capable sibling: takes a structured
@@ -1013,74 +1023,76 @@ pub(crate) unsafe extern "C" fn transfer_rect_sys(
 	dest_y: A_long,
 	dst_world: *mut PF_EffectWorld,
 ) -> PF_Err {
-	if src_world.is_null() || dst_world.is_null() || comp_mode.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	let src = unsafe { &*src_world };
-	let dst = unsafe { &*dst_world };
-	if src.data.is_null() || dst.data.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	if !is_8bpc(src) || !is_8bpc(dst) {
-		log::warn!("transfer_rect: only 8 bpc worlds are supported");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	let mode = unsafe { &*comp_mode };
-
-	let rect = if !src_rec.is_null() {
-		unsafe { *src_rec }
-	} else {
-		PF_Rect {
-			left: 0,
-			top: 0,
-			right: src.width,
-			bottom: src.height,
+	crate::core::ffi::guard("transfer_rect_sys", || {
+		if src_world.is_null() || dst_world.is_null() || comp_mode.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-	};
-	let left = rect.left.max(0);
-	let top = rect.top.max(0);
-	let width = (rect.right.min(src.width) - left).max(0);
-	let height = (rect.bottom.min(src.height) - top).max(0);
-	if width == 0 || height == 0 {
-		return PF_Err_NONE as PF_Err;
-	}
-
-	let opacity = mode.opacity as f64 / 255.0;
-	// `PF_MF_Alpha_STRAIGHT` is `u32` on macOS, `i32` elsewhere; the cast is
-	// redundant here but required there.
-	#[allow(clippy::unnecessary_cast)]
-	let premultiplied = m_flags & PF_MF_Alpha_STRAIGHT as i32 == 0;
-	let rgb_only = mode.rgb_only != 0;
-	let xfer = mode.xfer;
-
-	let src_raw = RawWorld::from(src);
-	let dst_raw = RawWorld::from(dst);
-	let mask_raw = unsafe { mask_world0.as_ref() }.map(|m| (RawWorld::from(&m.mask), m.offset, m.what_is_mask));
-
-	(0..height).into_par_iter().for_each(|row| {
-		let dy = dest_y + row;
-		if skip_row_for_field(dy, field) {
-			return;
+		let src = unsafe { &*src_world };
+		let dst = unsafe { &*dst_world };
+		if src.data.is_null() || dst.data.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-		let sy = top + row;
-		for col in 0..width {
-			let dx = dest_x + col;
-			let sx = left + col;
-			let sp = unsafe { src_raw.read(sx, sy) };
-			let (mut src_a, src_c) = to_straight(sp, premultiplied);
-			src_a *= opacity;
-			if let Some((mraw, offset, what)) = mask_raw {
-				src_a *= mask_value(mraw, offset, what, dx, dy);
+		if !is_8bpc(src) || !is_8bpc(dst) {
+			log::warn!("transfer_rect: only 8 bpc worlds are supported");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		let mode = unsafe { &*comp_mode };
+
+		let rect = if !src_rec.is_null() {
+			unsafe { *src_rec }
+		} else {
+			PF_Rect {
+				left: 0,
+				top: 0,
+				right: src.width,
+				bottom: src.height,
 			}
-			let dp = unsafe { dst_raw.read(dx, dy) };
-			let (dst_a, dst_c) = to_straight(dp, false);
-			let (out_a, out_c) = composite_pixel(src_a, src_c, dst_a, dst_c, xfer);
-			let final_a = if rgb_only { dst_a } else { out_a };
-			unsafe { dst_raw.write(dx, dy, from_straight(final_a, out_c)) };
+		};
+		let left = rect.left.max(0);
+		let top = rect.top.max(0);
+		let width = (rect.right.min(src.width) - left).max(0);
+		let height = (rect.bottom.min(src.height) - top).max(0);
+		if width == 0 || height == 0 {
+			return PF_Err_NONE as PF_Err;
 		}
-	});
 
-	PF_Err_NONE as PF_Err
+		let opacity = mode.opacity as f64 / 255.0;
+		// `PF_MF_Alpha_STRAIGHT` is `u32` on macOS, `i32` elsewhere; the cast is
+		// redundant here but required there.
+		#[allow(clippy::unnecessary_cast)]
+		let premultiplied = m_flags & PF_MF_Alpha_STRAIGHT as i32 == 0;
+		let rgb_only = mode.rgb_only != 0;
+		let xfer = mode.xfer;
+
+		let src_raw = RawWorld::from(src);
+		let dst_raw = RawWorld::from(dst);
+		let mask_raw = unsafe { mask_world0.as_ref() }.map(|m| (RawWorld::from(&m.mask), m.offset, m.what_is_mask));
+
+		(0..height).into_par_iter().for_each(|row| {
+			let dy = dest_y + row;
+			if skip_row_for_field(dy, field) {
+				return;
+			}
+			let sy = top + row;
+			for col in 0..width {
+				let dx = dest_x + col;
+				let sx = left + col;
+				let sp = unsafe { src_raw.read(sx, sy) };
+				let (mut src_a, src_c) = to_straight(sp, premultiplied);
+				src_a *= opacity;
+				if let Some((mraw, offset, what)) = mask_raw {
+					src_a *= mask_value(mraw, offset, what, dx, dy);
+				}
+				let dp = unsafe { dst_raw.read(dx, dy) };
+				let (dst_a, dst_c) = to_straight(dp, false);
+				let (out_a, out_c) = composite_pixel(src_a, src_c, dst_a, dst_c, xfer);
+				let final_a = if rgb_only { dst_a } else { out_a };
+				unsafe { dst_raw.write(dx, dy, from_straight(final_a, out_c)) };
+			}
+		});
+
+		PF_Err_NONE as PF_Err
+	})
 }
 
 /// Applies one (or, for motion blur, several averaged) affine transform(s)
@@ -1105,108 +1117,111 @@ pub(crate) unsafe extern "C" fn transform_world_sys(
 	dest_rect: *const PF_Rect,
 	dst_world: *mut PF_EffectWorld,
 ) -> PF_Err {
-	if src_world.is_null() || dst_world.is_null() || comp_mode.is_null() || matrices.is_null() || num_matrices <= 0 {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	let src = unsafe { &*src_world };
-	let dst = unsafe { &*dst_world };
-	if src.data.is_null() || dst.data.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	if !is_8bpc(src) || !is_8bpc(dst) {
-		log::warn!("transform_world: only 8 bpc worlds are supported");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	let mode = unsafe { &*comp_mode };
-
-	let rect = if !dest_rect.is_null() {
-		unsafe { *dest_rect }
-	} else {
-		PF_Rect {
-			left: 0,
-			top: 0,
-			right: dst.width,
-			bottom: dst.height,
+	crate::core::ffi::guard("transform_world_sys", || {
+		if src_world.is_null() || dst_world.is_null() || comp_mode.is_null() || matrices.is_null() || num_matrices <= 0
+		{
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-	};
-	let left = rect.left.max(0);
-	let top = rect.top.max(0);
-	let width = (rect.right.min(dst.width) - left).max(0);
-	let height = (rect.bottom.min(dst.height) - top).max(0);
-	if width == 0 || height == 0 {
-		return PF_Err_NONE as PF_Err;
-	}
+		let src = unsafe { &*src_world };
+		let dst = unsafe { &*dst_world };
+		if src.data.is_null() || dst.data.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		if !is_8bpc(src) || !is_8bpc(dst) {
+			log::warn!("transform_world: only 8 bpc worlds are supported");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		let mode = unsafe { &*comp_mode };
 
-	// Pre-invert into dst->src matrices up front so the per-pixel loop only
-	// ever has to forward-map.
-	let mats: Vec<Mat3> = unsafe { std::slice::from_raw_parts(matrices, num_matrices as usize) }
-		.iter()
-		.map(|m| {
-			if src2dst_matrix != 0 {
-				invert3(m.mat).unwrap_or(IDENTITY3)
-			} else {
-				m.mat
+		let rect = if !dest_rect.is_null() {
+			unsafe { *dest_rect }
+		} else {
+			PF_Rect {
+				left: 0,
+				top: 0,
+				right: dst.width,
+				bottom: dst.height,
 			}
-		})
-		.collect();
-
-	let opacity = mode.opacity as f64 / 255.0;
-	// `PF_MF_Alpha_STRAIGHT` is `u32` on macOS, `i32` elsewhere; the cast is
-	// redundant here but required there.
-	#[allow(clippy::unnecessary_cast)]
-	let premultiplied = m_flags & PF_MF_Alpha_STRAIGHT as i32 == 0;
-	let rgb_only = mode.rgb_only != 0;
-	let xfer = mode.xfer;
-
-	let src_raw = RawWorld::from(src);
-	let dst_raw = RawWorld::from(dst);
-	let mask_raw = unsafe { mask_world0.as_ref() }.map(|m| (RawWorld::from(&m.mask), m.offset, m.what_is_mask));
-	let mats = &mats[..];
-
-	(0..height).into_par_iter().for_each(|row| {
-		let dy = top + row;
-		if skip_row_for_field(dy, field) {
-			return;
+		};
+		let left = rect.left.max(0);
+		let top = rect.top.max(0);
+		let width = (rect.right.min(dst.width) - left).max(0);
+		let height = (rect.bottom.min(dst.height) - top).max(0);
+		if width == 0 || height == 0 {
+			return PF_Err_NONE as PF_Err;
 		}
-		for col in 0..width {
-			let dx = left + col;
 
-			let mut acc_a = 0.0;
-			let mut acc_c = [0.0; 3];
-			for mat in mats {
-				let (sx, sy) = apply_matrix(mat, dx as f64 + 0.5, dy as f64 + 0.5);
-				let (a, r, g, b) = unsafe { src_raw.sample_bilinear(sx - 0.5, sy - 0.5) };
-				let a_n = a / 255.0;
-				let (rp, gp, bp) = if premultiplied {
-					(r / 255.0, g / 255.0, b / 255.0)
+		// Pre-invert into dst->src matrices up front so the per-pixel loop only
+		// ever has to forward-map.
+		let mats: Vec<Mat3> = unsafe { std::slice::from_raw_parts(matrices, num_matrices as usize) }
+			.iter()
+			.map(|m| {
+				if src2dst_matrix != 0 {
+					invert3(m.mat).unwrap_or(IDENTITY3)
 				} else {
-					(r / 255.0 * a_n, g / 255.0 * a_n, b / 255.0 * a_n)
+					m.mat
+				}
+			})
+			.collect();
+
+		let opacity = mode.opacity as f64 / 255.0;
+		// `PF_MF_Alpha_STRAIGHT` is `u32` on macOS, `i32` elsewhere; the cast is
+		// redundant here but required there.
+		#[allow(clippy::unnecessary_cast)]
+		let premultiplied = m_flags & PF_MF_Alpha_STRAIGHT as i32 == 0;
+		let rgb_only = mode.rgb_only != 0;
+		let xfer = mode.xfer;
+
+		let src_raw = RawWorld::from(src);
+		let dst_raw = RawWorld::from(dst);
+		let mask_raw = unsafe { mask_world0.as_ref() }.map(|m| (RawWorld::from(&m.mask), m.offset, m.what_is_mask));
+		let mats = &mats[..];
+
+		(0..height).into_par_iter().for_each(|row| {
+			let dy = top + row;
+			if skip_row_for_field(dy, field) {
+				return;
+			}
+			for col in 0..width {
+				let dx = left + col;
+
+				let mut acc_a = 0.0;
+				let mut acc_c = [0.0; 3];
+				for mat in mats {
+					let (sx, sy) = apply_matrix(mat, dx as f64 + 0.5, dy as f64 + 0.5);
+					let (a, r, g, b) = unsafe { src_raw.sample_bilinear(sx - 0.5, sy - 0.5) };
+					let a_n = a / 255.0;
+					let (rp, gp, bp) = if premultiplied {
+						(r / 255.0, g / 255.0, b / 255.0)
+					} else {
+						(r / 255.0 * a_n, g / 255.0 * a_n, b / 255.0 * a_n)
+					};
+					acc_a += a_n;
+					acc_c[0] += rp;
+					acc_c[1] += gp;
+					acc_c[2] += bp;
+				}
+				let mut src_a = acc_a / mats.len() as f64;
+				let src_c = if acc_a > 1e-9 {
+					[acc_c[0] / acc_a, acc_c[1] / acc_a, acc_c[2] / acc_a]
+				} else {
+					[0.0; 3]
 				};
-				acc_a += a_n;
-				acc_c[0] += rp;
-				acc_c[1] += gp;
-				acc_c[2] += bp;
-			}
-			let mut src_a = acc_a / mats.len() as f64;
-			let src_c = if acc_a > 1e-9 {
-				[acc_c[0] / acc_a, acc_c[1] / acc_a, acc_c[2] / acc_a]
-			} else {
-				[0.0; 3]
-			};
-			src_a *= opacity;
-			if let Some((mraw, offset, what)) = mask_raw {
-				src_a *= mask_value(mraw, offset, what, dx, dy);
-			}
+				src_a *= opacity;
+				if let Some((mraw, offset, what)) = mask_raw {
+					src_a *= mask_value(mraw, offset, what, dx, dy);
+				}
 
-			let dp = unsafe { dst_raw.read(dx, dy) };
-			let (dst_a, dst_c) = to_straight(dp, false);
-			let (out_a, out_c) = composite_pixel(src_a, src_c, dst_a, dst_c, xfer);
-			let final_a = if rgb_only { dst_a } else { out_a };
-			unsafe { dst_raw.write(dx, dy, from_straight(final_a, out_c)) };
-		}
-	});
+				let dp = unsafe { dst_raw.read(dx, dy) };
+				let (dst_a, dst_c) = to_straight(dp, false);
+				let (out_a, out_c) = composite_pixel(src_a, src_c, dst_a, dst_c, xfer);
+				let final_a = if rgb_only { dst_a } else { out_a };
+				unsafe { dst_raw.write(dx, dy, from_straight(final_a, out_c)) };
+			}
+		});
 
-	PF_Err_NONE as PF_Err
+		PF_Err_NONE as PF_Err
+	})
 }
 
 // ============================================================================

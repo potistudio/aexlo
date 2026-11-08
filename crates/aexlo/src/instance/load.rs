@@ -32,15 +32,17 @@ unsafe extern "C" fn receive_plugin_data(
 	_in_reserved_info: after_effects_sys::A_long,
 	_in_support_url: *const after_effects_sys::A_u_char,
 ) -> after_effects_sys::A_Err {
-	if in_ptr.is_null() || in_entry_point_name.is_null() {
-		return PF_Err_INVALID_CALLBACK as after_effects_sys::A_Err;
-	}
+	crate::core::ffi::guard("receive_plugin_data", || {
+		if in_ptr.is_null() || in_entry_point_name.is_null() {
+			return PF_Err_INVALID_CALLBACK as after_effects_sys::A_Err;
+		}
 
-	let info = unsafe { &mut *(in_ptr as *mut PluginDataInfo) };
-	let name = unsafe { CStr::from_ptr(in_entry_point_name as *const std::os::raw::c_char) };
-	info.entry_point_name = Some(name.to_string_lossy().into_owned());
+		let info = unsafe { &mut *(in_ptr as *mut PluginDataInfo) };
+		let name = unsafe { CStr::from_ptr(in_entry_point_name as *const std::os::raw::c_char) };
+		info.entry_point_name = Some(name.to_string_lossy().into_owned());
 
-	PF_Err_NONE as after_effects_sys::A_Err
+		PF_Err_NONE as after_effects_sys::A_Err
+	})
 }
 
 /// Plugin constructors. Taking a [`Host`] guarantees the process-wide

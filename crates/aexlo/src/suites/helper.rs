@@ -38,51 +38,59 @@ fn legacy_tool(tool: i32) -> PF_SuiteTool {
 }
 
 unsafe extern "C" fn get_current_tool(toolP: *mut PF_SuiteTool) -> PF_Err {
-	diag!("PF_HelperSuite1/PF_GetCurrentTool",
-		"toolP" => format!("{:#x}", toolP as usize),
-	);
+	crate::core::ffi::guard("get_current_tool", || {
+		diag!("PF_HelperSuite1/PF_GetCurrentTool",
+			"toolP" => format!("{:#x}", toolP as usize),
+		);
 
-	if toolP.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	with_host(|host| {
-		unsafe { *toolP = legacy_tool(host.current_tool()) };
-		PF_Err_NONE as PF_Err
+		if toolP.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		with_host(|host| {
+			unsafe { *toolP = legacy_tool(host.current_tool()) };
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
 unsafe extern "C" fn parse_clipboard() -> PF_Err {
-	diag!("PF_HelperSuite2/PF_ParseClipboard");
+	crate::core::ffi::guard("parse_clipboard", || {
+		diag!("PF_HelperSuite2/PF_ParseClipboard");
 
-	with_host(|host| {
-		host.parse_clipboard();
-		PF_Err_NONE as PF_Err
+		with_host(|host| {
+			host.parse_clipboard();
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
 unsafe extern "C" fn set_current_extended_tool(tool: PF_ExtendedSuiteTool) -> PF_Err {
-	diag!("PF_HelperSuite2/PF_SetCurrentExtendedTool",
-		"tool" => tool,
-	);
+	crate::core::ffi::guard("set_current_extended_tool", || {
+		diag!("PF_HelperSuite2/PF_SetCurrentExtendedTool",
+			"tool" => tool,
+		);
 
-	#[allow(clippy::unnecessary_cast)] // `PF_ExtendedSuiteTool` is `u32` on macOS only.
-	with_host(|host| {
-		host.set_current_tool(tool as i32);
-		PF_Err_NONE as PF_Err
+		#[allow(clippy::unnecessary_cast)] // `PF_ExtendedSuiteTool` is `u32` on macOS only.
+		with_host(|host| {
+			host.set_current_tool(tool as i32);
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
 unsafe extern "C" fn get_current_extended_tool(tool: *mut PF_ExtendedSuiteTool) -> PF_Err {
-	diag!("PF_HelperSuite2/PF_GetCurrentExtendedTool",
-		"tool" => format!("{:#x}", tool as usize),
-	);
+	crate::core::ffi::guard("get_current_extended_tool", || {
+		diag!("PF_HelperSuite2/PF_GetCurrentExtendedTool",
+			"tool" => format!("{:#x}", tool as usize),
+		);
 
-	if tool.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	with_host(|host| {
-		unsafe { *tool = host.current_tool() as PF_ExtendedSuiteTool };
-		PF_Err_NONE as PF_Err
+		if tool.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		with_host(|host| {
+			unsafe { *tool = host.current_tool() as PF_ExtendedSuiteTool };
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 

@@ -169,10 +169,12 @@ pub(crate) unsafe extern "C" fn begin_sampling_sys(
 	_mf: PF_ModeFlags,
 	params: *mut PF_SampPB,
 ) -> PF_Err {
-	if let Some(params) = unsafe { params.as_mut() } {
-		params.reserved = [0; 8];
-	}
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("begin_sampling_sys", || {
+		if let Some(params) = unsafe { params.as_mut() } {
+			params.reserved = [0; 8];
+		}
+		PF_Err_NONE as PF_Err
+	})
 }
 
 pub(crate) unsafe extern "C" fn end_sampling_sys(
@@ -181,7 +183,7 @@ pub(crate) unsafe extern "C" fn end_sampling_sys(
 	_mf: PF_ModeFlags,
 	_params: *mut PF_SampPB,
 ) -> PF_Err {
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("end_sampling_sys", || PF_Err_NONE as PF_Err)
 }
 
 /// Batch sampling functions were withdrawn in AE 7.0; report none so the
@@ -193,11 +195,13 @@ unsafe extern "C" fn get_batch_func(
 	_params: *const PF_SampPB,
 	batch: *mut PF_BatchSampleFunc,
 ) -> PF_Err {
-	log::warn!("PF_BatchSamplingSuite1/get_batch_func: batch sampling is unsupported (deprecated since AE 7.0)");
-	if let Some(out) = unsafe { batch.as_mut() } {
-		*out = std::ptr::null_mut();
-	}
-	PF_Err_BAD_CALLBACK_PARAM as PF_Err
+	crate::core::ffi::guard("get_batch_func", || {
+		log::warn!("PF_BatchSamplingSuite1/get_batch_func: batch sampling is unsupported (deprecated since AE 7.0)");
+		if let Some(out) = unsafe { batch.as_mut() } {
+			*out = std::ptr::null_mut();
+		}
+		PF_Err_BAD_CALLBACK_PARAM as PF_Err
+	})
 }
 
 unsafe extern "C" fn get_batch_func16(
@@ -207,11 +211,13 @@ unsafe extern "C" fn get_batch_func16(
 	_params: *const PF_SampPB,
 	batch: *mut PF_BatchSample16Func,
 ) -> PF_Err {
-	log::warn!("PF_BatchSamplingSuite1/get_batch_func16: batch sampling is unsupported (deprecated since AE 7.0)");
-	if let Some(out) = unsafe { batch.as_mut() } {
-		*out = std::ptr::null_mut();
-	}
-	PF_Err_BAD_CALLBACK_PARAM as PF_Err
+	crate::core::ffi::guard("get_batch_func16", || {
+		log::warn!("PF_BatchSamplingSuite1/get_batch_func16: batch sampling is unsupported (deprecated since AE 7.0)");
+		if let Some(out) = unsafe { batch.as_mut() } {
+			*out = std::ptr::null_mut();
+		}
+		PF_Err_BAD_CALLBACK_PARAM as PF_Err
+	})
 }
 
 pub(super) const fn create_batch_sampling_suite_1() -> PF_BatchSamplingSuite1 {

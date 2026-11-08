@@ -36,13 +36,17 @@ unsafe extern "C" fn get_blending_tables(
 	_render_contextH: PR_RenderContextH,
 	_blending_tables: *mut PF_EffectBlendingTables,
 ) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite2/AEGP_GetBlendingTables");
-	unsupported("AEGP_GetBlendingTables")
+	crate::core::ffi::guard("get_blending_tables", || {
+		diag!("AEGP_ColorSettingsSuite2/AEGP_GetBlendingTables");
+		unsupported("AEGP_GetBlendingTables")
+	})
 }
 
 unsafe extern "C" fn does_view_have_color_space_xform(_viewP: AEGP_ItemViewP, _has_xformPB: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite2/AEGP_DoesViewHaveColorSpaceXform");
-	unsupported("AEGP_DoesViewHaveColorSpaceXform")
+	crate::core::ffi::guard("does_view_have_color_space_xform", || {
+		diag!("AEGP_ColorSettingsSuite2/AEGP_DoesViewHaveColorSpaceXform");
+		unsupported("AEGP_DoesViewHaveColorSpaceXform")
+	})
 }
 
 unsafe extern "C" fn xform_working_to_view_color_space(
@@ -50,8 +54,10 @@ unsafe extern "C" fn xform_working_to_view_color_space(
 	_srcH: AEGP_WorldH,
 	_dstH: AEGP_WorldH,
 ) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite2/AEGP_XformWorkingToViewColorSpace");
-	unsupported("AEGP_XformWorkingToViewColorSpace")
+	crate::core::ffi::guard("xform_working_to_view_color_space", || {
+		diag!("AEGP_ColorSettingsSuite2/AEGP_XformWorkingToViewColorSpace");
+		unsupported("AEGP_XformWorkingToViewColorSpace")
+	})
 }
 
 unsafe extern "C" fn get_new_working_space_color_profile(
@@ -59,18 +65,20 @@ unsafe extern "C" fn get_new_working_space_color_profile(
 	compH: AEGP_CompH,
 	color_profilePP: *mut AEGP_ColorProfileP,
 ) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite2/AEGP_GetNewWorkingSpaceColorProfile",
-		"compH" => format!("{:#x}", compH as usize),
-	);
+	crate::core::ffi::guard("get_new_working_space_color_profile", || {
+		diag!("AEGP_ColorSettingsSuite2/AEGP_GetNewWorkingSpaceColorProfile",
+			"compH" => format!("{:#x}", compH as usize),
+		);
 
-	if Timeline::of(compH as _).is_none() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	let Some(out) = (unsafe { color_profilePP.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*out = Box::into_raw(Box::new(SRGB)) as AEGP_ColorProfileP;
-	PF_Err_NONE as A_Err
+		if Timeline::of(compH as _).is_none() {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		let Some(out) = (unsafe { color_profilePP.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		*out = Box::into_raw(Box::new(SRGB)) as AEGP_ColorProfileP;
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn get_new_color_profile_from_icc_profile(
@@ -79,8 +87,10 @@ unsafe extern "C" fn get_new_color_profile_from_icc_profile(
 	_icc_dataPV: *const std::ffi::c_void,
 	_color_profilePP: *mut AEGP_ColorProfileP,
 ) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite2/AEGP_GetNewColorProfileFromICCProfile");
-	unsupported("AEGP_GetNewColorProfileFromICCProfile")
+	crate::core::ffi::guard("get_new_color_profile_from_icc_profile", || {
+		diag!("AEGP_ColorSettingsSuite2/AEGP_GetNewColorProfileFromICCProfile");
+		unsupported("AEGP_GetNewColorProfileFromICCProfile")
+	})
 }
 
 unsafe extern "C" fn get_new_icc_profile_from_color_profile(
@@ -88,8 +98,10 @@ unsafe extern "C" fn get_new_icc_profile_from_color_profile(
 	_color_profileP: AEGP_ConstColorProfileP,
 	_icc_profilePH: *mut AEGP_MemHandle,
 ) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite2/AEGP_GetNewICCProfileFromColorProfile");
-	unsupported("AEGP_GetNewICCProfileFromColorProfile")
+	crate::core::ffi::guard("get_new_icc_profile_from_color_profile", || {
+		diag!("AEGP_ColorSettingsSuite2/AEGP_GetNewICCProfileFromColorProfile");
+		unsupported("AEGP_GetNewICCProfileFromColorProfile")
+	})
 }
 
 unsafe extern "C" fn get_new_color_profile_description(
@@ -97,50 +109,58 @@ unsafe extern "C" fn get_new_color_profile_description(
 	_color_profileP: AEGP_ConstColorProfileP,
 	_unicode_descPH: *mut AEGP_MemHandle,
 ) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite2/AEGP_GetNewColorProfileDescription");
-	unsupported("AEGP_GetNewColorProfileDescription")
+	crate::core::ffi::guard("get_new_color_profile_description", || {
+		diag!("AEGP_ColorSettingsSuite2/AEGP_GetNewColorProfileDescription");
+		unsupported("AEGP_GetNewColorProfileDescription")
+	})
 }
 
 unsafe extern "C" fn dispose_color_profile(color_profileP: AEGP_ColorProfileP) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite2/AEGP_DisposeColorProfile",
-		"color_profileP" => format!("{:#x}", color_profileP as usize),
-	);
+	crate::core::ffi::guard("dispose_color_profile", || {
+		diag!("AEGP_ColorSettingsSuite2/AEGP_DisposeColorProfile",
+			"color_profileP" => format!("{:#x}", color_profileP as usize),
+		);
 
-	if color_profileP.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	// SAFETY: non-null profiles only come from `get_new_working_space_color_profile`.
-	drop(unsafe { Box::from_raw(color_profileP as *mut ColorProfile) });
-	PF_Err_NONE as A_Err
+		if color_profileP.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		// SAFETY: non-null profiles only come from `get_new_working_space_color_profile`.
+		drop(unsafe { Box::from_raw(color_profileP as *mut ColorProfile) });
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn get_color_profile_approximate_gamma(
 	color_profileP: AEGP_ConstColorProfileP,
 	approx_gammaP: *mut A_FpShort,
 ) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite2/AEGP_GetColorProfileApproximateGamma");
+	crate::core::ffi::guard("get_color_profile_approximate_gamma", || {
+		diag!("AEGP_ColorSettingsSuite2/AEGP_GetColorProfileApproximateGamma");
 
-	let Some(profile) = (unsafe { profile_of(color_profileP) }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let Some(out) = (unsafe { approx_gammaP.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*out = profile.approximate_gamma;
-	PF_Err_NONE as A_Err
+		let Some(profile) = (unsafe { profile_of(color_profileP) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		let Some(out) = (unsafe { approx_gammaP.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		*out = profile.approximate_gamma;
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn is_rgb_color_profile(color_profileP: AEGP_ConstColorProfileP, is_rgbPB: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite2/AEGP_IsRGBColorProfile");
+	crate::core::ffi::guard("is_rgb_color_profile", || {
+		diag!("AEGP_ColorSettingsSuite2/AEGP_IsRGBColorProfile");
 
-	if unsafe { profile_of(color_profileP) }.is_none() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	let Some(out) = (unsafe { is_rgbPB.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*out = 1;
-	PF_Err_NONE as A_Err
+		if unsafe { profile_of(color_profileP) }.is_none() {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		let Some(out) = (unsafe { is_rgbPB.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		*out = 1;
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn set_working_color_space(
@@ -148,47 +168,57 @@ unsafe extern "C" fn set_working_color_space(
 	_compH: AEGP_CompH,
 	_color_profileP: AEGP_ConstColorProfileP,
 ) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite5/AEGP_SetWorkingColorSpace");
-	// The working space stays sRGB. Accepting the call lets a plugin that
-	// asked for wire version 6 continue into its render.
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("set_working_color_space", || {
+		diag!("AEGP_ColorSettingsSuite5/AEGP_SetWorkingColorSpace");
+		// The working space stays sRGB. Accepting the call lets a plugin that
+		// asked for wire version 6 continue into its render.
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn is_ocio_used(_aegp_plugin_id: AEGP_PluginID, is_used_out: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite5/AEGP_IsOCIOColorManagementUsed");
-	let Some(out) = (unsafe { is_used_out.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*out = 0;
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("is_ocio_used", || {
+		diag!("AEGP_ColorSettingsSuite5/AEGP_IsOCIOColorManagementUsed");
+		let Some(out) = (unsafe { is_used_out.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		*out = 0;
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn ocio_unavailable() -> A_Err {
-	PF_Err_BAD_CALLBACK_PARAM as A_Err
+	crate::core::ffi::guard("ocio_unavailable", || PF_Err_BAD_CALLBACK_PARAM as A_Err)
 }
 
 unsafe extern "C" fn get_ocio_configuration_file(
 	_aegp_plugin_id: AEGP_PluginID,
 	_config_filePH: *mut AEGP_MemHandle,
 ) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite5/AEGP_GetOCIOConfigurationFile");
-	unsafe { ocio_unavailable() }
+	crate::core::ffi::guard("get_ocio_configuration_file", || {
+		diag!("AEGP_ColorSettingsSuite5/AEGP_GetOCIOConfigurationFile");
+		unsafe { ocio_unavailable() }
+	})
 }
 
 unsafe extern "C" fn get_ocio_configuration_file_path(
 	_aegp_plugin_id: AEGP_PluginID,
 	_config_filePH: *mut AEGP_MemHandle,
 ) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite5/AEGP_GetOCIOConfigurationFilePath");
-	unsafe { ocio_unavailable() }
+	crate::core::ffi::guard("get_ocio_configuration_file_path", || {
+		diag!("AEGP_ColorSettingsSuite5/AEGP_GetOCIOConfigurationFilePath");
+		unsafe { ocio_unavailable() }
+	})
 }
 
 unsafe extern "C" fn get_ocio_working_color_space(
 	_aegp_plugin_id: AEGP_PluginID,
 	_ocio_working_colorspaceH: *mut AEGP_MemHandle,
 ) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite5/AEGPD_GetOCIOWorkingColorSpace");
-	unsafe { ocio_unavailable() }
+	crate::core::ffi::guard("get_ocio_working_color_space", || {
+		diag!("AEGP_ColorSettingsSuite5/AEGPD_GetOCIOWorkingColorSpace");
+		unsafe { ocio_unavailable() }
+	})
 }
 
 unsafe extern "C" fn get_ocio_display_color_space(
@@ -196,8 +226,10 @@ unsafe extern "C" fn get_ocio_display_color_space(
 	_ocio_displayH: *mut AEGP_MemHandle,
 	_ocio_viewH: *mut AEGP_MemHandle,
 ) -> A_Err {
-	diag!("AEGP_ColorSettingsSuite5/AEGPD_GetOCIODisplayColorSpace");
-	unsafe { ocio_unavailable() }
+	crate::core::ffi::guard("get_ocio_display_color_space", || {
+		diag!("AEGP_ColorSettingsSuite5/AEGPD_GetOCIODisplayColorSpace");
+		unsafe { ocio_unavailable() }
+	})
 }
 
 /// Builds the `AEGP_ColorSettingsSuite2` vtable.

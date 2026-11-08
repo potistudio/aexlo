@@ -14,36 +14,38 @@ unsafe extern "C" fn get_floating_point_value_from_point_def_sys(
 	point_defP: *const PF_ParamDef,
 	fp_pointP: *mut A_FloatPoint,
 ) -> PF_Err {
-	//== Validation ==//
-	if effect_ref.is_null() {
-		log::error!("the arg `effect_ref` is null.");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+	crate::core::ffi::guard("get_floating_point_value_from_point_def_sys", || {
+		//== Validation ==//
+		if effect_ref.is_null() {
+			log::error!("the arg `effect_ref` is null.");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	if point_defP.is_null() {
-		log::error!("the arg `point_defP` is null.");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+		if point_defP.is_null() {
+			log::error!("the arg `point_defP` is null.");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	if fp_pointP.is_null() {
-		log::error!("the arg `fp_pointP` is null.");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+		if fp_pointP.is_null() {
+			log::error!("the arg `fp_pointP` is null.");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	//== Implementation ==//
-	let td = unsafe { &(*point_defP).u.td };
-	let point = A_FloatPoint {
-		x: td.x_value as f64 / 65536.0,
-		y: td.y_value as f64 / 65536.0,
-	};
-	unsafe { *fp_pointP = point };
+		//== Implementation ==//
+		let td = unsafe { &(*point_defP).u.td };
+		let point = A_FloatPoint {
+			x: td.x_value as f64 / 65536.0,
+			y: td.y_value as f64 / 65536.0,
+		};
+		unsafe { *fp_pointP = point };
 
-	diag!("PF_PointParamSuite1/PF_GetFloatingPointValueFromPointDef",
-		"effect_ref" => format!("{:?}", effect_ref),
-		"point_defP" => format!("{:?}", point_defP);
-		result: format!("({}, {})", point.x, point.y),
-	);
-	PF_Err_NONE as PF_Err
+		diag!("PF_PointParamSuite1/PF_GetFloatingPointValueFromPointDef",
+			"effect_ref" => format!("{:?}", effect_ref),
+			"point_defP" => format!("{:?}", point_defP);
+			result: format!("({}, {})", point.x, point.y),
+		);
+		PF_Err_NONE as PF_Err
+	})
 }
 
 /// Builds the `PF_PointParamSuite1` vtable.
