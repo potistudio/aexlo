@@ -125,7 +125,7 @@ pub enum ParamKind {
 }
 
 impl ParamKind {
-	pub(crate) fn from_sdk(param_type: after_effects_sys::PF_ParamType) -> Self {
+	pub(crate) fn from_sys(param_type: after_effects_sys::PF_ParamType) -> Self {
 		use after_effects_sys::*;
 		#[allow(non_upper_case_globals)]
 		match param_type {

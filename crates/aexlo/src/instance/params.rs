@@ -45,7 +45,7 @@ impl PluginInstance {
 		// Reject a value whose variant doesn't match the parameter's declared type,
 		// so we never write the wrong union member.
 		let expected = value.kind();
-		let actual = crate::ParamKind::from_sdk(target.param_type);
+		let actual = crate::ParamKind::from_sys(target.param_type);
 		if actual != expected {
 			return Err(AexloError::ParamTypeMismatch {
 				index,
@@ -288,7 +288,7 @@ impl PluginInstance {
 	/// The declared type of the parameter at `index` (same index space as
 	/// [`Self::set_param`]; index 0 is the input layer), or `None` if out of bounds.
 	pub fn param_kind(&self, index: usize) -> Option<crate::ParamKind> {
-		self.params.get(index).map(|p| crate::ParamKind::from_sdk(p.param_type))
+		self.params.get(index).map(|p| crate::ParamKind::from_sys(p.param_type))
 	}
 
 	/// UI flags the plugin set on the parameter (`PF_PUI_*`), or `None` if `index` is out of range.

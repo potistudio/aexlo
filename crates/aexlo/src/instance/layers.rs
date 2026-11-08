@@ -146,7 +146,7 @@ impl PluginInstance {
 			return Err(AexloError::ParamTypeMismatch {
 				index,
 				expected: crate::ParamKind::Layer,
-				actual: crate::ParamKind::from_sdk(param_type),
+				actual: crate::ParamKind::from_sys(param_type),
 			});
 		}
 
