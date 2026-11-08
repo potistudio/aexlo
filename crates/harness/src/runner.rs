@@ -226,7 +226,13 @@ where
 		let mut executor = InProcess::new(move |variant: &Variant, strict| {
 			let path = artifacts(&variant.plugin)
 				.ok_or_else(|| aexlo::AexloError::Unexpected(format!("no artifact for {}", variant.plugin.label())))?;
-			aexlo::Host::get().try_load_with(path, strict)
+			// Set up with the variant's own input and size, as the worker does,
+			// so `--isolate none` renders the same frame. An input that cannot
+			// be built is left for `apply::configure` to report as invalid.
+			match crate::apply::initial_input(variant) {
+				Ok((input, output_size)) => aexlo::Host::get().try_load_with_initial(path, strict, input, output_size),
+				Err(_) => aexlo::Host::get().try_load_with(path, strict),
+			}
 		});
 		return variants.iter().map(|v| run_one(&mut executor, v)).collect();
 	}

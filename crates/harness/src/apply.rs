@@ -8,6 +8,16 @@ use crate::error::{Error, Result};
 use crate::input;
 use crate::preset::{Iterate, RenderMode, Variant};
 
+/// The input layer `variant` renders and its output size, built before the
+/// plugin is loaded so that the setup commands already see them (plugins
+/// that remember their setup geometry render with it).
+pub fn initial_input(variant: &Variant) -> Result<(aexlo::AnyLayer, (u32, u32))> {
+	let size = variant.size.map(|[w, h]| (w, h));
+	let input = input::build(&variant.input, variant.depth_kind(), size)?;
+	let output_size = size.unwrap_or((input.width(), input.height()));
+	Ok((input, output_size))
+}
+
 /// Why `fx` cannot run `variant`, if it cannot (§4.8): such variants are
 /// skipped, not failed.
 pub fn unsupported(fx: &PluginInstance, variant: &Variant) -> Option<String> {

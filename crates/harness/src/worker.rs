@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 use aexlo::{AppHost, CommandPhase, PixelDepthKind, PluginInstance};
 use serde::{Deserialize, Serialize};
 
+use crate::apply::initial_input;
 use crate::error::{Error, Result};
 use crate::exec::{
 	CommandSink, Executor, RunFailure, RunOptions, RunOutput, StrictFindings, Timing, Trace, run_owned_prepared,
@@ -47,6 +48,10 @@ pub enum Request {
 	Load {
 		id: u64,
 		artifact: PathBuf,
+		/// The variant about to run, whose input and size the setup commands
+		/// get. Without one the plugin is set up at the host's default size.
+		#[serde(default)]
+		variant: Option<Box<Variant>>,
 	},
 	/// Run a fully resolved variant, writing frame `i` to `frame_out` with
 	/// `.i` before its extension for `i > 0`.
@@ -303,15 +308,30 @@ pub fn serve() -> Result<()> {
 				break;
 			}
 			Request::Cancel { .. } => continue,
-			Request::Load { id, artifact: path } => {
+			Request::Load {
+				id,
+				artifact: path,
+				variant,
+			} => {
 				send(json(&Event {
 					id,
 					event: "load".into(),
 					command: String::new(),
 					phase: "begin".into(),
 				}));
-				match aexlo::Host::get().try_load(&path) {
-					Ok(fx) => {
+				let loaded = match variant.as_deref().map(initial_input).transpose() {
+					Ok(Some((input, output_size))) => Ok(aexlo::Host::get().try_load_with_initial(
+						&path,
+						aexlo::Strict::default(),
+						input,
+						output_size,
+					)),
+					Ok(None) => Ok(aexlo::Host::get().try_load(&path)),
+					Err(e) => Err(failed(id, wire_kind(e.kind), format!("building initial input: {e}"), None)),
+				};
+				match loaded {
+					Err(response) => response,
+					Ok(Ok(fx)) => {
 						artifact = Some(path);
 						Response {
 							id,
@@ -320,7 +340,7 @@ pub fn serve() -> Result<()> {
 							..Response::default()
 						}
 					}
-					Err(e) => failed(id, "plugin", format!("loading {}: {e}", path.display()), None),
+					Ok(Err(e)) => failed(id, "plugin", format!("loading {}: {e}", path.display()), None),
 				}
 			}
 			Request::Run {
@@ -358,11 +378,13 @@ fn failed(id: u64, kind: &str, message: String, trace: Option<Trace>) -> Respons
 	}
 }
 
-fn initial_input(variant: &Variant) -> Result<(aexlo::AnyLayer, (u32, u32))> {
-	let size = variant.size.map(|[w, h]| (w, h));
-	let input = crate::input::build(&variant.input, variant.depth_kind(), size)?;
-	let output_size = size.unwrap_or((input.width(), input.height()));
-	Ok((input, output_size))
+/// The wire name of an error kind, as [`response_failure`] reads it back.
+fn wire_kind(kind: crate::ErrorKind) -> &'static str {
+	match kind {
+		crate::ErrorKind::Invalid => "invalid",
+		crate::ErrorKind::Harness => "harness",
+		crate::ErrorKind::Plugin => "plugin",
+	}
 }
 
 fn run_request(
@@ -390,7 +412,7 @@ fn run_request(
 
 	let (input, output_size) = match initial_input(variant) {
 		Ok(prepared) => prepared,
-		Err(e) => return failed(id, "harness", format!("building initial input: {e}"), None),
+		Err(e) => return failed(id, wire_kind(e.kind), format!("building initial input: {e}"), None),
 	};
 	let fx = match aexlo::Host::get().try_load_with_initial(artifact, strict_of(&options.strict), input, output_size) {
 		Ok(fx) => fx,
@@ -745,7 +767,7 @@ impl WorkerClient {
 		(honored, self.live.take().map(Live::kill).unwrap_or_default())
 	}
 
-	fn ensure_loaded(&mut self, artifact: &Path) -> std::result::Result<PluginInfo, RunFailure> {
+	fn ensure_loaded(&mut self, artifact: &Path, variant: Option<&Variant>) -> std::result::Result<PluginInfo, RunFailure> {
 		if self.live.is_none() {
 			self.live = Some(Live::spawn(&self.command).map_err(|e| RunFailure::Harness { message: e.message })?);
 		}
@@ -759,6 +781,7 @@ impl WorkerClient {
 			l.send(&Request::Load {
 				id,
 				artifact: artifact.to_path_buf(),
+				variant: variant.map(|v| Box::new(v.clone())),
 			})
 		});
 		if let Some(Err(e)) = send {
@@ -797,7 +820,7 @@ impl WorkerClient {
 		let artifact = (self.artifacts)(plugin).ok_or_else(|| RunFailure::Harness {
 			message: format!("no artifact for plugin {}", plugin.label()),
 		})?;
-		self.ensure_loaded(&artifact)
+		self.ensure_loaded(&artifact, None)
 	}
 }
 
@@ -828,7 +851,7 @@ impl Executor for WorkerClient {
 		let artifact = (self.artifacts)(&variant.plugin).ok_or_else(|| RunFailure::Harness {
 			message: format!("no artifact for plugin {}", variant.plugin.label()),
 		})?;
-		self.ensure_loaded(&artifact)?;
+		self.ensure_loaded(&artifact, Some(variant))?;
 
 		let id = self.id();
 		let frame_out = self.temp.join(format!("{id}.raw"));
