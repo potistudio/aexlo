@@ -498,7 +498,10 @@ impl PluginInstance {
 			}
 		}
 
-		Err(last_error.expect("FALLBACK_ENTRY_POINT_CANDIDATES is non-empty").into())
+		Err(AexloError::PluginLoad {
+			path: binary.to_path_buf(),
+			source: Box::new(last_error.expect("FALLBACK_ENTRY_POINT_CANDIDATES is non-empty")),
+		})
 	}
 
 	/// Resolve `artifact_path` -- the plugin as it exists on disk -- to the concrete
@@ -556,7 +559,10 @@ impl PluginInstance {
 
 		log::info!("Loading plugin from '{module_path_str}'.");
 
-		let lib = Library::open(&module_path)?;
+		let lib = Library::open(&module_path).map_err(|e| AexloError::PluginLoad {
+			path: module_path.clone(),
+			source: Box::new(e),
+		})?;
 		let (entry_point, resolved_name) = Self::resolve_entry_point(&lib, self.pica.as_ref(), &module_path)?;
 
 		self.entry_point = Some(entry_point);

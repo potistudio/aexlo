@@ -1,8 +1,8 @@
 //! Error types for crate.
 //!
-//! This module defines structured error types using `thiserror`,
-//! providing clear error messages and proper interoperability with
-//! `dlopen2::Error` and other error types.
+//! This module defines structured error types using `thiserror`. Errors from
+//! dependencies are carried as opaque sources, so upgrading a dependency never
+//! changes this crate's public API.
 
 use std::path::PathBuf;
 
@@ -15,9 +15,17 @@ use crate::pixel::{LayerError, PixelDepthKind};
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum AexloError {
-	/// Error occurred while loading the plugin file.
-	#[error("Failed to load plugin: {0}")]
-	PluginLoad(#[from] dlopen2::Error),
+	/// The plugin binary at `path` could not be opened as a dynamic library,
+	/// or exports no entry point aexlo recognizes.
+	#[error("Failed to load plugin {}: {source}", path.display())]
+	PluginLoad {
+		/// The binary that was opened (inside the bundle for a `.plugin`).
+		path: PathBuf,
+		/// The loader's error, opaque so it doesn't tie this API to the
+		/// dynamic-loading crate aexlo uses.
+		#[source]
+		source: Box<dyn std::error::Error + Send + Sync>,
+	},
 
 	/// No plugin binary exists at `path`: neither a file nor a `.plugin`
 	/// bundle with an executable in `Contents/MacOS`.
