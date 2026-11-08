@@ -5,9 +5,9 @@ All notable changes to the `aexlo` crate are recorded here. The format follows
 [Semantic Versioning](https://semver.org/): while it is `0.x`, a minor release
 may break the API, and every breaking change is listed below.
 
-## [0.1.0-beta.1] - 2026-11-09
+## [0.1.0] - 2026-11-09
 
-The first public beta. It loads `.aex` / `.plugin` effects outside After
+The first public release. It loads `.aex` / `.plugin` effects outside After
 Effects on Windows x64 and macOS arm64 and renders them through the GPU, smart
 and legacy paths. See the README for which SDK suites are implemented.
 
@@ -51,4 +51,4 @@ and legacy paths. See the README for which SDK suites are implemented.
   plugin as `PF_Err_INTERNAL_STRUCT_DAMAGED` instead of aborting the process
   (#31).
 
-[0.1.0-beta.1]: https://github.com/potistudio/aexlo/releases/tag/v0.1.0-beta.1
+[0.1.0]: https://github.com/potistudio/aexlo/releases/tag/v0.1.0

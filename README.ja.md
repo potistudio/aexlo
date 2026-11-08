@@ -52,7 +52,7 @@ After Effects 自体がプラグインに提供するインターフェースで
 ### ライブラリとして使う
 
 ```bash
-cargo add aexlo@0.1.0-beta.1
+cargo add aexlo
 ```
 
 ```rust,no_run

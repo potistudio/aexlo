@@ -57,7 +57,7 @@ However, all of these plugins are designed to run exclusively within After Effec
 ### Use the library
 
 ```bash
-cargo add aexlo@0.1.0-beta.1
+cargo add aexlo
 ```
 
 ```rust,no_run
