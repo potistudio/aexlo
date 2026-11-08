@@ -86,6 +86,9 @@
 )]
 // Tests call FFI fakes directly; their `unsafe` blocks need no proof.
 #![cfg_attr(test, allow(clippy::undocumented_unsafe_blocks))]
+// after-effects-sys gives SDK constants `u32` on macOS and `i32` on Windows
+// (#21), so the `as` casts that macOS needs are identity casts on Windows.
+#![cfg_attr(windows, allow(clippy::unnecessary_cast))]
 // The crate mirrors the After Effects C SDK, whose suite struct fields and entry
 // points (`PF_GetAppName`, `EffectMain`, …) use non-snake-case names. Allowing it
 // crate-wide keeps the FFI surface readable without per-item annotations.

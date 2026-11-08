@@ -95,9 +95,9 @@ const PLUGIN_DATA_ENTRY_SYMBOL: &str = "PluginDataEntryFunction2";
 const HOST_NAME: &str = "AfterEffects";
 const HOST_VERSION: &str = "25.2";
 
-/// On Windows, an effect that lets a C++ exception leave its entry point would
-/// cross a Rust frame and abort the process. The call sits in a C handler so
-/// the host reports a failed command instead.
+// On Windows, an effect that lets a C++ exception leave its entry point would
+// cross a Rust frame and abort the process. The call sits in a C handler so
+// the host reports a failed command instead.
 #[cfg(windows)]
 unsafe extern "C" {
 	fn aexlo_call_entry(
@@ -151,7 +151,7 @@ unsafe fn call_entry(
 			);
 			return after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED as after_effects_sys::PF_Err;
 		}
-		return result as after_effects_sys::PF_Err;
+		result as after_effects_sys::PF_Err
 	}
 	#[cfg(not(windows))]
 	{

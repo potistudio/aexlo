@@ -2,6 +2,8 @@ use crate::core::diagnostics::*;
 use crate::suites::macros::stub_log;
 use after_effects_sys::*;
 use std::os::raw::c_void;
+#[cfg(windows)]
+use std::sync::atomic::AtomicIsize;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 /// Encode a path as a null-terminated UTF-16 string, the representation
@@ -394,7 +396,7 @@ unsafe extern "C" fn get_platform_data_impl(effect_ref: PF_ProgPtr, which: PF_Pl
 					}
 					// SAFETY: `data` is non-null (checked above) and the SDK makes it a `void**` out-slot for `PF_PlatData_MAIN_WND`.
 					unsafe { *(data as *mut *mut c_void) = hwnd };
-					return PF_Err_NONE as PF_Err;
+					PF_Err_NONE as PF_Err
 				}
 				#[cfg(not(windows))]
 				{
@@ -526,12 +528,14 @@ unsafe fn create_host_window() -> isize {
 		fn GetModuleHandleW(module: *const u16) -> *mut c_void;
 	}
 	unsafe extern "system" fn wnd_proc(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize {
-		DefWindowProcW(hwnd, msg, wparam, lparam)
+		// SAFETY: Windows calls this with the arguments of a message for `hwnd`, which are forwarded unchanged.
+		unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
 	}
 
 	let class_name: Vec<u16> = "aexlo_host".encode_utf16().chain(std::iter::once(0)).collect();
 	let title: Vec<u16> = "aexlo".encode_utf16().chain(std::iter::once(0)).collect();
-	let instance = GetModuleHandleW(std::ptr::null());
+	// SAFETY: a null module name asks for the handle of the current executable.
+	let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
 	let class = WndClass {
 		style: 0,
 		wnd_proc,
@@ -544,28 +548,33 @@ unsafe fn create_host_window() -> isize {
 		menu_name: std::ptr::null(),
 		class_name: class_name.as_ptr(),
 	};
-	RegisterClassW(&class);
-	let hwnd = CreateWindowExW(
-		0,
-		class_name.as_ptr(),
-		title.as_ptr(),
-		0x00CF_0000,
-		0x8000_0000u32 as i32,
-		0x8000_0000u32 as i32,
-		960,
-		640,
-		std::ptr::null_mut(),
-		std::ptr::null_mut(),
-		instance,
-		std::ptr::null_mut(),
-	);
+	// SAFETY: `class` and the `class_name` buffer it points to outlive the call.
+	unsafe { RegisterClassW(&class) };
+	// SAFETY: `class_name` and `title` are NUL-terminated UTF-16 buffers that outlive the call; the null parent, menu and param are allowed.
+	let hwnd = unsafe {
+		CreateWindowExW(
+			0,
+			class_name.as_ptr(),
+			title.as_ptr(),
+			0x00CF_0000,
+			0x8000_0000u32 as i32,
+			0x8000_0000u32 as i32,
+			960,
+			640,
+			std::ptr::null_mut(),
+			std::ptr::null_mut(),
+			instance,
+			std::ptr::null_mut(),
+		)
+	};
 	if hwnd.is_null() {
 		log::warn!("get_platform_data: failed to create the host window");
 		return 0;
 	}
 	// Must be visible. Windows hides an owned popup while its owner is hidden,
 	// which is what made plugin editors look like a click that did nothing.
-	ShowWindow(hwnd, 5);
+	// SAFETY: `hwnd` is the window created above (checked non-null); 5 is `SW_SHOW`.
+	unsafe { ShowWindow(hwnd, 5) };
 	hwnd as isize
 }
 
