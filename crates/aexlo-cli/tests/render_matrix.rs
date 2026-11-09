@@ -19,16 +19,25 @@ fn all_fixtures_render() {
 		("macos", "plugin")
 	};
 	let fixtures = workspace().join("fixtures/plugins").join(platform);
-	let mut plugins: Vec<_> = std::fs::read_dir(&fixtures)
+	let candidates: Vec<_> = std::fs::read_dir(&fixtures)
 		.unwrap_or_else(|e| panic!("fixtures dir not found at {}: {e}", fixtures.display()))
 		.map(|entry| entry.unwrap().path())
 		.filter(|path| path.extension().and_then(|e| e.to_str()) == Some(ext))
-		// Most fixtures are personal symlinks (fixtures/plugins/.gitignore);
-		// one whose target is absent on this machine is skipped, not failed.
-		.filter(|path| path.exists())
 		.collect();
+	assert!(!candidates.is_empty(), "no plugin fixtures in {}", fixtures.display());
+	// Most fixtures are personal symlinks (fixtures/plugins/.gitignore);
+	// one whose target is absent on this machine is skipped, not failed.
+	let mut plugins: Vec<_> = candidates.into_iter().filter(|path| path.exists()).collect();
+	if plugins.is_empty() {
+		// The checked-in Windows fixture is such a symlink, so a CI runner
+		// without After Effects has nothing to render.
+		eprintln!(
+			"skipping: every fixture in {} is a symlink to an absent plugin",
+			fixtures.display()
+		);
+		return;
+	}
 	plugins.sort();
-	assert!(!plugins.is_empty(), "no plugin fixtures in {}", fixtures.display());
 
 	let mut text = format!(
 		"[plugin]\nartifact = {}\n\n[defaults]\ninput = {{ path = {} }}\nchecks = []\ngolden = false\ntimeout = 60\n",
