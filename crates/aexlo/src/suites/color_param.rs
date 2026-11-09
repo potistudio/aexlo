@@ -2,7 +2,7 @@
 //! channels. A COLOR param stores its value as an 8-bpc `PF_Pixel`; the suite
 //! reports each channel normalized to `0.0..=1.0`.
 
-use after_effects_sys::{
+use crate::sdk::{
 	PF_ColorParamSuite1, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_MAX_CHAN8, PF_ParamDef, PF_PixelFloat,
 	PF_ProgPtr,
 };
@@ -18,17 +18,17 @@ unsafe extern "C" fn get_floating_point_color_from_color_def_sys(
 		//== Validation ==//
 		if effect_ref.is_null() {
 			log::error!("the arg `effect_ref` is null.");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		if color_defP.is_null() {
 			log::error!("the arg `color_defP` is null.");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		if fp_colorP.is_null() {
 			log::error!("the arg `fp_colorP` is null.");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		//== Implementation ==//
@@ -47,7 +47,7 @@ unsafe extern "C" fn get_floating_point_color_from_color_def_sys(
 			"color_defP" => format!("{:?}", color_defP);
 			result: format!("({}, {}, {}, {})", color.alpha, color.red, color.green, color.blue),
 		);
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -64,7 +64,7 @@ pub const fn create_color_param_suite_1() -> PF_ColorParamSuite1 {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use after_effects_sys::PF_Pixel;
+	use crate::sdk::PF_Pixel;
 
 	#[test]
 	fn converts_8bit_color_value_to_normalized_float() {
@@ -84,7 +84,7 @@ mod tests {
 		};
 		let effect_ref = 1usize as PF_ProgPtr;
 		let err = unsafe { get_floating_point_color_from_color_def_sys(effect_ref, &param, &mut out) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		assert_eq!(out.alpha, 1.0);
 		assert_eq!(out.red, 1.0);
 		assert!((out.green - 0.2).abs() < 1e-6);
@@ -98,15 +98,15 @@ mod tests {
 		let effect_ref = 1usize as PF_ProgPtr;
 		assert_eq!(
 			unsafe { get_floating_point_color_from_color_def_sys(std::ptr::null_mut(), &param, &mut out) },
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			PF_Err_BAD_CALLBACK_PARAM
 		);
 		assert_eq!(
 			unsafe { get_floating_point_color_from_color_def_sys(effect_ref, std::ptr::null(), &mut out) },
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			PF_Err_BAD_CALLBACK_PARAM
 		);
 		assert_eq!(
 			unsafe { get_floating_point_color_from_color_def_sys(effect_ref, &param, std::ptr::null_mut()) },
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			PF_Err_BAD_CALLBACK_PARAM
 		);
 	}
 }

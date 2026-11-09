@@ -6,7 +6,7 @@
 //! construction and only acknowledged.
 
 use crate::core::diagnostics::diag;
-use after_effects_sys::{A_long, PF_CacheOnLoadSuite1, PF_Err, PF_Err_NONE, PF_ProgPtr};
+use crate::sdk::{A_long, PF_CacheOnLoadSuite1, PF_Err, PF_Err_NONE, PF_ProgPtr};
 
 unsafe extern "C" fn set_no_cache_on_load(effect_ref: PF_ProgPtr, effectAvailable: A_long) -> PF_Err {
 	crate::core::ffi::guard("set_no_cache_on_load", || {
@@ -15,7 +15,7 @@ unsafe extern "C" fn set_no_cache_on_load(effect_ref: PF_ProgPtr, effectAvailabl
 			"effectAvailable" => effectAvailable,
 		);
 		let _ = (effect_ref, effectAvailable);
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 

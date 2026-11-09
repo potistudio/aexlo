@@ -1,4 +1,4 @@
-use after_effects_sys::*;
+use crate::sdk::*;
 
 use crate::PluginInstance;
 use crate::core::diagnostics::diag;
@@ -22,12 +22,12 @@ unsafe extern "C" fn checkout_param_stub(
 		//== Validation ==//
 		if effect_ref.is_null() {
 			log::error!("checkout_param: effect_ref is null");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		if param.is_null() {
 			log::warn!("checkout_param: param pointer is null");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		//== Implementation ==//
@@ -38,7 +38,7 @@ unsafe extern "C" fn checkout_param_stub(
 				"checkout_param: no instance found for effect_ref {:#x}",
 				effect_ref as usize
 			);
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`).
 		let instance = unsafe { instance.as_ref() };
@@ -55,7 +55,7 @@ unsafe extern "C" fn checkout_param_stub(
 				index,
 				instance.param_count()
 			);
-			return PF_Err_INVALID_INDEX as PF_Err;
+			return PF_Err_INVALID_INDEX;
 		}
 
 		let src_param = instance.param_by_index(index).unwrap();
@@ -76,7 +76,7 @@ unsafe extern "C" fn checkout_param_stub(
 			result: format!("param is set to {:#x}", param as usize),
 		);
 
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -84,7 +84,7 @@ unsafe extern "C" fn checkin_param_stub(_effect_ref: PF_ProgPtr, _param: *mut PF
 	crate::core::ffi::guard("checkin_param_stub", || {
 		if _param.is_null() {
 			log::warn!("checkin_param: param pointer is null");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		// SAFETY: `_param` is non-null (checked above) and points at a parameter the plugin checked out.
@@ -92,7 +92,7 @@ unsafe extern "C" fn checkin_param_stub(_effect_ref: PF_ProgPtr, _param: *mut PF
 			crate::strict::checkout(crate::CheckoutKind::CheckinParam, 0, _param as usize);
 		}
 		log::debug!("checkin_param called for effect_ref={:#x}", _effect_ref as usize);
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -100,7 +100,7 @@ unsafe extern "C" fn add_param_sys(effect_ref: PF_ProgPtr, _index: PF_ParamIndex
 	crate::core::ffi::guard("add_param_sys", || {
 		if def.is_null() {
 			log::error!("add_param: def is null");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		// Copy the param definition and store it
@@ -110,7 +110,7 @@ unsafe extern "C" fn add_param_sys(effect_ref: PF_ProgPtr, _index: PF_ParamIndex
 		// Store the param in instance via ParamManager
 		if let Err(e) = crate::host::params::add_param_to_instance(effect_ref, param) {
 			log::error!("add_param: failed to add param: {}", e);
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		diag!("InteractCallbacks/add_param",
@@ -119,7 +119,7 @@ unsafe extern "C" fn add_param_sys(effect_ref: PF_ProgPtr, _index: PF_ParamIndex
 			"def" => format!("{:#x}", def as usize),
 		);
 
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -128,9 +128,9 @@ unsafe extern "C" fn abort_stub(effect_ref: PF_ProgPtr) -> PF_Err {
 	crate::core::ffi::guard("abort_stub", || {
 		with_app_host_ffi(|host| {
 			if host.abort_requested(effect_ref as usize) {
-				PF_Interrupt_CANCEL as PF_Err
+				PF_Interrupt_CANCEL
 			} else {
-				PF_Err_NONE as PF_Err
+				PF_Err_NONE
 			}
 		})
 	})
@@ -142,9 +142,9 @@ unsafe extern "C" fn progress_stub(effect_ref: PF_ProgPtr, current: A_long, tota
 	crate::core::ffi::guard("progress_stub", || {
 		with_app_host_ffi(|host| {
 			if host.render_progress(effect_ref as usize, current, total) {
-				PF_Err_NONE as PF_Err
+				PF_Err_NONE
 			} else {
-				PF_Interrupt_CANCEL as PF_Err
+				PF_Interrupt_CANCEL
 			}
 		})
 	})
@@ -168,7 +168,7 @@ unsafe extern "C" fn register_ui_stub(_effect_ref: PF_ProgPtr, custom_info: *mut
 				info.preview_ui_height
 			);
 		}
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -186,14 +186,14 @@ unsafe extern "C" fn checkout_layer_audio_stub(
 ) -> PF_Err {
 	crate::core::ffi::guard("checkout_layer_audio_stub", || {
 		log::warn!("STUB: checkout_layer_audio called");
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn checkin_layer_audio_stub(_effect_ref: PF_ProgPtr, _audio: PF_LayerAudio) -> PF_Err {
 	crate::core::ffi::guard("checkin_layer_audio_stub", || {
 		log::warn!("STUB: checkin_layer_audio called");
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -209,7 +209,7 @@ unsafe extern "C" fn get_audio_data_stub(
 ) -> PF_Err {
 	crate::core::ffi::guard("get_audio_data_stub", || {
 		log::warn!("STUB: get_audio_data called");
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -254,11 +254,11 @@ mod tests {
 		let cb = create_interact_callbacks();
 		let null = std::ptr::null_mut();
 		unsafe {
-			assert_eq!(cb.abort.unwrap()(null), PF_Err_NONE as PF_Err);
+			assert_eq!(cb.abort.unwrap()(null), PF_Err_NONE);
 			TEST_APP_HOST.set(Some(Box::new(Cancelling)));
-			assert_eq!(cb.abort.unwrap()(null), PF_Interrupt_CANCEL as PF_Err);
-			assert_eq!(cb.progress.unwrap()(null, 1, 10), PF_Err_NONE as PF_Err);
-			assert_eq!(cb.progress.unwrap()(null, 6, 10), PF_Interrupt_CANCEL as PF_Err);
+			assert_eq!(cb.abort.unwrap()(null), PF_Interrupt_CANCEL);
+			assert_eq!(cb.progress.unwrap()(null, 1, 10), PF_Err_NONE);
+			assert_eq!(cb.progress.unwrap()(null, 6, 10), PF_Interrupt_CANCEL);
 		}
 		TEST_APP_HOST.set(None);
 	}

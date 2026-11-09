@@ -35,8 +35,8 @@ pub enum MaskMode {
 }
 
 impl MaskMode {
-	pub(crate) fn to_sys(self) -> after_effects_sys::PF_MaskMode {
-		use after_effects_sys::*;
+	pub(crate) fn to_sys(self) -> crate::sdk::PF_MaskMode {
+		use crate::sdk::*;
 
 		(match self {
 			MaskMode::None => PF_MaskMode_NONE,

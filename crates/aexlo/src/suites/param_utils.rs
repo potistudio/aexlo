@@ -6,7 +6,7 @@
 //! host is [`update_param_ui`], which lets a plugin refresh a parameter's UI state
 //! (twirl collapse, disabled, name, …) in response to a user edit.
 
-use after_effects_sys::*;
+use crate::sdk::*;
 
 use crate::PluginInstance;
 
@@ -22,12 +22,12 @@ unsafe extern "C" fn update_param_ui(
 ) -> PF_Err {
 	crate::core::ffi::guard("update_param_ui", || {
 		if effect_ref.is_null() || defP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		let Some(mut instance) = PluginInstance::get_instance_ptr(effect_ref) else {
 			log::error!("PF_UpdateParamUI: no plugin instance for effect_ref");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 
 		// SAFETY: `defP` is non-null (checked) and, per the suite contract, points to a
@@ -37,7 +37,7 @@ unsafe extern "C" fn update_param_ui(
 		// mutating it while inside its own suite callback.
 		unsafe { instance.as_mut() }.update_param_ui(param_index as usize, def);
 
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -53,11 +53,11 @@ unsafe extern "C" fn get_current_state(
 ) -> PF_Err {
 	crate::core::ffi::guard("get_current_state", || {
 		if stateP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		// SAFETY: `stateP` is non-null; `PF_State` is a plain byte buffer.
 		unsafe { std::ptr::write_bytes(stateP, 0, 1) };
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -71,10 +71,10 @@ unsafe extern "C" fn are_states_identical(
 ) -> PF_Err {
 	crate::core::ffi::guard("are_states_identical", || {
 		if samePB.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		unsafe { *samePB = 1 };
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -92,10 +92,10 @@ unsafe extern "C" fn is_identical_checkout(
 ) -> PF_Err {
 	crate::core::ffi::guard("is_identical_checkout", || {
 		if identicalPB.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		unsafe { *identicalPB = 1 };
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -115,7 +115,7 @@ unsafe extern "C" fn find_keyframe_time(
 		if !foundPB.is_null() {
 			unsafe { *foundPB = 0 };
 		}
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -127,10 +127,10 @@ unsafe extern "C" fn get_keyframe_count(
 ) -> PF_Err {
 	crate::core::ffi::guard("get_keyframe_count", || {
 		if key_countP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		unsafe { *key_countP = 0 };
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -143,12 +143,12 @@ unsafe extern "C" fn checkout_keyframe(
 	_key_timescaleP0: *mut A_u_long,
 	_paramP0: *mut PF_ParamDef,
 ) -> PF_Err {
-	crate::core::ffi::guard("checkout_keyframe", || PF_Err_BAD_CALLBACK_PARAM as PF_Err)
+	crate::core::ffi::guard("checkout_keyframe", || PF_Err_BAD_CALLBACK_PARAM)
 }
 
 /// Checking a keyframe back in is a no-op (none were ever checked out).
 unsafe extern "C" fn checkin_keyframe(_effect_ref: PF_ProgPtr, _paramP: *mut PF_ParamDef) -> PF_Err {
-	crate::core::ffi::guard("checkin_keyframe", || PF_Err_NONE as PF_Err)
+	crate::core::ffi::guard("checkin_keyframe", || PF_Err_NONE)
 }
 
 /// There are no keyframes, so any index maps to time zero.
@@ -166,7 +166,7 @@ unsafe extern "C" fn key_index_to_time(
 		if !key_timescaleP.is_null() {
 			unsafe { *key_timescaleP = 1 };
 		}
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 

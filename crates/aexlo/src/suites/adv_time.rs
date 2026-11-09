@@ -7,7 +7,7 @@
 use super::ffi::write_c_str;
 use crate::core::diagnostics::diag;
 use crate::host::app::{TimeDisplayMode, TimeDisplayPref, with_app_host_ffi as with_host};
-use after_effects_sys::{
+use crate::sdk::{
 	A_Boolean, A_Time, A_char, A_long, A_u_long, PF_AdvTimeSuite1, PF_AdvTimeSuite2, PF_AdvTimeSuite3,
 	PF_AdvTimeSuite4, PF_Boolean, PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_InData,
 	PF_MAX_TIME_LEN, PF_TimeDisplayFormatFeetFrames, PF_TimeDisplayFormatFrames, PF_TimeDisplayFormatTimecode,
@@ -80,7 +80,7 @@ unsafe fn format_into(
 	time_buf: *mut A_char,
 ) -> PF_Err {
 	if time_buf.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	}
 	with_host(|host| {
 		let Some(text) = format_time_text(
@@ -89,11 +89,11 @@ unsafe fn format_into(
 			time_scaleL,
 			durationB != 0,
 		) else {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let buf = unsafe { std::slice::from_raw_parts_mut(time_buf, PF_MAX_TIME_LEN as usize + 1) };
 		write_c_str(buf, &text);
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -171,7 +171,7 @@ fn get_pref(starting_frame_num: *mut A_long, write: impl FnOnce(&TimeDisplayPref
 		if let Some(out) = unsafe { starting_frame_num.as_mut() } {
 			*out = pref.starting_frame;
 		}
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -198,7 +198,7 @@ unsafe extern "C" fn get_time_display_pref_3(
 		);
 
 		let Some(tdp) = (unsafe { tdp.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		get_pref(starting_frame_num, |p| {
 			*tdp = PF_TimeDisplayPrefVersion3 {
@@ -225,7 +225,7 @@ unsafe extern "C" fn get_time_display_pref_2(
 		);
 
 		let Some(tdp) = (unsafe { tdp.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		get_pref(starting_frame_num, |p| {
 			*tdp = PF_TimeDisplayPrefVersion2 {
@@ -250,7 +250,7 @@ unsafe extern "C" fn get_time_display_pref_1(tdp: *mut PF_TimeDisplayPref, start
 		);
 
 		let Some(tdp) = (unsafe { tdp.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		get_pref(starting_frame_num, |p| {
 			let format = if p.mode == TimeDisplayMode::Frames && p.use_feet_frames {
@@ -289,13 +289,13 @@ unsafe extern "C" fn time_count_frames(
 			unsafe { time_stepTP.as_ref() },
 			unsafe { frame_countL.as_mut() },
 		) else {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		// start / step = (start.value * step.scale) / (start.scale * step.value)
 		let num = start.value as i64 * step.scale as i64;
 		let den = start.scale as i64 * step.value as i64;
 		if den == 0 {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let (num, den) = if den < 0 { (-num, -den) } else { (num, den) };
 		let mut count = num.div_euclid(den);
@@ -303,7 +303,7 @@ unsafe extern "C" fn time_count_frames(
 			count += 1;
 		}
 		*out = count.clamp(A_long::MIN as i64, A_long::MAX as i64) as A_long;
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -388,7 +388,7 @@ mod tests {
 		let suite = create_adv_time_suite_4();
 		let mut buf = [0 as A_char; PF_MAX_TIME_LEN as usize + 1];
 		let err = unsafe { suite.PF_FormatTimeActiveItem.unwrap()(3, 30, 0, buf.as_mut_ptr()) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		assert_eq!(unsafe { CStr::from_ptr(buf.as_ptr()) }.to_str().unwrap(), "0:00:00:03");
 
 		let start = A_Time { value: 5, scale: 2 };

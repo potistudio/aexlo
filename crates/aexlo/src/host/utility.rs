@@ -1,6 +1,6 @@
 use crate::core::diagnostics::*;
+use crate::sdk::*;
 use crate::suites::macros::stub_log;
-use after_effects_sys::*;
 use std::os::raw::c_void;
 #[cfg(windows)]
 use std::sync::atomic::AtomicIsize;
@@ -154,12 +154,12 @@ unsafe extern "C" fn copy_sys(
 		//== Validation ==//
 		if src.is_null() {
 			log::warn!("copy: src pointer is null");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		if dst.is_null() {
 			log::warn!("copy: dst pointer is null");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		//== Implementation ==//
@@ -196,7 +196,7 @@ unsafe extern "C" fn copy_sys(
 			"dst_rect" => format!("{:?}", _dst_rect),
 		);
 
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -209,9 +209,6 @@ stub_log!(gaussian_kernel_stub,
 	_kernel: *mut c_void
 );
 
-// `PF_Err_NONE` is `u32` on macOS and `i32` elsewhere, so `as i32` is redundant
-// here (Windows/Linux) but required on macOS. Silence the platform-specific lint.
-#[allow(clippy::unnecessary_cast)]
 unsafe extern "C" fn iterate_stub(
 	in_data: *mut PF_InData,
 	progress_base: A_long,
@@ -255,7 +252,7 @@ unsafe extern "C" fn iterate_stub(
 			.emit();
 
 		if dst.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		// A null `src` is legal: the SDK's `iterate` then walks `dst` only, which is
@@ -270,7 +267,7 @@ unsafe extern "C" fn iterate_stub(
 		let dst_world = unsafe { &*dst };
 
 		if src_world.data.is_null() || dst_world.data.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		let mut rect = if !area.is_null() {
@@ -301,7 +298,7 @@ unsafe extern "C" fn iterate_stub(
 		let height = (end_y - start_y).max(0);
 
 		if width == 0 || height == 0 {
-			return PF_Err_NONE as PF_Err;
+			return PF_Err_NONE;
 		}
 
 		let src_base_addr = src_world.data as usize;
@@ -316,11 +313,11 @@ unsafe extern "C" fn iterate_stub(
 		);
 
 		let refcon_addr = refcon as usize;
-		let error_capsule = AtomicI32::new(PF_Err_NONE as i32);
+		let error_capsule = AtomicI32::new(PF_Err_NONE);
 
 		if let Some(func) = pix_fn {
 			crate::suites::iterate::for_each_index(0..height, |y_offset| {
-				if error_capsule.load(Ordering::Relaxed) != PF_Err_NONE as i32 {
+				if error_capsule.load(Ordering::Relaxed) != PF_Err_NONE {
 					return;
 				}
 
@@ -336,7 +333,7 @@ unsafe extern "C" fn iterate_stub(
 
 					// SAFETY: `func` is the plugin's pixel callback; `src_pixel`/`dst_pixel` are inside the rect clamped to both worlds above.
 					let err = unsafe { func(refcon_ptr, current_x, current_y, src_pixel, dst_pixel) };
-					if err != PF_Err_NONE as i32 {
+					if err != PF_Err_NONE {
 						error_capsule.store(err, Ordering::Relaxed);
 						return;
 					}
@@ -359,7 +356,7 @@ stub_log!(get_callback_addr_stub,
 unsafe extern "C" fn app_stub(_effect_ref: PF_ProgPtr, _selector: A_long, _args: ...) -> PF_Err {
 	crate::core::ffi::guard("app_stub", || {
 		log::warn!("STUB: app called");
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -382,7 +379,7 @@ unsafe extern "C" fn get_platform_data_impl(effect_ref: PF_ProgPtr, which: PF_Pl
 
 		if data.is_null() {
 			log::warn!("get_platform_data: data pointer is null");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		match which {
@@ -392,48 +389,48 @@ unsafe extern "C" fn get_platform_data_impl(effect_ref: PF_ProgPtr, which: PF_Pl
 				{
 					let hwnd = host_window();
 					if hwnd.is_null() {
-						return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+						return PF_Err_BAD_CALLBACK_PARAM;
 					}
 					// SAFETY: `data` is non-null (checked above) and the SDK makes it a `void**` out-slot for `PF_PlatData_MAIN_WND`.
 					unsafe { *(data as *mut *mut c_void) = hwnd };
-					PF_Err_NONE as PF_Err
+					PF_Err_NONE
 				}
 				#[cfg(not(windows))]
 				{
 					let _ = data;
-					PF_Err_BAD_CALLBACK_PARAM as PF_Err
+					PF_Err_BAD_CALLBACK_PARAM
 				}
 			}
 			1 | 2 => {
 				// The host currently does not load separate localized resource files,
 				// so both legacy selectors refer to the loaded plugin binary.
 				let Some(instance) = crate::PluginInstance::get_instance_ptr(effect_ref) else {
-					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+					return PF_Err_BAD_CALLBACK_PARAM;
 				};
 				// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`).
 				let Some(path) = (unsafe { instance.as_ref() }).resolved_binary_path() else {
-					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+					return PF_Err_BAD_CALLBACK_PARAM;
 				};
 				let Some(bytes) = encode_path_legacy(path) else {
-					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+					return PF_Err_BAD_CALLBACK_PARAM;
 				};
 				// SAFETY: `data` is non-null (checked above), and the SDK sizes it for `AEFX_MAX_PATH` bytes; `encode_path_legacy` fails beyond that.
 				unsafe {
 					std::ptr::copy_nonoverlapping(bytes.as_ptr(), data.cast::<u8>(), bytes.len());
 				}
-				PF_Err_NONE as PF_Err
+				PF_Err_NONE
 			}
 			PF_PLAT_DATA_EXE_FILE_PATH_W | PF_PLAT_DATA_RES_FILE_PATH_W => {
 				// The path is per instance (recovered via effect_ref), so loading a
 				// second plugin can't clobber the first one's answer.
 				let Some(instance) = crate::PluginInstance::get_instance_ptr(effect_ref) else {
 					log::warn!("get_platform_data: no instance for effect_ref");
-					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+					return PF_Err_BAD_CALLBACK_PARAM;
 				};
 				// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`).
 				let Some(path) = unsafe { instance.as_ref() }.resolved_binary_path() else {
 					log::warn!("get_platform_data: plugin path not set (in-process entry point?)");
-					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+					return PF_Err_BAD_CALLBACK_PARAM;
 				};
 
 				// Copy the UTF-16 path into the output buffer (max AEFX_MAX_PATH = 260)
@@ -450,11 +447,11 @@ unsafe extern "C" fn get_platform_data_impl(effect_ref: PF_ProgPtr, which: PF_Pl
 					}
 				}
 				log::debug!("get_platform_data: returned plugin path (len={})", copy_len);
-				PF_Err_NONE as PF_Err
+				PF_Err_NONE
 			}
 			_ => {
 				log::warn!("get_platform_data: unsupported which={}", which);
-				PF_Err_NONE as PF_Err // Return OK for unsupported, as AE does
+				PF_Err_NONE // Return OK for unsupported, as AE does
 			}
 		}
 	})
@@ -664,7 +661,7 @@ mod tests {
 	#[test]
 	fn legacy_path_rejects_null_output() {
 		let result = unsafe { get_platform_data_impl(std::ptr::null_mut(), 2, std::ptr::null_mut()) };
-		assert_eq!(result, PF_Err_BAD_CALLBACK_PARAM as PF_Err);
+		assert_eq!(result, PF_Err_BAD_CALLBACK_PARAM);
 	}
 
 	#[test]
@@ -687,7 +684,7 @@ mod tests {
 			)
 		};
 
-		assert_eq!(result, PF_Err_NONE as PF_Err);
+		assert_eq!(result, PF_Err_NONE);
 
 		// Verify that the destination world now contains the copied pixels
 		for x in 0..64 {

@@ -58,7 +58,7 @@ mod imp {
 	use std::collections::HashMap;
 	use std::ffi::c_void;
 
-	use after_effects_sys::{PF_GPU_Framework, PF_GPU_Framework_METAL};
+	use crate::sdk::{PF_GPU_Framework, PF_GPU_Framework_METAL};
 	use foreign_types::ForeignType;
 	use metal::{Buffer, CommandQueue, Device, MTLResourceOptions};
 
@@ -96,7 +96,7 @@ mod imp {
 		/// The GPU framework this backend drives plugins through
 		/// (`PF_GPU_Framework_METAL`).
 		pub fn framework(&self) -> PF_GPU_Framework {
-			PF_GPU_Framework_METAL as PF_GPU_Framework
+			PF_GPU_Framework_METAL
 		}
 
 		/// Raw `id<MTLDevice>` pointer, as handed to the plugin via
@@ -239,7 +239,7 @@ mod imp {
 	use std::ffi::c_void;
 	use std::sync::Arc;
 
-	use after_effects_sys::{PF_GPU_Framework, PF_GPU_Framework_CUDA};
+	use crate::sdk::{PF_GPU_Framework, PF_GPU_Framework_CUDA};
 	use cudarc::driver::result::stream::StreamKind;
 	use cudarc::driver::{CudaContext, CudaSlice, CudaStream, DevicePtr, sys};
 
@@ -322,7 +322,7 @@ mod imp {
 		/// The GPU framework this backend drives plugins through
 		/// (`PF_GPU_Framework_CUDA`).
 		pub fn framework(&self) -> PF_GPU_Framework {
-			PF_GPU_Framework_CUDA as PF_GPU_Framework
+			PF_GPU_Framework_CUDA
 		}
 
 		/// The `CUdevice` ordinal, value-cast into `PF_GPUDeviceInfo::devicePV`
@@ -527,7 +527,7 @@ mod imp {
 mod imp {
 	use std::ffi::c_void;
 
-	use after_effects_sys::{PF_GPU_Framework, PF_GPU_Framework_NONE};
+	use crate::sdk::{PF_GPU_Framework, PF_GPU_Framework_NONE};
 
 	/// Fallback stub: no GPU backend exists for this platform, so a context can
 	/// never be created and every accessor is inert. Keeps the crate compiling.
@@ -538,7 +538,7 @@ mod imp {
 			None
 		}
 		pub fn framework(&self) -> PF_GPU_Framework {
-			PF_GPU_Framework_NONE as PF_GPU_Framework
+			PF_GPU_Framework_NONE
 		}
 		pub fn device_ptr(&self) -> *mut c_void {
 			std::ptr::null_mut()

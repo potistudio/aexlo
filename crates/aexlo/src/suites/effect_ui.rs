@@ -13,7 +13,7 @@ use super::ffi::read_c_str;
 use crate::PluginInstance;
 use crate::core::diagnostics::diag;
 use crate::host::app::{AppPixelF, with_app_host_ffi as with_host};
-use after_effects_sys::{
+use crate::sdk::{
 	A_FloatPoint, A_LPoint, A_char, DRAWBOT_ColorRGBA, DRAWBOT_DrawRef, DRAWBOT_PathRef, PF_AsyncManagerP, PF_Boolean,
 	PF_ContextH, PF_EffectCustomUIOverlayThemeSuite1, PF_EffectCustomUISuite1, PF_EffectCustomUISuite2,
 	PF_EffectUISuite1, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_EventExtra, PF_InData, PF_ProgPtr,
@@ -29,15 +29,15 @@ unsafe extern "C" fn set_options_button_name(effect_ref: PF_ProgPtr, nameZ: *con
 		);
 
 		let Some(mut instance) = PluginInstance::get_instance_ptr(effect_ref) else {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let Some(name) = (unsafe { read_c_str(nameZ) }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		// SAFETY: effect_ref is the instance currently being called into; nothing
 		// else holds a reference to this field during the callback.
 		unsafe { instance.as_mut() }.set_options_button_name(name);
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -58,16 +58,16 @@ unsafe extern "C" fn get_drawing_reference(effect_contextH: PF_ContextH, referen
 
 		let _ = effect_contextH;
 		let Some(out) = (unsafe { referenceP0.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		match super::drawbot::current_draw_ref() {
 			Some(draw) => {
 				*out = draw;
-				PF_Err_NONE as PF_Err
+				PF_Err_NONE
 			}
 			None => {
 				*out = std::ptr::null_mut();
-				PF_Err_BAD_CALLBACK_PARAM as PF_Err
+				PF_Err_BAD_CALLBACK_PARAM
 			}
 		}
 	})
@@ -89,7 +89,7 @@ unsafe extern "C" fn get_context_async_manager(
 		if let Some(out) = unsafe { managerPP0.as_mut() } {
 			*out = std::ptr::null_mut();
 		}
-		PF_Err_BAD_CALLBACK_PARAM as PF_Err
+		PF_Err_BAD_CALLBACK_PARAM
 	})
 }
 
@@ -124,12 +124,12 @@ macro_rules! theme_getter {
 			diag!($diag, "outP" => format!("{:#x}", outP as usize));
 
 			if outP.is_null() {
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 			with_host(|host| {
 				let $theme = host.overlay_theme();
 				unsafe { *outP = $value };
-				PF_Err_NONE as PF_Err
+				PF_Err_NONE
 			})
 		}
 	};
@@ -181,7 +181,7 @@ unsafe extern "C" fn stroke_path(
 			"draw_shadowB" => draw_shadowB,
 		);
 		let _ = (drawbot_ref, path_ref, draw_shadowB);
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -197,7 +197,7 @@ unsafe extern "C" fn fill_path(
 			"draw_shadowB" => draw_shadowB,
 		);
 		let _ = (drawbot_ref, path_ref, draw_shadowB);
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -213,7 +213,7 @@ unsafe extern "C" fn fill_vertex(
 			"draw_shadowB" => draw_shadowB,
 		);
 		let _ = (drawbot_ref, center_pointP, draw_shadowB);
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -273,7 +273,7 @@ mod tests {
 		let mut r: DRAWBOT_DrawRef = 1 as DRAWBOT_DrawRef;
 		let err =
 			unsafe { create_effect_custom_ui_suite_2().PF_GetDrawingReference.unwrap()(std::ptr::null_mut(), &mut r) };
-		assert_ne!(err, PF_Err_NONE as PF_Err);
+		assert_ne!(err, PF_Err_NONE);
 		assert!(r.is_null());
 	}
 }

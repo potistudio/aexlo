@@ -7,7 +7,7 @@
 //! layer and the comp; see [`layer`](super::layer)). Reads report that comp.
 //! Creating, deleting, renaming or moving an item is refused.
 
-use after_effects_sys::*;
+use crate::sdk::*;
 
 use super::aegp_memory::handle_from_bytes;
 use super::layer::{Timeline, current_effect, item_handle};
@@ -18,7 +18,7 @@ const COMP_TYPE_NAME: &[u8] = b"Composition\0";
 
 fn refuse(name: &str) -> A_Err {
 	log::warn!("AEGP_ItemSuite8/{name}: aexlo's project has one fixed comp");
-	A_Err_GENERIC as A_Err
+	A_Err_GENERIC
 }
 
 fn known(itemH: AEGP_ItemH) -> bool {
@@ -29,7 +29,7 @@ unsafe extern "C" fn get_first_proj_item(projectH: AEGP_ProjectH, itemPH: *mut A
 	crate::core::ffi::guard("get_first_proj_item", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetFirstProjItem");
 		let Some(out) = (unsafe { itemPH.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let effect = if known(projectH as _) {
 			projectH as PF_ProgPtr
@@ -37,10 +37,10 @@ unsafe extern "C" fn get_first_proj_item(projectH: AEGP_ProjectH, itemPH: *mut A
 			current_effect()
 		};
 		if !known(effect as _) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = item_handle(effect);
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -52,13 +52,13 @@ unsafe extern "C" fn get_next_proj_item(
 	crate::core::ffi::guard("get_next_proj_item", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetNextProjItem");
 		let Some(out) = (unsafe { next_itemPH.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if !known(itemH) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = std::ptr::null_mut();
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -66,14 +66,14 @@ unsafe extern "C" fn get_active_item(itemPH: *mut AEGP_ItemH) -> A_Err {
 	crate::core::ffi::guard("get_active_item", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetActiveItem");
 		let Some(out) = (unsafe { itemPH.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let effect = current_effect();
 		if !known(effect as _) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = item_handle(effect);
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -81,13 +81,13 @@ unsafe extern "C" fn is_item_selected(itemH: AEGP_ItemH, selectedPB: *mut A_Bool
 	crate::core::ffi::guard("is_item_selected", || {
 		diag!("AEGP_ItemSuite8/AEGP_IsItemSelected");
 		let Some(out) = (unsafe { selectedPB.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if !known(itemH) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = 0;
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -102,13 +102,13 @@ unsafe extern "C" fn get_item_type(itemH: AEGP_ItemH, item_typeP: *mut AEGP_Item
 	crate::core::ffi::guard("get_item_type", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemType");
 		let Some(out) = (unsafe { item_typeP.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if !known(itemH) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		*out = AEGP_ItemType_COMP as AEGP_ItemType;
-		PF_Err_NONE as A_Err
+		*out = AEGP_ItemType_COMP;
+		PF_Err_NONE
 	})
 }
 
@@ -116,15 +116,15 @@ unsafe extern "C" fn get_type_name(item_type: AEGP_ItemType, nameZ: *mut A_char)
 	crate::core::ffi::guard("get_type_name", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetTypeName");
 		if nameZ.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		let name: &[u8] = if item_type == AEGP_ItemType_COMP as AEGP_ItemType {
+		let name: &[u8] = if item_type == AEGP_ItemType_COMP {
 			COMP_TYPE_NAME
 		} else {
 			b"\0"
 		};
 		unsafe { std::ptr::copy_nonoverlapping(name.as_ptr().cast(), nameZ, name.len()) };
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -134,13 +134,13 @@ unsafe extern "C" fn get_item_name_char(itemH: AEGP_ItemH, nameZ: *mut A_char) -
 	crate::core::ffi::guard("get_item_name_char", || {
 		diag!("AEGP_ItemSuite6/AEGP_GetItemName");
 		if nameZ.is_null() || !known(itemH) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let mut bytes = [0u8; AEGP_MAX_ITEM_NAME_SIZE as usize];
 		let name = ITEM_NAME.as_bytes();
 		bytes[..name.len()].copy_from_slice(name);
 		unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr().cast(), nameZ, bytes.len()) };
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -170,17 +170,17 @@ unsafe extern "C" fn get_item_name(
 	crate::core::ffi::guard("get_item_name", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemName");
 		let Some(out) = (unsafe { unicode_namePH.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if !known(itemH) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let mut bytes = Vec::with_capacity((ITEM_NAME.len() + 1) * 2);
 		for unit in ITEM_NAME.encode_utf16().chain(std::iter::once(0)) {
 			bytes.extend_from_slice(&unit.to_le_bytes());
 		}
 		*out = handle_from_bytes(bytes);
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -195,13 +195,13 @@ unsafe extern "C" fn get_item_id(itemH: AEGP_ItemH, item_idPL: *mut A_long) -> A
 	crate::core::ffi::guard("get_item_id", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemID");
 		let Some(out) = (unsafe { item_idPL.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if !known(itemH) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = 1;
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -209,13 +209,13 @@ unsafe extern "C" fn get_item_flags(itemH: AEGP_ItemH, item_flagsP: *mut AEGP_It
 	crate::core::ffi::guard("get_item_flags", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemFlags");
 		let Some(out) = (unsafe { item_flagsP.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if !known(itemH) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		*out = AEGP_ItemFlag_HAS_VIDEO as AEGP_ItemFlags;
-		PF_Err_NONE as A_Err
+		*out = AEGP_ItemFlag_HAS_VIDEO;
+		PF_Err_NONE
 	})
 }
 
@@ -230,13 +230,13 @@ unsafe extern "C" fn get_item_parent_folder(itemH: AEGP_ItemH, parent_folder_ite
 	crate::core::ffi::guard("get_item_parent_folder", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemParentFolder");
 		let Some(out) = (unsafe { parent_folder_itemPH.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if !known(itemH) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = std::ptr::null_mut();
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -251,10 +251,10 @@ unsafe extern "C" fn get_item_duration(itemH: AEGP_ItemH, durationPT: *mut A_Tim
 	crate::core::ffi::guard("get_item_duration", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemDuration");
 		let (Some(timeline), Some(out)) = (Timeline::of(itemH as _), unsafe { durationPT.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = timeline.duration();
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -262,10 +262,10 @@ unsafe extern "C" fn get_item_current_time(itemH: AEGP_ItemH, curr_timePT: *mut 
 	crate::core::ffi::guard("get_item_current_time", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemCurrentTime");
 		let (Some(timeline), Some(out)) = (Timeline::of(itemH as _), unsafe { curr_timePT.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = timeline.current();
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -273,7 +273,7 @@ unsafe extern "C" fn get_item_dimensions(itemH: AEGP_ItemH, widthPL: *mut A_long
 	crate::core::ffi::guard("get_item_dimensions", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemDimensions");
 		let Some(timeline) = Timeline::of(itemH as _) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if let Some(width) = unsafe { widthPL.as_mut() } {
 			*width = timeline.width as A_long;
@@ -281,7 +281,7 @@ unsafe extern "C" fn get_item_dimensions(itemH: AEGP_ItemH, widthPL: *mut A_long
 		if let Some(height) = unsafe { heightPL.as_mut() } {
 			*height = timeline.height as A_long;
 		}
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -289,13 +289,13 @@ unsafe extern "C" fn get_item_pixel_aspect_ratio(itemH: AEGP_ItemH, pix_aspect_r
 	crate::core::ffi::guard("get_item_pixel_aspect_ratio", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemPixelAspectRatio");
 		let Some(out) = (unsafe { pix_aspect_ratioPRt.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if !known(itemH) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = A_Ratio { num: 1, den: 1 };
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -328,13 +328,13 @@ unsafe extern "C" fn get_item_comment_length(itemH: AEGP_ItemH, buf_sizePLu: *mu
 	crate::core::ffi::guard("get_item_comment_length", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemCommentLength");
 		let Some(out) = (unsafe { buf_sizePLu.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if !known(itemH) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = 1;
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -342,12 +342,12 @@ unsafe extern "C" fn get_item_comment(itemH: AEGP_ItemH, buf_sizeLu: A_u_long, c
 	crate::core::ffi::guard("get_item_comment", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemComment");
 		if commentZ.is_null() || !known(itemH) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		if buf_sizeLu > 0 {
 			unsafe { *commentZ = 0 };
 		}
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -362,13 +362,13 @@ unsafe extern "C" fn get_item_label(itemH: AEGP_ItemH, labelP: *mut AEGP_LabelID
 	crate::core::ffi::guard("get_item_label", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemLabel");
 		let Some(out) = (unsafe { labelP.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if !known(itemH) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = 0;
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -383,13 +383,13 @@ unsafe extern "C" fn get_item_mru_view(itemH: AEGP_ItemH, mru_viewP: *mut AEGP_I
 	crate::core::ffi::guard("get_item_mru_view", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemMRUView");
 		let Some(out) = (unsafe { mru_viewP.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if !known(itemH) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = std::ptr::null_mut();
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -464,9 +464,8 @@ mod tests {
 	fn legacy_suite_names_a_composition() {
 		let suite = suite_6();
 		let mut name = [1u8; AEGP_MAX_ITEM_NAME_SIZE as usize];
-		let err =
-			unsafe { suite.AEGP_GetTypeName.unwrap()(AEGP_ItemType_COMP as AEGP_ItemType, name.as_mut_ptr().cast()) };
-		assert_eq!(err, PF_Err_NONE as A_Err);
+		let err = unsafe { suite.AEGP_GetTypeName.unwrap()(AEGP_ItemType_COMP, name.as_mut_ptr().cast()) };
+		assert_eq!(err, PF_Err_NONE);
 		assert!(name.starts_with(b"Composition\0"));
 	}
 
@@ -474,9 +473,8 @@ mod tests {
 	fn comp_type_name_is_composition() {
 		let suite = suite_8();
 		let mut name = [1u8; AEGP_MAX_ITEM_NAME_SIZE as usize];
-		let err =
-			unsafe { suite.AEGP_GetTypeName.unwrap()(AEGP_ItemType_COMP as AEGP_ItemType, name.as_mut_ptr().cast()) };
-		assert_eq!(err, PF_Err_NONE as A_Err);
+		let err = unsafe { suite.AEGP_GetTypeName.unwrap()(AEGP_ItemType_COMP, name.as_mut_ptr().cast()) };
+		assert_eq!(err, PF_Err_NONE);
 		assert!(name.starts_with(b"Composition\0"));
 	}
 
@@ -485,7 +483,7 @@ mod tests {
 		let suite = suite_8();
 		let mut kind: AEGP_ItemType = 0;
 		let err = unsafe { suite.AEGP_GetItemType.unwrap()(std::ptr::null_mut(), &mut kind) };
-		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as A_Err);
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
 	}
 
 	#[test]
@@ -493,6 +491,6 @@ mod tests {
 		let suite = suite_8();
 		let mut item: AEGP_ItemH = 0x1 as AEGP_ItemH;
 		let err = unsafe { suite.AEGP_GetActiveItem.unwrap()(&mut item) };
-		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as A_Err);
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
 	}
 }

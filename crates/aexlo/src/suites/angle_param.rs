@@ -1,4 +1,4 @@
-use after_effects_sys::{
+use crate::sdk::{
 	A_FpLong, PF_AngleParamSuite1, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_ParamDef, PF_ProgPtr,
 };
 
@@ -13,17 +13,17 @@ unsafe extern "C" fn get_floating_point_value_from_angle_def_sys(
 		//== Validation ==//
 		if effect_ref.is_null() {
 			log::error!("the arg `effect_ref` is null.");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		if angle_defP.is_null() {
 			log::error!("the arg `angle_defP` is null.");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		if fp_valueP.is_null() {
 			log::error!("the arg `fp_valueP` is null.");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		//== Implementation ==//
@@ -39,7 +39,7 @@ unsafe extern "C" fn get_floating_point_value_from_angle_def_sys(
 			"fp_valueP" => format!("{:?}", fp_valueP);
 			result: degrees,
 		);
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 

@@ -1,7 +1,7 @@
 //! Dummy implementation for PF Utility Suite (Premiere/AE support callbacks)
 
+use crate::sdk::*;
 use crate::suites::macros::stub_log;
-use after_effects_sys::*;
 use std::os::raw::c_void;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -389,7 +389,7 @@ unsafe impl Send for AEGPUtilitySuiteCompatV11 {}
 pub static AEGP_UTILITY_SUITE: LazyLock<AEGPUtilitySuiteCompatV11> = LazyLock::new(build_aegp_utility_suite_compat_v11);
 
 unsafe extern "C" fn aegp_noop_ok_stub() -> A_Err {
-	crate::core::ffi::guard("aegp_noop_ok_stub", || PF_Err_NONE as A_Err)
+	crate::core::ffi::guard("aegp_noop_ok_stub", || PF_Err_NONE)
 }
 
 unsafe extern "C" fn aegp_register_with_aegp_stub(
@@ -399,7 +399,7 @@ unsafe extern "C" fn aegp_register_with_aegp_stub(
 ) -> A_Err {
 	crate::core::ffi::guard("aegp_register_with_aegp_stub", || {
 		if plugin_id.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		if !plugin_nameZ.is_null() {
@@ -412,12 +412,12 @@ unsafe extern "C" fn aegp_register_with_aegp_stub(
 		unsafe {
 			let id = NEXT_AEGP_PLUGIN_ID.fetch_add(1, Ordering::Relaxed);
 			if !crate::suites::register::register_plugin(id, global_refcon) {
-				return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 			*plugin_id = id;
 		}
 
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -428,7 +428,7 @@ unsafe extern "C" fn aegp_is_scripting_available_stub(out_available_pb: *mut A_B
 				*out_available_pb = 1;
 			}
 		}
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -458,7 +458,7 @@ unsafe extern "C" fn aegp_execute_script_stub(
 			log::debug!("AEGP_ExecuteScript(len={}): stubbed", script.len());
 		}
 
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 

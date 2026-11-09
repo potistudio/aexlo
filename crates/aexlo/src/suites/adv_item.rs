@@ -5,15 +5,14 @@
 
 use crate::core::diagnostics::diag;
 use crate::host::app::with_app_host_ffi as with_host;
-use after_effects_sys::{
-	A_long, PF_AdvItemSuite1, PF_Boolean, PF_ContextH, PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE,
-	PF_InData, PF_Step, PF_Step_BACKWARD,
+use crate::sdk::{
+	A_long, AsLong, PF_AdvItemSuite1, PF_Boolean, PF_ContextH, PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM,
+	PF_Err_NONE, PF_InData, PF_Step, PF_Step_BACKWARD,
 };
 
 /// Fold `PF_Step` + a step count into a signed frame delta.
 fn signed_steps(time_dir: PF_Step, num_stepsL: A_long) -> i32 {
-	#[allow(clippy::unnecessary_cast)] // `PF_Step_*` is `u32` on macOS only.
-	if time_dir as i64 == PF_Step_BACKWARD as i64 {
+	if time_dir.long() == PF_Step_BACKWARD {
 		-num_stepsL
 	} else {
 		num_stepsL
@@ -45,7 +44,7 @@ unsafe extern "C" fn move_time_step(
 
 		with_host(|host| {
 			host.move_time_step(unsafe { effect_of(in_data) }, signed_steps(time_dir, num_stepsL));
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -59,7 +58,7 @@ unsafe extern "C" fn move_time_step_active_item(time_dir: PF_Step, num_stepsL: A
 
 		with_host(|host| {
 			host.move_time_step(0, signed_steps(time_dir, num_stepsL));
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -70,7 +69,7 @@ unsafe extern "C" fn touch_active_item() -> PF_Err {
 
 		with_host(|host| {
 			host.touch_active_item();
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -85,7 +84,7 @@ unsafe extern "C" fn force_rerender(in_data: *mut PF_InData, world: *mut PF_Effe
 
 		with_host(|host| {
 			host.force_rerender(unsafe { effect_of(in_data) });
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -98,11 +97,11 @@ unsafe extern "C" fn effect_is_active_or_enabled(contextH: PF_ContextH, enabledP
 		);
 
 		if enabledPB.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		with_host(|host| {
 			unsafe { *enabledPB = host.effect_is_active_or_enabled(contextH as usize) as PF_Boolean };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -122,7 +121,7 @@ pub(super) const fn create_adv_item_suite_1() -> PF_AdvItemSuite1 {
 mod tests {
 	use super::*;
 	use crate::host::app::{AppHost, TEST_APP_HOST};
-	use after_effects_sys::PF_Step_FORWARD;
+	use crate::sdk::PF_Step_FORWARD;
 	use std::sync::{Arc, Mutex};
 
 	#[derive(Clone, Default)]

@@ -16,7 +16,7 @@
 //! Channels are averaged as stored, i.e. premultiplied for AE's worlds.
 
 use super::pixel_norm::NormalizedPixel;
-use after_effects_sys::{
+use crate::sdk::{
 	PF_BatchSample16Func, PF_BatchSampleFunc, PF_BatchSamplingSuite1, PF_EffectWorld, PF_Err,
 	PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_Fixed, PF_ModeFlags, PF_Pixel, PF_Pixel16, PF_PixelFloat, PF_ProgPtr,
 	PF_Quality, PF_SampPB, PF_Sampling8Suite1, PF_Sampling16Suite1, PF_SamplingFloatSuite1,
@@ -112,13 +112,13 @@ unsafe fn sample<P: NormalizedPixel>(
 	kind: Kind,
 ) -> PF_Err {
 	let Some(params) = (unsafe { params.as_ref() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	};
 	let Some(world) = (unsafe { params.src.as_ref() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	};
 	if dst.is_null() || world.data.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	}
 	let (x, y) = (fixed_to_f64(x), fixed_to_f64(y));
 	let argb = unsafe {
@@ -135,7 +135,7 @@ unsafe fn sample<P: NormalizedPixel>(
 		}
 	};
 	unsafe { *dst = P::from_norm(argb) };
-	PF_Err_NONE as PF_Err
+	PF_Err_NONE
 }
 
 macro_rules! sampler {
@@ -173,7 +173,7 @@ pub(crate) unsafe extern "C" fn begin_sampling_sys(
 		if let Some(params) = unsafe { params.as_mut() } {
 			params.reserved = [0; 8];
 		}
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -183,7 +183,7 @@ pub(crate) unsafe extern "C" fn end_sampling_sys(
 	_mf: PF_ModeFlags,
 	_params: *mut PF_SampPB,
 ) -> PF_Err {
-	crate::core::ffi::guard("end_sampling_sys", || PF_Err_NONE as PF_Err)
+	crate::core::ffi::guard("end_sampling_sys", || PF_Err_NONE)
 }
 
 /// Batch sampling functions were withdrawn in AE 7.0; report none so the
@@ -200,7 +200,7 @@ unsafe extern "C" fn get_batch_func(
 		if let Some(out) = unsafe { batch.as_mut() } {
 			*out = std::ptr::null_mut();
 		}
-		PF_Err_BAD_CALLBACK_PARAM as PF_Err
+		PF_Err_BAD_CALLBACK_PARAM
 	})
 }
 
@@ -216,7 +216,7 @@ unsafe extern "C" fn get_batch_func16(
 		if let Some(out) = unsafe { batch.as_mut() } {
 			*out = std::ptr::null_mut();
 		}
-		PF_Err_BAD_CALLBACK_PARAM as PF_Err
+		PF_Err_BAD_CALLBACK_PARAM
 	})
 }
 
@@ -295,10 +295,7 @@ mod tests {
 			green: 7,
 			blue: 7,
 		};
-		assert_eq!(
-			unsafe { f(std::ptr::null_mut(), x, y, pb, &mut out) },
-			PF_Err_NONE as PF_Err
-		);
+		assert_eq!(unsafe { f(std::ptr::null_mut(), x, y, pb, &mut out) }, PF_Err_NONE);
 		out
 	}
 
@@ -348,6 +345,6 @@ mod tests {
 			blue: 0,
 		};
 		let err = unsafe { subpixel_sample_8_sys(std::ptr::null_mut(), 0, 0, &pb, &mut out) };
-		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as PF_Err);
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
 	}
 }

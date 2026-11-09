@@ -1,6 +1,6 @@
 use std::ffi::{CStr, CString};
 
-use after_effects_sys::{A_char, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_INTERNAL_STRUCT_DAMAGED, PF_Err_NONE};
+use crate::sdk::{A_char, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_INTERNAL_STRUCT_DAMAGED, PF_Err_NONE};
 
 #[cfg(feature = "diagnostics")]
 use crate::core::diagnostics::DiagnosticBuilder;
@@ -75,13 +75,13 @@ pub(crate) unsafe extern "C" fn sprintf_sys(arg1: *mut A_char, arg2: *const A_ch
 		const SPRINTF_BUFFER_SIZE: usize = 256;
 
 		if arg1.is_null() || arg2.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		let format_str = match unsafe { CStr::from_ptr(arg2) }.to_str() {
 			Ok(s) => s,
 			Err(_) => {
-				return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err;
+				return PF_Err_INTERNAL_STRUCT_DAMAGED;
 			}
 		};
 
@@ -149,7 +149,7 @@ pub(crate) unsafe extern "C" fn sprintf_sys(arg1: *mut A_char, arg2: *const A_ch
 		let c_result = match CString::new(result) {
 			Ok(s) => s,
 			Err(_) => {
-				return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err;
+				return PF_Err_INTERNAL_STRUCT_DAMAGED;
 			}
 		};
 
@@ -169,7 +169,7 @@ pub(crate) unsafe extern "C" fn sprintf_sys(arg1: *mut A_char, arg2: *const A_ch
 		#[cfg(feature = "diagnostics")]
 		diagnostics.set_result(format!("{:?}", c_result)).emit();
 
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -393,7 +393,7 @@ mod tests {
 			let fmt = CString::new($fmt).unwrap();
 			let mut buffer = [0 as A_char; 256];
 			let err = unsafe { sprintf_sys(buffer.as_mut_ptr(), fmt.as_ptr() $(, $arg)*) };
-			assert_eq!(err, PF_Err_NONE as PF_Err, "sprintf_sys returned error {err}");
+			assert_eq!(err, PF_Err_NONE, "sprintf_sys returned error {err}");
 			unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_str().unwrap().to_owned()
 		}};
 	}
@@ -455,14 +455,14 @@ mod tests {
 	fn sprintf_null_buffer_is_bad_callback_param() {
 		let fmt = CString::new("%d").unwrap();
 		let err = unsafe { sprintf_sys(std::ptr::null_mut(), fmt.as_ptr(), 1i32) };
-		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as PF_Err);
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
 	}
 
 	#[test]
 	fn sprintf_null_format_is_bad_callback_param() {
 		let mut buffer = [0 as A_char; 256];
 		let err = unsafe { sprintf_sys(buffer.as_mut_ptr(), std::ptr::null()) };
-		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as PF_Err);
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
 	}
 
 	// Note: passing fewer args than the format has specifiers (e.g. `sprintf!("%d")`)

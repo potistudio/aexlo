@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
-use after_effects_sys::{
+use crate::sdk::{
 	A_Boolean, A_Err, A_char, A_long, AEGP_MemHandle, AEGP_MemSize, AEGP_MemorySuite1, AEGP_PluginID,
 	PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_Err_OUT_OF_MEMORY,
 };
@@ -49,50 +49,50 @@ unsafe extern "C" fn new_mem(
 ) -> A_Err {
 	crate::core::ffi::guard("new_mem", || {
 		let Some(out) = (unsafe { mem_out.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let Ok(size) = usize::try_from(size) else {
-			return PF_Err_OUT_OF_MEMORY as A_Err;
+			return PF_Err_OUT_OF_MEMORY;
 		};
 		// Uninitialised memory is not observable, so `CLEAR` and the default both
 		// hand back zeroes.
 		*out = publish(Block { bytes: vec![0u8; size] });
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn free_mem(handle: AEGP_MemHandle) -> A_Err {
 	crate::core::ffi::guard("free_mem", || {
 		if live().remove(&(handle as usize)).is_none() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		drop(unsafe { Box::from_raw(handle as *mut *mut std::ffi::c_void) });
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn lock_mem(handle: AEGP_MemHandle, ptr_to_ptr: *mut *mut std::ffi::c_void) -> A_Err {
 	crate::core::ffi::guard("lock_mem", || {
 		let Some(out) = (unsafe { ptr_to_ptr.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let mut live = live();
 		let Some(block) = live.get_mut(&(handle as usize)) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let data = block.bytes.as_mut_ptr().cast();
 		unsafe { *(handle as *mut *mut std::ffi::c_void) = data };
 		*out = data;
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn unlock_mem(handle: AEGP_MemHandle) -> A_Err {
 	crate::core::ffi::guard("unlock_mem", || {
 		if !live().contains_key(&(handle as usize)) {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -100,31 +100,31 @@ unsafe extern "C" fn get_size(handle: AEGP_MemHandle, size_out: *mut AEGP_MemSiz
 	crate::core::ffi::guard("get_size", || {
 		let live = live();
 		let (Some(block), Some(out)) = (live.get(&(handle as usize)), unsafe { size_out.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = block.bytes.len() as AEGP_MemSize;
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn resize(_what: *const A_char, new_size: AEGP_MemSize, handle: AEGP_MemHandle) -> A_Err {
 	crate::core::ffi::guard("resize", || {
 		let Ok(new_size) = usize::try_from(new_size) else {
-			return PF_Err_OUT_OF_MEMORY as A_Err;
+			return PF_Err_OUT_OF_MEMORY;
 		};
 		let mut live = live();
 		let Some(block) = live.get_mut(&(handle as usize)) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		block.bytes.resize(new_size, 0);
 		let data = block.bytes.as_mut_ptr().cast();
 		unsafe { *(handle as *mut *mut std::ffi::c_void) = data };
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn set_reporting(_turn_on: A_Boolean) -> A_Err {
-	crate::core::ffi::guard("set_reporting", || PF_Err_NONE as A_Err)
+	crate::core::ffi::guard("set_reporting", || PF_Err_NONE)
 }
 
 unsafe extern "C" fn get_stats(_plugin_id: AEGP_PluginID, count_out: *mut A_long, size_out: *mut A_long) -> A_Err {
@@ -139,7 +139,7 @@ unsafe extern "C" fn get_stats(_plugin_id: AEGP_PluginID, count_out: *mut A_long
 		if let Some(size) = unsafe { size_out.as_mut() } {
 			*size = bytes.min(i32::MAX as usize) as A_long;
 		}
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -167,18 +167,15 @@ mod tests {
 		unsafe {
 			assert_eq!(
 				suite.AEGP_NewMemHandle.unwrap()(0, std::ptr::null(), 4, 1, &mut handle),
-				PF_Err_NONE as A_Err
+				PF_Err_NONE
 			);
 			let mut ptr = std::ptr::null_mut();
-			assert_eq!(
-				suite.AEGP_LockMemHandle.unwrap()(handle, &mut ptr),
-				PF_Err_NONE as A_Err
-			);
+			assert_eq!(suite.AEGP_LockMemHandle.unwrap()(handle, &mut ptr), PF_Err_NONE);
 			assert_eq!(*handle as usize, ptr as usize);
 			std::ptr::write_bytes(ptr.cast::<u8>(), 0x5a, 4);
 			suite.AEGP_UnlockMemHandle.unwrap()(handle);
-			assert_eq!(suite.AEGP_FreeMemHandle.unwrap()(handle), PF_Err_NONE as A_Err);
-			assert_ne!(suite.AEGP_FreeMemHandle.unwrap()(handle), PF_Err_NONE as A_Err);
+			assert_eq!(suite.AEGP_FreeMemHandle.unwrap()(handle), PF_Err_NONE);
+			assert_ne!(suite.AEGP_FreeMemHandle.unwrap()(handle), PF_Err_NONE);
 		}
 	}
 }

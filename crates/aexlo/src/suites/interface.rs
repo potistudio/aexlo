@@ -9,7 +9,7 @@
 //! layer starts at comp time 0), and the camera geometry is After Effects'
 //! default comp camera (50 mm preset) for the effect's layer.
 
-use after_effects_sys::{
+use crate::sdk::{
 	A_Err, A_FpLong, A_Matrix4, A_Time, A_long, A_short, A_u_long, AEGP_EffectRefH, AEGP_LayerH,
 	AEGP_PFInterfaceSuite1, AEGP_PluginID, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_ProgPtr,
 };
@@ -26,14 +26,14 @@ unsafe extern "C" fn get_effect_layer_sys(effect_pp_ref: PF_ProgPtr, layerPH: *m
 		);
 
 		let Some(out) = (unsafe { layerPH.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if effect_pp_ref.is_null() {
 			*out = std::ptr::null_mut();
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = layer::layer_handle(effect_pp_ref);
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -50,14 +50,14 @@ unsafe extern "C" fn get_new_effect_for_effect_sys(
 		);
 
 		let Some(out) = (unsafe { effect_refPH.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if effect_pp_ref.is_null() {
 			*out = std::ptr::null_mut();
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = effect::new_effect_handle(effect_pp_ref);
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -78,13 +78,13 @@ unsafe extern "C" fn convert_effect_to_comp_time_sys(
 		);
 
 		let Some(out) = (unsafe { comp_timePT.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = A_Time {
 			value: what_timeL,
 			scale: time_scaleLu,
 		};
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -102,10 +102,10 @@ unsafe extern "C" fn get_effect_camera_sys(
 		);
 
 		let Some(out) = (unsafe { camera_layerPH.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = std::ptr::null_mut();
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -146,7 +146,7 @@ unsafe extern "C" fn get_effect_camera_matrix(
 		);
 
 		let Some(instance) = PluginInstance::get_instance_ptr(effect_pp_ref) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		// The comp is the effect's layer.
 		let (width, height) = unsafe { instance.as_ref() }.input_size();
@@ -165,7 +165,7 @@ unsafe extern "C" fn get_effect_camera_matrix(
 				*out = height.min(A_short::MAX as u32) as A_short;
 			}
 		}
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -201,7 +201,7 @@ mod tests {
 		assert_eq!((time.value, time.scale), (12, 30));
 
 		let err = unsafe { suite.AEGP_GetEffectLayer.unwrap()(std::ptr::null_mut(), &mut layer) };
-		assert_ne!(err, PF_Err_NONE as A_Err);
+		assert_ne!(err, PF_Err_NONE);
 		assert!(layer.is_null());
 	}
 
@@ -213,16 +213,16 @@ mod tests {
 		unsafe {
 			assert_eq!(
 				suite.AEGP_GetNewEffectForEffect.unwrap()(0, effect_ref, &mut handle),
-				PF_Err_NONE as A_Err
+				PF_Err_NONE
 			);
 			assert_eq!(effect::effect_ref_of(handle), Some(effect_ref));
 			let dispose = crate::suites::SUITE_CONTAINER.effect2.AEGP_DisposeEffect.unwrap();
-			assert_eq!(dispose(handle), PF_Err_NONE as A_Err);
+			assert_eq!(dispose(handle), PF_Err_NONE);
 		}
 
 		let mut handle: AEGP_EffectRefH = 1 as AEGP_EffectRefH;
 		let err = unsafe { suite.AEGP_GetNewEffectForEffect.unwrap()(0, std::ptr::null_mut(), &mut handle) };
-		assert_ne!(err, PF_Err_NONE as A_Err);
+		assert_ne!(err, PF_Err_NONE);
 		assert!(handle.is_null());
 	}
 

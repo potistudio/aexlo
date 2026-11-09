@@ -9,7 +9,7 @@
 //! possible here.
 
 use crate::core::diagnostics::diag;
-use after_effects_sys::{
+use crate::sdk::{
 	PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_Pixel8, PF_Pixel16, PF_PixelDataSuite2,
 	PF_PixelFloat, PF_PixelPtr,
 };
@@ -26,7 +26,7 @@ macro_rules! define_get_pixel_data {
 		) -> PF_Err {
 			if pixPP.is_null() {
 				log::error!(concat!($diag_name, ": pixPP is null"));
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 
 			let data = if !pixelsP0.is_null() {
@@ -34,7 +34,7 @@ macro_rules! define_get_pixel_data {
 			} else {
 				if worldP.is_null() {
 					log::error!(concat!($diag_name, ": both worldP and pixelsP0 are null"));
-					return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+					return PF_Err_BAD_CALLBACK_PARAM;
 				}
 				// SAFETY: worldP was just null-checked.
 				unsafe { (*worldP).data as *mut $out }
@@ -48,7 +48,7 @@ macro_rules! define_get_pixel_data {
 				"pixelsP0" => format!("{:#x}", pixelsP0 as usize);
 				result: format!("{:#x}", data as usize),
 			);
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 	};
 }
@@ -69,7 +69,7 @@ pub(crate) unsafe extern "C" fn get_pixel_data_float_gpu_sys(
 	crate::core::ffi::guard("get_pixel_data_float_gpu_sys", || {
 		if pixPP.is_null() || worldP.is_null() {
 			log::error!("PixelDataSuite/get_pixel_data_float_gpu: null argument");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		// SAFETY: both pointers were null-checked above.
@@ -78,7 +78,7 @@ pub(crate) unsafe extern "C" fn get_pixel_data_float_gpu_sys(
 		diag!("PixelDataSuite/get_pixel_data_float_gpu",
 			"worldP" => format!("{:#x}", worldP as usize),
 		);
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -107,7 +107,7 @@ mod tests {
 
 		let mut out: *mut PF_Pixel8 = std::ptr::null_mut();
 		let err = unsafe { get_pixel_data_8_sys(&mut world, std::ptr::null_mut(), &mut out) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		assert_eq!(out as usize, buf.as_ptr() as usize);
 	}
 
@@ -119,18 +119,18 @@ mod tests {
 		let mut out: *mut PF_Pixel16 = std::ptr::null_mut();
 		// worldP null is fine when pixelsP0 is provided.
 		let err = unsafe { get_pixel_data_16_sys(std::ptr::null_mut(), staged_ptr, &mut out) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		assert_eq!(out as usize, staged.as_ptr() as usize);
 	}
 
 	#[test]
 	fn rejects_null_out_param_and_double_null_source() {
 		let err = unsafe { get_pixel_data_float_sys(std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) };
-		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as PF_Err);
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
 
 		let mut out: *mut PF_PixelFloat = std::ptr::null_mut();
 		let err = unsafe { get_pixel_data_float_sys(std::ptr::null_mut(), std::ptr::null_mut(), &mut out) };
-		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as PF_Err);
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
 	}
 
 	#[test]
@@ -141,7 +141,7 @@ mod tests {
 
 		let mut out: *mut c_void = std::ptr::null_mut();
 		let err = unsafe { get_pixel_data_float_gpu_sys(&mut world, &mut out) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		assert_eq!(out as usize, buf.as_ptr() as usize);
 	}
 }
