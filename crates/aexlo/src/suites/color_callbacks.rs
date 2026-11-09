@@ -19,7 +19,7 @@
 //! anything meaningful in `in_data.effect_ref` yet.
 
 use crate::core::diagnostics::diag;
-use after_effects_sys::{
+use crate::sys::{
 	A_long, PF_ColorCallbacks16Suite1, PF_ColorCallbacksFloatSuite1, PF_ColorCallbacksSuite1, PF_Err,
 	PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_Fixed, PF_Pixel, PF_Pixel16, PF_PixelFloat, PF_ProgPtr,
 };
@@ -149,7 +149,7 @@ macro_rules! define_color_callbacks {
 		) -> PF_Err {
 			if rgb.is_null() || hls.is_null() {
 				log::error!(concat!($diag_prefix, "/RGBtoHLS: null argument"));
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 			let [_, r, g, b] = unsafe { *rgb }.to_norm();
 			let out = rgb_to_hls([r, g, b]);
@@ -157,7 +157,7 @@ macro_rules! define_color_callbacks {
 				unsafe { *hls.add(i) = to_fixed(*v) };
 			}
 			diag!(concat!($diag_prefix, "/RGBtoHLS"), "rgb" => format!("{:?}", (r, g, b)));
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 
 		pub(crate) unsafe extern "C" fn $hls_to_rgb(
@@ -167,7 +167,7 @@ macro_rules! define_color_callbacks {
 		) -> PF_Err {
 			if rgb.is_null() || hls.is_null() {
 				log::error!(concat!($diag_prefix, "/HLStoRGB: null argument"));
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 			let h = from_fixed(unsafe { *hls });
 			let l = from_fixed(unsafe { *hls.add(1) });
@@ -176,7 +176,7 @@ macro_rules! define_color_callbacks {
 			// The callback carries no source alpha, so the result is fully opaque.
 			unsafe { *rgb = <$pix>::from_norm([<$pix>::OPAQUE, r, g, b]) };
 			diag!(concat!($diag_prefix, "/HLStoRGB"), "hls" => format!("{:?}", (h, l, s)));
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 
 		pub(crate) unsafe extern "C" fn $rgb_to_yiq(
@@ -186,7 +186,7 @@ macro_rules! define_color_callbacks {
 		) -> PF_Err {
 			if rgb.is_null() || yiq.is_null() {
 				log::error!(concat!($diag_prefix, "/RGBtoYIQ: null argument"));
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 			let [_, r, g, b] = unsafe { *rgb }.to_norm();
 			let out = rgb_to_yiq([r, g, b]);
@@ -194,7 +194,7 @@ macro_rules! define_color_callbacks {
 				unsafe { *yiq.add(i) = to_fixed(*v) };
 			}
 			diag!(concat!($diag_prefix, "/RGBtoYIQ"), "rgb" => format!("{:?}", (r, g, b)));
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 
 		pub(crate) unsafe extern "C" fn $yiq_to_rgb(
@@ -204,7 +204,7 @@ macro_rules! define_color_callbacks {
 		) -> PF_Err {
 			if rgb.is_null() || yiq.is_null() {
 				log::error!(concat!($diag_prefix, "/YIQtoRGB: null argument"));
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 			let y = from_fixed(unsafe { *yiq });
 			let i = from_fixed(unsafe { *yiq.add(1) });
@@ -212,7 +212,7 @@ macro_rules! define_color_callbacks {
 			let [r, g, b] = yiq_to_rgb([y, i, q]);
 			unsafe { *rgb = <$pix>::from_norm([<$pix>::OPAQUE, r, g, b]) };
 			diag!(concat!($diag_prefix, "/YIQtoRGB"), "yiq" => format!("{:?}", (y, i, q)));
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 
 		pub(crate) unsafe extern "C" fn $luminance(
@@ -222,13 +222,13 @@ macro_rules! define_color_callbacks {
 		) -> PF_Err {
 			if rgb.is_null() || lum100.is_null() {
 				log::error!(concat!($diag_prefix, "/Luminance: null argument"));
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 			let [_, r, g, b] = unsafe { *rgb }.to_norm();
 			let [y, _, _] = rgb_to_yiq([r, g, b]);
 			// "100 times the luminance": the 8-bit-scaled luminance times 100.
 			unsafe { *lum100 = <$scalar>::from_f64(y * 255.0 * 100.0) };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 
 		pub(crate) unsafe extern "C" fn $hue(
@@ -238,13 +238,13 @@ macro_rules! define_color_callbacks {
 		) -> PF_Err {
 			if rgb.is_null() || hue.is_null() {
 				log::error!(concat!($diag_prefix, "/Hue: null argument"));
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 			let [_, r, g, b] = unsafe { *rgb }.to_norm();
 			let [h, _, _] = rgb_to_hls([r, g, b]);
 			// Hue angle mapped onto 0..=255 (255 = 360 degrees).
 			unsafe { *hue = <$scalar>::from_f64(h * 255.0) };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 
 		pub(crate) unsafe extern "C" fn $lightness(
@@ -254,12 +254,12 @@ macro_rules! define_color_callbacks {
 		) -> PF_Err {
 			if rgb.is_null() || lightness.is_null() {
 				log::error!(concat!($diag_prefix, "/Lightness: null argument"));
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 			let [_, r, g, b] = unsafe { *rgb }.to_norm();
 			let [_, l, _] = rgb_to_hls([r, g, b]);
 			unsafe { *lightness = <$scalar>::from_f64(l * 255.0) };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 
 		pub(crate) unsafe extern "C" fn $saturation(
@@ -269,12 +269,12 @@ macro_rules! define_color_callbacks {
 		) -> PF_Err {
 			if rgb.is_null() || saturation.is_null() {
 				log::error!(concat!($diag_prefix, "/Saturation: null argument"));
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 			let [_, r, g, b] = unsafe { *rgb }.to_norm();
 			let [_, _, s] = rgb_to_hls([r, g, b]);
 			unsafe { *saturation = <$scalar>::from_f64(s * 255.0) };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 	};
 }
@@ -426,7 +426,7 @@ mod tests {
 		};
 		let mut hls = [0 as PF_Fixed; 3];
 		let err = unsafe { rgb_to_hls_8_sys(std::ptr::null_mut(), &mut rgb, hls.as_mut_ptr()) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		// [0, 0.5, 1.0] in 16.16 fixed point.
 		assert_eq!(hls, [0, 32768, 65536]);
 	}
@@ -507,11 +507,11 @@ mod tests {
 		let mut hls = [0 as PF_Fixed; 3];
 		assert_eq!(
 			unsafe { rgb_to_hls_8_sys(std::ptr::null_mut(), std::ptr::null_mut(), hls.as_mut_ptr()) },
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			PF_Err_BAD_CALLBACK_PARAM
 		);
 		assert_eq!(
 			unsafe { rgb_to_hls_8_sys(std::ptr::null_mut(), &mut rgb, std::ptr::null_mut()) },
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			PF_Err_BAD_CALLBACK_PARAM
 		);
 	}
 }

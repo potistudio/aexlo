@@ -18,7 +18,7 @@ macro_rules! stub_log {
         #[allow(unused_variables)]
         pub unsafe extern "C" fn $fn_name( $( $arg_name : $arg_ty ),* ) -> PF_Err {
             log::warn!("STUB: {} called", stringify!($fn_name));
-            PF_Err_NONE as PF_Err
+            PF_Err_NONE
         }
     };
 }

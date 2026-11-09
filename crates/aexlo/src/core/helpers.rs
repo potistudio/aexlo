@@ -1,4 +1,4 @@
-use after_effects_sys::*;
+use crate::sys::*;
 use std::ptr::null_mut;
 
 pub struct OutDataBuilder {

@@ -13,7 +13,7 @@
 pub(crate) fn guard(name: &'static str, body: impl FnOnce() -> i32) -> i32 {
 	std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)).unwrap_or_else(|_| {
 		log::error!("{name} panicked; reporting PF_Err_INTERNAL_STRUCT_DAMAGED to the plugin");
-		after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED as i32
+		crate::sys::PF_Err_INTERNAL_STRUCT_DAMAGED
 	})
 }
 
@@ -32,6 +32,6 @@ mod tests {
 		std::panic::set_hook(Box::new(|_| {}));
 		let err = guard("boom", || panic!("boom"));
 		std::panic::set_hook(previous);
-		assert_eq!(err, after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED as i32);
+		assert_eq!(err, crate::sys::PF_Err_INTERNAL_STRUCT_DAMAGED);
 	}
 }

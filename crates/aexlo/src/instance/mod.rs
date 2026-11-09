@@ -13,19 +13,18 @@ use crate::utils;
 
 use crate::gpu::GPU_BYTES_PER_PIXEL;
 use crate::pixel::{AnyLayer, Depth8, Layer, Pixel, PixelDepth, PixelDepthKind};
-use crate::time::Time;
-use after_effects_sys::{
+use crate::sys::{
 	PF_ArbParamsExtra, PF_Arbitrary_COPY_FUNC, PF_Arbitrary_DISPOSE_FUNC, PF_Arbitrary_NEW_FUNC, PF_ArbitraryH,
-	PF_Err_INVALID_CALLBACK, PF_Err_NONE, PF_GPU_Framework, PF_GPU_Framework_NONE, PF_GPUDeviceSetdownExtra,
-	PF_GPUDeviceSetdownInput, PF_GPUDeviceSetupExtra, PF_GPUDeviceSetupInput, PF_GPUDeviceSetupOutput,
-	PF_OutFlag2_SUPPORTS_GPU_RENDER_F32, PF_OutFlags, PF_OutFlags2, PF_ParamDef, PF_ParamDefUnion, PF_ParamType,
-	PF_ProgPtr,
+	PF_Err_INVALID_CALLBACK, PF_Err_NONE, PF_GPU_Framework_NONE, PF_GPUDeviceSetdownExtra, PF_GPUDeviceSetdownInput,
+	PF_GPUDeviceSetupExtra, PF_GPUDeviceSetupInput, PF_GPUDeviceSetupOutput, PF_OutFlag2_SUPPORTS_GPU_RENDER_F32,
+	PF_OutFlags, PF_OutFlags2, PF_ParamDef, PF_ParamDefUnion, PF_ParamType, PF_ProgPtr,
 };
-use after_effects_sys::{
+use crate::sys::{
 	PF_Cmd, PF_Param_ANGLE, PF_Param_ARBITRARY_DATA, PF_Param_CHECKBOX, PF_Param_COLOR, PF_Param_FIX_SLIDER,
 	PF_Param_FLOAT_SLIDER, PF_Param_LAYER, PF_Param_PATH, PF_Param_POINT, PF_Param_POINT_3D, PF_Param_POPUP,
 	PF_Param_SLIDER,
 };
+use crate::time::Time;
 use dlopen2::raw::Library;
 use std::{
 	collections::HashMap,
@@ -48,23 +47,23 @@ use crate::core::constants::{DEFAULT_HEIGHT as HEIGHT, DEFAULT_WIDTH as WIDTH};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub(crate) enum RawCommand {
-	About = after_effects_sys::PF_Cmd_ABOUT as i32,
-	GlobalSetup = after_effects_sys::PF_Cmd_GLOBAL_SETUP as i32,
-	GlobalSetdown = after_effects_sys::PF_Cmd_GLOBAL_SETDOWN as i32,
-	ParamsSetup = after_effects_sys::PF_Cmd_PARAMS_SETUP as i32,
-	SequenceSetup = after_effects_sys::PF_Cmd_SEQUENCE_SETUP as i32,
-	SequenceSetdown = after_effects_sys::PF_Cmd_SEQUENCE_SETDOWN as i32,
-	DoDialog = after_effects_sys::PF_Cmd_DO_DIALOG as i32,
-	Render = after_effects_sys::PF_Cmd_RENDER as i32,
-	UserChangedParam = after_effects_sys::PF_Cmd_USER_CHANGED_PARAM as i32,
-	UpdateParamsUi = after_effects_sys::PF_Cmd_UPDATE_PARAMS_UI as i32,
-	Event = after_effects_sys::PF_Cmd_EVENT as i32,
-	ArbitraryCallback = after_effects_sys::PF_Cmd_ARBITRARY_CALLBACK as i32,
-	SmartPreRender = after_effects_sys::PF_Cmd_SMART_PRE_RENDER as i32,
-	SmartRender = after_effects_sys::PF_Cmd_SMART_RENDER as i32,
-	SmartRenderGpu = after_effects_sys::PF_Cmd_SMART_RENDER_GPU as i32,
-	GpuDeviceSetup = after_effects_sys::PF_Cmd_GPU_DEVICE_SETUP as i32,
-	GpuDeviceSetdown = after_effects_sys::PF_Cmd_GPU_DEVICE_SETDOWN as i32,
+	About = crate::sys::PF_Cmd_ABOUT,
+	GlobalSetup = crate::sys::PF_Cmd_GLOBAL_SETUP,
+	GlobalSetdown = crate::sys::PF_Cmd_GLOBAL_SETDOWN,
+	ParamsSetup = crate::sys::PF_Cmd_PARAMS_SETUP,
+	SequenceSetup = crate::sys::PF_Cmd_SEQUENCE_SETUP,
+	SequenceSetdown = crate::sys::PF_Cmd_SEQUENCE_SETDOWN,
+	DoDialog = crate::sys::PF_Cmd_DO_DIALOG,
+	Render = crate::sys::PF_Cmd_RENDER,
+	UserChangedParam = crate::sys::PF_Cmd_USER_CHANGED_PARAM,
+	UpdateParamsUi = crate::sys::PF_Cmd_UPDATE_PARAMS_UI,
+	Event = crate::sys::PF_Cmd_EVENT,
+	ArbitraryCallback = crate::sys::PF_Cmd_ARBITRARY_CALLBACK,
+	SmartPreRender = crate::sys::PF_Cmd_SMART_PRE_RENDER,
+	SmartRender = crate::sys::PF_Cmd_SMART_RENDER,
+	SmartRenderGpu = crate::sys::PF_Cmd_SMART_RENDER_GPU,
+	GpuDeviceSetup = crate::sys::PF_Cmd_GPU_DEVICE_SETUP,
+	GpuDeviceSetdown = crate::sys::PF_Cmd_GPU_DEVICE_SETDOWN,
 }
 
 impl RawCommand {
@@ -122,12 +121,12 @@ unsafe extern "C" {
 unsafe fn call_entry(
 	entry_point: PluginEntryPoint,
 	command: RawCommand,
-	in_data: *mut after_effects_sys::PF_InData,
-	out_data: *mut after_effects_sys::PF_OutData,
-	params: after_effects_sys::PF_ParamList,
-	output: *mut after_effects_sys::PF_LayerDef,
+	in_data: *mut crate::sys::PF_InData,
+	out_data: *mut crate::sys::PF_OutData,
+	params: crate::sys::PF_ParamList,
+	output: *mut crate::sys::PF_LayerDef,
 	extra: *mut c_void,
-) -> after_effects_sys::PF_Err {
+) -> crate::sys::PF_Err {
 	#[cfg(windows)]
 	{
 		let mut code = 0u32;
@@ -137,7 +136,7 @@ unsafe fn call_entry(
 		let result = unsafe {
 			aexlo_call_entry(
 				entry_point as usize as *const c_void,
-				command.to_sys() as i32,
+				command.to_sys(),
 				in_data.cast(),
 				out_data.cast(),
 				params.cast(),
@@ -150,9 +149,9 @@ unsafe fn call_entry(
 			log::error!(
 				"plugin command {command:?} threw a C++ exception ({code:#x}); reporting PF_Err_INTERNAL_STRUCT_DAMAGED"
 			);
-			return after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED as after_effects_sys::PF_Err;
+			return crate::sys::PF_Err_INTERNAL_STRUCT_DAMAGED;
 		}
-		result as after_effects_sys::PF_Err
+		result as crate::sys::PF_Err
 	}
 	#[cfg(not(windows))]
 	{
@@ -167,12 +166,12 @@ unsafe fn call_entry(
 /// effect without `dlopen`.
 pub type PluginEntryPoint = unsafe extern "C" fn(
 	cmd: PF_Cmd,
-	in_data: *mut after_effects_sys::PF_InData,
-	out_data: *mut after_effects_sys::PF_OutData,
-	params: after_effects_sys::PF_ParamList,
-	output: *mut after_effects_sys::PF_LayerDef,
+	in_data: *mut crate::sys::PF_InData,
+	out_data: *mut crate::sys::PF_OutData,
+	params: crate::sys::PF_ParamList,
+	output: *mut crate::sys::PF_LayerDef,
 	extra: *mut ::std::os::raw::c_void,
-) -> after_effects_sys::PF_Err;
+) -> crate::sys::PF_Err;
 
 /// Independent instance of an After Effects Plug-in.
 /// It is created by loading a plug-in with [`Host::load`] or by driving an in-process entry point with [`Host::from_entry`].
@@ -194,16 +193,16 @@ pub struct PluginInstance {
 	resolved_binary_path: Option<PathBuf>,
 
 	/// Persistent output world handed back by `checkout_output` during smart render.
-	world: after_effects_sys::PF_LayerDef,
+	world: crate::sys::PF_LayerDef,
 
 	/// Persistent input world handed back by `checkout_layer_pixels` during smart
 	/// render. Kept in sync with `input_layer` so the pointer stays valid across calls.
-	input_world: after_effects_sys::PF_LayerDef,
+	input_world: crate::sys::PF_LayerDef,
 
-	utility_callbacks: Box<after_effects_sys::_PF_UtilCallbacks>,
+	utility_callbacks: Box<crate::sys::_PF_UtilCallbacks>,
 
 	/// Basic Suite pointer.
-	pica: Box<after_effects_sys::SPBasicSuite>,
+	pica: Box<crate::sys::SPBasicSuite>,
 
 	/// Host-wide constants composed into every `PF_InData`.
 	host_info: InDataHost,
@@ -211,14 +210,14 @@ pub struct PluginInstance {
 	effect_state: EffectState,
 	/// Frame the next command operates on.
 	pub(crate) render_context: RenderContext,
-	out_data: after_effects_sys::PF_OutData,
+	out_data: crate::sys::PF_OutData,
 	/// `out_flags` as declared at `PF_Cmd_GLOBAL_SETUP`.
 	global_out_flags: PF_OutFlags,
 	/// `out_flags2` as declared at `PF_Cmd_GLOBAL_SETUP`.
 	global_out_flags2: PF_OutFlags2,
 
 	/// Instance-specific parameters from the host (non-global storage).
-	params: Vec<after_effects_sys::PF_ParamDef>,
+	params: Vec<crate::sys::PF_ParamDef>,
 
 	/// Popup choice labels captured per parameter at `PF_Cmd_PARAMS_SETUP`,
 	/// parallel to `params` (empty for non-popup params). Captured at add time
@@ -289,7 +288,7 @@ pub struct PluginInstance {
 
 	/// Smart-render checkout ids mapped to the layer parameter they checked
 	/// out, recorded by `checkout_layer` during pre-render.
-	layer_checkouts: HashMap<after_effects_sys::A_long, usize>,
+	layer_checkouts: HashMap<crate::sys::A_long, usize>,
 
 	/// Whether iterate callbacks may run on worker threads (see
 	/// [`Self::set_parallel_iterate`]).
@@ -324,41 +323,40 @@ struct ControlPointer {
 }
 
 fn wants_redraw(flags: i32) -> bool {
-	let again = (after_effects_sys::PF_EO_ALWAYS_UPDATE | after_effects_sys::PF_EO_UPDATE_NOW)
-		as after_effects_sys::PF_EventOutFlags;
+	let again = (crate::sys::PF_EO_ALWAYS_UPDATE | crate::sys::PF_EO_UPDATE_NOW) as crate::sys::PF_EventOutFlags;
 	flags & again != 0
 }
 
 struct LiveUiContext {
 	/// Keeps the context allocation alive; the handle points into it.
 	#[allow(dead_code)]
-	context: Box<after_effects_sys::PF_Context>,
-	handle: Box<*mut after_effects_sys::PF_Context>,
+	context: Box<crate::sys::PF_Context>,
+	handle: Box<*mut crate::sys::PF_Context>,
 }
 
 impl LiveUiContext {
 	fn new() -> Self {
-		let mut context = Box::new(after_effects_sys::PF_Context {
-			magic: after_effects_sys::PF_CONTEXT_MAGIC,
-			w_type: after_effects_sys::PF_Window_EFFECT as after_effects_sys::PF_WindowType,
+		let mut context = Box::new(crate::sys::PF_Context {
+			magic: crate::sys::PF_CONTEXT_MAGIC,
+			w_type: crate::sys::PF_Window_EFFECT as crate::sys::PF_WindowType,
 			reserved_flt: std::ptr::null_mut(),
 			plugin_state: [0; 4],
 			reserved_drawref: std::ptr::null_mut(),
 			reserved_paneP: std::ptr::null_mut(),
 			reserved_job_manageP: std::ptr::null_mut(),
 		});
-		let ptr = context.as_mut() as *mut after_effects_sys::PF_Context;
+		let ptr = context.as_mut() as *mut crate::sys::PF_Context;
 		Self {
 			context,
 			handle: Box::new(ptr),
 		}
 	}
 
-	fn handle(&mut self) -> after_effects_sys::PF_ContextH {
+	fn handle(&mut self) -> crate::sys::PF_ContextH {
 		self.handle.as_mut()
 	}
 
-	fn set_draw_ref(&mut self, draw: after_effects_sys::DRAWBOT_DrawRef) {
+	fn set_draw_ref(&mut self, draw: crate::sys::DRAWBOT_DrawRef) {
 		self.context.reserved_drawref = draw;
 	}
 
@@ -465,16 +463,16 @@ impl PluginInstance {
 	///
 	/// Used by smart-render callbacks to hand back a stable pointer instead of one
 	/// pointing at a temporary value that would dangle after the callback returns.
-	pub(crate) fn output_world_ptr(&mut self) -> *mut after_effects_sys::PF_EffectWorld {
-		&mut self.world as *mut after_effects_sys::PF_LayerDef as *mut after_effects_sys::PF_EffectWorld
+	pub(crate) fn output_world_ptr(&mut self) -> *mut crate::sys::PF_EffectWorld {
+		&mut self.world as *mut crate::sys::PF_LayerDef as *mut crate::sys::PF_EffectWorld
 	}
 
 	/// Get a pointer to the instance's persistent input world (`PF_LayerDef`/`PF_EffectWorld`).
 	///
 	/// Used by smart-render `checkout_layer_pixels` to hand back a stable pointer to
 	/// the input layer, kept in sync with `input_layer` by [`Self::set_input`].
-	pub(crate) fn input_world_ptr(&mut self) -> *mut after_effects_sys::PF_EffectWorld {
-		&mut self.input_world as *mut after_effects_sys::PF_LayerDef as *mut after_effects_sys::PF_EffectWorld
+	pub(crate) fn input_world_ptr(&mut self) -> *mut crate::sys::PF_EffectWorld {
+		&mut self.input_world as *mut crate::sys::PF_LayerDef as *mut crate::sys::PF_EffectWorld
 	}
 
 	/// Borrow the instance's GPU context (Metal or CUDA), if GPU rendering is active.

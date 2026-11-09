@@ -3,7 +3,7 @@
 //! Provides helper functions for parameter management.
 //! Parameters are now stored in individual PluginInstance objects instead of global storage.
 
-use after_effects_sys::*;
+use crate::sys::*;
 use std::ffi::CStr;
 
 /// Normalizes a parameter value to its default value.
