@@ -97,7 +97,8 @@ const HOST_VERSION: &str = "25.2";
 
 // On Windows, an effect that lets a C++ exception leave its entry point would
 // cross a Rust frame and abort the process. The call sits in a C handler so
-// the host reports a failed command instead.
+// the host reports a failed command instead. Access violations and other
+// structured exceptions are not caught (see seh_call.cpp).
 #[cfg(windows)]
 unsafe extern "C" {
 	fn aexlo_call_entry(
@@ -112,8 +113,8 @@ unsafe extern "C" {
 	) -> i32;
 }
 
-/// Calls `entry_point`. On Windows a structured exception that escapes the
-/// plugin becomes `PF_Err_INTERNAL_STRUCT_DAMAGED`.
+/// Calls `entry_point`. On Windows a C++ exception that escapes the plugin
+/// becomes `PF_Err_INTERNAL_STRUCT_DAMAGED`.
 ///
 /// # Safety
 /// `entry_point` must be the plugin's entry point, and the pointers must be
@@ -147,7 +148,7 @@ unsafe fn call_entry(
 		};
 		if code != 0 {
 			log::error!(
-				"plugin command {command:?} raised a structured exception {code:#x}; reporting PF_Err_INTERNAL_STRUCT_DAMAGED"
+				"plugin command {command:?} threw a C++ exception ({code:#x}); reporting PF_Err_INTERNAL_STRUCT_DAMAGED"
 			);
 			return after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED as after_effects_sys::PF_Err;
 		}

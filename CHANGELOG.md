@@ -50,5 +50,8 @@ and legacy paths. See the README for which SDK suites are implemented.
 - A panic in aexlo's own suite code while a plugin calls it is reported to the
   plugin as `PF_Err_INTERNAL_STRUCT_DAMAGED` instead of aborting the process
   (#31).
+- On Windows, only a C++ exception leaving a plugin's entry point becomes
+  `PF_Err_INTERNAL_STRUCT_DAMAGED`. An access violation crashes the process
+  as on macOS instead of being reported as a failed command.
 
 [0.1.0]: https://github.com/potistudio/aexlo/releases/tag/v0.1.0
