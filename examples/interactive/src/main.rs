@@ -173,7 +173,7 @@ fn main() -> eframe::Result<()> {
 fn publish_main_window(handle: &impl raw_window_handle::HasWindowHandle) {
 	#[cfg(windows)]
 	{
-		use raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
+		use raw_window_handle::RawWindowHandle;
 		let Ok(window) = handle.window_handle() else {
 			return;
 		};
