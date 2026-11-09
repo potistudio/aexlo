@@ -382,9 +382,12 @@ fn process_has_visible_window() -> bool {
 	}
 	unsafe extern "system" fn visit(hwnd: *mut std::ffi::c_void, lparam: isize) -> i32 {
 		let mut pid = 0u32;
-		let ours = GetWindowThreadProcessId(hwnd, &mut pid) != 0 && pid == GetCurrentProcessId();
-		if ours && IsWindowVisible(hwnd) != 0 {
-			*(lparam as *mut bool) = true;
+		// SAFETY: `EnumWindows` passes a live top-level `hwnd`, and `pid` is a valid out-pointer.
+		let ours = unsafe { GetWindowThreadProcessId(hwnd, &mut pid) != 0 && pid == GetCurrentProcessId() };
+		// SAFETY: `hwnd` is the live window `EnumWindows` is visiting.
+		if ours && unsafe { IsWindowVisible(hwnd) } != 0 {
+			// SAFETY: `lparam` is the `&mut found` that `process_has_visible_window` passed to `EnumWindows`, alive for the whole enumeration.
+			unsafe { *(lparam as *mut bool) = true };
 			return 0;
 		}
 		1
