@@ -4,7 +4,7 @@ name: toolkit
 
 on:
   push:
-    branches: [master]
+    branches: [master, develop]
   pull_request:
 
 jobs:
