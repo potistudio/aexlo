@@ -14,39 +14,41 @@ unsafe extern "C" fn get_floating_point_color_from_color_def_sys(
 	color_defP: *const PF_ParamDef,
 	fp_colorP: *mut PF_PixelFloat,
 ) -> PF_Err {
-	//== Validation ==//
-	if effect_ref.is_null() {
-		log::error!("the arg `effect_ref` is null.");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+	crate::core::ffi::guard("get_floating_point_color_from_color_def_sys", || {
+		//== Validation ==//
+		if effect_ref.is_null() {
+			log::error!("the arg `effect_ref` is null.");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	if color_defP.is_null() {
-		log::error!("the arg `color_defP` is null.");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+		if color_defP.is_null() {
+			log::error!("the arg `color_defP` is null.");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	if fp_colorP.is_null() {
-		log::error!("the arg `fp_colorP` is null.");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+		if fp_colorP.is_null() {
+			log::error!("the arg `fp_colorP` is null.");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	//== Implementation ==//
-	let value = unsafe { (*color_defP).u.cd.value };
-	let max = PF_MAX_CHAN8 as f32;
-	let color = PF_PixelFloat {
-		alpha: value.alpha as f32 / max,
-		red: value.red as f32 / max,
-		green: value.green as f32 / max,
-		blue: value.blue as f32 / max,
-	};
-	unsafe { *fp_colorP = color };
+		//== Implementation ==//
+		let value = unsafe { (*color_defP).u.cd.value };
+		let max = PF_MAX_CHAN8 as f32;
+		let color = PF_PixelFloat {
+			alpha: value.alpha as f32 / max,
+			red: value.red as f32 / max,
+			green: value.green as f32 / max,
+			blue: value.blue as f32 / max,
+		};
+		unsafe { *fp_colorP = color };
 
-	diag!("PF_ColorParamSuite1/PF_GetFloatingPointColorFromColorDef",
-		"effect_ref" => format!("{:?}", effect_ref),
-		"color_defP" => format!("{:?}", color_defP);
-		result: format!("({}, {}, {}, {})", color.alpha, color.red, color.green, color.blue),
-	);
-	PF_Err_NONE as PF_Err
+		diag!("PF_ColorParamSuite1/PF_GetFloatingPointColorFromColorDef",
+			"effect_ref" => format!("{:?}", effect_ref),
+			"color_defP" => format!("{:?}", color_defP);
+			result: format!("({}, {}, {}, {})", color.alpha, color.red, color.green, color.blue),
+		);
+		PF_Err_NONE as PF_Err
+	})
 }
 
 /// Builds the `PF_ColorParamSuite1` vtable.

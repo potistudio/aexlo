@@ -4,7 +4,8 @@
 use std::sync::{Arc, Mutex};
 
 use aexlo::{
-	CommandEvent, CommandPhase, Depth8, Depth16, Depth32, Layer, ObserveLevel, Observer, PixelDepthKind, SuiteCallEvent,
+	CommandEvent, CommandPhase, Depth8, Depth16, Depth32, Layer, ObserveLevel, Observer, PixelDepthKind, RenderPath,
+	SuiteCallEvent,
 };
 
 fn sample_input<D: aexlo::PixelDepth>() -> Layer<D> {
@@ -12,7 +13,9 @@ fn sample_input<D: aexlo::PixelDepth>() -> Layer<D> {
 		.expect("failed to open workspace input.png")
 		.to_rgba8();
 	let (w, h) = img.dimensions();
-	Layer::<Depth8>::from_raw(img.into_raw(), w, h).unwrap().convert::<D>()
+	Layer::<Depth8>::from_rgba8(img.into_raw(), w, h)
+		.unwrap()
+		.convert::<D>()
 }
 
 /// Every fixture's declared depths, for the record.
@@ -28,7 +31,7 @@ fn report_declared_depths() {
 		"DisplacerPro",
 	] {
 		let Some(path) = test_e2e::fixture(name) else { continue };
-		let Ok(fx) = aexlo::Host::get().try_load(&path) else {
+		let Ok(fx) = aexlo::Host::get().load(&path) else {
 			continue;
 		};
 		eprintln!(
@@ -50,12 +53,12 @@ fn sdk_noise_renders_at_16_bpc() {
 		return;
 	};
 
-	let mut fx8 = aexlo::Host::get().try_load(&path).unwrap();
+	let mut fx8 = aexlo::Host::get().load(&path).unwrap();
 	fx8.set_input_layer(sample_input::<Depth8>());
 	fx8.render_frame().unwrap();
 	let out8 = fx8.read_output::<Depth8>().unwrap();
 
-	let mut fx = aexlo::Host::get().try_load(&path).unwrap();
+	let mut fx = aexlo::Host::get().load(&path).unwrap();
 	assert!(fx.supports_depth(PixelDepthKind::U16), "SDK_Noise declares deep color");
 	fx.set_input_layer(sample_input::<Depth16>());
 	assert_eq!(fx.output_depth(), PixelDepthKind::U16);
@@ -88,17 +91,18 @@ fn sdk_noise_renders_at_16_bpc() {
 fn float_capable_fixture_renders_at_32_bpc() {
 	for name in ["SDK_Noise", "DeepGlow2", "AnimatedNoise"] {
 		let Some(path) = test_e2e::fixture(name) else { continue };
-		let mut fx = aexlo::Host::get().try_load(&path).unwrap();
+		let mut fx = aexlo::Host::get().load(&path).unwrap();
 		if !fx.supports_depth(PixelDepthKind::F32) {
 			continue;
 		}
 		fx.set_input_layer(sample_input::<Depth32>());
 		// The CPU path: the GPU one is float regardless of the project depth.
-		if fx.supports_smart_render() {
-			fx.render_pre().and_then(|()| fx.render_smart()).unwrap();
+		let path = if fx.supports_smart_render() {
+			RenderPath::Smart
 		} else {
-			fx.render().unwrap();
-		}
+			RenderPath::Legacy
+		};
+		fx.render_with(path).unwrap();
 		let out = fx.read_output::<Depth32>().expect("32 bpc output");
 		assert!(out.iter().any(|p| p.alpha > 0.0), "{name}: output should not be empty");
 		eprintln!("{name}: rendered at 32 bpc");
@@ -133,7 +137,7 @@ fn observer_sees_command_timings() {
 		eprintln!("skipping: fixture 'SDK_Noise' not present locally");
 		return;
 	};
-	let mut fx = aexlo::Host::get().try_load(&path).unwrap();
+	let mut fx = aexlo::Host::get().load(&path).unwrap();
 	let recorder = Arc::new(Recorder::default());
 	fx.set_observer(Some(recorder.clone()), ObserveLevel::Commands);
 	fx.render_frame().unwrap();
@@ -174,7 +178,7 @@ fn fill_color_is_exact_at_every_depth() {
 	let expected = [10.0 / 255.0, 200.0 / 255.0, 30.0 / 255.0, 1.0];
 
 	for depth in [PixelDepthKind::U16, PixelDepthKind::F32] {
-		let mut fx = aexlo::Host::get().try_load(&path).unwrap();
+		let mut fx = aexlo::Host::get().load(&path).unwrap();
 		match depth {
 			PixelDepthKind::U16 => fx.set_input_layer(sample_input::<Depth16>()),
 			_ => fx.set_input_layer(sample_input::<Depth32>()),

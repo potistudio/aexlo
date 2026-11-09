@@ -1,15 +1,17 @@
 [package]
 name = "aexlo-test"
-description = "The dev-dependency for testing After Effects plugins with aexlo: #[aexlo::test], frame assertions and goldens."
+description = "The dev-dependency for testing After Effects plugins with aexlo: #[aexlo_test::test], frame assertions and goldens."
 version = { workspace = true }
 edition = { workspace = true }
 rust-version = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
-repository = "https://github.com/potistudio/aexlo-rs"
+repository = { workspace = true }
+# Only `aexlo` is published; the tooling is used from git.
+publish = false
 
 [dependencies]
 aexlo = { workspace = true }
 aexlo-harness = { workspace = true }
 aexlo-macros = { workspace = true }
-toml = "1.1.6"
+toml = { workspace = true }

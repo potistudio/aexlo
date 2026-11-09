@@ -206,7 +206,7 @@ impl Slot {
 	fn load(plugin: &str) -> Self {
 		let path = plugins::resolve(plugin);
 		log::info!("loading {plugin} from {}", path.display());
-		let instance = aexlo::Host::get().try_load(&path).map_err(|e| e.to_string());
+		let instance = aexlo::Host::get().load(&path).map_err(|e| e.to_string());
 		let info = instance.as_ref().ok().map(|fx| Arc::new(describe(fx)));
 		let mut slot = Self {
 			plugin: plugin.to_string(),
@@ -254,7 +254,7 @@ fn describe(fx: &PluginInstance) -> PluginInfo {
 				index,
 				name: fx.param_name(index).unwrap_or_default(),
 				kind: fx.param_kind(index).unwrap_or(ParamKind::Other(-1)),
-				default: fx.get_param(index).map(PValue::from),
+				default: fx.get_param(index).and_then(PValue::from_param),
 				range: fx.param_slider_range(index),
 				choices: fx.param_choices(index),
 			})
@@ -583,7 +583,7 @@ impl Worker {
 
 		fx.set_input_layer(to_layer(input)?);
 		fx.set_render_size(w, h);
-		fx.set_time(ctx.frame - layer.start, 1, ctx.project.comp.fps.max(1));
+		fx.set_time(aexlo::Time::frame(ctx.frame - layer.start, ctx.project.comp.fps.max(1)));
 		if slot.size != (w, h) {
 			// Resizing the input re-resolves point defaults behind our back.
 			slot.applied.clear();
@@ -635,7 +635,7 @@ impl Worker {
 		let Ok(fx) = &mut slot.instance else { unreachable!() };
 		fx.render_frame().map_err(|e| e.to_string())?;
 		let mut out = vec![0u8; w as usize * h as usize * 4];
-		fx.write_rendered_pixels(&mut out).map_err(|e| e.to_string())?;
+		fx.write_output_rgba8(&mut out).map_err(|e| e.to_string())?;
 		Ok(Image {
 			width: w,
 			height: h,
@@ -654,7 +654,9 @@ impl Worker {
 		// The plugin may have changed other parameters in response.
 		let mut values = Vec::new();
 		for (i, value) in fx.param_values() {
-			let value = PValue::from(value);
+			let Some(value) = PValue::from_param(value) else {
+				continue;
+			};
 			if slot.applied.get(&i).is_some_and(|v| *v != value) {
 				slot.applied.insert(i, value.clone());
 				values.push((i, value));
@@ -746,7 +748,7 @@ impl Worker {
 }
 
 fn to_layer(image: &Image) -> Result<aexlo::Layer<Depth8>, String> {
-	aexlo::Layer::<Depth8>::from_raw(image.pixels.clone(), image.width, image.height).map_err(|e| e.to_string())
+	aexlo::Layer::<Depth8>::from_rgba8(image.pixels.clone(), image.width, image.height).map_err(|e| e.to_string())
 }
 
 fn mask_path(mask: &crate::model::Mask) -> aexlo::MaskPath {

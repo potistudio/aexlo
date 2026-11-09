@@ -78,19 +78,21 @@ fn progress_id(handle: PF_AppProgressDialogP) -> ProgressId {
 /// `lang_tagZ` must be null or point to a writable buffer of
 /// `PF_APP_LANG_TAG_SIZE` `A_char`s, per the `PF_AppGetLanguage` contract.
 unsafe extern "C" fn get_language(lang_tagZ: *mut A_char) -> PF_Err {
-	diag!("PFAppSuite/PF_AppGetLanguage",
-		"lang_tagZ" => format!("{:#x}", lang_tagZ as usize),
-	);
+	crate::core::ffi::guard("get_language", || {
+		diag!("PFAppSuite/PF_AppGetLanguage",
+			"lang_tagZ" => format!("{:#x}", lang_tagZ as usize),
+		);
 
-	if lang_tagZ.is_null() {
-		return PF_Err_NONE as PF_Err;
-	}
-	with_host(|host| {
-		let buf =
-			unsafe { std::slice::from_raw_parts_mut(lang_tagZ, after_effects_sys::PF_APP_LANG_TAG_SIZE as usize) };
-		buf.fill(0);
-		write_c_str(buf, &host.language());
-		PF_Err_NONE as PF_Err
+		if lang_tagZ.is_null() {
+			return PF_Err_NONE as PF_Err;
+		}
+		with_host(|host| {
+			let buf =
+				unsafe { std::slice::from_raw_parts_mut(lang_tagZ, after_effects_sys::PF_APP_LANG_TAG_SIZE as usize) };
+			buf.fill(0);
+			write_c_str(buf, &host.language());
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
@@ -103,77 +105,85 @@ unsafe extern "C" fn get_language(lang_tagZ: *mut A_char) -> PF_Err {
 /// # Safety
 /// `render_enginePB` must be null or point to a writable `PF_Boolean`.
 unsafe extern "C" fn is_render_engine(render_enginePB: *mut PF_Boolean) -> PF_Err {
-	diag!("PFAppSuite/PF_IsRenderEngine",
-		"render_enginePB" => format!("{:#x}", render_enginePB as usize),
-	);
+	crate::core::ffi::guard("is_render_engine", || {
+		diag!("PFAppSuite/PF_IsRenderEngine",
+			"render_enginePB" => format!("{:#x}", render_enginePB as usize),
+		);
 
-	if render_enginePB.is_null() {
-		return PF_Err_NONE as PF_Err;
-	}
-	with_host(|host| {
-		unsafe { *render_enginePB = host.is_render_engine() as PF_Boolean };
-		PF_Err_NONE as PF_Err
+		if render_enginePB.is_null() {
+			return PF_Err_NONE as PF_Err;
+		}
+		with_host(|host| {
+			unsafe { *render_enginePB = host.is_render_engine() as PF_Boolean };
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
 unsafe extern "C" fn get_bg_color(bg_colorP: *mut PF_App_Color) -> PF_Err {
-	diag!("PFAppSuite/PF_AppGetBgColor",
-		"bg_colorP" => format!("{:#x}", bg_colorP as usize),
-	);
+	crate::core::ffi::guard("get_bg_color", || {
+		diag!("PFAppSuite/PF_AppGetBgColor",
+			"bg_colorP" => format!("{:#x}", bg_colorP as usize),
+		);
 
-	if bg_colorP.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	with_host(|host| {
-		let c = host.bg_color();
-		unsafe {
-			*bg_colorP = PF_App_Color {
-				red: c.red,
-				green: c.green,
-				blue: c.blue,
-			}
-		};
-		PF_Err_NONE as PF_Err
+		if bg_colorP.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		with_host(|host| {
+			let c = host.bg_color();
+			unsafe {
+				*bg_colorP = PF_App_Color {
+					red: c.red,
+					green: c.green,
+					blue: c.blue,
+				}
+			};
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
 unsafe extern "C" fn get_color(color_type: PF_App_ColorType, app_colorP: *mut PF_App_Color) -> PF_Err {
-	diag!("PFAppSuite/PF_AppGetColor",
-		"color_type" => color_type,
-		"app_colorP" => format!("{:#x}", app_colorP as usize),
-	);
+	crate::core::ffi::guard("get_color", || {
+		diag!("PFAppSuite/PF_AppGetColor",
+			"color_type" => color_type,
+			"app_colorP" => format!("{:#x}", app_colorP as usize),
+		);
 
-	if app_colorP.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	with_host(|host| {
-		let c = host.color(color_type);
-		unsafe {
-			*app_colorP = PF_App_Color {
-				red: c.red,
-				green: c.green,
-				blue: c.blue,
-			}
-		};
-		PF_Err_NONE as PF_Err
+		if app_colorP.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		with_host(|host| {
+			let c = host.color(color_type);
+			unsafe {
+				*app_colorP = PF_App_Color {
+					red: c.red,
+					green: c.green,
+					blue: c.blue,
+				}
+			};
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
 unsafe extern "C" fn get_personal_info(ptiP: *mut PF_AppPersonalTextInfo) -> PF_Err {
-	diag!("PFAppSuite/PF_GetPersonalInfo",
-		"ptiP" => format!("{:#x}", ptiP as usize),
-	);
+	crate::core::ffi::guard("get_personal_info", || {
+		diag!("PFAppSuite/PF_GetPersonalInfo",
+			"ptiP" => format!("{:#x}", ptiP as usize),
+		);
 
-	if ptiP.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	with_host(|host| {
-		let info = host.personal_info();
-		let pti = unsafe { &mut *ptiP };
-		write_c_str(&mut pti.name, &info.name);
-		write_c_str(&mut pti.org, &info.org);
-		write_c_str(&mut pti.serial_str, &info.serial);
-		PF_Err_NONE as PF_Err
+		if ptiP.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		with_host(|host| {
+			let info = host.personal_info();
+			let pti = unsafe { &mut *ptiP };
+			write_c_str(&mut pti.name, &info.name);
+			write_c_str(&mut pti.org, &info.org);
+			write_c_str(&mut pti.serial_str, &info.serial);
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
@@ -185,42 +195,47 @@ unsafe extern "C" fn get_font_style_sheet(
 	sizePS0: *mut A_short,
 	stylePS0: *mut A_short,
 ) -> PF_Err {
-	diag!("PFAppSuite/PF_GetFontStyleSheet",
-		"sheet" => sheet,
-		"font_nameP0" => format!("{:#x}", font_nameP0 as usize),
-		"font_numPS0" => format!("{:#x}", font_numPS0 as usize),
-		"sizePS0" => format!("{:#x}", sizePS0 as usize),
-		"stylePS0" => format!("{:#x}", stylePS0 as usize),
-	);
+	crate::core::ffi::guard("get_font_style_sheet", || {
+		diag!("PFAppSuite/PF_GetFontStyleSheet",
+			"sheet" => sheet,
+			"font_nameP0" => format!("{:#x}", font_nameP0 as usize),
+			"font_numPS0" => format!("{:#x}", font_numPS0 as usize),
+			"sizePS0" => format!("{:#x}", sizePS0 as usize),
+			"stylePS0" => format!("{:#x}", stylePS0 as usize),
+		);
 
-	with_host(|host| {
-		let font = host.font_style_sheet(sheet as i32);
-		unsafe {
-			if let Some(name) = font_nameP0.as_mut() {
-				write_c_str(&mut name.font_nameAC, &font.name);
-			}
-			for (p, v) in [
-				(font_numPS0, font.font_num),
-				(sizePS0, font.size),
-				(stylePS0, font.style),
-			] {
-				if let Some(p) = p.as_mut() {
-					*p = v;
+		with_host(|host| {
+			#[allow(clippy::unnecessary_cast)] // `PF_FontStyleSheet` is `u32` on macOS only.
+			let font = host.font_style_sheet(sheet as i32);
+			unsafe {
+				if let Some(name) = font_nameP0.as_mut() {
+					write_c_str(&mut name.font_nameAC, &font.name);
+				}
+				for (p, v) in [
+					(font_numPS0, font.font_num),
+					(sizePS0, font.size),
+					(stylePS0, font.style),
+				] {
+					if let Some(p) = p.as_mut() {
+						*p = v;
+					}
 				}
 			}
-		}
-		PF_Err_NONE as PF_Err
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
 unsafe extern "C" fn set_cursor(cursor: PF_CursorType) -> PF_Err {
-	diag!("PFAppSuite/PF_SetCursor",
-		"cursor" => cursor,
-	);
+	crate::core::ffi::guard("set_cursor", || {
+		diag!("PFAppSuite/PF_SetCursor",
+			"cursor" => cursor,
+		);
 
-	with_host(|host| {
-		host.set_cursor(cursor);
-		PF_Err_NONE as PF_Err
+		with_host(|host| {
+			host.set_cursor(cursor);
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
@@ -231,71 +246,79 @@ unsafe extern "C" fn color_picker_dialog(
 	use_ws_to_monitor_xformB: PF_Boolean,
 	new_colorP: *mut PF_PixelFloat,
 ) -> PF_Err {
-	diag!("PFAppSuite/PF_AppColorPickerDialog",
-		"dialog_titleZ0" => format!("{:#x}", dialog_titleZ0 as usize),
-		"sample_colorP" => format!("{:#x}", sample_colorP as usize),
-		"use_ws_to_monitor_xformB" => use_ws_to_monitor_xformB,
-		"new_colorP" => format!("{:#x}", new_colorP as usize),
-	);
+	crate::core::ffi::guard("color_picker_dialog", || {
+		diag!("PFAppSuite/PF_AppColorPickerDialog",
+			"dialog_titleZ0" => format!("{:#x}", dialog_titleZ0 as usize),
+			"sample_colorP" => format!("{:#x}", sample_colorP as usize),
+			"use_ws_to_monitor_xformB" => use_ws_to_monitor_xformB,
+			"new_colorP" => format!("{:#x}", new_colorP as usize),
+		);
 
-	if sample_colorP.is_null() || new_colorP.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	with_host(|host| {
-		let title = unsafe { read_c_str(dialog_titleZ0) };
-		let sample = from_ffi_pixel(unsafe { &*sample_colorP });
-		match host.pick_color(title.as_deref(), sample, use_ws_to_monitor_xformB != 0) {
-			Some(c) => {
-				unsafe { *new_colorP = to_ffi_pixel(c) };
-				PF_Err_NONE as PF_Err
-			}
-			None => PF_Interrupt_CANCEL as PF_Err,
+		if sample_colorP.is_null() || new_colorP.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
+		with_host(|host| {
+			let title = unsafe { read_c_str(dialog_titleZ0) };
+			let sample = from_ffi_pixel(unsafe { &*sample_colorP });
+			match host.pick_color(title.as_deref(), sample, use_ws_to_monitor_xformB != 0) {
+				Some(c) => {
+					unsafe { *new_colorP = to_ffi_pixel(c) };
+					PF_Err_NONE as PF_Err
+				}
+				None => PF_Interrupt_CANCEL as PF_Err,
+			}
+		})
 	})
 }
 
 unsafe extern "C" fn get_mouse(pointP: *mut PF_Point) -> PF_Err {
-	diag!("PFAppSuite/PF_GetMouse",
-		"pointP" => format!("{:#x}", pointP as usize),
-	);
+	crate::core::ffi::guard("get_mouse", || {
+		diag!("PFAppSuite/PF_GetMouse",
+			"pointP" => format!("{:#x}", pointP as usize),
+		);
 
-	if pointP.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	with_host(|host| {
-		let p = host.mouse();
-		unsafe { *pointP = PF_Point { h: p.h, v: p.v } };
-		PF_Err_NONE as PF_Err
+		if pointP.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		with_host(|host| {
+			let p = host.mouse();
+			unsafe { *pointP = PF_Point { h: p.h, v: p.v } };
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
 unsafe extern "C" fn invalidate_rect(contextH: PF_ContextH, rectP0: *const PF_Rect) -> PF_Err {
-	diag!("PFAppSuite/PF_InvalidateRect",
-		"contextH" => format!("{:#x}", contextH as usize),
-		"rectP0" => format!("{:#x}", rectP0 as usize),
-	);
+	crate::core::ffi::guard("invalidate_rect", || {
+		diag!("PFAppSuite/PF_InvalidateRect",
+			"contextH" => format!("{:#x}", contextH as usize),
+			"rectP0" => format!("{:#x}", rectP0 as usize),
+		);
 
-	with_host(|host| {
-		let rect = unsafe { rectP0.as_ref() }.map(|r| (r.left, r.top, r.right, r.bottom));
-		host.invalidate_rect(contextH as usize, rect);
-		PF_Err_NONE as PF_Err
+		with_host(|host| {
+			let rect = unsafe { rectP0.as_ref() }.map(|r| (r.left, r.top, r.right, r.bottom));
+			host.invalidate_rect(contextH as usize, rect);
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
 unsafe extern "C" fn convert_local_to_global(localP: *const PF_Point, globalP: *mut PF_Point) -> PF_Err {
-	diag!("PFAppSuite/PF_ConvertLocalToGlobal",
-		"localP" => format!("{:#x}", localP as usize),
-		"globalP" => format!("{:#x}", globalP as usize),
-	);
+	crate::core::ffi::guard("convert_local_to_global", || {
+		diag!("PFAppSuite/PF_ConvertLocalToGlobal",
+			"localP" => format!("{:#x}", localP as usize),
+			"globalP" => format!("{:#x}", globalP as usize),
+		);
 
-	if localP.is_null() || globalP.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	with_host(|host| {
-		let l = unsafe { &*localP };
-		let g = host.local_to_global(AppPoint { h: l.h, v: l.v });
-		unsafe { *globalP = PF_Point { h: g.h, v: g.v } };
-		PF_Err_NONE as PF_Err
+		if localP.is_null() || globalP.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		with_host(|host| {
+			let l = unsafe { &*localP };
+			let g = host.local_to_global(AppPoint { h: l.h, v: l.v });
+			unsafe { *globalP = PF_Point { h: g.h, v: g.v } };
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
@@ -305,21 +328,23 @@ unsafe extern "C" fn get_color_at_global_point(
 	mode: PF_EyeDropperSampleMode,
 	outColorP: *mut PF_PixelFloat,
 ) -> PF_Err {
-	diag!("PFAppSuite/PF_GetColorAtGlobalPoint",
-		"globalP" => format!("{:#x}", globalP as usize),
-		"eyeSize" => eyeSize,
-		"mode" => mode,
-		"outColorP" => format!("{:#x}", outColorP as usize),
-	);
+	crate::core::ffi::guard("get_color_at_global_point", || {
+		diag!("PFAppSuite/PF_GetColorAtGlobalPoint",
+			"globalP" => format!("{:#x}", globalP as usize),
+			"eyeSize" => eyeSize,
+			"mode" => mode,
+			"outColorP" => format!("{:#x}", outColorP as usize),
+		);
 
-	if globalP.is_null() || outColorP.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	with_host(|host| {
-		let g = unsafe { &*globalP };
-		let c = host.color_at_global_point(AppPoint { h: g.h, v: g.v }, eyeSize, mode);
-		unsafe { *outColorP = to_ffi_pixel(c) };
-		PF_Err_NONE as PF_Err
+		if globalP.is_null() || outColorP.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		with_host(|host| {
+			let g = unsafe { &*globalP };
+			let c = host.color_at_global_point(AppPoint { h: g.h, v: g.v }, eyeSize, mode);
+			unsafe { *outColorP = to_ffi_pixel(c) };
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
@@ -329,22 +354,24 @@ unsafe extern "C" fn create_progress_dialog(
 	indeterminateB: PF_Boolean,
 	prog_dlgPP: *mut PF_AppProgressDialogP,
 ) -> PF_Err {
-	diag!("PFAppSuite/PF_CreateNewAppProgressDialog",
-		"titleZ" => format!("{:#x}", titleZ as usize),
-		"cancel_strZ0" => format!("{:#x}", cancel_strZ0 as usize),
-		"indeterminateB" => indeterminateB,
-		"prog_dlgPP" => format!("{:#x}", prog_dlgPP as usize),
-	);
+	crate::core::ffi::guard("create_progress_dialog", || {
+		diag!("PFAppSuite/PF_CreateNewAppProgressDialog",
+			"titleZ" => format!("{:#x}", titleZ as usize),
+			"cancel_strZ0" => format!("{:#x}", cancel_strZ0 as usize),
+			"indeterminateB" => indeterminateB,
+			"prog_dlgPP" => format!("{:#x}", prog_dlgPP as usize),
+		);
 
-	if prog_dlgPP.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	with_host(|host| {
-		let title = unsafe { read_utf16(titleZ) }.unwrap_or_default();
-		let cancel = unsafe { read_utf16(cancel_strZ0) };
-		let id = host.progress_begin(&title, cancel.as_deref(), indeterminateB != 0);
-		unsafe { *prog_dlgPP = progress_handle(id) };
-		PF_Err_NONE as PF_Err
+		if prog_dlgPP.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		with_host(|host| {
+			let title = unsafe { read_utf16(titleZ) }.unwrap_or_default();
+			let cancel = unsafe { read_utf16(cancel_strZ0) };
+			let id = host.progress_begin(&title, cancel.as_deref(), indeterminateB != 0);
+			unsafe { *prog_dlgPP = progress_handle(id) };
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 
@@ -354,35 +381,39 @@ unsafe extern "C" fn progress_dialog_update(
 	countL: A_long,
 	totalL: A_long,
 ) -> PF_Err {
-	diag!("PFAppSuite/PF_AppProgressDialogUpdate",
-		"prog_dlgP" => format!("{:#x}", prog_dlgP as usize),
-		"countL" => countL,
-		"totalL" => totalL,
-	);
+	crate::core::ffi::guard("progress_dialog_update", || {
+		diag!("PFAppSuite/PF_AppProgressDialogUpdate",
+			"prog_dlgP" => format!("{:#x}", prog_dlgP as usize),
+			"countL" => countL,
+			"totalL" => totalL,
+		);
 
-	if prog_dlgP.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	with_host(|host| {
-		if host.progress_update(progress_id(prog_dlgP), countL, totalL) {
-			PF_Err_NONE as PF_Err
-		} else {
-			PF_Interrupt_CANCEL as PF_Err
+		if prog_dlgP.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
+		with_host(|host| {
+			if host.progress_update(progress_id(prog_dlgP), countL, totalL) {
+				PF_Err_NONE as PF_Err
+			} else {
+				PF_Interrupt_CANCEL as PF_Err
+			}
+		})
 	})
 }
 
 unsafe extern "C" fn dispose_progress_dialog(prog_dlgP: PF_AppProgressDialogP) -> PF_Err {
-	diag!("PFAppSuite/PF_DisposeAppProgressDialog",
-		"prog_dlgP" => format!("{:#x}", prog_dlgP as usize),
-	);
+	crate::core::ffi::guard("dispose_progress_dialog", || {
+		diag!("PFAppSuite/PF_DisposeAppProgressDialog",
+			"prog_dlgP" => format!("{:#x}", prog_dlgP as usize),
+		);
 
-	if prog_dlgP.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	with_host(|host| {
-		host.progress_end(progress_id(prog_dlgP));
-		PF_Err_NONE as PF_Err
+		if prog_dlgP.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		with_host(|host| {
+			host.progress_end(progress_id(prog_dlgP));
+			PF_Err_NONE as PF_Err
+		})
 	})
 }
 

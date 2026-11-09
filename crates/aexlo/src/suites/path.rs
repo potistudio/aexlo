@@ -68,31 +68,35 @@ unsafe fn table<'a>(path: &MaskPath, seg: usize, prepPP0: *mut PF_PathSegPrepPtr
 // ---- PF Path Query Suite ---------------------------------------------------
 
 unsafe extern "C" fn num_paths(effect_ref: PF_ProgPtr, num_pathsPL: *mut A_long) -> PF_Err {
-	diag!("PF_PathQuerySuite1/PF_NumPaths",
-		"effect_ref" => format!("{:#x}", effect_ref as usize),
-	);
+	crate::core::ffi::guard("num_paths", || {
+		diag!("PF_PathQuerySuite1/PF_NumPaths",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+		);
 
-	let (Some(masks), Some(out)) = (unsafe { masks(effect_ref) }, unsafe { num_pathsPL.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	*out = masks.len() as A_long;
-	PF_Err_NONE as PF_Err
+		let (Some(masks), Some(out)) = (unsafe { masks(effect_ref) }, unsafe { num_pathsPL.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		*out = masks.len() as A_long;
+		PF_Err_NONE as PF_Err
+	})
 }
 
 unsafe extern "C" fn path_info(effect_ref: PF_ProgPtr, indexL: A_long, unique_idP: *mut PF_PathID) -> PF_Err {
-	diag!("PF_PathQuerySuite1/PF_PathInfo",
-		"effect_ref" => format!("{:#x}", effect_ref as usize),
-		"indexL" => indexL,
-	);
+	crate::core::ffi::guard("path_info", || {
+		diag!("PF_PathQuerySuite1/PF_PathInfo",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+			"indexL" => indexL,
+		);
 
-	let (Some(masks), Some(out)) = (unsafe { masks(effect_ref) }, unsafe { unique_idP.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	let Some(mask) = usize::try_from(indexL).ok().and_then(|i| masks.get(i)) else {
-		return PF_Err_INVALID_INDEX as PF_Err;
-	};
-	*out = mask.id as PF_PathID;
-	PF_Err_NONE as PF_Err
+		let (Some(masks), Some(out)) = (unsafe { masks(effect_ref) }, unsafe { unique_idP.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		let Some(mask) = usize::try_from(indexL).ok().and_then(|i| masks.get(i)) else {
+			return PF_Err_INVALID_INDEX as PF_Err;
+		};
+		*out = mask.id as PF_PathID;
+		PF_Err_NONE as PF_Err
+	})
 }
 
 /// Yields null (and no error) for an unknown id, per the SDK.
@@ -104,21 +108,23 @@ unsafe extern "C" fn checkout_path(
 	time_scale: A_u_long,
 	pathPP: *mut PF_PathOutlinePtr,
 ) -> PF_Err {
-	diag!("PF_PathQuerySuite1/PF_CheckoutPath",
-		"effect_ref" => format!("{:#x}", effect_ref as usize),
-		"unique_id" => unique_id,
-		"what_time" => what_time,
-		"time_step" => time_step,
-		"time_scale" => time_scale,
-	);
-	let _ = (what_time, time_step, time_scale);
+	crate::core::ffi::guard("checkout_path", || {
+		diag!("PF_PathQuerySuite1/PF_CheckoutPath",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+			"unique_id" => unique_id,
+			"what_time" => what_time,
+			"time_step" => time_step,
+			"time_scale" => time_scale,
+		);
+		let _ = (what_time, time_step, time_scale);
 
-	let Some(out) = (unsafe { pathPP.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	*out = unsafe { mask_by_id(effect_ref, unique_id) }
-		.map_or(std::ptr::null_mut(), |m| m as *const MaskPath as PF_PathOutlinePtr);
-	PF_Err_NONE as PF_Err
+		let Some(out) = (unsafe { pathPP.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		*out = unsafe { mask_by_id(effect_ref, unique_id) }
+			.map_or(std::ptr::null_mut(), |m| m as *const MaskPath as PF_PathOutlinePtr);
+		PF_Err_NONE as PF_Err
+	})
 }
 
 /// Paths are read-only to plugins here; `changedB` is ignored.
@@ -128,14 +134,16 @@ unsafe extern "C" fn checkin_path(
 	changedB: PF_Boolean,
 	pathP: PF_PathOutlinePtr,
 ) -> PF_Err {
-	diag!("PF_PathQuerySuite1/PF_CheckinPath",
-		"effect_ref" => format!("{:#x}", effect_ref as usize),
-		"unique_id" => unique_id,
-		"changedB" => changedB,
-		"pathP" => format!("{:#x}", pathP as usize),
-	);
-	let _ = (effect_ref, unique_id, changedB, pathP);
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("checkin_path", || {
+		diag!("PF_PathQuerySuite1/PF_CheckinPath",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+			"unique_id" => unique_id,
+			"changedB" => changedB,
+			"pathP" => format!("{:#x}", pathP as usize),
+		);
+		let _ = (effect_ref, unique_id, changedB, pathP);
+		PF_Err_NONE as PF_Err
+	})
 }
 
 pub(super) const fn create_path_query_suite_1() -> PF_PathQuerySuite1 {
@@ -154,11 +162,13 @@ unsafe extern "C" fn path_is_open(
 	pathP: PF_PathOutlinePtr,
 	openPB: *mut PF_Boolean,
 ) -> PF_Err {
-	let (Some(path), Some(out)) = (unsafe { outline(pathP) }, unsafe { openPB.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	*out = !path.closed as PF_Boolean;
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("path_is_open", || {
+		let (Some(path), Some(out)) = (unsafe { outline(pathP) }, unsafe { openPB.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		*out = !path.closed as PF_Boolean;
+		PF_Err_NONE as PF_Err
+	})
 }
 
 unsafe extern "C" fn path_num_segments(
@@ -166,11 +176,13 @@ unsafe extern "C" fn path_num_segments(
 	pathP: PF_PathOutlinePtr,
 	num_segmentsPL: *mut A_long,
 ) -> PF_Err {
-	let (Some(path), Some(out)) = (unsafe { outline(pathP) }, unsafe { num_segmentsPL.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	*out = path.segment_count() as A_long;
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("path_num_segments", || {
+		let (Some(path), Some(out)) = (unsafe { outline(pathP) }, unsafe { num_segmentsPL.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		*out = path.segment_count() as A_long;
+		PF_Err_NONE as PF_Err
+	})
 }
 
 unsafe extern "C" fn path_vertex_info(
@@ -179,21 +191,23 @@ unsafe extern "C" fn path_vertex_info(
 	which_pointL: A_long,
 	vertexP: *mut PF_PathVertex,
 ) -> PF_Err {
-	let (Some(path), Some(out)) = (unsafe { outline(pathP) }, unsafe { vertexP.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	let Some(v) = usize::try_from(which_pointL).ok().and_then(|i| path.vertex(i)) else {
-		return PF_Err_INVALID_INDEX as PF_Err;
-	};
-	*out = PF_PathVertex {
-		x: v.x,
-		y: v.y,
-		tan_in_x: v.tan_in_x,
-		tan_in_y: v.tan_in_y,
-		tan_out_x: v.tan_out_x,
-		tan_out_y: v.tan_out_y,
-	};
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("path_vertex_info", || {
+		let (Some(path), Some(out)) = (unsafe { outline(pathP) }, unsafe { vertexP.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		let Some(v) = usize::try_from(which_pointL).ok().and_then(|i| path.vertex(i)) else {
+			return PF_Err_INVALID_INDEX as PF_Err;
+		};
+		*out = PF_PathVertex {
+			x: v.x,
+			y: v.y,
+			tan_in_x: v.tan_in_x,
+			tan_in_y: v.tan_in_y,
+			tan_out_x: v.tan_out_x,
+			tan_out_y: v.tan_out_y,
+		};
+		PF_Err_NONE as PF_Err
+	})
 }
 
 /// `frequencyL` is the number of arc-length samples (defaulted when non-positive).
@@ -204,26 +218,28 @@ unsafe extern "C" fn path_prepare_seg_length(
 	frequencyL: A_long,
 	lengthPrepPP: *mut PF_PathSegPrepPtr,
 ) -> PF_Err {
-	let (Some(path), Some(out)) = (unsafe { outline(pathP) }, unsafe { lengthPrepPP.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	let Some((seg, points)) = usize::try_from(which_segL)
-		.ok()
-		.and_then(|s| Some((s, path.segment(s)?)))
-	else {
-		return PF_Err_INVALID_INDEX as PF_Err;
-	};
-	let samples = usize::try_from(frequencyL)
-		.ok()
-		.filter(|&f| f > 0)
-		.map_or(DEFAULT_SAMPLES, |f| f.min(MAX_SAMPLES));
-	let prep = Box::new(SegPrep {
-		path: path as *const MaskPath as usize,
-		seg,
-		table: ArcTable::new(&points, samples),
-	});
-	*out = Box::into_raw(prep) as PF_PathSegPrepPtr;
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("path_prepare_seg_length", || {
+		let (Some(path), Some(out)) = (unsafe { outline(pathP) }, unsafe { lengthPrepPP.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		let Some((seg, points)) = usize::try_from(which_segL)
+			.ok()
+			.and_then(|s| Some((s, path.segment(s)?)))
+		else {
+			return PF_Err_INVALID_INDEX as PF_Err;
+		};
+		let samples = usize::try_from(frequencyL)
+			.ok()
+			.filter(|&f| f > 0)
+			.map_or(DEFAULT_SAMPLES, |f| f.min(MAX_SAMPLES));
+		let prep = Box::new(SegPrep {
+			path: path as *const MaskPath as usize,
+			seg,
+			table: ArcTable::new(&points, samples),
+		});
+		*out = Box::into_raw(prep) as PF_PathSegPrepPtr;
+		PF_Err_NONE as PF_Err
+	})
 }
 
 unsafe extern "C" fn path_get_seg_length(
@@ -233,17 +249,19 @@ unsafe extern "C" fn path_get_seg_length(
 	lengthPrepP0: *mut PF_PathSegPrepPtr,
 	lengthPF: *mut PF_FpLong,
 ) -> PF_Err {
-	let (Some(path), Some(out)) = (unsafe { outline(pathP) }, unsafe { lengthPF.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	let Some(table) = usize::try_from(which_segL)
-		.ok()
-		.and_then(|s| unsafe { table(path, s, lengthPrepP0) })
-	else {
-		return PF_Err_INVALID_INDEX as PF_Err;
-	};
-	*out = table.length();
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("path_get_seg_length", || {
+		let (Some(path), Some(out)) = (unsafe { outline(pathP) }, unsafe { lengthPF.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		let Some(table) = usize::try_from(which_segL)
+			.ok()
+			.and_then(|s| unsafe { table(path, s, lengthPrepP0) })
+		else {
+			return PF_Err_INVALID_INDEX as PF_Err;
+		};
+		*out = table.length();
+		PF_Err_NONE as PF_Err
+	})
 }
 
 /// Shared body of the two evaluators: the point (and derivative) at distance
@@ -293,8 +311,10 @@ unsafe extern "C" fn path_eval_seg_length(
 	x: *mut PF_FpLong,
 	y: *mut PF_FpLong,
 ) -> PF_Err {
-	let null = std::ptr::null_mut();
-	unsafe { eval(pathP, lengthPrepPP0, which_segL, lengthF, x, y, null, null) }
+	crate::core::ffi::guard("path_eval_seg_length", || {
+		let null = std::ptr::null_mut();
+		unsafe { eval(pathP, lengthPrepPP0, which_segL, lengthF, x, y, null, null) }
+	})
 }
 
 unsafe extern "C" fn path_eval_seg_length_deriv1(
@@ -308,7 +328,9 @@ unsafe extern "C" fn path_eval_seg_length_deriv1(
 	deriv1x: *mut PF_FpLong,
 	deriv1y: *mut PF_FpLong,
 ) -> PF_Err {
-	unsafe { eval(pathP, lengthPrepPP0, which_segL, lengthF, x, y, deriv1x, deriv1y) }
+	crate::core::ffi::guard("path_eval_seg_length_deriv1", || unsafe {
+		eval(pathP, lengthPrepPP0, which_segL, lengthF, x, y, deriv1x, deriv1y)
+	})
 }
 
 unsafe extern "C" fn path_cleanup_seg_length(
@@ -317,14 +339,16 @@ unsafe extern "C" fn path_cleanup_seg_length(
 	_which_segL: A_long,
 	lengthPrepPP: *mut PF_PathSegPrepPtr,
 ) -> PF_Err {
-	let Some(prep) = (unsafe { lengthPrepPP.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	if !prep.is_null() {
-		drop(unsafe { Box::from_raw(*prep as *mut SegPrep) });
-		*prep = std::ptr::null_mut();
-	}
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("path_cleanup_seg_length", || {
+		let Some(prep) = (unsafe { lengthPrepPP.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		if !prep.is_null() {
+			drop(unsafe { Box::from_raw(*prep as *mut SegPrep) });
+			*prep = std::ptr::null_mut();
+		}
+		PF_Err_NONE as PF_Err
+	})
 }
 
 unsafe extern "C" fn path_is_inverted(
@@ -332,13 +356,15 @@ unsafe extern "C" fn path_is_inverted(
 	unique_id: PF_PathID,
 	invertedB: *mut PF_Boolean,
 ) -> PF_Err {
-	let (Some(mask), Some(out)) = (unsafe { mask_by_id(effect_ref, unique_id) }, unsafe {
-		invertedB.as_mut()
-	}) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	*out = mask.inverted as PF_Boolean;
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("path_is_inverted", || {
+		let (Some(mask), Some(out)) = (unsafe { mask_by_id(effect_ref, unique_id) }, unsafe {
+			invertedB.as_mut()
+		}) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		*out = mask.inverted as PF_Boolean;
+		PF_Err_NONE as PF_Err
+	})
 }
 
 unsafe extern "C" fn path_get_mask_mode(
@@ -346,24 +372,28 @@ unsafe extern "C" fn path_get_mask_mode(
 	unique_id: PF_PathID,
 	modeP: *mut PF_MaskMode,
 ) -> PF_Err {
-	let (Some(mask), Some(out)) = (unsafe { mask_by_id(effect_ref, unique_id) }, unsafe { modeP.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	*out = mask.mode.to_sdk();
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("path_get_mask_mode", || {
+		let (Some(mask), Some(out)) = (unsafe { mask_by_id(effect_ref, unique_id) }, unsafe { modeP.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		*out = mask.mode.to_sys();
+		PF_Err_NONE as PF_Err
+	})
 }
 
 /// `nameZ` must hold `PF_MAX_PATH_NAME_LEN + 1` bytes.
 unsafe extern "C" fn path_get_name(effect_ref: PF_ProgPtr, unique_id: PF_PathID, nameZ: *mut A_char) -> PF_Err {
-	let Some(mask) = (unsafe { mask_by_id(effect_ref, unique_id) }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	if nameZ.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	let buf = unsafe { std::slice::from_raw_parts_mut(nameZ, PF_MAX_PATH_NAME_LEN as usize + 1) };
-	write_c_str(buf, &mask.name);
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("path_get_name", || {
+		let Some(mask) = (unsafe { mask_by_id(effect_ref, unique_id) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		if nameZ.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		let buf = unsafe { std::slice::from_raw_parts_mut(nameZ, PF_MAX_PATH_NAME_LEN as usize + 1) };
+		write_c_str(buf, &mask.name);
+		PF_Err_NONE as PF_Err
+	})
 }
 
 pub(super) const fn create_path_data_suite_1() -> PF_PathDataSuite1 {

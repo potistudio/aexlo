@@ -119,20 +119,22 @@ hook!(version, AEGP_VersionHook, AEGP_VersionRefcon);
 hook!(about_string, AEGP_AboutStringHook, AEGP_AboutStringRefcon);
 hook!(about, AEGP_AboutHook, AEGP_AboutRefcon);
 unsafe extern "C" fn idle(id: AEGP_PluginID, cb: AEGP_IdleHook, reference: AEGP_IdleRefcon) -> A_Err {
-	let Some(cb) = cb else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let Ok(mut entries) = entries().lock() else {
-		return PF_Err_INTERNAL_STRUCT_DAMAGED as A_Err;
-	};
-	let Some(entry) = entries.get_mut(&id) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	if CURRENT_OWNER.with(Cell::get) != Some(entry.owner) {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	entry.idle = Some((cb, reference as usize));
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("idle", || {
+		let Some(cb) = cb else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		let Ok(mut entries) = entries().lock() else {
+			return PF_Err_INTERNAL_STRUCT_DAMAGED as A_Err;
+		};
+		let Some(entry) = entries.get_mut(&id) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		if CURRENT_OWNER.with(Cell::get) != Some(entry.owner) {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		entry.idle = Some((cb, reference as usize));
+		PF_Err_NONE as A_Err
+	})
 }
 unsafe extern "C" fn command(
 	_: AEGP_PluginID,
@@ -141,8 +143,10 @@ unsafe extern "C" fn command(
 	_: AEGP_CommandHook,
 	_: AEGP_CommandRefcon,
 ) -> A_Err {
-	log::warn!("AEGP command hook is unsupported");
-	PF_Err_INTERNAL_STRUCT_DAMAGED as A_Err
+	crate::core::ffi::guard("command", || {
+		log::warn!("AEGP command hook is unsupported");
+		PF_Err_INTERNAL_STRUCT_DAMAGED as A_Err
+	})
 }
 unsafe extern "C" fn artisan(
 	_: A_Version,
@@ -153,8 +157,10 @@ unsafe extern "C" fn artisan(
 	_: *const A_char,
 	_: *mut PR_ArtisanEntryPoints,
 ) -> A_Err {
-	log::warn!("AEGP artisan registration is unsupported");
-	PF_Err_INTERNAL_STRUCT_DAMAGED as A_Err
+	crate::core::ffi::guard("artisan", || {
+		log::warn!("AEGP artisan registration is unsupported");
+		PF_Err_INTERNAL_STRUCT_DAMAGED as A_Err
+	})
 }
 unsafe extern "C" fn io(
 	_: AEGP_PluginID,
@@ -162,8 +168,10 @@ unsafe extern "C" fn io(
 	_: *const AEIO_ModuleInfo,
 	_: *const AEIO_FunctionBlock4,
 ) -> A_Err {
-	log::warn!("AEGP IO registration is unsupported");
-	PF_Err_INTERNAL_STRUCT_DAMAGED as A_Err
+	crate::core::ffi::guard("io", || {
+		log::warn!("AEGP IO registration is unsupported");
+		PF_Err_INTERNAL_STRUCT_DAMAGED as A_Err
+	})
 }
 unsafe extern "C" fn tracker(
 	_: A_Version,
@@ -174,12 +182,16 @@ unsafe extern "C" fn tracker(
 	_: *const A_char,
 	_: *const PT_TrackerEntryPoints,
 ) -> A_Err {
-	log::warn!("AEGP tracker registration is unsupported");
-	PF_Err_INTERNAL_STRUCT_DAMAGED as A_Err
+	crate::core::ffi::guard("tracker", || {
+		log::warn!("AEGP tracker registration is unsupported");
+		PF_Err_INTERNAL_STRUCT_DAMAGED as A_Err
+	})
 }
 unsafe extern "C" fn preset(_: *const A_char, _: *const A_char) -> A_Err {
-	log::warn!("AEGP preset localization is unsupported");
-	PF_Err_INTERNAL_STRUCT_DAMAGED as A_Err
+	crate::core::ffi::guard("preset", || {
+		log::warn!("AEGP preset localization is unsupported");
+		PF_Err_INTERNAL_STRUCT_DAMAGED as A_Err
+	})
 }
 pub static REGISTER: AEGP_RegisterSuite5 = AEGP_RegisterSuite5 {
 	AEGP_RegisterCommandHook: Some(command),

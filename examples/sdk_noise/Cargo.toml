@@ -1,11 +1,13 @@
 [package]
 name = "sdk_noise"
-authors.workspace = true
-license.workspace = true
-edition.workspace = true
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+publish = false
 
 [features]
-all = ["diagnostics"]
 diagnostics = ["aexlo/diagnostics"]
 
 [[bench]]
@@ -13,13 +15,13 @@ name = "render_full"
 harness = false
 
 [dependencies]
-aexlo = { path = "../../crates/aexlo" }
-chrono = "0.4.45"
-colored = "3.1.1"
-env_logger = "0.11.11"
-image = { version = "0.25.10", default-features = false, features = ["png"] }
-log = "0.4.33"
-mtpng = "0.4.1"
+aexlo = { workspace = true }
+chrono = { workspace = true }
+colored = { workspace = true }
+env_logger = { workspace = true }
+image = { workspace = true, features = ["png"] }
+log = { workspace = true }
+mtpng = { workspace = true }
 
 [dev-dependencies]
-criterion = "0.8.2"
+criterion = { workspace = true }

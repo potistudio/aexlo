@@ -371,7 +371,9 @@ pub unsafe extern "C" fn EffectMain(
 	output: *mut PF_LayerDef,
 	_extra: *mut c_void,
 ) -> PF_Err {
-	if (cmd == PF_Cmd_GLOBAL_SETUP as PF_Cmd || cmd == PF_Cmd_PARAMS_SETUP as PF_Cmd || cmd == PF_Cmd_SEQUENCE_SETUP as PF_Cmd)
+	if (cmd == PF_Cmd_GLOBAL_SETUP as PF_Cmd
+		|| cmd == PF_Cmd_PARAMS_SETUP as PF_Cmd
+		|| cmd == PF_Cmd_SEQUENCE_SETUP as PF_Cmd)
 		&& let Ok(expected) = std::env::var("AEXLO_TEST_SETUP_GEOMETRY")
 	{
 		let actual = unsafe {

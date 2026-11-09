@@ -1,0 +1,33 @@
+[package]
+name = "aexlo_demo_hello_world"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+description = "Development demo using aexlo"
+authors = { workspace = true }
+license = { workspace = true }
+publish = false
+
+[lib]
+name = "aexlo_demo_hello_world"
+crate-type = ["cdylib"]
+
+[dependencies]
+after-effects = { workspace = true }
+
+[build-dependencies]
+pipl = { workspace = true }
+
+[dev-dependencies]
+# In-process preview harness: drive the plugin via `Host::from_entry_raw`
+# in a `#[test]`, no cdylib/bundle/dlopen. See `src/lib.rs` `mod preview`.
+aexlo = { workspace = true }
+aexlo-test = { workspace = true }
+
+# `ae::define_effect!` expands to cfgs and patterns this crate does not own.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(catch_panics)', 'cfg(does_dialog)', 'cfg(threaded_rendering)', 'cfg(with_premiere)'] }
+
+[lints.clippy]
+drop_non_drop = "allow"
+question_mark = "allow"

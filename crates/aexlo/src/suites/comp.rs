@@ -19,27 +19,31 @@ const SHUTTER_ANGLE: A_long = 180;
 const SHUTTER_PHASE: A_long = -90;
 
 unsafe extern "C" fn get_comp_from_item(itemH: AEGP_ItemH, compPH: *mut AEGP_CompH) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetCompFromItem", "itemH" => format!("{:#x}", itemH as usize));
-	let Some(out) = (unsafe { compPH.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	if Timeline::of(itemH as _).is_none() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	*out = comp_handle(itemH as PF_ProgPtr);
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("get_comp_from_item", || {
+		diag!("AEGP_CompSuite10/AEGP_GetCompFromItem", "itemH" => format!("{:#x}", itemH as usize));
+		let Some(out) = (unsafe { compPH.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		if Timeline::of(itemH as _).is_none() {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		*out = comp_handle(itemH as PF_ProgPtr);
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn get_item_from_comp(compH: AEGP_CompH, itemPH: *mut AEGP_ItemH) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetItemFromComp", "compH" => format!("{:#x}", compH as usize));
-	let Some(out) = (unsafe { itemPH.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	if Timeline::of(compH as _).is_none() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	*out = item_handle(compH as PF_ProgPtr);
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("get_item_from_comp", || {
+		diag!("AEGP_CompSuite10/AEGP_GetItemFromComp", "compH" => format!("{:#x}", compH as usize));
+		let Some(out) = (unsafe { itemPH.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		if Timeline::of(compH as _).is_none() {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		*out = item_handle(compH as PF_ProgPtr);
+		PF_Err_NONE as A_Err
+	})
 }
 
 fn unsupported(name: &str) -> A_Err {
@@ -143,43 +147,55 @@ refuse! {
 }
 
 unsafe extern "C" fn get_comp_downsample_factor(compH: AEGP_CompH, dsfP: *mut AEGP_DownsampleFactor) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetCompDownsampleFactor", "compH" => format!("{:#x}", compH as usize));
-	answer(compH as _, dsfP, |_| AEGP_DownsampleFactor { xS: 1, yS: 1 })
+	crate::core::ffi::guard("get_comp_downsample_factor", || {
+		diag!("AEGP_CompSuite10/AEGP_GetCompDownsampleFactor", "compH" => format!("{:#x}", compH as usize));
+		answer(compH as _, dsfP, |_| AEGP_DownsampleFactor { xS: 1, yS: 1 })
+	})
 }
 
 unsafe extern "C" fn get_comp_bg_color(compH: AEGP_CompH, bg_colorP: *mut AEGP_ColorVal) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetCompBGColor", "compH" => format!("{:#x}", compH as usize));
-	answer(compH as _, bg_colorP, |_| AEGP_ColorVal {
-		alphaF: 1.0,
-		redF: 0.0,
-		greenF: 0.0,
-		blueF: 0.0,
+	crate::core::ffi::guard("get_comp_bg_color", || {
+		diag!("AEGP_CompSuite10/AEGP_GetCompBGColor", "compH" => format!("{:#x}", compH as usize));
+		answer(compH as _, bg_colorP, |_| AEGP_ColorVal {
+			alphaF: 1.0,
+			redF: 0.0,
+			greenF: 0.0,
+			blueF: 0.0,
+		})
 	})
 }
 
 /// No switches are on: motion blur, frame blending and the rest are off.
 unsafe extern "C" fn get_comp_flags(compH: AEGP_CompH, comp_flagsP: *mut AEGP_CompFlags) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetCompFlags", "compH" => format!("{:#x}", compH as usize));
-	answer(compH as _, comp_flagsP, |_| 0)
+	crate::core::ffi::guard("get_comp_flags", || {
+		diag!("AEGP_CompSuite10/AEGP_GetCompFlags", "compH" => format!("{:#x}", compH as usize));
+		answer(compH as _, comp_flagsP, |_| 0)
+	})
 }
 
 unsafe extern "C" fn get_show_layer_name_or_source_name(
 	compH: AEGP_CompH,
 	layer_names_shownPB: *mut A_Boolean,
 ) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetShowLayerNameOrSourceName", "compH" => format!("{:#x}", compH as usize));
-	answer(compH as _, layer_names_shownPB, |_| 1)
+	crate::core::ffi::guard("get_show_layer_name_or_source_name", || {
+		diag!("AEGP_CompSuite10/AEGP_GetShowLayerNameOrSourceName", "compH" => format!("{:#x}", compH as usize));
+		answer(compH as _, layer_names_shownPB, |_| 1)
+	})
 }
 
 unsafe extern "C" fn get_show_blend_modes(compH: AEGP_CompH, blend_modes_shownPB: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetShowBlendModes", "compH" => format!("{:#x}", compH as usize));
-	answer(compH as _, blend_modes_shownPB, |_| 0)
+	crate::core::ffi::guard("get_show_blend_modes", || {
+		diag!("AEGP_CompSuite10/AEGP_GetShowBlendModes", "compH" => format!("{:#x}", compH as usize));
+		answer(compH as _, blend_modes_shownPB, |_| 0)
+	})
 }
 
 unsafe extern "C" fn get_comp_framerate(compH: AEGP_CompH, fpsPF: *mut A_FpLong) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetCompFramerate", "compH" => format!("{:#x}", compH as usize));
-	answer(compH as _, fpsPF, |t| {
-		t.time_scale as A_FpLong / t.time_step.max(1) as A_FpLong
+	crate::core::ffi::guard("get_comp_framerate", || {
+		diag!("AEGP_CompSuite10/AEGP_GetCompFramerate", "compH" => format!("{:#x}", compH as usize));
+		answer(compH as _, fpsPF, |t| {
+			t.time_scale as A_FpLong / t.time_step.max(1) as A_FpLong
+		})
 	})
 }
 
@@ -188,21 +204,23 @@ unsafe extern "C" fn get_comp_shutter_angle_phase(
 	angle: *mut A_Ratio,
 	phase: *mut A_Ratio,
 ) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetCompShutterAnglePhase", "compH" => format!("{:#x}", compH as usize));
-	if Timeline::of(compH as _).is_none() || angle.is_null() || phase.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	unsafe {
-		*angle = A_Ratio {
-			num: SHUTTER_ANGLE,
-			den: 1,
-		};
-		*phase = A_Ratio {
-			num: SHUTTER_PHASE,
-			den: 1,
-		};
-	}
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("get_comp_shutter_angle_phase", || {
+		diag!("AEGP_CompSuite10/AEGP_GetCompShutterAnglePhase", "compH" => format!("{:#x}", compH as usize));
+		if Timeline::of(compH as _).is_none() || angle.is_null() || phase.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		unsafe {
+			*angle = A_Ratio {
+				num: SHUTTER_ANGLE,
+				den: 1,
+			};
+			*phase = A_Ratio {
+				num: SHUTTER_PHASE,
+				den: 1,
+			};
+		}
+		PF_Err_NONE as A_Err
+	})
 }
 
 /// The span the shutter is open for the frame at `comp_timeP`: it opens
@@ -214,76 +232,92 @@ unsafe extern "C" fn get_comp_shutter_frame_range(
 	start: *mut A_Time,
 	duration: *mut A_Time,
 ) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetCompShutterFrameRange", "compH" => format!("{:#x}", compH as usize));
-	let Some(t) = Timeline::of(compH as _) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let Some(time) = (unsafe { comp_timeP.as_ref() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	if start.is_null() || duration.is_null() || time.scale == 0 {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	// One frame is `time_step / time_scale` s; at a scale of `time_scale * 360`
-	// it is `time_step * 360` ticks, so a degree of shutter is `time_step` ticks.
-	let scale = t.time_scale as i64 * 360;
-	let at = time.value as i64 * scale / time.scale as i64;
-	let step = t.time_step as i64;
-	unsafe {
-		*start = A_Time {
-			value: (at + SHUTTER_PHASE as i64 * step) as A_long,
-			scale: scale as A_u_long,
+	crate::core::ffi::guard("get_comp_shutter_frame_range", || {
+		diag!("AEGP_CompSuite10/AEGP_GetCompShutterFrameRange", "compH" => format!("{:#x}", compH as usize));
+		let Some(t) = Timeline::of(compH as _) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
 		};
-		*duration = A_Time {
-			value: (SHUTTER_ANGLE as i64 * step) as A_long,
-			scale: scale as A_u_long,
+		let Some(time) = (unsafe { comp_timeP.as_ref() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
 		};
-	}
-	PF_Err_NONE as A_Err
+		if start.is_null() || duration.is_null() || time.scale == 0 {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		// One frame is `time_step / time_scale` s; at a scale of `time_scale * 360`
+		// it is `time_step * 360` ticks, so a degree of shutter is `time_step` ticks.
+		let scale = t.time_scale as i64 * 360;
+		let at = time.value as i64 * scale / time.scale as i64;
+		let step = t.time_step as i64;
+		unsafe {
+			*start = A_Time {
+				value: (at + SHUTTER_PHASE as i64 * step) as A_long,
+				scale: scale as A_u_long,
+			};
+			*duration = A_Time {
+				value: (SHUTTER_ANGLE as i64 * step) as A_long,
+				scale: scale as A_u_long,
+			};
+		}
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn get_comp_suggested_motion_blur_samples(compH: AEGP_CompH, samplesPL: *mut A_long) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetCompSuggestedMotionBlurSamples", "compH" => format!("{:#x}", compH as usize));
-	answer(compH as _, samplesPL, |_| 16)
+	crate::core::ffi::guard("get_comp_suggested_motion_blur_samples", || {
+		diag!("AEGP_CompSuite10/AEGP_GetCompSuggestedMotionBlurSamples", "compH" => format!("{:#x}", compH as usize));
+		answer(compH as _, samplesPL, |_| 16)
+	})
 }
 
 unsafe extern "C" fn get_comp_motion_blur_adaptive_sample_limit(compH: AEGP_CompH, samplesPL: *mut A_long) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetCompMotionBlurAdaptiveSampleLimit", "compH" => format!("{:#x}", compH as usize));
-	answer(compH as _, samplesPL, |_| 128)
+	crate::core::ffi::guard("get_comp_motion_blur_adaptive_sample_limit", || {
+		diag!("AEGP_CompSuite10/AEGP_GetCompMotionBlurAdaptiveSampleLimit", "compH" => format!("{:#x}", compH as usize));
+		answer(compH as _, samplesPL, |_| 128)
+	})
 }
 
 unsafe extern "C" fn get_comp_work_area_start(compH: AEGP_CompH, work_area_startPT: *mut A_Time) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetCompWorkAreaStart", "compH" => format!("{:#x}", compH as usize));
-	answer(compH as _, work_area_startPT, |t| A_Time {
-		value: 0,
-		scale: t.time_scale,
+	crate::core::ffi::guard("get_comp_work_area_start", || {
+		diag!("AEGP_CompSuite10/AEGP_GetCompWorkAreaStart", "compH" => format!("{:#x}", compH as usize));
+		answer(compH as _, work_area_startPT, |t| A_Time {
+			value: 0,
+			scale: t.time_scale,
+		})
 	})
 }
 
 unsafe extern "C" fn get_comp_work_area_duration(compH: AEGP_CompH, work_area_durationPT: *mut A_Time) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetCompWorkAreaDuration", "compH" => format!("{:#x}", compH as usize));
-	answer(compH as _, work_area_durationPT, Timeline::duration)
+	crate::core::ffi::guard("get_comp_work_area_duration", || {
+		diag!("AEGP_CompSuite10/AEGP_GetCompWorkAreaDuration", "compH" => format!("{:#x}", compH as usize));
+		answer(compH as _, work_area_durationPT, Timeline::duration)
+	})
 }
 
 unsafe extern "C" fn get_comp_display_start_time(compH: AEGP_CompH, start_timePT: *mut A_Time) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetCompDisplayStartTime", "compH" => format!("{:#x}", compH as usize));
-	answer(compH as _, start_timePT, |t| A_Time {
-		value: 0,
-		scale: t.time_scale,
+	crate::core::ffi::guard("get_comp_display_start_time", || {
+		diag!("AEGP_CompSuite10/AEGP_GetCompDisplayStartTime", "compH" => format!("{:#x}", compH as usize));
+		answer(compH as _, start_timePT, |t| A_Time {
+			value: 0,
+			scale: t.time_scale,
+		})
 	})
 }
 
 unsafe extern "C" fn get_comp_frame_duration(compH: AEGP_CompH, timeP: *mut A_Time) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetCompFrameDuration", "compH" => format!("{:#x}", compH as usize));
-	answer(compH as _, timeP, |t| A_Time {
-		value: t.time_step,
-		scale: t.time_scale,
+	crate::core::ffi::guard("get_comp_frame_duration", || {
+		diag!("AEGP_CompSuite10/AEGP_GetCompFrameDuration", "compH" => format!("{:#x}", compH as usize));
+		answer(compH as _, timeP, |t| A_Time {
+			value: t.time_step,
+			scale: t.time_scale,
+		})
 	})
 }
 
 unsafe extern "C" fn get_comp_display_drop_frame(compH: AEGP_CompH, dropFramePB: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_CompSuite10/AEGP_GetCompDisplayDropFrame", "compH" => format!("{:#x}", compH as usize));
-	answer(compH as _, dropFramePB, |_| 0)
+	crate::core::ffi::guard("get_comp_display_drop_frame", || {
+		diag!("AEGP_CompSuite10/AEGP_GetCompDisplayDropFrame", "compH" => format!("{:#x}", compH as usize));
+		answer(compH as _, dropFramePB, |_| 0)
+	})
 }
 
 /// Builds the `AEGP_CompSuite10` vtable.

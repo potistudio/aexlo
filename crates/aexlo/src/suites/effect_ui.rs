@@ -22,21 +22,23 @@ use after_effects_sys::{
 // ---- PF Effect UI Suite ----------------------------------------------------
 
 unsafe extern "C" fn set_options_button_name(effect_ref: PF_ProgPtr, nameZ: *const A_char) -> PF_Err {
-	diag!("PF_EffectUISuite1/PF_SetOptionsButtonName",
-		"effect_ref" => format!("{:#x}", effect_ref as usize),
-		"nameZ" => format!("{:?}", unsafe { read_c_str(nameZ) }),
-	);
+	crate::core::ffi::guard("set_options_button_name", || {
+		diag!("PF_EffectUISuite1/PF_SetOptionsButtonName",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+			"nameZ" => format!("{:?}", unsafe { read_c_str(nameZ) }),
+		);
 
-	let Some(mut instance) = PluginInstance::get_instance_ptr(effect_ref) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	let Some(name) = (unsafe { read_c_str(nameZ) }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	// SAFETY: effect_ref is the instance currently being called into; nothing
-	// else holds a reference to this field during the callback.
-	unsafe { instance.as_mut() }.set_options_button_name(name);
-	PF_Err_NONE as PF_Err
+		let Some(mut instance) = PluginInstance::get_instance_ptr(effect_ref) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		let Some(name) = (unsafe { read_c_str(nameZ) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		// SAFETY: effect_ref is the instance currently being called into; nothing
+		// else holds a reference to this field during the callback.
+		unsafe { instance.as_mut() }.set_options_button_name(name);
+		PF_Err_NONE as PF_Err
+	})
 }
 
 pub(super) const fn create_effect_ui_suite_1() -> PF_EffectUISuite1 {
@@ -48,25 +50,27 @@ pub(super) const fn create_effect_ui_suite_1() -> PF_EffectUISuite1 {
 // ---- PF Effect Custom UI Suite ---------------------------------------------
 
 unsafe extern "C" fn get_drawing_reference(effect_contextH: PF_ContextH, referenceP0: *mut DRAWBOT_DrawRef) -> PF_Err {
-	diag!("PF_EffectCustomUISuite/PF_GetDrawingReference",
-		"effect_contextH" => format!("{:#x}", effect_contextH as usize),
-		"referenceP0" => format!("{:#x}", referenceP0 as usize),
-	);
+	crate::core::ffi::guard("get_drawing_reference", || {
+		diag!("PF_EffectCustomUISuite/PF_GetDrawingReference",
+			"effect_contextH" => format!("{:#x}", effect_contextH as usize),
+			"referenceP0" => format!("{:#x}", referenceP0 as usize),
+		);
 
-	let _ = effect_contextH;
-	let Some(out) = (unsafe { referenceP0.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	match super::drawbot::current_draw_ref() {
-		Some(draw) => {
-			*out = draw;
-			PF_Err_NONE as PF_Err
+		let _ = effect_contextH;
+		let Some(out) = (unsafe { referenceP0.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		match super::drawbot::current_draw_ref() {
+			Some(draw) => {
+				*out = draw;
+				PF_Err_NONE as PF_Err
+			}
+			None => {
+				*out = std::ptr::null_mut();
+				PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			}
 		}
-		None => {
-			*out = std::ptr::null_mut();
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
-		}
-	}
+	})
 }
 
 unsafe extern "C" fn get_context_async_manager(
@@ -74,17 +78,19 @@ unsafe extern "C" fn get_context_async_manager(
 	extra: *mut PF_EventExtra,
 	managerPP0: *mut PF_AsyncManagerP,
 ) -> PF_Err {
-	diag!("PF_EffectCustomUISuite/PF_GetContextAsyncManager",
-		"in_data" => format!("{:#x}", in_data as usize),
-		"extra" => format!("{:#x}", extra as usize),
-		"managerPP0" => format!("{:#x}", managerPP0 as usize),
-	);
+	crate::core::ffi::guard("get_context_async_manager", || {
+		diag!("PF_EffectCustomUISuite/PF_GetContextAsyncManager",
+			"in_data" => format!("{:#x}", in_data as usize),
+			"extra" => format!("{:#x}", extra as usize),
+			"managerPP0" => format!("{:#x}", managerPP0 as usize),
+		);
 
-	let _ = (in_data, extra);
-	if let Some(out) = unsafe { managerPP0.as_mut() } {
-		*out = std::ptr::null_mut();
-	}
-	PF_Err_BAD_CALLBACK_PARAM as PF_Err
+		let _ = (in_data, extra);
+		if let Some(out) = unsafe { managerPP0.as_mut() } {
+			*out = std::ptr::null_mut();
+		}
+		PF_Err_BAD_CALLBACK_PARAM as PF_Err
+	})
 }
 
 pub(super) const fn create_effect_custom_ui_suite_1() -> PF_EffectCustomUISuite1 {
@@ -168,13 +174,15 @@ unsafe extern "C" fn stroke_path(
 	path_ref: DRAWBOT_PathRef,
 	draw_shadowB: PF_Boolean,
 ) -> PF_Err {
-	diag!("PF_EffectCustomUIOverlayThemeSuite1/PF_StrokePath",
-		"drawbot_ref" => format!("{:#x}", drawbot_ref as usize),
-		"path_ref" => format!("{:#x}", path_ref as usize),
-		"draw_shadowB" => draw_shadowB,
-	);
-	let _ = (drawbot_ref, path_ref, draw_shadowB);
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("stroke_path", || {
+		diag!("PF_EffectCustomUIOverlayThemeSuite1/PF_StrokePath",
+			"drawbot_ref" => format!("{:#x}", drawbot_ref as usize),
+			"path_ref" => format!("{:#x}", path_ref as usize),
+			"draw_shadowB" => draw_shadowB,
+		);
+		let _ = (drawbot_ref, path_ref, draw_shadowB);
+		PF_Err_NONE as PF_Err
+	})
 }
 
 unsafe extern "C" fn fill_path(
@@ -182,13 +190,15 @@ unsafe extern "C" fn fill_path(
 	path_ref: DRAWBOT_PathRef,
 	draw_shadowB: PF_Boolean,
 ) -> PF_Err {
-	diag!("PF_EffectCustomUIOverlayThemeSuite1/PF_FillPath",
-		"drawbot_ref" => format!("{:#x}", drawbot_ref as usize),
-		"path_ref" => format!("{:#x}", path_ref as usize),
-		"draw_shadowB" => draw_shadowB,
-	);
-	let _ = (drawbot_ref, path_ref, draw_shadowB);
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("fill_path", || {
+		diag!("PF_EffectCustomUIOverlayThemeSuite1/PF_FillPath",
+			"drawbot_ref" => format!("{:#x}", drawbot_ref as usize),
+			"path_ref" => format!("{:#x}", path_ref as usize),
+			"draw_shadowB" => draw_shadowB,
+		);
+		let _ = (drawbot_ref, path_ref, draw_shadowB);
+		PF_Err_NONE as PF_Err
+	})
 }
 
 unsafe extern "C" fn fill_vertex(
@@ -196,13 +206,15 @@ unsafe extern "C" fn fill_vertex(
 	center_pointP: *const A_FloatPoint,
 	draw_shadowB: PF_Boolean,
 ) -> PF_Err {
-	diag!("PF_EffectCustomUIOverlayThemeSuite1/PF_FillVertex",
-		"drawbot_ref" => format!("{:#x}", drawbot_ref as usize),
-		"center_pointP" => format!("{:#x}", center_pointP as usize),
-		"draw_shadowB" => draw_shadowB,
-	);
-	let _ = (drawbot_ref, center_pointP, draw_shadowB);
-	PF_Err_NONE as PF_Err
+	crate::core::ffi::guard("fill_vertex", || {
+		diag!("PF_EffectCustomUIOverlayThemeSuite1/PF_FillVertex",
+			"drawbot_ref" => format!("{:#x}", drawbot_ref as usize),
+			"center_pointP" => format!("{:#x}", center_pointP as usize),
+			"draw_shadowB" => draw_shadowB,
+		);
+		let _ = (drawbot_ref, center_pointP, draw_shadowB);
+		PF_Err_NONE as PF_Err
+	})
 }
 
 pub(super) const fn create_overlay_theme_suite_1() -> PF_EffectCustomUIOverlayThemeSuite1 {

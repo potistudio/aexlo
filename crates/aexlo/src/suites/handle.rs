@@ -293,118 +293,120 @@ pub(crate) unsafe extern "C" fn host_get_handle_size_impl(pf_handle: PF_Handle) 
 
 /// Resizes the handle to the new size.
 pub(crate) unsafe extern "C" fn host_resize_handle_impl(new_sizeL: A_HandleSize, handlePH: *mut PF_Handle) -> PF_Err {
-	log::debug!("host_resize_handle: new_size={}, handlePH={:p}", new_sizeL, handlePH);
+	crate::core::ffi::guard("host_resize_handle_impl", || {
+		log::debug!("host_resize_handle: new_size={}, handlePH={:p}", new_sizeL, handlePH);
 
-	#[cfg(feature = "diagnostics")]
-	log::trace!("host_resize_handle called, new_size: {}", new_sizeL);
+		#[cfg(feature = "diagnostics")]
+		log::trace!("host_resize_handle called, new_size: {}", new_sizeL);
 
-	// Deref handlePH to check if it points to a handle
-	if handlePH.is_null() {
-		log::error!("host_resize_handle: handlePH is NULL");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	let pf_handle = unsafe { *handlePH };
-
-	if pf_handle.is_null() {
-		log::error!("host_resize_handle: pf_handle is NULL");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	let user_ptr = unsafe { *(pf_handle as *mut *mut u8) };
-
-	if user_ptr.is_null() {
-		// If the handle exists but points to NULL, treat as new alloc?
-		// Standard behavior usually implies a valid handle has valid data or strict rules.
-		// For safety, let's fail.
-		log::error!("host_resize_handle: user_ptr is NULL");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	let header_size = HANDLE_ALIGNMENT;
-	let base_ptr = unsafe { user_ptr.sub(header_size) };
-
-	// Verify magic number
-	let magic = unsafe { *(base_ptr as *mut u64) };
-	if magic != HANDLE_MAGIC {
-		log::error!(
-			"host_resize_handle: INVALID HANDLE! magic=0x{:x} (expected 0x{:x}), pf_handle={:p}, user_ptr={:p}",
-			magic,
-			HANDLE_MAGIC,
-			pf_handle,
-			user_ptr
-		);
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	let old_size = unsafe { *(base_ptr.add(8) as *mut usize) };
-
-	log::debug!(
-		"host_resize_handle: pf_handle={:p}, user_ptr={:p}, old_size={}",
-		pf_handle,
-		user_ptr,
-		old_size
-	);
-
-	let new_size = match usize::try_from(new_sizeL) {
-		Ok(value) => value,
-		Err(_) => {
-			log::error!("host_resize_handle: invalid negative new_size {}", new_sizeL);
+		// Deref handlePH to check if it points to a handle
+		if handlePH.is_null() {
+			log::error!("host_resize_handle: handlePH is NULL");
 			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-	};
+		let pf_handle = unsafe { *handlePH };
 
-	// Sanity check
-	const MAX_REASONABLE_SIZE: usize = 1_000_000_000; // 1GB
-	if new_size > MAX_REASONABLE_SIZE {
-		log::error!(
-			"host_resize_handle: UNREASONABLE SIZE REQUESTED! new_size={} (0x{:x}), old_size={}",
-			new_size,
-			new_size,
+		if pf_handle.is_null() {
+			log::error!("host_resize_handle: pf_handle is NULL");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+
+		let user_ptr = unsafe { *(pf_handle as *mut *mut u8) };
+
+		if user_ptr.is_null() {
+			// If the handle exists but points to NULL, treat as new alloc?
+			// Standard behavior usually implies a valid handle has valid data or strict rules.
+			// For safety, let's fail.
+			log::error!("host_resize_handle: user_ptr is NULL");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+
+		let header_size = HANDLE_ALIGNMENT;
+		let base_ptr = unsafe { user_ptr.sub(header_size) };
+
+		// Verify magic number
+		let magic = unsafe { *(base_ptr as *mut u64) };
+		if magic != HANDLE_MAGIC {
+			log::error!(
+				"host_resize_handle: INVALID HANDLE! magic=0x{:x} (expected 0x{:x}), pf_handle={:p}, user_ptr={:p}",
+				magic,
+				HANDLE_MAGIC,
+				pf_handle,
+				user_ptr
+			);
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+
+		let old_size = unsafe { *(base_ptr.add(8) as *mut usize) };
+
+		log::debug!(
+			"host_resize_handle: pf_handle={:p}, user_ptr={:p}, old_size={}",
+			pf_handle,
+			user_ptr,
 			old_size
 		);
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
 
-	let old_total = match header_size.checked_add(old_size) {
-		Some(value) => value,
-		None => {
-			log::error!("host_resize_handle: old size overflow");
-			return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err;
-		}
-	};
-	let new_total = match header_size.checked_add(new_size) {
-		Some(value) => value,
-		None => {
-			log::error!("host_resize_handle: new size overflow");
-			return PF_Err_OUT_OF_MEMORY as PF_Err;
-		}
-	};
+		let new_size = match usize::try_from(new_sizeL) {
+			Ok(value) => value,
+			Err(_) => {
+				log::error!("host_resize_handle: invalid negative new_size {}", new_sizeL);
+				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			}
+		};
 
-	// Realloc
-	// We trusted layout was created with HANDLE_ALIGNMENT
-	if let Ok(old_layout) = Layout::from_size_align(old_total, HANDLE_ALIGNMENT) {
-		let new_ptr = unsafe { realloc(base_ptr, old_layout, new_total) };
-
-		if new_ptr.is_null() {
-			log::error!("host_resize_handle: realloc failed");
-			return PF_Err_OUT_OF_MEMORY as PF_Err;
+		// Sanity check
+		const MAX_REASONABLE_SIZE: usize = 1_000_000_000; // 1GB
+		if new_size > MAX_REASONABLE_SIZE {
+			log::error!(
+				"host_resize_handle: UNREASONABLE SIZE REQUESTED! new_size={} (0x{:x}), old_size={}",
+				new_size,
+				new_size,
+				old_size
+			);
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
 
-		// Update size in prefix
-		unsafe { *(new_ptr as *mut u64) = HANDLE_MAGIC };
-		unsafe { *(new_ptr.add(8) as *mut usize) = new_size };
+		let old_total = match header_size.checked_add(old_size) {
+			Some(value) => value,
+			None => {
+				log::error!("host_resize_handle: old size overflow");
+				return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err;
+			}
+		};
+		let new_total = match header_size.checked_add(new_size) {
+			Some(value) => value,
+			None => {
+				log::error!("host_resize_handle: new size overflow");
+				return PF_Err_OUT_OF_MEMORY as PF_Err;
+			}
+		};
 
-		// Update handle to point to new user data
-		let new_user_ptr = unsafe { new_ptr.add(header_size) };
+		// Realloc
+		// We trusted layout was created with HANDLE_ALIGNMENT
+		if let Ok(old_layout) = Layout::from_size_align(old_total, HANDLE_ALIGNMENT) {
+			let new_ptr = unsafe { realloc(base_ptr, old_layout, new_total) };
 
-		// Update handle to point to the new user pointer
-		unsafe { *(pf_handle as *mut *mut u8) = new_user_ptr };
+			if new_ptr.is_null() {
+				log::error!("host_resize_handle: realloc failed");
+				return PF_Err_OUT_OF_MEMORY as PF_Err;
+			}
 
-		PF_Err_NONE as PF_Err
-	} else {
-		log::error!("host_resize_handle: invalid old layout logic");
-		PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err
-	}
+			// Update size in prefix
+			unsafe { *(new_ptr as *mut u64) = HANDLE_MAGIC };
+			unsafe { *(new_ptr.add(8) as *mut usize) = new_size };
+
+			// Update handle to point to new user data
+			let new_user_ptr = unsafe { new_ptr.add(header_size) };
+
+			// Update handle to point to the new user pointer
+			unsafe { *(pf_handle as *mut *mut u8) = new_user_ptr };
+
+			PF_Err_NONE as PF_Err
+		} else {
+			log::error!("host_resize_handle: invalid old layout logic");
+			PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err
+		}
+	})
 }
 
 // ============================================================================

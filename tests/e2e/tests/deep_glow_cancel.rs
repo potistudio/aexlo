@@ -25,7 +25,7 @@ fn host_cancel_stops_the_render() {
 		return;
 	};
 	let host = Host::install(CancellingHost).expect("host already installed");
-	let mut instance = host.try_load(&path).expect("failed to load plugin");
+	let mut instance = host.load(&path).expect("failed to load plugin");
 
 	let err = instance.render_frame().expect_err("a cancelled render must fail");
 	assert!(err.is_cancelled(), "expected a cancellation, got {err:?}");

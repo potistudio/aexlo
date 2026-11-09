@@ -3,6 +3,10 @@
 //! This module provides structured diagnostic output for debugging plugin callbacks.
 //! The design separates data structure from presentation for flexibility.
 
+// Only the `diag!` macro is used without the `diagnostics` feature; the record
+// types are built solely by feature-gated code.
+#![cfg_attr(not(feature = "diagnostics"), allow(dead_code))]
+
 use std::borrow::Cow;
 
 /// Colorize a value string based on its detected type.
@@ -81,18 +85,6 @@ impl<'a> Diagnostic<'a> {
 		}
 
 		println!();
-	}
-
-	/// Emit via the `log` crate (no colors, structured).
-	#[cfg(feature = "diagnostics")]
-	pub fn log(&self) {
-		let args_str: Vec<String> = self.args.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
-
-		if let Some(ref result) = self.result {
-			log::debug!("{}({}) -> {}", self.name, args_str.join(", "), result);
-		} else {
-			log::debug!("{}({})", self.name, args_str.join(", "));
-		}
 	}
 }
 

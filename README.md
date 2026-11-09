@@ -1,8 +1,8 @@
 # aexlo — After Effects Plugin Runtime
 
-English | [日本語](README.ja.md)
+English | [日本語](https://github.com/potistudio/aexlo/blob/master/README.ja.md)
 
-New to the repository? Start with the [getting started guide](docs/getting-started.md), then explore the [examples](examples/README.md), GUI, and [verification playground](playground/README.md).
+New to the repository? Start with the [getting started guide](https://github.com/potistudio/aexlo/blob/master/docs/getting-started.md), then explore the [examples](https://github.com/potistudio/aexlo/blob/master/examples/README.md), GUI, and [verification playground](https://github.com/potistudio/aexlo/blob/master/playground/README.md).
 
 > Load, run, and render After Effects plugins (.aex) outside of After Effects.
 
@@ -41,7 +41,7 @@ However, all of these plugins are designed to run exclusively within After Effec
 
 > [!WARNING]
 > This project is **currently under heavy development**.
-> The latest progress of this project can be seen on the [master branch](https://github.com/potistudio/aexlo-rs/tree/master).
+> The latest progress of this project can be seen on the [master branch](https://github.com/potistudio/aexlo/tree/master).
 
 ## Quick Start
 
@@ -54,7 +54,33 @@ However, all of these plugins are designed to run exclusively within After Effec
 > [!NOTE]
 > After Effects plugins target Windows and macOS only, so Linux is not currently supported.
 
-### Build
+### Use the library
+
+```bash
+cargo add aexlo
+```
+
+```rust,no_run
+use aexlo::{Depth8, Host, Layer, ParamValue, Time};
+
+fn main() -> aexlo::Result<()> {
+    // On Windows pass the `.aex` file, on macOS the `.plugin` bundle.
+    let mut fx = Host::get().load("MyEffect.aex")?;
+    println!("{}", fx.about()?);
+
+    fx.set_input_layer(Layer::<Depth8>::black(1920, 1080));
+    fx.set_param(1, ParamValue::Float(0.5))?;
+    fx.set_time(Time::frame(0, 30));
+    fx.render_frame()?;
+    let output: Layer<Depth8> = fx.read_output()?;
+    Ok(())
+}
+```
+
+A plugin is native code that runs inside your process; see the crate docs on
+[docs.rs](https://docs.rs/aexlo) for the trust, process and threading model.
+
+### Build from the repository
 
 ```bash
 cargo build
@@ -63,9 +89,15 @@ cargo build
 ## Toolkit
 
 `aexlo.toml` describes "render this plugin under these conditions" once, as
-presets; the `aexlo` CLI (`cargo install --path crates/cli`) then tests,
-benchmarks and previews them. The full specification is
-[docs/toolkit.md](docs/toolkit.md).
+presets; the `aexlo` CLI then tests, benchmarks and previews them. The full
+specification is [docs/toolkit.md](https://github.com/potistudio/aexlo/blob/master/docs/toolkit.md).
+
+The CLI and its toolkit crates are not published on crates.io; install the CLI
+from the repository:
+
+```bash
+cargo install --git https://github.com/potistudio/aexlo aexlo-cli
+```
 
 ```toml
 [plugin]
@@ -93,7 +125,7 @@ aexlo check                        # what CI runs (.github/workflows/aexlo-check
 
 Every variant runs in a worker process, so a crashing plugin fails one run,
 not the suite. Rust plugins add `aexlo-test` as a dev-dependency for
-in-process `#[aexlo::test]`s with frame assertions.
+in-process `#[aexlo_test::test]`s with frame assertions.
 
 ## Implementation Progress
 
@@ -160,4 +192,4 @@ Text uses a system sans-serif. `DrawString` draws nothing when none is installed
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [MIT License](https://github.com/potistudio/aexlo/blob/master/LICENSE).

@@ -11,6 +11,15 @@ Start with [Getting started with aexlo](../docs/getting-started.md). Run all com
 | [interactive](interactive/README.md) | Select plugins and edit parameters in a GUI | `cargo run -p interactive --release` |
 | [studio](studio/README.md) | Combine layers, effects, and time | `cargo run -p studio --release` |
 
-minimal and sdk_noise accept `-- --help` to describe their arguments. sdk_noise writes to `target/sdk-noise.png` by default. Read these two examples first when integrating the API into your application.
+sdk_noise accepts `-- --help` to describe its arguments and writes to `target/sdk-noise.png` by default. Read these two examples first when integrating the API into your application.
 
-[playground](../playground/README.md) verifies host behavior, while [demos](../demos/) contains plugin-side implementations. Start with these examples when building an application that hosts existing plugins.
+[playground](../playground/README.md) verifies host behavior. Start with these examples when building an application that hosts existing plugins.
+
+## Plugin examples
+
+[plugins/](plugins/) contains After Effects plugins written in Rust and tested with aexlo, for developers building plugins rather than hosts.
+
+| Example | What it demonstrates | Command |
+| --- | --- | --- |
+| [hello_world](plugins/hello_world/src/lib.rs) | Preview a plugin in-process with `#[aexlo_test::preview]` | `cargo test -p aexlo_demo_hello_world -- --ignored` |
+| [noise](plugins/noise/aexlo.toml) | Presets, goldens and `#[aexlo_test::test]` | `cargo test -p aexlo_demo_noise` |

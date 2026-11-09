@@ -175,6 +175,7 @@ pub(crate) fn compose(
 	render: &RenderContext,
 	bindings: CallBindings,
 ) -> PF_InData {
+	// SAFETY: `PF_InData` is a plain C struct (integers, raw pointers, unions of those), for which all-zero bytes are a valid value.
 	let mut in_data = unsafe { std::mem::zeroed::<PF_InData>() };
 
 	in_data.version = host.version;

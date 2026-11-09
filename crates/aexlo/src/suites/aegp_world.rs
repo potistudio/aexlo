@@ -45,17 +45,17 @@ fn alloc(kind: i32, width: i32, height: i32) -> AEGP_WorldH {
 
 /// A world filled from `layer`, subsampled by `down_x`/`down_y` (values below 1
 /// mean no subsample). Channel order is ARGB, matching `PF_Pixel`.
-fn depth_kind(kind: i32) -> wrapper::PixelDepthKind {
+fn depth_kind(kind: i32) -> crate::pixel::PixelDepthKind {
 	if kind == AEGP_WorldType_16 as i32 {
-		wrapper::PixelDepthKind::U16
+		crate::pixel::PixelDepthKind::U16
 	} else if kind == AEGP_WorldType_32 as i32 {
-		wrapper::PixelDepthKind::F32
+		crate::pixel::PixelDepthKind::F32
 	} else {
-		wrapper::PixelDepthKind::U8
+		crate::pixel::PixelDepthKind::U8
 	}
 }
 
-pub(crate) fn world_from_layer(kind: i32, layer: &wrapper::AnyLayer, down_x: i32, down_y: i32) -> AEGP_WorldH {
+pub(crate) fn world_from_layer(kind: i32, layer: &crate::pixel::AnyLayer, down_x: i32, down_y: i32) -> AEGP_WorldH {
 	let down_x = down_x.max(1) as usize;
 	let down_y = down_y.max(1) as usize;
 	let width = (layer.width() as usize / down_x).max(1);
@@ -126,118 +126,138 @@ unsafe extern "C" fn new_world(
 	height: A_long,
 	world_out: *mut AEGP_WorldH,
 ) -> A_Err {
-	if world_out.is_null() || width <= 0 || height <= 0 {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	let kind = if kind == AEGP_WorldType_16 as i32 || kind == AEGP_WorldType_32 as i32 {
-		kind
-	} else {
-		AEGP_WorldType_8 as i32
-	};
-	unsafe { *world_out = alloc(kind, width, height) };
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("new_world", || {
+		if world_out.is_null() || width <= 0 || height <= 0 {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		let kind = if kind == AEGP_WorldType_16 as i32 || kind == AEGP_WorldType_32 as i32 {
+			kind
+		} else {
+			AEGP_WorldType_8 as i32
+		};
+		unsafe { *world_out = alloc(kind, width, height) };
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn dispose_world(handle: AEGP_WorldH) -> A_Err {
-	if handle.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	let slot = unsafe { Box::from_raw(handle as *mut *mut World) };
-	if !slot.is_null() {
-		let world = unsafe { Box::from_raw(*slot) };
-		super::world::untag_host_world(world.pixels.as_ptr() as usize);
-	}
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("dispose_world", || {
+		if handle.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		let slot = unsafe { Box::from_raw(handle as *mut *mut World) };
+		if !slot.is_null() {
+			let world = unsafe { Box::from_raw(*slot) };
+			super::world::untag_host_world(world.pixels.as_ptr() as usize);
+		}
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn get_type(handle: AEGP_WorldH, out: *mut AEGP_WorldType) -> A_Err {
-	let (Some(world), Some(out)) = (unsafe { world_mut(handle) }, unsafe { out.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*out = world.kind;
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("get_type", || {
+		let (Some(world), Some(out)) = (unsafe { world_mut(handle) }, unsafe { out.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		*out = world.kind;
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn get_size(handle: AEGP_WorldH, width: *mut A_long, height: *mut A_long) -> A_Err {
-	let Some(world) = (unsafe { world_mut(handle) }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	if let Some(width) = unsafe { width.as_mut() } {
-		*width = world.width;
-	}
-	if let Some(height) = unsafe { height.as_mut() } {
-		*height = world.height;
-	}
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("get_size", || {
+		let Some(world) = (unsafe { world_mut(handle) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		if let Some(width) = unsafe { width.as_mut() } {
+			*width = world.width;
+		}
+		if let Some(height) = unsafe { height.as_mut() } {
+			*height = world.height;
+		}
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn get_row_bytes(handle: AEGP_WorldH, row_bytes: *mut A_u_long) -> A_Err {
-	let (Some(world), Some(row_bytes)) = (unsafe { world_mut(handle) }, unsafe { row_bytes.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*row_bytes = world.row_bytes as A_u_long;
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("get_row_bytes", || {
+		let (Some(world), Some(row_bytes)) = (unsafe { world_mut(handle) }, unsafe { row_bytes.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		*row_bytes = world.row_bytes as A_u_long;
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn base_addr<T>(handle: AEGP_WorldH, expected: i32, out: *mut *mut T) -> A_Err {
-	let (Some(world), Some(out)) = (unsafe { world_mut(handle) }, unsafe { out.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	if world.kind != expected {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	*out = world.pixels.as_mut_ptr().cast();
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("base_addr", || {
+		let (Some(world), Some(out)) = (unsafe { world_mut(handle) }, unsafe { out.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		if world.kind != expected {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		*out = world.pixels.as_mut_ptr().cast();
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn get_base8(handle: AEGP_WorldH, out: *mut *mut PF_Pixel8) -> A_Err {
-	unsafe { base_addr(handle, AEGP_WorldType_8 as i32, out) }
+	crate::core::ffi::guard("get_base8", || unsafe {
+		base_addr(handle, AEGP_WorldType_8 as i32, out)
+	})
 }
 
 unsafe extern "C" fn get_base16(handle: AEGP_WorldH, out: *mut *mut PF_Pixel16) -> A_Err {
-	unsafe { base_addr(handle, AEGP_WorldType_16 as i32, out) }
+	crate::core::ffi::guard("get_base16", || unsafe {
+		base_addr(handle, AEGP_WorldType_16 as i32, out)
+	})
 }
 
 unsafe extern "C" fn get_base32(handle: AEGP_WorldH, out: *mut *mut PF_PixelFloat) -> A_Err {
-	unsafe { base_addr(handle, AEGP_WorldType_32 as i32, out) }
+	crate::core::ffi::guard("get_base32", || unsafe {
+		base_addr(handle, AEGP_WorldType_32 as i32, out)
+	})
 }
 
 unsafe extern "C" fn fill_out(handle: AEGP_WorldH, out: *mut PF_EffectWorld) -> A_Err {
-	let (Some(world), Some(out)) = (unsafe { world_mut(handle) }, unsafe { out.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let mut flags = PF_WorldFlag_WRITEABLE as PF_WorldFlags;
-	if world.kind == AEGP_WorldType_16 as i32 {
-		flags |= PF_WorldFlag_DEEP as PF_WorldFlags;
-	}
-	// `PF_GetPixelFormat` looks worlds up by `data`; without a tag a deep
-	// world reads back as `ARGB32` and the plugin iterates it as 8 bpc.
-	super::world::tag_host_world(world.pixels.as_ptr() as usize, depth_kind(world.kind));
-	*out = PF_EffectWorld {
-		reserved0: std::ptr::null_mut(),
-		reserved1: std::ptr::null_mut(),
-		world_flags: flags,
-		data: world.pixels.as_mut_ptr().cast(),
-		rowbytes: world.row_bytes,
-		width: world.width,
-		height: world.height,
-		extent_hint: PF_UnionableRect {
-			left: 0,
-			top: 0,
-			right: world.width,
-			bottom: world.height,
-		},
-		platform_ref: std::ptr::null_mut(),
-		reserved_long1: 0,
-		reserved_long4: std::ptr::null_mut(),
-		pix_aspect_ratio: PF_RationalScale { num: 1, den: 1 },
-		reserved_long2: std::ptr::null_mut(),
-		origin_x: 0,
-		origin_y: 0,
-		reserved_long3: 0,
-		dephault: 0,
-	};
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("fill_out", || {
+		let (Some(world), Some(out)) = (unsafe { world_mut(handle) }, unsafe { out.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		let mut flags = PF_WorldFlag_WRITEABLE as PF_WorldFlags;
+		if world.kind == AEGP_WorldType_16 as i32 {
+			flags |= PF_WorldFlag_DEEP as PF_WorldFlags;
+		}
+		// `PF_GetPixelFormat` looks worlds up by `data`; without a tag a deep
+		// world reads back as `ARGB32` and the plugin iterates it as 8 bpc.
+		super::world::tag_host_world(world.pixels.as_ptr() as usize, depth_kind(world.kind));
+		*out = PF_EffectWorld {
+			reserved0: std::ptr::null_mut(),
+			reserved1: std::ptr::null_mut(),
+			world_flags: flags,
+			data: world.pixels.as_mut_ptr().cast(),
+			rowbytes: world.row_bytes,
+			width: world.width,
+			height: world.height,
+			extent_hint: PF_UnionableRect {
+				left: 0,
+				top: 0,
+				right: world.width,
+				bottom: world.height,
+			},
+			platform_ref: std::ptr::null_mut(),
+			reserved_long1: 0,
+			reserved_long4: std::ptr::null_mut(),
+			pix_aspect_ratio: PF_RationalScale { num: 1, den: 1 },
+			reserved_long2: std::ptr::null_mut(),
+			origin_x: 0,
+			origin_y: 0,
+			reserved_long3: 0,
+			dephault: 0,
+		};
+		PF_Err_NONE as A_Err
+	})
 }
 
 /// Separable box blur. `passes` of 3 approximates the Gaussian that Edge
@@ -342,15 +362,17 @@ unsafe extern "C" fn fast_blur_sys(
 	quality: PF_Quality,
 	handle: AEGP_WorldH,
 ) -> A_Err {
-	let Some(world) = (unsafe { world_mut(handle) }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	fast_blur(world, radius, quality);
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("fast_blur_sys", || {
+		let Some(world) = (unsafe { world_mut(handle) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		fast_blur(world, radius, quality);
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn unsupported_platform() -> A_Err {
-	PF_Err_BAD_CALLBACK_PARAM as A_Err
+	crate::core::ffi::guard("unsupported_platform", || PF_Err_BAD_CALLBACK_PARAM as A_Err)
 }
 
 unsafe extern "C" fn new_platform(
@@ -360,11 +382,11 @@ unsafe extern "C" fn new_platform(
 	_height: A_long,
 	_out: *mut AEGP_PlatformWorldH,
 ) -> A_Err {
-	unsafe { unsupported_platform() }
+	crate::core::ffi::guard("new_platform", || unsafe { unsupported_platform() })
 }
 
 unsafe extern "C" fn dispose_platform(_handle: AEGP_PlatformWorldH) -> A_Err {
-	unsafe { unsupported_platform() }
+	crate::core::ffi::guard("dispose_platform", || unsafe { unsupported_platform() })
 }
 
 unsafe extern "C" fn reference_from_platform(
@@ -372,7 +394,7 @@ unsafe extern "C" fn reference_from_platform(
 	_platform: AEGP_PlatformWorldH,
 	_out: *mut AEGP_WorldH,
 ) -> A_Err {
-	unsafe { unsupported_platform() }
+	crate::core::ffi::guard("reference_from_platform", || unsafe { unsupported_platform() })
 }
 
 pub const fn suite_1() -> AEGP_WorldSuite1 {
@@ -449,7 +471,7 @@ mod tests {
 
 	#[test]
 	fn world_from_layer_writes_argb() {
-		let layer = wrapper::AnyLayer::U8(wrapper::Layer::from_fn(1, 1, |_, _| wrapper::Pixel::red()));
+		let layer = crate::pixel::AnyLayer::U8(crate::pixel::Layer::from_fn(1, 1, |_, _| crate::pixel::Pixel::red()));
 		let handle = world_from_layer(AEGP_WorldType_8 as i32, &layer, 1, 1);
 		let world = unsafe { world_mut(handle) }.unwrap();
 		assert_eq!(&world.pixels[..4], &[255, 255, 0, 0]);

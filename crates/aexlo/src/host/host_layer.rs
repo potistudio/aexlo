@@ -1,7 +1,7 @@
 //! A layer owned by the host (input, output or a linked layer parameter),
 //! whose depth `PF_GetPixelFormat` must report.
 
-use wrapper::{AnyLayer, PixelDepthKind};
+use crate::pixel::{AnyLayer, PixelDepthKind};
 
 /// An [`AnyLayer`] whose pixel buffer is tagged with its pixel format for as
 /// long as it lives, so `PF_GetPixelFormat` reports `ARGB64`/`ARGB128` for a

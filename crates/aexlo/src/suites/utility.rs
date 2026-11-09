@@ -389,7 +389,7 @@ unsafe impl Send for AEGPUtilitySuiteCompatV11 {}
 pub static AEGP_UTILITY_SUITE: LazyLock<AEGPUtilitySuiteCompatV11> = LazyLock::new(build_aegp_utility_suite_compat_v11);
 
 unsafe extern "C" fn aegp_noop_ok_stub() -> A_Err {
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("aegp_noop_ok_stub", || PF_Err_NONE as A_Err)
 }
 
 unsafe extern "C" fn aegp_register_with_aegp_stub(
@@ -397,35 +397,39 @@ unsafe extern "C" fn aegp_register_with_aegp_stub(
 	plugin_nameZ: *const A_char,
 	plugin_id: *mut AEGP_PluginID,
 ) -> A_Err {
-	if plugin_id.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-
-	if !plugin_nameZ.is_null() {
-		#[cfg(feature = "diagnostics")]
-		if let Ok(name) = unsafe { std::ffi::CStr::from_ptr(plugin_nameZ) }.to_str() {
-			log::debug!("AEGP_RegisterWithAEGP: {}", name);
-		}
-	}
-
-	unsafe {
-		let id = NEXT_AEGP_PLUGIN_ID.fetch_add(1, Ordering::Relaxed);
-		if !crate::suites::register::register_plugin(id, global_refcon) {
+	crate::core::ffi::guard("aegp_register_with_aegp_stub", || {
+		if plugin_id.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
 		}
-		*plugin_id = id;
-	}
 
-	PF_Err_NONE as A_Err
+		if !plugin_nameZ.is_null() {
+			#[cfg(feature = "diagnostics")]
+			if let Ok(name) = unsafe { std::ffi::CStr::from_ptr(plugin_nameZ) }.to_str() {
+				log::debug!("AEGP_RegisterWithAEGP: {}", name);
+			}
+		}
+
+		unsafe {
+			let id = NEXT_AEGP_PLUGIN_ID.fetch_add(1, Ordering::Relaxed);
+			if !crate::suites::register::register_plugin(id, global_refcon) {
+				return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			}
+			*plugin_id = id;
+		}
+
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn aegp_is_scripting_available_stub(out_available_pb: *mut A_Boolean) -> A_Err {
-	if !out_available_pb.is_null() {
-		unsafe {
-			*out_available_pb = 1;
+	crate::core::ffi::guard("aegp_is_scripting_available_stub", || {
+		if !out_available_pb.is_null() {
+			unsafe {
+				*out_available_pb = 1;
+			}
 		}
-	}
-	PF_Err_NONE as A_Err
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn aegp_execute_script_stub(
@@ -435,25 +439,27 @@ unsafe extern "C" fn aegp_execute_script_stub(
 	out_result_ph0: *mut AEGP_MemHandle,
 	out_error_string_ph0: *mut AEGP_MemHandle,
 ) -> A_Err {
-	if !out_result_ph0.is_null() {
-		unsafe {
-			*out_result_ph0 = std::ptr::null_mut();
+	crate::core::ffi::guard("aegp_execute_script_stub", || {
+		if !out_result_ph0.is_null() {
+			unsafe {
+				*out_result_ph0 = std::ptr::null_mut();
+			}
 		}
-	}
-	if !out_error_string_ph0.is_null() {
-		unsafe {
-			*out_error_string_ph0 = std::ptr::null_mut();
+		if !out_error_string_ph0.is_null() {
+			unsafe {
+				*out_error_string_ph0 = std::ptr::null_mut();
+			}
 		}
-	}
 
-	#[cfg(feature = "diagnostics")]
-	if !_in_script_z.is_null()
-		&& let Ok(script) = unsafe { std::ffi::CStr::from_ptr(_in_script_z) }.to_str()
-	{
-		log::debug!("AEGP_ExecuteScript(len={}): stubbed", script.len());
-	}
+		#[cfg(feature = "diagnostics")]
+		if !_in_script_z.is_null()
+			&& let Ok(script) = unsafe { std::ffi::CStr::from_ptr(_in_script_z) }.to_str()
+		{
+			log::debug!("AEGP_ExecuteScript(len={}): stubbed", script.len());
+		}
 
-	PF_Err_NONE as A_Err
+		PF_Err_NONE as A_Err
+	})
 }
 
 /// Builds the offset-compatible `AEGP Utility Suite` table for newer suite versions.

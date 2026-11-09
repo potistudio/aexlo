@@ -66,18 +66,20 @@ pub(crate) unsafe extern "C" fn get_pixel_data_float_gpu_sys(
 	worldP: *mut PF_EffectWorld,
 	pixPP: *mut *mut c_void,
 ) -> PF_Err {
-	if pixPP.is_null() || worldP.is_null() {
-		log::error!("PixelDataSuite/get_pixel_data_float_gpu: null argument");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+	crate::core::ffi::guard("get_pixel_data_float_gpu_sys", || {
+		if pixPP.is_null() || worldP.is_null() {
+			log::error!("PixelDataSuite/get_pixel_data_float_gpu: null argument");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	// SAFETY: both pointers were null-checked above.
-	unsafe { *pixPP = (*worldP).data as *mut c_void };
+		// SAFETY: both pointers were null-checked above.
+		unsafe { *pixPP = (*worldP).data as *mut c_void };
 
-	diag!("PixelDataSuite/get_pixel_data_float_gpu",
-		"worldP" => format!("{:#x}", worldP as usize),
-	);
-	PF_Err_NONE as PF_Err
+		diag!("PixelDataSuite/get_pixel_data_float_gpu",
+			"worldP" => format!("{:#x}", worldP as usize),
+		);
+		PF_Err_NONE as PF_Err
+	})
 }
 
 /// Builds the `PF_PixelDataSuite2` vtable.

@@ -139,11 +139,9 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "aexlo"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "ab_glyph",
- "aexlo-macros",
- "after-effects",
  "after-effects-sys",
  "bytemuck",
  "cc",
@@ -151,7 +149,6 @@ dependencies = [
  "colored",
  "cudarc",
  "dlopen2",
- "env_logger",
  "foreign-types",
  "log",
  "metal",
@@ -159,12 +156,11 @@ dependencies = [
  "rayon",
  "thiserror 2.0.18",
  "tiny-skia",
- "wrapper",
 ]
 
 [[package]]
 name = "aexlo-bench"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "aexlo",
  "aexlo-harness",
@@ -174,7 +170,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo-cli"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "aexlo",
  "aexlo-bench",
@@ -193,7 +189,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo-harness"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "aexlo",
  "image",
@@ -206,7 +202,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo-macros"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -215,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo-probe"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "after-effects",
  "pipl",
@@ -224,7 +220,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo-test"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "aexlo",
  "aexlo-harness",
@@ -234,7 +230,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo_demo_hello_world"
-version = "1.0.0"
+version = "0.1.0"
 dependencies = [
  "aexlo",
  "aexlo-test",
@@ -244,7 +240,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo_demo_noise"
-version = "1.0.0"
+version = "0.1.0"
 dependencies = [
  "aexlo",
  "aexlo-test",
@@ -254,7 +250,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo_misbehave"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "after-effects-sys",
 ]
@@ -2414,7 +2410,7 @@ dependencies = [
 
 [[package]]
 name = "interactive"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "aexlo",
  "anyhow",
@@ -2832,7 +2828,7 @@ dependencies = [
 
 [[package]]
 name = "minimal"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "aexlo",
 ]
@@ -3613,7 +3609,7 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
 name = "playground"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "aexlo",
  "aexlo-harness",
@@ -4104,7 +4100,7 @@ dependencies = [
 
 [[package]]
 name = "sdk_noise"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aexlo",
  "chrono",
@@ -4366,7 +4362,7 @@ checksum = "6637bab7722d379c8b41ba849228d680cc12d0a45ba1fa2b48f2a30577a06731"
 
 [[package]]
 name = "studio"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "ab_glyph",
  "aexlo",
@@ -4428,7 +4424,7 @@ dependencies = [
 
 [[package]]
 name = "test_e2e"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "aexlo",
  "cmake",
@@ -5764,14 +5760,6 @@ name = "wit-bindgen"
 version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
-
-[[package]]
-name = "wrapper"
-version = "0.0.0"
-dependencies = [
- "after-effects-sys",
- "rand",
-]
 
 [[package]]
 name = "writeable"

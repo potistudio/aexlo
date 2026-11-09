@@ -55,7 +55,7 @@ cargo run -p playground -- diff "%TEMP%\aexlo-probe\trace-....jsonl" target/prob
 
 | コマンド | 動作 |
 | --- | --- |
-| `run [--release] [--in-process] [--trace <file>] [--input <png>]` | プローブをビルドして aexlo 上で読み込み、すべてのパラメーターを既定値から変更して `input.png` をレンダリングします。`target/probe/trace-aexlo.jsonl` とプレビュー PNG を保存し、レポートを表示します。`--in-process` は `dlopen` を使わずにエントリーポイントを実行するため、プローブ内のブレークポイントを使えます。 |
+| `run [--release] [--in-process] [--trace <file>] [--input <png>]` | プローブをビルドして aexlo 上で読み込み、すべてのパラメーターを既定値から変更して `fixtures/input.png` をレンダリングします。`target/probe/trace-aexlo.jsonl` とプレビュー PNG を保存し、レポートを表示します。`--in-process` は `dlopen` を使わずにエントリーポイントを実行するため、プローブ内のブレークポイントを使えます。 |
 | `report <trace.jsonl>` | 1 つのトレースを読みやすく要約します（ホスト識別情報、コマンド・エラー表、スイートの利用可否、コールバックの結果、world のレイアウト、パラメーター値）。 |
 | `diff <a> <b> [--all]` | 2 つのトレースをキーごとに比較します。既定では fact、スイートの利用可否、コールバックの有無を比較し、`--all` ではコンテキスト（コマンド回数、レンダリングシナリオ、タイミング）も比較します。 |
 | `package [--debug] [--to <dir>]` | リリースビルドし、`playground/dist/AexloProbe.aex` に出力します。 |

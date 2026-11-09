@@ -47,86 +47,100 @@ unsafe extern "C" fn new_mem(
 	_flags: A_long,
 	mem_out: *mut AEGP_MemHandle,
 ) -> A_Err {
-	let Some(out) = (unsafe { mem_out.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let Ok(size) = usize::try_from(size) else {
-		return PF_Err_OUT_OF_MEMORY as A_Err;
-	};
-	// Uninitialised memory is not observable, so `CLEAR` and the default both
-	// hand back zeroes.
-	*out = publish(Block { bytes: vec![0u8; size] });
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("new_mem", || {
+		let Some(out) = (unsafe { mem_out.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		let Ok(size) = usize::try_from(size) else {
+			return PF_Err_OUT_OF_MEMORY as A_Err;
+		};
+		// Uninitialised memory is not observable, so `CLEAR` and the default both
+		// hand back zeroes.
+		*out = publish(Block { bytes: vec![0u8; size] });
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn free_mem(handle: AEGP_MemHandle) -> A_Err {
-	if live().remove(&(handle as usize)).is_none() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	drop(unsafe { Box::from_raw(handle as *mut *mut std::ffi::c_void) });
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("free_mem", || {
+		if live().remove(&(handle as usize)).is_none() {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		drop(unsafe { Box::from_raw(handle as *mut *mut std::ffi::c_void) });
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn lock_mem(handle: AEGP_MemHandle, ptr_to_ptr: *mut *mut std::ffi::c_void) -> A_Err {
-	let Some(out) = (unsafe { ptr_to_ptr.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let mut live = live();
-	let Some(block) = live.get_mut(&(handle as usize)) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let data = block.bytes.as_mut_ptr().cast();
-	unsafe { *(handle as *mut *mut std::ffi::c_void) = data };
-	*out = data;
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("lock_mem", || {
+		let Some(out) = (unsafe { ptr_to_ptr.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		let mut live = live();
+		let Some(block) = live.get_mut(&(handle as usize)) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		let data = block.bytes.as_mut_ptr().cast();
+		unsafe { *(handle as *mut *mut std::ffi::c_void) = data };
+		*out = data;
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn unlock_mem(handle: AEGP_MemHandle) -> A_Err {
-	if !live().contains_key(&(handle as usize)) {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("unlock_mem", || {
+		if !live().contains_key(&(handle as usize)) {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn get_size(handle: AEGP_MemHandle, size_out: *mut AEGP_MemSize) -> A_Err {
-	let live = live();
-	let (Some(block), Some(out)) = (live.get(&(handle as usize)), unsafe { size_out.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*out = block.bytes.len() as AEGP_MemSize;
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("get_size", || {
+		let live = live();
+		let (Some(block), Some(out)) = (live.get(&(handle as usize)), unsafe { size_out.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		*out = block.bytes.len() as AEGP_MemSize;
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn resize(_what: *const A_char, new_size: AEGP_MemSize, handle: AEGP_MemHandle) -> A_Err {
-	let Ok(new_size) = usize::try_from(new_size) else {
-		return PF_Err_OUT_OF_MEMORY as A_Err;
-	};
-	let mut live = live();
-	let Some(block) = live.get_mut(&(handle as usize)) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	block.bytes.resize(new_size, 0);
-	let data = block.bytes.as_mut_ptr().cast();
-	unsafe { *(handle as *mut *mut std::ffi::c_void) = data };
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("resize", || {
+		let Ok(new_size) = usize::try_from(new_size) else {
+			return PF_Err_OUT_OF_MEMORY as A_Err;
+		};
+		let mut live = live();
+		let Some(block) = live.get_mut(&(handle as usize)) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		block.bytes.resize(new_size, 0);
+		let data = block.bytes.as_mut_ptr().cast();
+		unsafe { *(handle as *mut *mut std::ffi::c_void) = data };
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn set_reporting(_turn_on: A_Boolean) -> A_Err {
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("set_reporting", || PF_Err_NONE as A_Err)
 }
 
 unsafe extern "C" fn get_stats(_plugin_id: AEGP_PluginID, count_out: *mut A_long, size_out: *mut A_long) -> A_Err {
-	let live = live();
-	let bytes = live
-		.values()
-		.fold(0usize, |sum, block| sum.saturating_add(block.bytes.len()));
-	if let Some(count) = unsafe { count_out.as_mut() } {
-		*count = live.len() as A_long;
-	}
-	if let Some(size) = unsafe { size_out.as_mut() } {
-		*size = bytes.min(i32::MAX as usize) as A_long;
-	}
-	PF_Err_NONE as A_Err
+	crate::core::ffi::guard("get_stats", || {
+		let live = live();
+		let bytes = live
+			.values()
+			.fold(0usize, |sum, block| sum.saturating_add(block.bytes.len()));
+		if let Some(count) = unsafe { count_out.as_mut() } {
+			*count = live.len() as A_long;
+		}
+		if let Some(size) = unsafe { size_out.as_mut() } {
+			*size = bytes.min(i32::MAX as usize) as A_long;
+		}
+		PF_Err_NONE as A_Err
+	})
 }
 
 pub const fn suite_1() -> AEGP_MemorySuite1 {

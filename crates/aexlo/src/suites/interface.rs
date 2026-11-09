@@ -19,20 +19,22 @@ use crate::PluginInstance;
 use crate::core::diagnostics::diag;
 
 unsafe extern "C" fn get_effect_layer_sys(effect_pp_ref: PF_ProgPtr, layerPH: *mut AEGP_LayerH) -> A_Err {
-	diag!("AEGP_PFInterfaceSuite1/AEGP_GetEffectLayer",
-		"effect_pp_ref" => format!("{:#x}", effect_pp_ref as usize),
-		"layerPH" => format!("{:#x}", layerPH as usize),
-	);
+	crate::core::ffi::guard("get_effect_layer_sys", || {
+		diag!("AEGP_PFInterfaceSuite1/AEGP_GetEffectLayer",
+			"effect_pp_ref" => format!("{:#x}", effect_pp_ref as usize),
+			"layerPH" => format!("{:#x}", layerPH as usize),
+		);
 
-	let Some(out) = (unsafe { layerPH.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	if effect_pp_ref.is_null() {
-		*out = std::ptr::null_mut();
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	*out = layer::layer_handle(effect_pp_ref);
-	PF_Err_NONE as A_Err
+		let Some(out) = (unsafe { layerPH.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		if effect_pp_ref.is_null() {
+			*out = std::ptr::null_mut();
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		*out = layer::layer_handle(effect_pp_ref);
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn get_new_effect_for_effect_sys(
@@ -40,21 +42,23 @@ unsafe extern "C" fn get_new_effect_for_effect_sys(
 	effect_pp_ref: PF_ProgPtr,
 	effect_refPH: *mut AEGP_EffectRefH,
 ) -> A_Err {
-	diag!("AEGP_PFInterfaceSuite1/AEGP_GetNewEffectForEffect",
-		"aegp_plugin_id" => _aegp_plugin_id as usize,
-		"effect_pp_ref" => format!("{:#x}", effect_pp_ref as usize),
-		"effect_refPH" => format!("{:#x}", effect_refPH as usize),
-	);
+	crate::core::ffi::guard("get_new_effect_for_effect_sys", || {
+		diag!("AEGP_PFInterfaceSuite1/AEGP_GetNewEffectForEffect",
+			"aegp_plugin_id" => _aegp_plugin_id as usize,
+			"effect_pp_ref" => format!("{:#x}", effect_pp_ref as usize),
+			"effect_refPH" => format!("{:#x}", effect_refPH as usize),
+		);
 
-	let Some(out) = (unsafe { effect_refPH.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	if effect_pp_ref.is_null() {
-		*out = std::ptr::null_mut();
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	*out = effect::new_effect_handle(effect_pp_ref);
-	PF_Err_NONE as A_Err
+		let Some(out) = (unsafe { effect_refPH.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		if effect_pp_ref.is_null() {
+			*out = std::ptr::null_mut();
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		*out = effect::new_effect_handle(effect_pp_ref);
+		PF_Err_NONE as A_Err
+	})
 }
 
 /// The effect's layer starts at comp time 0 with no stretch, so layer time is
@@ -65,21 +69,23 @@ unsafe extern "C" fn convert_effect_to_comp_time_sys(
 	time_scaleLu: A_u_long,
 	comp_timePT: *mut A_Time,
 ) -> A_Err {
-	diag!("AEGP_PFInterfaceSuite1/AEGP_ConvertEffectToCompTime",
-		"effect_pp_ref" => format!("{:#x}", _effect_pp_ref as usize),
-		"what_timeL" => what_timeL,
-		"time_scaleLu" => time_scaleLu,
-		"comp_timePT" => format!("{:#x}", comp_timePT as usize),
-	);
+	crate::core::ffi::guard("convert_effect_to_comp_time_sys", || {
+		diag!("AEGP_PFInterfaceSuite1/AEGP_ConvertEffectToCompTime",
+			"effect_pp_ref" => format!("{:#x}", _effect_pp_ref as usize),
+			"what_timeL" => what_timeL,
+			"time_scaleLu" => time_scaleLu,
+			"comp_timePT" => format!("{:#x}", comp_timePT as usize),
+		);
 
-	let Some(out) = (unsafe { comp_timePT.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*out = A_Time {
-		value: what_timeL,
-		scale: time_scaleLu,
-	};
-	PF_Err_NONE as A_Err
+		let Some(out) = (unsafe { comp_timePT.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		*out = A_Time {
+			value: what_timeL,
+			scale: time_scaleLu,
+		};
+		PF_Err_NONE as A_Err
+	})
 }
 
 /// No camera layer exists; the SDK documents a null handle for that case.
@@ -88,17 +94,19 @@ unsafe extern "C" fn get_effect_camera_sys(
 	_comp_timePT: *const A_Time,
 	camera_layerPH: *mut AEGP_LayerH,
 ) -> A_Err {
-	diag!("AEGP_PFInterfaceSuite1/AEGP_GetEffectCamera",
-		"effect_pp_ref" => format!("{:#x}", _effect_pp_ref as usize),
-		"comp_timePT" => format!("{:#x}", _comp_timePT as usize),
-		"camera_layerPH" => format!("{:#x}", camera_layerPH as usize),
-	);
+	crate::core::ffi::guard("get_effect_camera_sys", || {
+		diag!("AEGP_PFInterfaceSuite1/AEGP_GetEffectCamera",
+			"effect_pp_ref" => format!("{:#x}", _effect_pp_ref as usize),
+			"comp_timePT" => format!("{:#x}", _comp_timePT as usize),
+			"camera_layerPH" => format!("{:#x}", camera_layerPH as usize),
+		);
 
-	let Some(out) = (unsafe { camera_layerPH.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*out = std::ptr::null_mut();
-	PF_Err_NONE as A_Err
+		let Some(out) = (unsafe { camera_layerPH.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		*out = std::ptr::null_mut();
+		PF_Err_NONE as A_Err
+	})
 }
 
 /// After Effects' default comp camera for a `width` x `height` comp: the 50 mm
@@ -127,36 +135,38 @@ unsafe extern "C" fn get_effect_camera_matrix(
 	image_plane_widthPL: *mut A_short,
 	image_plane_heightPL: *mut A_short,
 ) -> A_Err {
-	diag!("AEGP_PFInterfaceSuite1/AEGP_GetEffectCameraMatrix",
-		"effect_pp_ref" => format!("{:#x}", effect_pp_ref as usize),
-		"comp_timePT" => format!("{:#x}", _comp_timePT as usize),
-		"camera_matrixP" => format!("{:#x}", camera_matrixP as usize),
-		"dist_to_image_planePF" => format!("{:#x}", dist_to_image_planePF as usize),
-		"image_plane_widthPL" => format!("{:#x}", image_plane_widthPL as usize),
-		"image_plane_heightPL" => format!("{:#x}", image_plane_heightPL as usize),
-	);
+	crate::core::ffi::guard("get_effect_camera_matrix", || {
+		diag!("AEGP_PFInterfaceSuite1/AEGP_GetEffectCameraMatrix",
+			"effect_pp_ref" => format!("{:#x}", effect_pp_ref as usize),
+			"comp_timePT" => format!("{:#x}", _comp_timePT as usize),
+			"camera_matrixP" => format!("{:#x}", camera_matrixP as usize),
+			"dist_to_image_planePF" => format!("{:#x}", dist_to_image_planePF as usize),
+			"image_plane_widthPL" => format!("{:#x}", image_plane_widthPL as usize),
+			"image_plane_heightPL" => format!("{:#x}", image_plane_heightPL as usize),
+		);
 
-	let Some(instance) = PluginInstance::get_instance_ptr(effect_pp_ref) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	// The comp is the effect's layer.
-	let (width, height) = unsafe { instance.as_ref() }.input_size();
-	let (matrix, zoom) = default_camera(width as f64, height as f64);
-	unsafe {
-		if let Some(out) = camera_matrixP.as_mut() {
-			*out = matrix;
+		let Some(instance) = PluginInstance::get_instance_ptr(effect_pp_ref) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		// The comp is the effect's layer.
+		let (width, height) = unsafe { instance.as_ref() }.input_size();
+		let (matrix, zoom) = default_camera(width as f64, height as f64);
+		unsafe {
+			if let Some(out) = camera_matrixP.as_mut() {
+				*out = matrix;
+			}
+			if let Some(out) = dist_to_image_planePF.as_mut() {
+				*out = zoom;
+			}
+			if let Some(out) = image_plane_widthPL.as_mut() {
+				*out = width.min(A_short::MAX as u32) as A_short;
+			}
+			if let Some(out) = image_plane_heightPL.as_mut() {
+				*out = height.min(A_short::MAX as u32) as A_short;
+			}
 		}
-		if let Some(out) = dist_to_image_planePF.as_mut() {
-			*out = zoom;
-		}
-		if let Some(out) = image_plane_widthPL.as_mut() {
-			*out = width.min(A_short::MAX as u32) as A_short;
-		}
-		if let Some(out) = image_plane_heightPL.as_mut() {
-			*out = height.min(A_short::MAX as u32) as A_short;
-		}
-	}
-	PF_Err_NONE as A_Err
+		PF_Err_NONE as A_Err
+	})
 }
 
 /// Builds the `AEGP_PFInterfaceSuite1` vtable.

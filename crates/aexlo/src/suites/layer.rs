@@ -135,8 +135,10 @@ pub(crate) fn answer<T>(handle: *mut std::ffi::c_void, out: *mut T, value: impl 
 }
 
 unsafe extern "C" fn get_comp_num_layers(compH: AEGP_CompH, num_layersPL: *mut A_long) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetCompNumLayers", "compH" => format!("{:#x}", compH as usize));
-	answer(compH as _, num_layersPL, |_| 1)
+	crate::core::ffi::guard("get_comp_num_layers", || {
+		diag!("AEGP_LayerSuite/AEGP_GetCompNumLayers", "compH" => format!("{:#x}", compH as usize));
+		answer(compH as _, num_layersPL, |_| 1)
+	})
 }
 
 unsafe extern "C" fn get_comp_layer_by_index(
@@ -144,39 +146,51 @@ unsafe extern "C" fn get_comp_layer_by_index(
 	layer_indexL: A_long,
 	layerPH: *mut AEGP_LayerH,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetCompLayerByIndex",
-		"compH" => format!("{:#x}", compH as usize),
-		"layer_indexL" => layer_indexL,
-	);
-	if layer_indexL != 0 && Timeline::of(compH as _).is_some() {
-		return PF_Err_INVALID_INDEX as A_Err;
-	}
-	answer(compH as _, layerPH, |_| layer_handle(compH as PF_ProgPtr))
+	crate::core::ffi::guard("get_comp_layer_by_index", || {
+		diag!("AEGP_LayerSuite/AEGP_GetCompLayerByIndex",
+			"compH" => format!("{:#x}", compH as usize),
+			"layer_indexL" => layer_indexL,
+		);
+		if layer_indexL != 0 && Timeline::of(compH as _).is_some() {
+			return PF_Err_INVALID_INDEX as A_Err;
+		}
+		answer(compH as _, layerPH, |_| layer_handle(compH as PF_ProgPtr))
+	})
 }
 
 unsafe extern "C" fn get_active_layer(_layerPH: *mut AEGP_LayerH) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetActiveLayer");
-	unsupported("AEGP_GetActiveLayer")
+	crate::core::ffi::guard("get_active_layer", || {
+		diag!("AEGP_LayerSuite/AEGP_GetActiveLayer");
+		unsupported("AEGP_GetActiveLayer")
+	})
 }
 
 unsafe extern "C" fn get_layer_index(layerH: AEGP_LayerH, layer_indexPL: *mut A_long) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerIndex", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, layer_indexPL, |_| 0)
+	crate::core::ffi::guard("get_layer_index", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerIndex", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, layer_indexPL, |_| 0)
+	})
 }
 
 unsafe extern "C" fn get_layer_source_item(_layerH: AEGP_LayerH, _source_itemPH: *mut AEGP_ItemH) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerSourceItem");
-	unsupported("AEGP_GetLayerSourceItem")
+	crate::core::ffi::guard("get_layer_source_item", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerSourceItem");
+		unsupported("AEGP_GetLayerSourceItem")
+	})
 }
 
 unsafe extern "C" fn get_layer_source_item_id(_layerH: AEGP_LayerH, _source_item_idPL: *mut A_long) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerSourceItemID");
-	unsupported("AEGP_GetLayerSourceItemID")
+	crate::core::ffi::guard("get_layer_source_item_id", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerSourceItemID");
+		unsupported("AEGP_GetLayerSourceItemID")
+	})
 }
 
 unsafe extern "C" fn get_layer_parent_comp(layerH: AEGP_LayerH, compPH: *mut AEGP_CompH) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerParentComp", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, compPH, |_| comp_handle(layerH as PF_ProgPtr))
+	crate::core::ffi::guard("get_layer_parent_comp", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerParentComp", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, compPH, |_| comp_handle(layerH as PF_ProgPtr))
+	})
 }
 
 /// The layer has never been renamed and has no source item, so both names
@@ -186,51 +200,65 @@ unsafe extern "C" fn get_layer_name(
 	layer_nameZ0: *mut A_char,
 	source_nameZ0: *mut A_char,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerName", "layerH" => format!("{:#x}", layerH as usize));
-	if Timeline::of(layerH as _).is_none() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	unsafe {
-		if let Some(out) = layer_nameZ0.as_mut() {
-			*out = 0;
+	crate::core::ffi::guard("get_layer_name", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerName", "layerH" => format!("{:#x}", layerH as usize));
+		if Timeline::of(layerH as _).is_none() {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
 		}
-		if let Some(out) = source_nameZ0.as_mut() {
-			*out = 0;
+		unsafe {
+			if let Some(out) = layer_nameZ0.as_mut() {
+				*out = 0;
+			}
+			if let Some(out) = source_nameZ0.as_mut() {
+				*out = 0;
+			}
 		}
-	}
-	PF_Err_NONE as A_Err
+		PF_Err_NONE as A_Err
+	})
 }
 
 unsafe extern "C" fn get_layer_quality(layerH: AEGP_LayerH, qualityP: *mut AEGP_LayerQuality) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerQuality", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, qualityP, |_| AEGP_LayerQual_BEST as AEGP_LayerQuality)
+	crate::core::ffi::guard("get_layer_quality", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerQuality", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, qualityP, |_| AEGP_LayerQual_BEST as AEGP_LayerQuality)
+	})
 }
 
 unsafe extern "C" fn set_layer_quality(_layerH: AEGP_LayerH, _quality: AEGP_LayerQuality) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_SetLayerQuality");
-	unsupported("AEGP_SetLayerQuality")
+	crate::core::ffi::guard("set_layer_quality", || {
+		diag!("AEGP_LayerSuite/AEGP_SetLayerQuality");
+		unsupported("AEGP_SetLayerQuality")
+	})
 }
 
 unsafe extern "C" fn get_layer_flags(layerH: AEGP_LayerH, layer_flagsP: *mut AEGP_LayerFlags) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerFlags", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, layer_flagsP, |_| {
-		AEGP_LayerFlag_VIDEO_ACTIVE as AEGP_LayerFlags
+	crate::core::ffi::guard("get_layer_flags", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerFlags", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, layer_flagsP, |_| {
+			AEGP_LayerFlag_VIDEO_ACTIVE as AEGP_LayerFlags
+		})
 	})
 }
 
 unsafe extern "C" fn set_layer_flag(_layerH: AEGP_LayerH, _single_flag: AEGP_LayerFlags, _valueB: A_Boolean) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_SetLayerFlag");
-	unsupported("AEGP_SetLayerFlag")
+	crate::core::ffi::guard("set_layer_flag", || {
+		diag!("AEGP_LayerSuite/AEGP_SetLayerFlag");
+		unsupported("AEGP_SetLayerFlag")
+	})
 }
 
 unsafe extern "C" fn is_layer_video_really_on(layerH: AEGP_LayerH, onPB: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_IsLayerVideoReallyOn", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, onPB, |_| 1)
+	crate::core::ffi::guard("is_layer_video_really_on", || {
+		diag!("AEGP_LayerSuite/AEGP_IsLayerVideoReallyOn", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, onPB, |_| 1)
+	})
 }
 
 unsafe extern "C" fn is_layer_audio_really_on(layerH: AEGP_LayerH, onPB: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_IsLayerAudioReallyOn", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, onPB, |_| 0)
+	crate::core::ffi::guard("is_layer_audio_really_on", || {
+		diag!("AEGP_LayerSuite/AEGP_IsLayerAudioReallyOn", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, onPB, |_| 0)
+	})
 }
 
 /// Layer time is comp time, so `time_mode` doesn't matter here or below.
@@ -239,8 +267,10 @@ unsafe extern "C" fn get_layer_current_time(
 	_time_mode: AEGP_LTimeMode,
 	curr_timePT: *mut A_Time,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerCurrentTime", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, curr_timePT, Timeline::current)
+	crate::core::ffi::guard("get_layer_current_time", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerCurrentTime", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, curr_timePT, Timeline::current)
+	})
 }
 
 unsafe extern "C" fn get_layer_in_point(
@@ -248,10 +278,12 @@ unsafe extern "C" fn get_layer_in_point(
 	_time_mode: AEGP_LTimeMode,
 	in_pointPT: *mut A_Time,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerInPoint", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, in_pointPT, |t| A_Time {
-		value: 0,
-		scale: t.time_scale,
+	crate::core::ffi::guard("get_layer_in_point", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerInPoint", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, in_pointPT, |t| A_Time {
+			value: 0,
+			scale: t.time_scale,
+		})
 	})
 }
 
@@ -260,8 +292,10 @@ unsafe extern "C" fn get_layer_duration(
 	_time_mode: AEGP_LTimeMode,
 	durationPT: *mut A_Time,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerDuration", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, durationPT, Timeline::duration)
+	crate::core::ffi::guard("get_layer_duration", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerDuration", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, durationPT, Timeline::duration)
+	})
 }
 
 unsafe extern "C" fn set_layer_in_point_and_duration(
@@ -270,42 +304,54 @@ unsafe extern "C" fn set_layer_in_point_and_duration(
 	_in_pointPT: *const A_Time,
 	_durationPT: *const A_Time,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_SetLayerInPointAndDuration");
-	unsupported("AEGP_SetLayerInPointAndDuration")
+	crate::core::ffi::guard("set_layer_in_point_and_duration", || {
+		diag!("AEGP_LayerSuite/AEGP_SetLayerInPointAndDuration");
+		unsupported("AEGP_SetLayerInPointAndDuration")
+	})
 }
 
 unsafe extern "C" fn get_layer_offset(layerH: AEGP_LayerH, offsetPT: *mut A_Time) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerOffset", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, offsetPT, |t| A_Time {
-		value: 0,
-		scale: t.time_scale,
+	crate::core::ffi::guard("get_layer_offset", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerOffset", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, offsetPT, |t| A_Time {
+			value: 0,
+			scale: t.time_scale,
+		})
 	})
 }
 
 unsafe extern "C" fn set_layer_offset(_layerH: AEGP_LayerH, _offsetPT: *const A_Time) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_SetLayerOffset");
-	unsupported("AEGP_SetLayerOffset")
+	crate::core::ffi::guard("set_layer_offset", || {
+		diag!("AEGP_LayerSuite/AEGP_SetLayerOffset");
+		unsupported("AEGP_SetLayerOffset")
+	})
 }
 
 unsafe extern "C" fn get_layer_stretch(layerH: AEGP_LayerH, stretchPRt: *mut A_Ratio) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerStretch", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, stretchPRt, |_| A_Ratio { num: 1, den: 1 })
+	crate::core::ffi::guard("get_layer_stretch", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerStretch", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, stretchPRt, |_| A_Ratio { num: 1, den: 1 })
+	})
 }
 
 unsafe extern "C" fn set_layer_stretch(_layerH: AEGP_LayerH, _stretchPRt: *const A_Ratio) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_SetLayerStretch");
-	unsupported("AEGP_SetLayerStretch")
+	crate::core::ffi::guard("set_layer_stretch", || {
+		diag!("AEGP_LayerSuite/AEGP_SetLayerStretch");
+		unsupported("AEGP_SetLayerStretch")
+	})
 }
 
 unsafe extern "C" fn get_layer_transfer_mode(
 	layerH: AEGP_LayerH,
 	transfer_modeP: *mut AEGP_LayerTransferMode,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerTransferMode", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, transfer_modeP, |_| AEGP_LayerTransferMode {
-		mode: PF_Xfer_IN_FRONT as PF_TransferMode,
-		flags: 0,
-		track_matte: AEGP_TrackMatte_NO_TRACK_MATTE as AEGP_TrackMatte,
+	crate::core::ffi::guard("get_layer_transfer_mode", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerTransferMode", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, transfer_modeP, |_| AEGP_LayerTransferMode {
+			mode: PF_Xfer_IN_FRONT as PF_TransferMode,
+			flags: 0,
+			track_matte: AEGP_TrackMatte_NO_TRACK_MATTE as AEGP_TrackMatte,
+		})
 	})
 }
 
@@ -313,8 +359,10 @@ unsafe extern "C" fn set_layer_transfer_mode(
 	_layerH: AEGP_LayerH,
 	_transfer_modeP: *const AEGP_LayerTransferMode,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_SetLayerTransferMode");
-	unsupported("AEGP_SetLayerTransferMode")
+	crate::core::ffi::guard("set_layer_transfer_mode", || {
+		diag!("AEGP_LayerSuite/AEGP_SetLayerTransferMode");
+		unsupported("AEGP_SetLayerTransferMode")
+	})
 }
 
 /// There are no items to add.
@@ -323,8 +371,10 @@ unsafe extern "C" fn is_add_layer_valid(
 	into_compH: AEGP_CompH,
 	validPB: *mut A_Boolean,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_IsAddLayerValid", "into_compH" => format!("{:#x}", into_compH as usize));
-	answer(into_compH as _, validPB, |_| 0)
+	crate::core::ffi::guard("is_add_layer_valid", || {
+		diag!("AEGP_LayerSuite/AEGP_IsAddLayerValid", "into_compH" => format!("{:#x}", into_compH as usize));
+		answer(into_compH as _, validPB, |_| 0)
+	})
 }
 
 unsafe extern "C" fn add_layer(
@@ -332,13 +382,17 @@ unsafe extern "C" fn add_layer(
 	_into_compH: AEGP_CompH,
 	_added_layerPH0: *mut AEGP_LayerH,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_AddLayer");
-	unsupported("AEGP_AddLayer")
+	crate::core::ffi::guard("add_layer", || {
+		diag!("AEGP_LayerSuite/AEGP_AddLayer");
+		unsupported("AEGP_AddLayer")
+	})
 }
 
 unsafe extern "C" fn reorder_layer(_layerH: AEGP_LayerH, _layer_indexL: A_long) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_ReorderLayer");
-	unsupported("AEGP_ReorderLayer")
+	crate::core::ffi::guard("reorder_layer", || {
+		diag!("AEGP_LayerSuite/AEGP_ReorderLayer");
+		unsupported("AEGP_ReorderLayer")
+	})
 }
 
 /// The layer has no masks, so its bounds are its full frame.
@@ -348,28 +402,36 @@ unsafe extern "C" fn get_layer_masked_bounds(
 	_timePT: *const A_Time,
 	boundsPR: *mut A_FloatRect,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerMaskedBounds", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, boundsPR, |t| A_FloatRect {
-		left: 0.0,
-		top: 0.0,
-		right: t.width as A_FpLong,
-		bottom: t.height as A_FpLong,
+	crate::core::ffi::guard("get_layer_masked_bounds", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerMaskedBounds", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, boundsPR, |t| A_FloatRect {
+			left: 0.0,
+			top: 0.0,
+			right: t.width as A_FpLong,
+			bottom: t.height as A_FpLong,
+		})
 	})
 }
 
 unsafe extern "C" fn get_layer_object_type(layerH: AEGP_LayerH, object_type: *mut AEGP_ObjectType) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerObjectType", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, object_type, |_| AEGP_ObjectType_AV as AEGP_ObjectType)
+	crate::core::ffi::guard("get_layer_object_type", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerObjectType", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, object_type, |_| AEGP_ObjectType_AV as AEGP_ObjectType)
+	})
 }
 
 unsafe extern "C" fn is_layer_3d(layerH: AEGP_LayerH, is_3DPB: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_IsLayer3D", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, is_3DPB, |_| 0)
+	crate::core::ffi::guard("is_layer_3d", || {
+		diag!("AEGP_LayerSuite/AEGP_IsLayer3D", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, is_3DPB, |_| 0)
+	})
 }
 
 unsafe extern "C" fn is_layer_2d(layerH: AEGP_LayerH, is_2DPB: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_IsLayer2D", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, is_2DPB, |_| 1)
+	crate::core::ffi::guard("is_layer_2d", || {
+		diag!("AEGP_LayerSuite/AEGP_IsLayer2D", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, is_2DPB, |_| 1)
+	})
 }
 
 unsafe extern "C" fn is_video_active(
@@ -378,13 +440,15 @@ unsafe extern "C" fn is_video_active(
 	timePT: *const A_Time,
 	is_activePB: *mut A_Boolean,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_IsVideoActive", "layerH" => format!("{:#x}", layerH as usize));
-	let Some(time) = (unsafe { timePT.as_ref() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	answer(layerH as _, is_activePB, |t| {
-		let frame = t.frame_of(time);
-		(0..t.frame_of(&t.duration())).contains(&frame) as A_Boolean
+	crate::core::ffi::guard("is_video_active", || {
+		diag!("AEGP_LayerSuite/AEGP_IsVideoActive", "layerH" => format!("{:#x}", layerH as usize));
+		let Some(time) = (unsafe { timePT.as_ref() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		answer(layerH as _, is_activePB, |t| {
+			let frame = t.frame_of(time);
+			(0..t.frame_of(&t.duration())).contains(&frame) as A_Boolean
+		})
 	})
 }
 
@@ -393,13 +457,17 @@ unsafe extern "C" fn is_layer_used_as_track_matte(
 	_fill_must_be_activeB: A_Boolean,
 	is_track_mattePB: *mut A_Boolean,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_IsLayerUsedAsTrackMatte", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, is_track_mattePB, |_| 0)
+	crate::core::ffi::guard("is_layer_used_as_track_matte", || {
+		diag!("AEGP_LayerSuite/AEGP_IsLayerUsedAsTrackMatte", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, is_track_mattePB, |_| 0)
+	})
 }
 
 unsafe extern "C" fn does_layer_have_track_matte(layerH: AEGP_LayerH, has_track_mattePB: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_DoesLayerHaveTrackMatte", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, has_track_mattePB, |_| 0)
+	crate::core::ffi::guard("does_layer_have_track_matte", || {
+		diag!("AEGP_LayerSuite/AEGP_DoesLayerHaveTrackMatte", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, has_track_mattePB, |_| 0)
+	})
 }
 
 unsafe extern "C" fn convert_comp_to_layer_time(
@@ -407,11 +475,13 @@ unsafe extern "C" fn convert_comp_to_layer_time(
 	comp_timePT: *const A_Time,
 	layer_timePT: *mut A_Time,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_ConvertCompToLayerTime", "layerH" => format!("{:#x}", layerH as usize));
-	let Some(time) = (unsafe { comp_timePT.as_ref() }).copied() else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	answer(layerH as _, layer_timePT, |_| time)
+	crate::core::ffi::guard("convert_comp_to_layer_time", || {
+		diag!("AEGP_LayerSuite/AEGP_ConvertCompToLayerTime", "layerH" => format!("{:#x}", layerH as usize));
+		let Some(time) = (unsafe { comp_timePT.as_ref() }).copied() else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		answer(layerH as _, layer_timePT, |_| time)
+	})
 }
 
 unsafe extern "C" fn convert_layer_to_comp_time(
@@ -419,11 +489,13 @@ unsafe extern "C" fn convert_layer_to_comp_time(
 	layer_timePT: *const A_Time,
 	comp_timePT: *mut A_Time,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_ConvertLayerToCompTime", "layerH" => format!("{:#x}", layerH as usize));
-	let Some(time) = (unsafe { layer_timePT.as_ref() }).copied() else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	answer(layerH as _, comp_timePT, |_| time)
+	crate::core::ffi::guard("convert_layer_to_comp_time", || {
+		diag!("AEGP_LayerSuite/AEGP_ConvertLayerToCompTime", "layerH" => format!("{:#x}", layerH as usize));
+		let Some(time) = (unsafe { layer_timePT.as_ref() }).copied() else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		answer(layerH as _, comp_timePT, |_| time)
+	})
 }
 
 /// A value that changes from frame to frame but is fixed for a given frame
@@ -433,22 +505,26 @@ unsafe extern "C" fn get_layer_dancing_rand_value(
 	comp_timePT: *const A_Time,
 	rand_valuePL: *mut A_long,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerDancingRandValue", "layerH" => format!("{:#x}", layerH as usize));
-	let Some(time) = (unsafe { comp_timePT.as_ref() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	answer(layerH as _, rand_valuePL, |t| {
-		// splitmix64 of the frame number.
-		let mut z = (t.frame_of(time) as u64).wrapping_add(0x9e37_79b9_7f4a_7c15);
-		z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-		z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-		((z ^ (z >> 31)) >> 33) as A_long
+	crate::core::ffi::guard("get_layer_dancing_rand_value", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerDancingRandValue", "layerH" => format!("{:#x}", layerH as usize));
+		let Some(time) = (unsafe { comp_timePT.as_ref() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		};
+		answer(layerH as _, rand_valuePL, |t| {
+			// splitmix64 of the frame number.
+			let mut z = (t.frame_of(time) as u64).wrapping_add(0x9e37_79b9_7f4a_7c15);
+			z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+			z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+			((z ^ (z >> 31)) >> 33) as A_long
+		})
 	})
 }
 
 unsafe extern "C" fn get_layer_id(layerH: AEGP_LayerH, id_valP: *mut AEGP_LayerIDVal) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerID", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, id_valP, |_| LAYER_ID)
+	crate::core::ffi::guard("get_layer_id", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerID", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, id_valP, |_| LAYER_ID)
+	})
 }
 
 fn identity() -> A_Matrix4 {
@@ -465,8 +541,10 @@ unsafe extern "C" fn get_layer_to_world_xform(
 	_comp_timeP: *const A_Time,
 	transform: *mut A_Matrix4,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerToWorldXform", "aegp_layerH" => format!("{:#x}", aegp_layerH as usize));
-	answer(aegp_layerH as _, transform, |_| identity())
+	crate::core::ffi::guard("get_layer_to_world_xform", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerToWorldXform", "aegp_layerH" => format!("{:#x}", aegp_layerH as usize));
+		answer(aegp_layerH as _, transform, |_| identity())
+	})
 }
 
 unsafe extern "C" fn get_layer_to_world_xform_from_view(
@@ -475,34 +553,46 @@ unsafe extern "C" fn get_layer_to_world_xform_from_view(
 	_comp_timeP: *const A_Time,
 	transform: *mut A_Matrix4,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerToWorldXformFromView", "aegp_layerH" => format!("{:#x}", aegp_layerH as usize));
-	answer(aegp_layerH as _, transform, |_| identity())
+	crate::core::ffi::guard("get_layer_to_world_xform_from_view", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerToWorldXformFromView", "aegp_layerH" => format!("{:#x}", aegp_layerH as usize));
+		answer(aegp_layerH as _, transform, |_| identity())
+	})
 }
 
 unsafe extern "C" fn set_layer_name(_aegp_layerH: AEGP_LayerH, _new_nameZ: *const A_char) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_SetLayerName");
-	unsupported("AEGP_SetLayerName")
+	crate::core::ffi::guard("set_layer_name", || {
+		diag!("AEGP_LayerSuite/AEGP_SetLayerName");
+		unsupported("AEGP_SetLayerName")
+	})
 }
 
 /// No parent: a null handle, as in After Effects.
 unsafe extern "C" fn get_layer_parent(layerH: AEGP_LayerH, parent_layerPH: *mut AEGP_LayerH) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerParent", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, parent_layerPH, |_| std::ptr::null_mut())
+	crate::core::ffi::guard("get_layer_parent", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerParent", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, parent_layerPH, |_| std::ptr::null_mut())
+	})
 }
 
 unsafe extern "C" fn set_layer_parent(_layerH: AEGP_LayerH, _parent_layerH0: AEGP_LayerH) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_SetLayerParent");
-	unsupported("AEGP_SetLayerParent")
+	crate::core::ffi::guard("set_layer_parent", || {
+		diag!("AEGP_LayerSuite/AEGP_SetLayerParent");
+		unsupported("AEGP_SetLayerParent")
+	})
 }
 
 unsafe extern "C" fn delete_layer(_layerH: AEGP_LayerH) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_DeleteLayer");
-	unsupported("AEGP_DeleteLayer")
+	crate::core::ffi::guard("delete_layer", || {
+		diag!("AEGP_LayerSuite/AEGP_DeleteLayer");
+		unsupported("AEGP_DeleteLayer")
+	})
 }
 
 unsafe extern "C" fn duplicate_layer(_orig_layerH: AEGP_LayerH, _duplicate_layerPH: *mut AEGP_LayerH) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_DuplicateLayer");
-	unsupported("AEGP_DuplicateLayer")
+	crate::core::ffi::guard("duplicate_layer", || {
+		diag!("AEGP_LayerSuite/AEGP_DuplicateLayer");
+		unsupported("AEGP_DuplicateLayer")
+	})
 }
 
 unsafe extern "C" fn get_layer_from_layer_id(
@@ -510,14 +600,16 @@ unsafe extern "C" fn get_layer_from_layer_id(
 	id: AEGP_LayerIDVal,
 	layerPH: *mut AEGP_LayerH,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerFromLayerID",
-		"parent_compH" => format!("{:#x}", parent_compH as usize),
-		"id" => id,
-	);
-	if id != LAYER_ID && Timeline::of(parent_compH as _).is_some() {
-		return PF_Err_INVALID_INDEX as A_Err;
-	}
-	answer(parent_compH as _, layerPH, |_| layer_handle(parent_compH as PF_ProgPtr))
+	crate::core::ffi::guard("get_layer_from_layer_id", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerFromLayerID",
+			"parent_compH" => format!("{:#x}", parent_compH as usize),
+			"id" => id,
+		);
+		if id != LAYER_ID && Timeline::of(parent_compH as _).is_some() {
+			return PF_Err_INVALID_INDEX as A_Err;
+		}
+		answer(parent_compH as _, layerPH, |_| layer_handle(parent_compH as PF_ProgPtr))
+	})
 }
 
 /// From v6 the names come back as UTF-16 `AEGP_MemHandle`s, which need the
@@ -528,44 +620,58 @@ unsafe extern "C" fn get_layer_name_utf16(
 	_utf_layer_namePH0: *mut AEGP_MemHandle,
 	_utf_source_namePH0: *mut AEGP_MemHandle,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerName");
-	unsupported("AEGP_GetLayerName")
+	crate::core::ffi::guard("get_layer_name_utf16", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerName");
+		unsupported("AEGP_GetLayerName")
+	})
 }
 
 unsafe extern "C" fn set_layer_name_utf16(_aegp_layerH: AEGP_LayerH, _new_nameZ: *const A_UTF16Char) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_SetLayerName");
-	unsupported("AEGP_SetLayerName")
+	crate::core::ffi::guard("set_layer_name_utf16", || {
+		diag!("AEGP_LayerSuite/AEGP_SetLayerName");
+		unsupported("AEGP_SetLayerName")
+	})
 }
 
 unsafe extern "C" fn get_layer_label(layerH: AEGP_LayerH, labelP: *mut AEGP_LabelID) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerLabel", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, labelP, |_| AEGP_Label_NO_LABEL as AEGP_LabelID)
+	crate::core::ffi::guard("get_layer_label", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerLabel", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, labelP, |_| AEGP_Label_NO_LABEL as AEGP_LabelID)
+	})
 }
 
 unsafe extern "C" fn set_layer_label(_layerH: AEGP_LayerH, _label: AEGP_LabelID) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_SetLayerLabel");
-	unsupported("AEGP_SetLayerLabel")
+	crate::core::ffi::guard("set_layer_label", || {
+		diag!("AEGP_LayerSuite/AEGP_SetLayerLabel");
+		unsupported("AEGP_SetLayerLabel")
+	})
 }
 
 unsafe extern "C" fn get_layer_sampling_quality(
 	layerH: AEGP_LayerH,
 	qualityP: *mut AEGP_LayerSamplingQuality,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetLayerSamplingQuality", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, qualityP, |_| {
-		AEGP_LayerSamplingQual_BILINEAR as AEGP_LayerSamplingQuality
+	crate::core::ffi::guard("get_layer_sampling_quality", || {
+		diag!("AEGP_LayerSuite/AEGP_GetLayerSamplingQuality", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, qualityP, |_| {
+			AEGP_LayerSamplingQual_BILINEAR as AEGP_LayerSamplingQuality
+		})
 	})
 }
 
 unsafe extern "C" fn set_layer_sampling_quality(_layerH: AEGP_LayerH, _quality: AEGP_LayerSamplingQuality) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_SetLayerSamplingQuality");
-	unsupported("AEGP_SetLayerSamplingQuality")
+	crate::core::ffi::guard("set_layer_sampling_quality", || {
+		diag!("AEGP_LayerSuite/AEGP_SetLayerSamplingQuality");
+		unsupported("AEGP_SetLayerSamplingQuality")
+	})
 }
 
 /// No track matte: a null handle.
 unsafe extern "C" fn get_track_matte_layer(layerH: AEGP_LayerH, track_matte_layerPH: *mut AEGP_LayerH) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_GetTrackMatteLayer", "layerH" => format!("{:#x}", layerH as usize));
-	answer(layerH as _, track_matte_layerPH, |_| std::ptr::null_mut())
+	crate::core::ffi::guard("get_track_matte_layer", || {
+		diag!("AEGP_LayerSuite/AEGP_GetTrackMatteLayer", "layerH" => format!("{:#x}", layerH as usize));
+		answer(layerH as _, track_matte_layerPH, |_| std::ptr::null_mut())
+	})
 }
 
 unsafe extern "C" fn set_track_matte(
@@ -573,22 +679,28 @@ unsafe extern "C" fn set_track_matte(
 	_track_matte_layerH0: AEGP_LayerH,
 	_track_matte_type: AEGP_TrackMatte,
 ) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_SetTrackMatte");
-	unsupported("AEGP_SetTrackMatte")
+	crate::core::ffi::guard("set_track_matte", || {
+		diag!("AEGP_LayerSuite/AEGP_SetTrackMatte");
+		unsupported("AEGP_SetTrackMatte")
+	})
 }
 
 unsafe extern "C" fn remove_track_matte(_layerH: AEGP_LayerH) -> A_Err {
-	diag!("AEGP_LayerSuite/AEGP_RemoveTrackMatte");
-	unsupported("AEGP_RemoveTrackMatte")
+	crate::core::ffi::guard("remove_track_matte", || {
+		diag!("AEGP_LayerSuite/AEGP_RemoveTrackMatte");
+		unsupported("AEGP_RemoveTrackMatte")
+	})
 }
 
 /// The one layer is an AV layer, never a light.
 unsafe extern "C" fn get_light_type(light_layerH: AEGP_LayerH, _light_typeP: *mut AEGP_LightType) -> A_Err {
-	diag!("AEGP_LightSuite1/AEGP_GetLightType", "light_layerH" => format!("{:#x}", light_layerH as usize));
-	if Timeline::of(light_layerH as _).is_none() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	A_Err_GENERIC as A_Err
+	crate::core::ffi::guard("get_light_type", || {
+		diag!("AEGP_LightSuite1/AEGP_GetLightType", "light_layerH" => format!("{:#x}", light_layerH as usize));
+		if Timeline::of(light_layerH as _).is_none() {
+			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		}
+		A_Err_GENERIC as A_Err
+	})
 }
 
 /// Builds the `AEGP_LightSuite1` vtable.

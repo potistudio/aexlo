@@ -142,12 +142,14 @@ pub(crate) unsafe extern "C" fn fill_8_sys(
 	dst_rect: *const PF_Rect,
 	world: *mut PF_EffectWorld,
 ) -> PF_Err {
-	diag!("FillMatteSuite/fill",
-		"color" => format!("{:?}", color),
-		"dst_rect" => format!("{:?}", dst_rect),
-		"world" => format!("{:?}", world),
-	);
-	unsafe { fill_world::<PF_Pixel>(color, dst_rect, world) }
+	crate::core::ffi::guard("fill_8_sys", || {
+		diag!("FillMatteSuite/fill",
+			"color" => format!("{:?}", color),
+			"dst_rect" => format!("{:?}", dst_rect),
+			"world" => format!("{:?}", world),
+		);
+		unsafe { fill_world::<PF_Pixel>(color, dst_rect, world) }
+	})
 }
 
 pub(crate) unsafe extern "C" fn fill_16_sys(
@@ -156,12 +158,14 @@ pub(crate) unsafe extern "C" fn fill_16_sys(
 	dst_rect: *const PF_Rect,
 	world: *mut PF_EffectWorld,
 ) -> PF_Err {
-	diag!("FillMatteSuite/fill16",
-		"color" => format!("{:?}", color),
-		"dst_rect" => format!("{:?}", dst_rect),
-		"world" => format!("{:?}", world),
-	);
-	unsafe { fill_world::<PF_Pixel16>(color, dst_rect, world) }
+	crate::core::ffi::guard("fill_16_sys", || {
+		diag!("FillMatteSuite/fill16",
+			"color" => format!("{:?}", color),
+			"dst_rect" => format!("{:?}", dst_rect),
+			"world" => format!("{:?}", world),
+		);
+		unsafe { fill_world::<PF_Pixel16>(color, dst_rect, world) }
+	})
 }
 
 pub(crate) unsafe extern "C" fn fill_float_sys(
@@ -170,12 +174,14 @@ pub(crate) unsafe extern "C" fn fill_float_sys(
 	dst_rect: *const PF_Rect,
 	world: *mut PF_EffectWorld,
 ) -> PF_Err {
-	diag!("FillMatteSuite/fill_float",
-		"color" => format!("{:?}", color),
-		"dst_rect" => format!("{:?}", dst_rect),
-		"world" => format!("{:?}", world),
-	);
-	unsafe { fill_world::<PF_PixelFloat>(color, dst_rect, world) }
+	crate::core::ffi::guard("fill_float_sys", || {
+		diag!("FillMatteSuite/fill_float",
+			"color" => format!("{:?}", color),
+			"dst_rect" => format!("{:?}", dst_rect),
+			"world" => format!("{:?}", world),
+		);
+		unsafe { fill_world::<PF_PixelFloat>(color, dst_rect, world) }
+	})
 }
 
 pub(crate) unsafe extern "C" fn premultiply_sys(
@@ -183,12 +189,14 @@ pub(crate) unsafe extern "C" fn premultiply_sys(
 	forward: A_long,
 	dst: *mut PF_EffectWorld,
 ) -> PF_Err {
-	diag!("FillMatteSuite/premultiply",
-		"forward" => forward,
-		"dst" => format!("{:?}", dst),
-	);
-	// In-place against a black matte; this host's plain worlds are 8-bpc.
-	unsafe { premultiply_world::<PF_Pixel>(dst, std::ptr::null(), forward, dst) }
+	crate::core::ffi::guard("premultiply_sys", || {
+		diag!("FillMatteSuite/premultiply",
+			"forward" => forward,
+			"dst" => format!("{:?}", dst),
+		);
+		// In-place against a black matte; this host's plain worlds are 8-bpc.
+		unsafe { premultiply_world::<PF_Pixel>(dst, std::ptr::null(), forward, dst) }
+	})
 }
 
 pub(crate) unsafe extern "C" fn premultiply_color_8_sys(
@@ -198,13 +206,15 @@ pub(crate) unsafe extern "C" fn premultiply_color_8_sys(
 	forward: A_long,
 	dst: *mut PF_EffectWorld,
 ) -> PF_Err {
-	diag!("FillMatteSuite/premultiply_color",
-		"src" => format!("{:?}", src),
-		"color" => format!("{:?}", color),
-		"forward" => forward,
-		"dst" => format!("{:?}", dst),
-	);
-	unsafe { premultiply_world::<PF_Pixel>(src, color, forward, dst) }
+	crate::core::ffi::guard("premultiply_color_8_sys", || {
+		diag!("FillMatteSuite/premultiply_color",
+			"src" => format!("{:?}", src),
+			"color" => format!("{:?}", color),
+			"forward" => forward,
+			"dst" => format!("{:?}", dst),
+		);
+		unsafe { premultiply_world::<PF_Pixel>(src, color, forward, dst) }
+	})
 }
 
 pub(crate) unsafe extern "C" fn premultiply_color_16_sys(
@@ -214,13 +224,15 @@ pub(crate) unsafe extern "C" fn premultiply_color_16_sys(
 	forward: A_long,
 	dst: *mut PF_EffectWorld,
 ) -> PF_Err {
-	diag!("FillMatteSuite/premultiply_color16",
-		"src" => format!("{:?}", src),
-		"color" => format!("{:?}", color),
-		"forward" => forward,
-		"dst" => format!("{:?}", dst),
-	);
-	unsafe { premultiply_world::<PF_Pixel16>(src, color, forward, dst) }
+	crate::core::ffi::guard("premultiply_color_16_sys", || {
+		diag!("FillMatteSuite/premultiply_color16",
+			"src" => format!("{:?}", src),
+			"color" => format!("{:?}", color),
+			"forward" => forward,
+			"dst" => format!("{:?}", dst),
+		);
+		unsafe { premultiply_world::<PF_Pixel16>(src, color, forward, dst) }
+	})
 }
 
 pub(crate) unsafe extern "C" fn premultiply_color_float_sys(
@@ -230,13 +242,15 @@ pub(crate) unsafe extern "C" fn premultiply_color_float_sys(
 	forward: A_long,
 	dst: *mut PF_EffectWorld,
 ) -> PF_Err {
-	diag!("FillMatteSuite/premultiply_color_float",
-		"src" => format!("{:?}", src),
-		"color" => format!("{:?}", color),
-		"forward" => forward,
-		"dst" => format!("{:?}", dst),
-	);
-	unsafe { premultiply_world::<PF_PixelFloat>(src, color, forward, dst) }
+	crate::core::ffi::guard("premultiply_color_float_sys", || {
+		diag!("FillMatteSuite/premultiply_color_float",
+			"src" => format!("{:?}", src),
+			"color" => format!("{:?}", color),
+			"forward" => forward,
+			"dst" => format!("{:?}", dst),
+		);
+		unsafe { premultiply_world::<PF_PixelFloat>(src, color, forward, dst) }
+	})
 }
 
 // ============================================================================

@@ -6,37 +6,96 @@
 //! # Example
 //!
 //! ```no_run
-//! use aexlo::{Host, PluginInstance};
-//! use std::path::Path;
+//! use aexlo::{Depth8, Host, Layer, ParamValue, Time};
 //!
 //! # fn main() -> aexlo::Result<()> {
 //! // Fix the host services first (`Host::install(my_app_host)?` to customize).
 //! let host = Host::get();
 //!
-//! // `try_load` loads the library, runs GLOBAL_SETUP and PARAMS_SETUP.
-//! let mut instance = host.try_load(Path::new("ExamplePlugin"))?;
+//! // Load the plugin and run GLOBAL_SETUP, PARAMS_SETUP and SEQUENCE_SETUP.
+//! // On Windows pass the `.aex` file, on macOS the `.plugin` bundle.
+//! let mut fx = host.load("MyEffect.aex")?;
+//! println!("{}", fx.about()?);
 //!
-//! // Query plugin info (PF_Cmd_ABOUT).
-//! let message = instance.about()?;
-//! println!("{message}");
+//! // Feed an input frame and set parameters (index 0 is the input layer).
+//! fx.set_input_layer(Layer::<Depth8>::black(1920, 1080));
+//! fx.set_param(1, ParamValue::Float(0.5))?;
+//! fx.set_time(Time::frame(0, 30));
 //!
-//! // Render a frame.
-//! instance.render()?;
+//! // Render the way After Effects picks the path: GPU, smart, then legacy.
+//! fx.render_frame()?;
+//! let output: Layer<Depth8> = fx.read_output()?;
 //! # Ok(())
 //! # }
 //! ```
 //!
+//! # Trust and process model
+//!
+//! A plugin is native code, loaded into this process with no sandbox. Loading
+//! one is what this crate is for, so [`Host::load`] and [`Loader::load`] are
+//! safe functions, the way spawning a process is: what the plugin's code does
+//! is outside Rust's guarantees. A buggy plugin can corrupt memory, crash or
+//! abort the process that embeds aexlo, so only load plugins you trust.
+//!
+//! aexlo's own callbacks catch their panics and report
+//! `PF_Err_INTERNAL_STRUCT_DAMAGED` to the plugin rather than letting them
+//! abort the process, but a crash inside the plugin cannot be caught
+//! in-process. When a crashing plugin must not take the application down, run
+//! it in a worker process, as the `aexlo` CLI and its toolkit do for every
+//! variant.
+//!
+//! ## Process-wide state
+//!
+//! Some host state belongs to the process, not to a [`PluginInstance`]:
+//!
+//! - The [`AppHost`] is fixed once per process ([`Host::install`] or
+//!   [`Host::get`]) and cannot be swapped afterwards, even between tests.
+//! - AEGP Persistent Data (preferences) is one in-memory store shared by every
+//!   plugin and instance, and is never written to disk.
+//! - AEGP registrations, GPU worlds and allocation tracking live in
+//!   process-wide registries keyed by instance, so instances coexist.
+//!
+//! ## Threads
+//!
+//! [`PluginInstance`] is neither `Send` nor `Sync`. After Effects drives an
+//! effect instance from one thread at a time, and plugins keep thread-affine
+//! state (GPU contexts, Windows `HWND`s, thread-local storage), so create, use
+//! and drop each instance on the same thread. To render off a UI thread,
+//! create the instance on a worker thread and send that thread commands.
+//!
+//! ```compile_fail
+//! fn assert_send<T: Send>() {}
+//! assert_send::<aexlo::PluginInstance>();
+//! ```
+//!
+//! Separate instances may run on separate threads at once: aexlo's
+//! process-wide state is behind locks, and its own test suites run instances
+//! in parallel. Whether a plugin's globals tolerate that is up to the plugin
+//! (it declares `OutFlags2::SUPPORTS_THREADED_RENDERING` when they do).
+//!
 //! # Features
 //!
-//! - `diagnostics` - Enable detailed diagnostic logging for debugging
+//! - `diagnostics` - Print every suite call the plugin makes, with its
+//!   arguments, to stdout
 
-#![warn(clippy::all)]
+#![warn(
+	clippy::all,
+	missing_docs,
+	clippy::missing_errors_doc,
+	clippy::undocumented_unsafe_blocks
+)]
+// Tests call FFI fakes directly; their `unsafe` blocks need no proof.
+#![cfg_attr(test, allow(clippy::undocumented_unsafe_blocks))]
+// after-effects-sys gives SDK constants `u32` on macOS and `i32` on Windows
+// (#21), so the `as` casts that macOS needs are identity casts on Windows.
+#![cfg_attr(windows, allow(clippy::unnecessary_cast))]
 // The crate mirrors the After Effects C SDK, whose suite struct fields and entry
 // points (`PF_GetAppName`, `EffectMain`, …) use non-snake-case names. Allowing it
 // crate-wide keeps the FFI surface readable without per-item annotations.
 #![allow(non_snake_case)]
 
 mod core;
+mod flags;
 mod gpu;
 mod host;
 mod instance;
@@ -44,20 +103,37 @@ mod mask;
 mod observe;
 mod param_value;
 mod pipl;
+mod pixel;
 mod strict;
+mod time;
 mod utils;
 
 pub(crate) mod suites;
 
+/// The raw After Effects SDK bindings this crate is built against.
+///
+/// [`PluginEntryPoint`], [`Layer::as_sys`] and the `From` conversions on
+/// [`Pixel`] use these types, so name them through this path to get exactly
+/// the version aexlo uses. A breaking release of `after-effects-sys` is a
+/// breaking release of aexlo.
+pub use after_effects_sys as sys;
+
 pub use core::error::{AexloError, Result};
-pub use instance::{CustomControlEvent, CustomControlImage, PluginInstance};
+pub use instance::{CustomControlEvent, CustomControlImage, Loader, PluginInstance, RenderPath};
+pub use time::Time;
 
 /// Window plugins should treat as After Effects' main window
 /// (`PF_PlatData_MAIN_WND`).
 ///
 /// Editors parented here stay invisible while this window is hidden. A GUI
-/// host passes its own visible window; `null` falls back to a host window.
-pub fn set_main_window(hwnd: *mut std::ffi::c_void) {
+/// host passes its own visible window; `null` falls back to a window aexlo
+/// creates. Only Windows has a main window; elsewhere this does nothing.
+///
+/// # Safety
+/// `hwnd` must be null or a valid `HWND` that stays valid for as long as any
+/// plugin may use it: plugins parent their windows to it and send it
+/// messages. Pass null before destroying the window.
+pub unsafe fn set_main_window(hwnd: *mut std::ffi::c_void) {
 	#[cfg(windows)]
 	crate::host::utility::set_main_window(hwnd);
 	#[cfg(not(windows))]
@@ -70,17 +146,10 @@ pub fn set_main_window(hwnd: *mut std::ffi::c_void) {
 /// [`Host::from_entry`].
 pub use instance::PluginEntryPoint;
 
-/// `#[aexlo::preview]` - render a plugin in-process and drop a preview PNG.
-///
-/// Expands to `aexlo-test` paths: add `aexlo-test` as a dev-dependency.
-pub use aexlo_macros::preview;
-
-/// `#[aexlo::test]` - one `#[test]` per depth and render path, starting from
-/// a manifest preset. Expands to `aexlo-test` paths: add `aexlo-test` as a
-/// dev-dependency.
-pub use aexlo_macros::test;
-
 pub use param_value::{ParamKind, ParamValue};
+
+/// Typed flags and pixel formats a plugin declares.
+pub use flags::{OutFlags, OutFlags2, ParamUiFlags, PixelFormat};
 
 /// The GPU this host renders on, for machine fingerprints.
 pub use gpu::device_name as gpu_device_name;
@@ -104,12 +173,9 @@ pub use host::app::{
 	PersonalInfo, ProgressId, TimeDisplayMode, TimeDisplayPref,
 };
 
-/// Diagnostic utilities (feature-gated).
-pub use core::diagnostics::{Diagnostic, DiagnosticBuilder};
-
 /// Safe pixel/layer wrappers, re-exported explicitly so additions to the
-/// `wrapper` crate don't silently widen this crate's public API.
-pub use wrapper::{AnyLayer, Depth8, Depth16, Depth32, Layer, LayerError, Pixel, PixelDepth, PixelDepthKind};
+/// `pixel` module don't silently widen this crate's public API.
+pub use pixel::{AnyLayer, Depth8, Depth16, Depth32, Layer, LayerError, Pixel, PixelDepth, PixelDepthKind};
 
 /// Observation hooks ([`PluginInstance::set_observer`]).
 pub use observe::{

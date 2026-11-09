@@ -1,0 +1,20 @@
+[package]
+name = "aexlo-harness"
+description = "Preset-driven test, bench and preview toolkit for After Effects plugins hosted by aexlo."
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+# Only `aexlo` is published; the tooling is used from git.
+publish = false
+
+[dependencies]
+aexlo = { workspace = true }
+libc = "0.2.186"
+image = { workspace = true, features = ["png", "exr"] }
+mtpng = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true, features = ["preserve_order"] }

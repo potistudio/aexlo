@@ -103,13 +103,15 @@ unsafe extern "C" fn format_time_active_item(
 	durationB: PF_Boolean,
 	time_buf: *mut A_char,
 ) -> PF_Err {
-	diag!("PF_AdvTimeSuite/PF_FormatTimeActiveItem",
-		"time_valueUL" => time_valueUL,
-		"time_scaleL" => time_scaleL,
-		"durationB" => durationB,
-		"time_buf" => format!("{:#x}", time_buf as usize),
-	);
-	unsafe { format_into(time_valueUL, time_scaleL, durationB, time_buf) }
+	crate::core::ffi::guard("format_time_active_item", || {
+		diag!("PF_AdvTimeSuite/PF_FormatTimeActiveItem",
+			"time_valueUL" => time_valueUL,
+			"time_scaleL" => time_scaleL,
+			"durationB" => durationB,
+			"time_buf" => format!("{:#x}", time_buf as usize),
+		);
+		unsafe { format_into(time_valueUL, time_scaleL, durationB, time_buf) }
+	})
 }
 
 unsafe extern "C" fn format_time(
@@ -120,16 +122,18 @@ unsafe extern "C" fn format_time(
 	durationB: PF_Boolean,
 	time_buf: *mut A_char,
 ) -> PF_Err {
-	diag!("PF_AdvTimeSuite/PF_FormatTime",
-		"in_data" => format!("{:#x}", in_data as usize),
-		"world" => format!("{:#x}", world as usize),
-		"time_valueUL" => time_valueUL,
-		"time_scaleL" => time_scaleL,
-		"durationB" => durationB,
-		"time_buf" => format!("{:#x}", time_buf as usize),
-	);
-	let _ = (in_data, world);
-	unsafe { format_into(time_valueUL, time_scaleL, durationB, time_buf) }
+	crate::core::ffi::guard("format_time", || {
+		diag!("PF_AdvTimeSuite/PF_FormatTime",
+			"in_data" => format!("{:#x}", in_data as usize),
+			"world" => format!("{:#x}", world as usize),
+			"time_valueUL" => time_valueUL,
+			"time_scaleL" => time_scaleL,
+			"durationB" => durationB,
+			"time_buf" => format!("{:#x}", time_buf as usize),
+		);
+		let _ = (in_data, world);
+		unsafe { format_into(time_valueUL, time_scaleL, durationB, time_buf) }
+	})
 }
 
 /// aexlo has a single timeline, so layer and comp time coincide and
@@ -143,17 +147,19 @@ unsafe extern "C" fn format_time_plus(
 	durationB: PF_Boolean,
 	time_buf: *mut A_char,
 ) -> PF_Err {
-	diag!("PF_AdvTimeSuite/PF_FormatTimePlus",
-		"in_data" => format!("{:#x}", in_data as usize),
-		"world" => format!("{:#x}", world as usize),
-		"time_valueUL" => time_valueUL,
-		"time_scaleL" => time_scaleL,
-		"comp_timeB" => comp_timeB,
-		"durationB" => durationB,
-		"time_buf" => format!("{:#x}", time_buf as usize),
-	);
-	let _ = (in_data, world, comp_timeB);
-	unsafe { format_into(time_valueUL, time_scaleL, durationB, time_buf) }
+	crate::core::ffi::guard("format_time_plus", || {
+		diag!("PF_AdvTimeSuite/PF_FormatTimePlus",
+			"in_data" => format!("{:#x}", in_data as usize),
+			"world" => format!("{:#x}", world as usize),
+			"time_valueUL" => time_valueUL,
+			"time_scaleL" => time_scaleL,
+			"comp_timeB" => comp_timeB,
+			"durationB" => durationB,
+			"time_buf" => format!("{:#x}", time_buf as usize),
+		);
+		let _ = (in_data, world, comp_timeB);
+		unsafe { format_into(time_valueUL, time_scaleL, durationB, time_buf) }
+	})
 }
 
 /// Write the host's preferences through `write` (one per struct version) and
@@ -185,24 +191,26 @@ unsafe extern "C" fn get_time_display_pref_3(
 	tdp: *mut PF_TimeDisplayPrefVersion3,
 	starting_frame_num: *mut A_long,
 ) -> PF_Err {
-	diag!("PF_AdvTimeSuite/PF_GetTimeDisplayPref",
-		"tdp" => format!("{:#x}", tdp as usize),
-		"starting_frame_num" => format!("{:#x}", starting_frame_num as usize),
-	);
+	crate::core::ffi::guard("get_time_display_pref_3", || {
+		diag!("PF_AdvTimeSuite/PF_GetTimeDisplayPref",
+			"tdp" => format!("{:#x}", tdp as usize),
+			"starting_frame_num" => format!("{:#x}", starting_frame_num as usize),
+		);
 
-	let Some(tdp) = (unsafe { tdp.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	get_pref(starting_frame_num, |p| {
-		*tdp = PF_TimeDisplayPrefVersion3 {
-			display_mode: display_mode(p),
-			framemax: p.timebase,
-			frames_per_foot: p.frames_per_foot,
-			frames_start: to_char(p.frames_start),
-			nondrop30B: p.non_drop as A_Boolean,
-			honor_source_timecodeB: p.honor_source_timecode as A_Boolean,
-			use_feet_framesB: p.use_feet_frames as A_Boolean,
+		let Some(tdp) = (unsafe { tdp.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		};
+		get_pref(starting_frame_num, |p| {
+			*tdp = PF_TimeDisplayPrefVersion3 {
+				display_mode: display_mode(p),
+				framemax: p.timebase,
+				frames_per_foot: p.frames_per_foot,
+				frames_start: to_char(p.frames_start),
+				nondrop30B: p.non_drop as A_Boolean,
+				honor_source_timecodeB: p.honor_source_timecode as A_Boolean,
+				use_feet_framesB: p.use_feet_frames as A_Boolean,
+			};
+		})
 	})
 }
 
@@ -210,49 +218,53 @@ unsafe extern "C" fn get_time_display_pref_2(
 	tdp: *mut PF_TimeDisplayPrefVersion2,
 	starting_frame_num: *mut A_long,
 ) -> PF_Err {
-	diag!("PF_AdvTimeSuite2/PF_GetTimeDisplayPref",
-		"tdp" => format!("{:#x}", tdp as usize),
-		"starting_frame_num" => format!("{:#x}", starting_frame_num as usize),
-	);
+	crate::core::ffi::guard("get_time_display_pref_2", || {
+		diag!("PF_AdvTimeSuite2/PF_GetTimeDisplayPref",
+			"tdp" => format!("{:#x}", tdp as usize),
+			"starting_frame_num" => format!("{:#x}", starting_frame_num as usize),
+		);
 
-	let Some(tdp) = (unsafe { tdp.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	get_pref(starting_frame_num, |p| {
-		*tdp = PF_TimeDisplayPrefVersion2 {
-			display_mode: display_mode(p),
-			framemax: to_char(p.timebase),
-			frames_per_foot: to_char(p.frames_per_foot),
-			frames_start: to_char(p.frames_start),
-			nondrop30B: p.non_drop as A_Boolean,
-			honor_source_timecodeB: p.honor_source_timecode as A_Boolean,
-			use_feet_framesB: p.use_feet_frames as A_Boolean,
+		let Some(tdp) = (unsafe { tdp.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		};
+		get_pref(starting_frame_num, |p| {
+			*tdp = PF_TimeDisplayPrefVersion2 {
+				display_mode: display_mode(p),
+				framemax: to_char(p.timebase),
+				frames_per_foot: to_char(p.frames_per_foot),
+				frames_start: to_char(p.frames_start),
+				nondrop30B: p.non_drop as A_Boolean,
+				honor_source_timecodeB: p.honor_source_timecode as A_Boolean,
+				use_feet_framesB: p.use_feet_frames as A_Boolean,
+			};
+		})
 	})
 }
 
 /// Version 1 folds feet+frames into the display format itself.
 unsafe extern "C" fn get_time_display_pref_1(tdp: *mut PF_TimeDisplayPref, starting_frame_num: *mut A_long) -> PF_Err {
-	diag!("PF_AdvTimeSuite1/PF_GetTimeDisplayPref",
-		"tdp" => format!("{:#x}", tdp as usize),
-		"starting_frame_num" => format!("{:#x}", starting_frame_num as usize),
-	);
+	crate::core::ffi::guard("get_time_display_pref_1", || {
+		diag!("PF_AdvTimeSuite1/PF_GetTimeDisplayPref",
+			"tdp" => format!("{:#x}", tdp as usize),
+			"starting_frame_num" => format!("{:#x}", starting_frame_num as usize),
+		);
 
-	let Some(tdp) = (unsafe { tdp.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	get_pref(starting_frame_num, |p| {
-		let format = if p.mode == TimeDisplayMode::Frames && p.use_feet_frames {
-			PF_TimeDisplayFormatFeetFrames as A_char
-		} else {
-			display_mode(p)
+		let Some(tdp) = (unsafe { tdp.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		};
-		*tdp = PF_TimeDisplayPref {
-			time_display_format: format,
-			framemax: to_char(p.timebase),
-			nondrop30: p.non_drop as A_char,
-			frames_per_foot: to_char(p.frames_per_foot),
-		};
+		get_pref(starting_frame_num, |p| {
+			let format = if p.mode == TimeDisplayMode::Frames && p.use_feet_frames {
+				PF_TimeDisplayFormatFeetFrames as A_char
+			} else {
+				display_mode(p)
+			};
+			*tdp = PF_TimeDisplayPref {
+				time_display_format: format,
+				framemax: to_char(p.timebase),
+				nondrop30: p.non_drop as A_char,
+				frames_per_foot: to_char(p.frames_per_foot),
+			};
+		})
 	})
 }
 
@@ -264,33 +276,35 @@ unsafe extern "C" fn time_count_frames(
 	include_partial_frameB: A_Boolean,
 	frame_countL: *mut A_long,
 ) -> PF_Err {
-	diag!("PF_AdvTimeSuite/PF_TimeCountFrames",
-		"start_timeTP" => format!("{:#x}", start_timeTP as usize),
-		"time_stepTP" => format!("{:#x}", time_stepTP as usize),
-		"include_partial_frameB" => include_partial_frameB,
-		"frame_countL" => format!("{:#x}", frame_countL as usize),
-	);
+	crate::core::ffi::guard("time_count_frames", || {
+		diag!("PF_AdvTimeSuite/PF_TimeCountFrames",
+			"start_timeTP" => format!("{:#x}", start_timeTP as usize),
+			"time_stepTP" => format!("{:#x}", time_stepTP as usize),
+			"include_partial_frameB" => include_partial_frameB,
+			"frame_countL" => format!("{:#x}", frame_countL as usize),
+		);
 
-	let (Some(start), Some(step), Some(out)) = (
-		unsafe { start_timeTP.as_ref() },
-		unsafe { time_stepTP.as_ref() },
-		unsafe { frame_countL.as_mut() },
-	) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	// start / step = (start.value * step.scale) / (start.scale * step.value)
-	let num = start.value as i64 * step.scale as i64;
-	let den = start.scale as i64 * step.value as i64;
-	if den == 0 {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	let (num, den) = if den < 0 { (-num, -den) } else { (num, den) };
-	let mut count = num.div_euclid(den);
-	if include_partial_frameB != 0 && num.rem_euclid(den) != 0 {
-		count += 1;
-	}
-	*out = count.clamp(A_long::MIN as i64, A_long::MAX as i64) as A_long;
-	PF_Err_NONE as PF_Err
+		let (Some(start), Some(step), Some(out)) = (
+			unsafe { start_timeTP.as_ref() },
+			unsafe { time_stepTP.as_ref() },
+			unsafe { frame_countL.as_mut() },
+		) else {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+		// start / step = (start.value * step.scale) / (start.scale * step.value)
+		let num = start.value as i64 * step.scale as i64;
+		let den = start.scale as i64 * step.value as i64;
+		if den == 0 {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
+		let (num, den) = if den < 0 { (-num, -den) } else { (num, den) };
+		let mut count = num.div_euclid(den);
+		if include_partial_frameB != 0 && num.rem_euclid(den) != 0 {
+			count += 1;
+		}
+		*out = count.clamp(A_long::MIN as i64, A_long::MAX as i64) as A_long;
+		PF_Err_NONE as PF_Err
+	})
 }
 
 // The four versions share the formatting entries; only the preference struct

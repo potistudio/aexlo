@@ -17,76 +17,80 @@ unsafe extern "C" fn checkout_layer_stub(
 	_time_scale: A_u_long,
 	checkout_result: *mut after_effects_sys::PF_CheckoutResult,
 ) -> PF_Err {
-	//== Validation ==//
-	if effect_ref.is_null() {
-		log::error!("checkout_layer: effect_ref is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	if req.is_null() {
-		log::error!("checkout_layer: request pointer is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	if checkout_result.is_null() {
-		log::error!("checkout_layer: checkout_result pointer is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	//== Implementation ==//
-	// Report the actual size of the checked-out layer (the input layer for
-	// index 0, a linked layer parameter otherwise), not the compile-time
-	// default. An unlinked layer parameter checks out as an empty layer.
-	// Remember which layer this checkout id refers to, for
-	// `checkout_layer_pixels`.
-	let (layer_w, layer_h) = match PluginInstance::get_instance_ptr(effect_ref) {
-		Some(mut instance) => {
-			let instance = unsafe { instance.as_mut() };
-			let index = usize::try_from(index).unwrap_or(0);
-			instance.record_layer_checkout(checkout_idL, index);
-			instance.layer_param_size(index).unwrap_or((0, 0))
+	crate::core::ffi::guard("checkout_layer_stub", || {
+		//== Validation ==//
+		if effect_ref.is_null() {
+			log::error!("checkout_layer: effect_ref is null");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-		None => (WIDTH as i32, HEIGHT as i32),
-	};
 
-	let result = after_effects_sys::PF_CheckoutResult {
-		result_rect: after_effects_sys::PF_Rect {
-			left: 0,
-			top: 0,
-			right: layer_w,
-			bottom: layer_h,
-		},
-		max_result_rect: after_effects_sys::PF_Rect {
-			left: 0,
-			top: 0,
-			right: layer_w,
-			bottom: layer_h,
-		},
-		par: after_effects_sys::PF_RationalScale { num: 1, den: 1 },
-		solid: 1,
-		reservedB: [0; 3],
-		ref_width: layer_w,
-		ref_height: layer_h,
-		reserved: [0; 6],
-	};
+		if req.is_null() {
+			log::error!("checkout_layer: request pointer is null");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	crate::strict::checkout(crate::CheckoutKind::DeclareLayer, checkout_idL, 0);
+		if checkout_result.is_null() {
+			log::error!("checkout_layer: checkout_result pointer is null");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	// The plugin passes an uninitialized `PF_CheckoutResult` and reads the layer
-	// bounds back out of it; leaving it unwritten hands the plugin stack garbage.
-	unsafe { *checkout_result = result };
+		//== Implementation ==//
+		// Report the actual size of the checked-out layer (the input layer for
+		// index 0, a linked layer parameter otherwise), not the compile-time
+		// default. An unlinked layer parameter checks out as an empty layer.
+		// Remember which layer this checkout id refers to, for
+		// `checkout_layer_pixels`.
+		let (layer_w, layer_h) = match PluginInstance::get_instance_ptr(effect_ref) {
+			Some(mut instance) => {
+				// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`).
+				let instance = unsafe { instance.as_mut() };
+				let index = usize::try_from(index).unwrap_or(0);
+				instance.record_layer_checkout(checkout_idL, index);
+				instance.layer_param_size(index).unwrap_or((0, 0))
+			}
+			None => (WIDTH as i32, HEIGHT as i32),
+		};
 
-	diag!("PF_PreRenderCallbacks/checkout_layer",
-		"effect_ref" => format!("{:#x}", effect_ref as usize),
-		"index" => index,
-		"checkout_idL" => checkout_idL,
-		"what_time" => _what_time,
-		"time_step" => _time_step,
-		"time_scale" => _time_scale;
-		result: format!("{:?}", result),
-	);
+		let result = after_effects_sys::PF_CheckoutResult {
+			result_rect: after_effects_sys::PF_Rect {
+				left: 0,
+				top: 0,
+				right: layer_w,
+				bottom: layer_h,
+			},
+			max_result_rect: after_effects_sys::PF_Rect {
+				left: 0,
+				top: 0,
+				right: layer_w,
+				bottom: layer_h,
+			},
+			par: after_effects_sys::PF_RationalScale { num: 1, den: 1 },
+			solid: 1,
+			reservedB: [0; 3],
+			ref_width: layer_w,
+			ref_height: layer_h,
+			reserved: [0; 6],
+		};
 
-	PF_Err_NONE as PF_Err
+		crate::strict::checkout(crate::CheckoutKind::DeclareLayer, checkout_idL, 0);
+
+		// The plugin passes an uninitialized `PF_CheckoutResult` and reads the layer
+		// bounds back out of it; leaving it unwritten hands the plugin stack garbage.
+		// SAFETY: `checkout_result` is non-null (checked above) and points at the plugin's `PF_CheckoutResult`.
+		unsafe { *checkout_result = result };
+
+		diag!("PF_PreRenderCallbacks/checkout_layer",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+			"index" => index,
+			"checkout_idL" => checkout_idL,
+			"what_time" => _what_time,
+			"time_step" => _time_step,
+			"time_scale" => _time_scale;
+			result: format!("{:?}", result),
+		);
+
+		PF_Err_NONE as PF_Err
+	})
 }
 
 unsafe extern "C" fn checkout_layer_pixels_stub(
@@ -94,89 +98,99 @@ unsafe extern "C" fn checkout_layer_pixels_stub(
 	_checkout_idL: A_long,
 	pixels: *mut *mut PF_EffectWorld,
 ) -> PF_Err {
-	//== Validation ==//
-	if effect_ref.is_null() {
-		log::error!("checkout_layer_pixels: effect_ref is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+	crate::core::ffi::guard("checkout_layer_pixels_stub", || {
+		//== Validation ==//
+		if effect_ref.is_null() {
+			log::error!("checkout_layer_pixels: effect_ref is null");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	if pixels.is_null() {
-		log::warn!("checkout_layer_pixels: pixels pointer is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+		if pixels.is_null() {
+			log::warn!("checkout_layer_pixels: pixels pointer is null");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	//== Implementation ==//
-	// Never panic here: unwinding across the plugin's C frames is UB, so an
-	// unknown effect_ref is reported as a callback error instead.
-	let Some(mut instance) = PluginInstance::get_instance_ptr(effect_ref) else {
-		log::error!(
-			"checkout_layer_pixels: no instance found for effect_ref {:#x}",
-			effect_ref as usize
+		//== Implementation ==//
+		// Never panic here: unwinding across the plugin's C frames is UB, so an
+		// unknown effect_ref is reported as a callback error instead.
+		let Some(mut instance) = PluginInstance::get_instance_ptr(effect_ref) else {
+			log::error!(
+				"checkout_layer_pixels: no instance found for effect_ref {:#x}",
+				effect_ref as usize
+			);
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+
+		// The caller passes an *uninitialized* `PF_EffectWorld*` slot (see the SDK's
+		// `PF_CheckoutLayerPixels` contract) and expects us to write a pointer to the
+		// checked-out world into it -- not to dereference the slot. Hand back the
+		// instance's persistent world for the layer this id checked out, mirroring
+		// `checkout_output`; an unlinked layer parameter yields null.
+		crate::strict::checkout(crate::CheckoutKind::CheckoutLayerPixels, _checkout_idL, 0);
+		// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`). `pixels` is non-null (checked above).
+		let world = unsafe { instance.as_mut() }.checked_out_world(_checkout_idL);
+		// SAFETY: `pixels` is non-null (checked above) and is the plugin's out-slot for the world pointer.
+		unsafe { *pixels = world.unwrap_or(null_mut()) };
+
+		diag!("PF_SmartRenderCallbacks/checkout_layer_pixels",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+			"checkout_idL" => _checkout_idL,
+			"pixels (out)" => format!("{:#x}", pixels as usize);
+			result: format!("{:?}", world),
 		);
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
 
-	// The caller passes an *uninitialized* `PF_EffectWorld*` slot (see the SDK's
-	// `PF_CheckoutLayerPixels` contract) and expects us to write a pointer to the
-	// checked-out world into it -- not to dereference the slot. Hand back the
-	// instance's persistent world for the layer this id checked out, mirroring
-	// `checkout_output`; an unlinked layer parameter yields null.
-	crate::strict::checkout(crate::CheckoutKind::CheckoutLayerPixels, _checkout_idL, 0);
-	let world = unsafe { instance.as_mut() }.checked_out_world(_checkout_idL);
-	unsafe { *pixels = world.unwrap_or(null_mut()) };
-
-	diag!("PF_SmartRenderCallbacks/checkout_layer_pixels",
-		"effect_ref" => format!("{:#x}", effect_ref as usize),
-		"checkout_idL" => _checkout_idL,
-		"pixels (out)" => format!("{:#x}", pixels as usize);
-		result: format!("{:?}", world),
-	);
-
-	PF_Err_NONE as PF_Err
+		PF_Err_NONE as PF_Err
+	})
 }
 
 unsafe extern "C" fn checkin_layer_pixels_stub(_effect_ref: PF_ProgPtr, _checkout_idL: A_long) -> PF_Err {
-	crate::strict::checkout(crate::CheckoutKind::CheckinLayerPixels, _checkout_idL, 0);
-	diag!("PF_SmartRenderCallbacks/checkin_layer_pixels",
-		"effect_ref" => format!("{:#x}", _effect_ref as usize),
-		"checkout_idL" => _checkout_idL,
-	);
+	crate::core::ffi::guard("checkin_layer_pixels_stub", || {
+		crate::strict::checkout(crate::CheckoutKind::CheckinLayerPixels, _checkout_idL, 0);
+		diag!("PF_SmartRenderCallbacks/checkin_layer_pixels",
+			"effect_ref" => format!("{:#x}", _effect_ref as usize),
+			"checkout_idL" => _checkout_idL,
+		);
 
-	PF_Err_NONE as PF_Err
+		PF_Err_NONE as PF_Err
+	})
 }
 
 unsafe extern "C" fn checkout_output_sys(effect_ref: PF_ProgPtr, output: *mut *mut PF_EffectWorld) -> PF_Err {
-	//== Validation ==//
-	if effect_ref.is_null() {
-		log::error!("checkout_output: effect_ref is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+	crate::core::ffi::guard("checkout_output_sys", || {
+		//== Validation ==//
+		if effect_ref.is_null() {
+			log::error!("checkout_output: effect_ref is null");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	if output.is_null() {
-		log::error!("checkout_output: output pointer is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+		if output.is_null() {
+			log::error!("checkout_output: output pointer is null");
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		}
 
-	//== Implementation ==//
-	let Some(mut instance) = PluginInstance::get_instance_ptr(effect_ref) else {
-		log::error!(
-			"checkout_output: No instance found for effect_ref {:#x}",
-			effect_ref as usize
+		//== Implementation ==//
+		let Some(mut instance) = PluginInstance::get_instance_ptr(effect_ref) else {
+			log::error!(
+				"checkout_output: No instance found for effect_ref {:#x}",
+				effect_ref as usize
+			);
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		};
+
+		// Hand back a pointer into the instance's persistent output world, not a
+		// pointer to a temporary `as_sys()` value (which would dangle immediately).
+		// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`). `output` is non-null (checked above).
+		unsafe { *output = instance.as_mut().output_world_ptr() };
+
+		diag!("PF_SmartRenderCallbacks/checkout_output",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+			// SAFETY: `output` is non-null (checked above) and was just written.
+			"output (out)" => format!("{:#x}", unsafe { *output } as usize);
+			result: format!("`output` is set to internal output layer {:#x}", output as usize),
 		);
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
 
-	// Hand back a pointer into the instance's persistent output world, not a
-	// pointer to a temporary `as_sys()` value (which would dangle immediately).
-	unsafe { *output = instance.as_mut().output_world_ptr() };
-
-	diag!("PF_SmartRenderCallbacks/checkout_output",
-		"effect_ref" => format!("{:#x}", effect_ref as usize),
-		"output (out)" => format!("{:#x}", unsafe { *output } as usize);
-		result: format!("`output` is set to internal output layer {:#x}", output as usize),
-	);
-
-	PF_Err_NONE as PF_Err
+		PF_Err_NONE as PF_Err
+	})
 }
 
 /// A fresh `PF_PreRenderOutput`, as handed to every `PF_Cmd_SMART_PRE_RENDER`.

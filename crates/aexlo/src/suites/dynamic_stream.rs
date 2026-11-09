@@ -226,20 +226,22 @@ unsafe extern "C" fn get_new_stream_ref_for_layer(
 	layerH: AEGP_LayerH,
 	streamPH: *mut AEGP_StreamRefH,
 ) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_GetNewStreamRefForLayer", "layerH" => format!("{:#x}", layerH as usize));
+	crate::core::ffi::guard("get_new_stream_ref_for_layer", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_GetNewStreamRefForLayer", "layerH" => format!("{:#x}", layerH as usize));
 
-	if super::layer::Timeline::of(layerH as _).is_none() {
-		clear_stream(streamPH);
-		return bad();
-	}
-	publish(
-		streamPH,
-		Stream {
-			effect_ref: layerH as PF_ProgPtr,
-			index: 0,
-			node: Node::Layer,
-		},
-	)
+		if super::layer::Timeline::of(layerH as _).is_none() {
+			clear_stream(streamPH);
+			return bad();
+		}
+		publish(
+			streamPH,
+			Stream {
+				effect_ref: layerH as PF_ProgPtr,
+				index: 0,
+				node: Node::Layer,
+			},
+		)
+	})
 }
 
 unsafe extern "C" fn get_new_stream_ref_for_mask(
@@ -247,66 +249,76 @@ unsafe extern "C" fn get_new_stream_ref_for_mask(
 	_maskH: AEGP_MaskRefH,
 	streamPH: *mut AEGP_StreamRefH,
 ) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_GetNewStreamRefForMask");
-	clear_stream(streamPH);
-	refuse("AEGP_GetNewStreamRefForMask")
+	crate::core::ffi::guard("get_new_stream_ref_for_mask", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_GetNewStreamRefForMask");
+		clear_stream(streamPH);
+		refuse("AEGP_GetNewStreamRefForMask")
+	})
 }
 
 unsafe extern "C" fn get_stream_depth(streamH: AEGP_StreamRefH, depthPL: *mut A_long) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_GetStreamDepth", "streamH" => format!("{:#x}", streamH as usize));
-	let Some(stream) = (unsafe { stream_of(streamH) }) else {
-		return bad();
-	};
-	let Some(out) = (unsafe { depthPL.as_mut() }) else {
-		return bad();
-	};
-	*out = depth(stream.node);
-	none()
+	crate::core::ffi::guard("get_stream_depth", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_GetStreamDepth", "streamH" => format!("{:#x}", streamH as usize));
+		let Some(stream) = (unsafe { stream_of(streamH) }) else {
+			return bad();
+		};
+		let Some(out) = (unsafe { depthPL.as_mut() }) else {
+			return bad();
+		};
+		*out = depth(stream.node);
+		none()
+	})
 }
 
 unsafe extern "C" fn get_stream_grouping_type(
 	streamH: AEGP_StreamRefH,
 	group_typeP: *mut AEGP_StreamGroupingType,
 ) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_GetStreamGroupingType", "streamH" => format!("{:#x}", streamH as usize));
-	let Some(stream) = (unsafe { stream_of(streamH) }) else {
-		return bad();
-	};
-	let Some(out) = (unsafe { group_typeP.as_mut() }) else {
-		return bad();
-	};
-	*out = grouping(stream.node);
-	none()
+	crate::core::ffi::guard("get_stream_grouping_type", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_GetStreamGroupingType", "streamH" => format!("{:#x}", streamH as usize));
+		let Some(stream) = (unsafe { stream_of(streamH) }) else {
+			return bad();
+		};
+		let Some(out) = (unsafe { group_typeP.as_mut() }) else {
+			return bad();
+		};
+		*out = grouping(stream.node);
+		none()
+	})
 }
 
 unsafe extern "C" fn get_num_streams_in_group(streamH: AEGP_StreamRefH, num_streamsPL: *mut A_long) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_GetNumStreamsInGroup", "streamH" => format!("{:#x}", streamH as usize));
-	let Some(stream) = (unsafe { stream_of(streamH) }) else {
-		return bad();
-	};
-	let Some(count) = num_children(stream) else {
-		return bad();
-	};
-	let Some(out) = (unsafe { num_streamsPL.as_mut() }) else {
-		return bad();
-	};
-	*out = count as A_long;
-	none()
+	crate::core::ffi::guard("get_num_streams_in_group", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_GetNumStreamsInGroup", "streamH" => format!("{:#x}", streamH as usize));
+		let Some(stream) = (unsafe { stream_of(streamH) }) else {
+			return bad();
+		};
+		let Some(count) = num_children(stream) else {
+			return bad();
+		};
+		let Some(out) = (unsafe { num_streamsPL.as_mut() }) else {
+			return bad();
+		};
+		*out = count as A_long;
+		none()
+	})
 }
 
 unsafe extern "C" fn get_dynamic_stream_flags(
 	streamH: AEGP_StreamRefH,
 	stream_flagsP: *mut AEGP_DynStreamFlags,
 ) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_GetDynamicStreamFlags", "streamH" => format!("{:#x}", streamH as usize));
-	if unsafe { stream_of(streamH) }.is_none() {
-		return bad();
-	}
-	let Some(out) = (unsafe { stream_flagsP.as_mut() }) else {
-		return bad();
-	};
-	*out = AEGP_DynStreamFlag_ACTIVE_EYEBALL as AEGP_DynStreamFlags;
-	none()
+	crate::core::ffi::guard("get_dynamic_stream_flags", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_GetDynamicStreamFlags", "streamH" => format!("{:#x}", streamH as usize));
+		if unsafe { stream_of(streamH) }.is_none() {
+			return bad();
+		}
+		let Some(out) = (unsafe { stream_flagsP.as_mut() }) else {
+			return bad();
+		};
+		*out = AEGP_DynStreamFlag_ACTIVE_EYEBALL as AEGP_DynStreamFlags;
+		none()
+	})
 }
 
 unsafe extern "C" fn set_dynamic_stream_flag_v1(
@@ -314,11 +326,13 @@ unsafe extern "C" fn set_dynamic_stream_flag_v1(
 	_one_flag: AEGP_DynStreamFlags,
 	_setB: A_Boolean,
 ) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_SetDynamicStreamFlag");
-	if unsafe { stream_of(streamH) }.is_none() {
-		return bad();
-	}
-	refuse("AEGP_SetDynamicStreamFlag")
+	crate::core::ffi::guard("set_dynamic_stream_flag_v1", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_SetDynamicStreamFlag");
+		if unsafe { stream_of(streamH) }.is_none() {
+			return bad();
+		}
+		refuse("AEGP_SetDynamicStreamFlag")
+	})
 }
 
 unsafe extern "C" fn set_dynamic_stream_flag(
@@ -327,7 +341,9 @@ unsafe extern "C" fn set_dynamic_stream_flag(
 	_undoableB: A_Boolean,
 	setB: A_Boolean,
 ) -> A_Err {
-	unsafe { set_dynamic_stream_flag_v1(streamH, one_flag, setB) }
+	crate::core::ffi::guard("set_dynamic_stream_flag", || unsafe {
+		set_dynamic_stream_flag_v1(streamH, one_flag, setB)
+	})
 }
 
 unsafe extern "C" fn get_new_stream_ref_by_index(
@@ -336,20 +352,22 @@ unsafe extern "C" fn get_new_stream_ref_by_index(
 	indexL: A_long,
 	streamPH: *mut AEGP_StreamRefH,
 ) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_GetNewStreamRefByIndex", "indexL" => indexL);
-	let Some(parent) = (unsafe { stream_of(parent_groupH) }) else {
-		clear_stream(streamPH);
-		return bad();
-	};
-	let Ok(index) = usize::try_from(indexL) else {
-		clear_stream(streamPH);
-		return missing();
-	};
-	let Some(child) = child_at(parent, index) else {
-		clear_stream(streamPH);
-		return missing();
-	};
-	publish(streamPH, child)
+	crate::core::ffi::guard("get_new_stream_ref_by_index", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_GetNewStreamRefByIndex", "indexL" => indexL);
+		let Some(parent) = (unsafe { stream_of(parent_groupH) }) else {
+			clear_stream(streamPH);
+			return bad();
+		};
+		let Ok(index) = usize::try_from(indexL) else {
+			clear_stream(streamPH);
+			return missing();
+		};
+		let Some(child) = child_at(parent, index) else {
+			clear_stream(streamPH);
+			return missing();
+		};
+		publish(streamPH, child)
+	})
 }
 
 unsafe extern "C" fn get_new_stream_ref_by_matchname(
@@ -358,34 +376,40 @@ unsafe extern "C" fn get_new_stream_ref_by_matchname(
 	match_nameZ: *const A_char,
 	streamPH: *mut AEGP_StreamRefH,
 ) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_GetNewStreamRefByMatchname");
-	let Some(parent) = (unsafe { stream_of(parent_groupH) }) else {
-		clear_stream(streamPH);
-		return bad();
-	};
-	match child_by_name(parent, match_nameZ) {
-		Ok(child) => publish(streamPH, child),
-		Err(err) => {
+	crate::core::ffi::guard("get_new_stream_ref_by_matchname", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_GetNewStreamRefByMatchname");
+		let Some(parent) = (unsafe { stream_of(parent_groupH) }) else {
 			clear_stream(streamPH);
-			err
+			return bad();
+		};
+		match child_by_name(parent, match_nameZ) {
+			Ok(child) => publish(streamPH, child),
+			Err(err) => {
+				clear_stream(streamPH);
+				err
+			}
 		}
-	}
+	})
 }
 
 unsafe extern "C" fn delete_stream(streamH: AEGP_StreamRefH) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_DeleteStream");
-	if unsafe { stream_of(streamH) }.is_none() {
-		return bad();
-	}
-	refuse("AEGP_DeleteStream")
+	crate::core::ffi::guard("delete_stream", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_DeleteStream");
+		if unsafe { stream_of(streamH) }.is_none() {
+			return bad();
+		}
+		refuse("AEGP_DeleteStream")
+	})
 }
 
 unsafe extern "C" fn reorder_stream(streamH: AEGP_StreamRefH, _new_indexL: A_long) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_ReorderStream");
-	if unsafe { stream_of(streamH) }.is_none() {
-		return bad();
-	}
-	refuse("AEGP_ReorderStream")
+	crate::core::ffi::guard("reorder_stream", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_ReorderStream");
+		if unsafe { stream_of(streamH) }.is_none() {
+			return bad();
+		}
+		refuse("AEGP_ReorderStream")
+	})
 }
 
 unsafe extern "C" fn duplicate_stream(
@@ -393,30 +417,36 @@ unsafe extern "C" fn duplicate_stream(
 	streamH: AEGP_StreamRefH,
 	new_indexPL0: *mut A_long,
 ) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_DuplicateStream");
-	if let Some(out) = unsafe { new_indexPL0.as_mut() } {
-		*out = 0;
-	}
-	if unsafe { stream_of(streamH) }.is_none() {
-		return bad();
-	}
-	refuse("AEGP_DuplicateStream")
+	crate::core::ffi::guard("duplicate_stream", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_DuplicateStream");
+		if let Some(out) = unsafe { new_indexPL0.as_mut() } {
+			*out = 0;
+		}
+		if unsafe { stream_of(streamH) }.is_none() {
+			return bad();
+		}
+		refuse("AEGP_DuplicateStream")
+	})
 }
 
 unsafe extern "C" fn set_stream_name(streamH: AEGP_StreamRefH, _nameZ: *const A_char) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_SetStreamName");
-	if unsafe { stream_of(streamH) }.is_none() {
-		return bad();
-	}
-	refuse("AEGP_SetStreamName")
+	crate::core::ffi::guard("set_stream_name", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_SetStreamName");
+		if unsafe { stream_of(streamH) }.is_none() {
+			return bad();
+		}
+		refuse("AEGP_SetStreamName")
+	})
 }
 
 unsafe extern "C" fn set_stream_name_utf16(streamH: AEGP_StreamRefH, _nameZ: *const A_UTF16Char) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_SetStreamName");
-	if unsafe { stream_of(streamH) }.is_none() {
-		return bad();
-	}
-	refuse("AEGP_SetStreamName")
+	crate::core::ffi::guard("set_stream_name_utf16", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_SetStreamName");
+		if unsafe { stream_of(streamH) }.is_none() {
+			return bad();
+		}
+		refuse("AEGP_SetStreamName")
+	})
 }
 
 unsafe extern "C" fn can_add_stream(
@@ -424,15 +454,17 @@ unsafe extern "C" fn can_add_stream(
 	_match_nameZ: *const A_char,
 	can_addPB: *mut A_Boolean,
 ) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_CanAddStream");
-	if unsafe { stream_of(group_streamH) }.is_none() {
-		return bad();
-	}
-	let Some(out) = (unsafe { can_addPB.as_mut() }) else {
-		return bad();
-	};
-	*out = 0;
-	none()
+	crate::core::ffi::guard("can_add_stream", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_CanAddStream");
+		if unsafe { stream_of(group_streamH) }.is_none() {
+			return bad();
+		}
+		let Some(out) = (unsafe { can_addPB.as_mut() }) else {
+			return bad();
+		};
+		*out = 0;
+		none()
+	})
 }
 
 unsafe extern "C" fn add_stream(
@@ -441,20 +473,24 @@ unsafe extern "C" fn add_stream(
 	_match_nameZ: *const A_char,
 	streamPH0: *mut AEGP_StreamRefH,
 ) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_AddStream");
-	clear_stream(streamPH0);
-	if unsafe { stream_of(indexed_group_streamH) }.is_none() {
-		return bad();
-	}
-	refuse("AEGP_AddStream")
+	crate::core::ffi::guard("add_stream", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_AddStream");
+		clear_stream(streamPH0);
+		if unsafe { stream_of(indexed_group_streamH) }.is_none() {
+			return bad();
+		}
+		refuse("AEGP_AddStream")
+	})
 }
 
 unsafe extern "C" fn get_match_name(streamH: AEGP_StreamRefH, nameZ: *mut A_char) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_GetMatchName", "streamH" => format!("{:#x}", streamH as usize));
-	let Some(stream) = (unsafe { stream_of(streamH) }) else {
-		return bad();
-	};
-	write_name(stream, nameZ, NAME_CAP)
+	crate::core::ffi::guard("get_match_name", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_GetMatchName", "streamH" => format!("{:#x}", streamH as usize));
+		let Some(stream) = (unsafe { stream_of(streamH) }) else {
+			return bad();
+		};
+		write_name(stream, nameZ, NAME_CAP)
+	})
 }
 
 unsafe extern "C" fn get_new_parent_stream_ref(
@@ -462,78 +498,90 @@ unsafe extern "C" fn get_new_parent_stream_ref(
 	streamH: AEGP_StreamRefH,
 	parent_streamPH: *mut AEGP_StreamRefH,
 ) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_GetNewParentStreamRef", "streamH" => format!("{:#x}", streamH as usize));
-	let Some(stream) = (unsafe { stream_of(streamH) }) else {
-		clear_stream(parent_streamPH);
-		return bad();
-	};
-	let Some(parent) = parent_of(stream) else {
-		clear_stream(parent_streamPH);
-		return refuse("AEGP_GetNewParentStreamRef");
-	};
-	publish(parent_streamPH, parent)
+	crate::core::ffi::guard("get_new_parent_stream_ref", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_GetNewParentStreamRef", "streamH" => format!("{:#x}", streamH as usize));
+		let Some(stream) = (unsafe { stream_of(streamH) }) else {
+			clear_stream(parent_streamPH);
+			return bad();
+		};
+		let Some(parent) = parent_of(stream) else {
+			clear_stream(parent_streamPH);
+			return refuse("AEGP_GetNewParentStreamRef");
+		};
+		publish(parent_streamPH, parent)
+	})
 }
 
 unsafe extern "C" fn get_stream_is_modified(streamH: AEGP_StreamRefH, modifiedPB: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_GetStreamIsModified");
-	if unsafe { stream_of(streamH) }.is_none() {
-		return bad();
-	}
-	let Some(out) = (unsafe { modifiedPB.as_mut() }) else {
-		return bad();
-	};
-	*out = 0;
-	none()
+	crate::core::ffi::guard("get_stream_is_modified", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_GetStreamIsModified");
+		if unsafe { stream_of(streamH) }.is_none() {
+			return bad();
+		}
+		let Some(out) = (unsafe { modifiedPB.as_mut() }) else {
+			return bad();
+		};
+		*out = 0;
+		none()
+	})
 }
 
 unsafe extern "C" fn get_stream_index_in_parent(streamH: AEGP_StreamRefH, indexPL: *mut A_long) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_GetStreamIndexInParent");
-	let Some(stream) = (unsafe { stream_of(streamH) }) else {
-		return bad();
-	};
-	if stream.node == Node::Layer {
-		return refuse("AEGP_GetStreamIndexInParent");
-	}
-	let Some(out) = (unsafe { indexPL.as_mut() }) else {
-		return bad();
-	};
-	*out = stream.index as A_long;
-	none()
+	crate::core::ffi::guard("get_stream_index_in_parent", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_GetStreamIndexInParent");
+		let Some(stream) = (unsafe { stream_of(streamH) }) else {
+			return bad();
+		};
+		if stream.node == Node::Layer {
+			return refuse("AEGP_GetStreamIndexInParent");
+		}
+		let Some(out) = (unsafe { indexPL.as_mut() }) else {
+			return bad();
+		};
+		*out = stream.index as A_long;
+		none()
+	})
 }
 
 unsafe extern "C" fn is_separation_leader(streamH: AEGP_StreamRefH, leaderPB: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_IsSeparationLeader");
-	let Some(stream) = (unsafe { stream_of(streamH) }) else {
-		return bad();
-	};
-	let Some(out) = (unsafe { leaderPB.as_mut() }) else {
-		return bad();
-	};
-	*out = is_leader(stream.node) as A_Boolean;
-	none()
+	crate::core::ffi::guard("is_separation_leader", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_IsSeparationLeader");
+		let Some(stream) = (unsafe { stream_of(streamH) }) else {
+			return bad();
+		};
+		let Some(out) = (unsafe { leaderPB.as_mut() }) else {
+			return bad();
+		};
+		*out = is_leader(stream.node) as A_Boolean;
+		none()
+	})
 }
 
 unsafe extern "C" fn are_dimensions_separated(leader_streamH: AEGP_StreamRefH, separatedPB: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_AreDimensionsSeparated");
-	let Some(stream) = (unsafe { stream_of(leader_streamH) }) else {
-		return bad();
-	};
-	if !is_leader(stream.node) {
-		return refuse("AEGP_AreDimensionsSeparated");
-	}
-	let Some(out) = (unsafe { separatedPB.as_mut() }) else {
-		return bad();
-	};
-	*out = 0;
-	none()
+	crate::core::ffi::guard("are_dimensions_separated", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_AreDimensionsSeparated");
+		let Some(stream) = (unsafe { stream_of(leader_streamH) }) else {
+			return bad();
+		};
+		if !is_leader(stream.node) {
+			return refuse("AEGP_AreDimensionsSeparated");
+		}
+		let Some(out) = (unsafe { separatedPB.as_mut() }) else {
+			return bad();
+		};
+		*out = 0;
+		none()
+	})
 }
 
 unsafe extern "C" fn set_dimensions_separated(leader_streamH: AEGP_StreamRefH, _separatedB: A_Boolean) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_SetDimensionsSeparated");
-	if unsafe { stream_of(leader_streamH) }.is_none() {
-		return bad();
-	}
-	refuse("AEGP_SetDimensionsSeparated")
+	crate::core::ffi::guard("set_dimensions_separated", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_SetDimensionsSeparated");
+		if unsafe { stream_of(leader_streamH) }.is_none() {
+			return bad();
+		}
+		refuse("AEGP_SetDimensionsSeparated")
+	})
 }
 
 unsafe extern "C" fn get_separation_follower(
@@ -541,44 +589,52 @@ unsafe extern "C" fn get_separation_follower(
 	_dimS: A_short,
 	follower_streamPH: *mut AEGP_StreamRefH,
 ) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_GetSeparationFollower");
-	clear_stream(follower_streamPH);
-	if unsafe { stream_of(leader_streamH) }.is_none() {
-		return bad();
-	}
-	refuse("AEGP_GetSeparationFollower")
+	crate::core::ffi::guard("get_separation_follower", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_GetSeparationFollower");
+		clear_stream(follower_streamPH);
+		if unsafe { stream_of(leader_streamH) }.is_none() {
+			return bad();
+		}
+		refuse("AEGP_GetSeparationFollower")
+	})
 }
 
 unsafe extern "C" fn is_separation_follower(streamH: AEGP_StreamRefH, followerPB: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_IsSeparationFollower");
-	if unsafe { stream_of(streamH) }.is_none() {
-		return bad();
-	}
-	let Some(out) = (unsafe { followerPB.as_mut() }) else {
-		return bad();
-	};
-	*out = 0;
-	none()
+	crate::core::ffi::guard("is_separation_follower", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_IsSeparationFollower");
+		if unsafe { stream_of(streamH) }.is_none() {
+			return bad();
+		}
+		let Some(out) = (unsafe { followerPB.as_mut() }) else {
+			return bad();
+		};
+		*out = 0;
+		none()
+	})
 }
 
 unsafe extern "C" fn get_separation_leader(
 	follower_streamH: AEGP_StreamRefH,
 	leader_streamPH: *mut AEGP_StreamRefH,
 ) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_GetSeparationLeader");
-	clear_stream(leader_streamPH);
-	if unsafe { stream_of(follower_streamH) }.is_none() {
-		return bad();
-	}
-	refuse("AEGP_GetSeparationLeader")
+	crate::core::ffi::guard("get_separation_leader", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_GetSeparationLeader");
+		clear_stream(leader_streamPH);
+		if unsafe { stream_of(follower_streamH) }.is_none() {
+			return bad();
+		}
+		refuse("AEGP_GetSeparationLeader")
+	})
 }
 
 unsafe extern "C" fn get_separation_dimension(follower_streamH: AEGP_StreamRefH, _dimPS: *mut A_short) -> A_Err {
-	diag!("AEGP_DynamicStreamSuite/AEGP_GetSeparationDimension");
-	if unsafe { stream_of(follower_streamH) }.is_none() {
-		return bad();
-	}
-	refuse("AEGP_GetSeparationDimension")
+	crate::core::ffi::guard("get_separation_dimension", || {
+		diag!("AEGP_DynamicStreamSuite/AEGP_GetSeparationDimension");
+		if unsafe { stream_of(follower_streamH) }.is_none() {
+			return bad();
+		}
+		refuse("AEGP_GetSeparationDimension")
+	})
 }
 
 /// Builds the `AEGP_DynamicStreamSuite1` vtable (wire version 1).

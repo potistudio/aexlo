@@ -71,104 +71,106 @@ impl_math_sys!(acos_sys, acos, "x", "InData/utils/ansi/acos");
 ///    Mismatching arguments (e.g. passing a float for `%d`) leads to undefined behavior.
 /// 5. Only `%d` and `%s` format specifiers are actively supported.
 pub(crate) unsafe extern "C" fn sprintf_sys(arg1: *mut A_char, arg2: *const A_char, mut args: ...) -> PF_Err {
-	const SPRINTF_BUFFER_SIZE: usize = 256;
+	crate::core::ffi::guard("sprintf_sys", || {
+		const SPRINTF_BUFFER_SIZE: usize = 256;
 
-	if arg1.is_null() || arg2.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	let format_str = match unsafe { CStr::from_ptr(arg2) }.to_str() {
-		Ok(s) => s,
-		Err(_) => {
-			return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err;
+		if arg1.is_null() || arg2.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
 		}
-	};
 
-	// Raw implementation to handle %d and %s format specifiers
-	let mut result = String::new();
-	let mut chars = format_str.chars().peekable();
+		let format_str = match unsafe { CStr::from_ptr(arg2) }.to_str() {
+			Ok(s) => s,
+			Err(_) => {
+				return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err;
+			}
+		};
 
-	// Built incrementally as variadic args are pulled, so it can't be a single
-	// trailing `diag!`; the cfg-gated statements keep it zero-cost otherwise.
-	#[cfg(feature = "diagnostics")]
-	let mut diagnostics = DiagnosticBuilder::new();
-	#[cfg(feature = "diagnostics")]
-	diagnostics
-		.set_name("UtilityCallbacks/ansi/sprintf")
-		.add_arg("format", format!("{:?}", format_str));
+		// Raw implementation to handle %d and %s format specifiers
+		let mut result = String::new();
+		let mut chars = format_str.chars().peekable();
 
-	while let Some(c) = chars.next() {
-		if c == '%' {
-			if let Some(next) = chars.next() {
-				match next {
-					'd' => {
-						// Get an integer argument
-						let arg = unsafe { args.next_arg::<i32>() };
+		// Built incrementally as variadic args are pulled, so it can't be a single
+		// trailing `diag!`; the cfg-gated statements keep it zero-cost otherwise.
+		#[cfg(feature = "diagnostics")]
+		let mut diagnostics = DiagnosticBuilder::new();
+		#[cfg(feature = "diagnostics")]
+		diagnostics
+			.set_name("UtilityCallbacks/ansi/sprintf")
+			.add_arg("format", format!("{:?}", format_str));
 
-						#[cfg(feature = "diagnostics")]
-						diagnostics.add_arg("arg_int", format!("{:?}", arg));
-						result.push_str(&arg.to_string());
-					}
-					's' => {
-						// Get a string argument
-						let ptr = unsafe { args.next_arg::<*const i8>() };
+		while let Some(c) = chars.next() {
+			if c == '%' {
+				if let Some(next) = chars.next() {
+					match next {
+						'd' => {
+							// Get an integer argument
+							let arg = unsafe { args.next_arg::<i32>() };
 
-						if !ptr.is_null() {
-							match unsafe { CStr::from_ptr(ptr) }.to_str() {
-								Ok(s) => {
-									result.push_str(s);
-									#[cfg(feature = "diagnostics")]
-									diagnostics.add_arg("arg_str", format!("{:?}", s));
+							#[cfg(feature = "diagnostics")]
+							diagnostics.add_arg("arg_int", format!("{:?}", arg));
+							result.push_str(&arg.to_string());
+						}
+						's' => {
+							// Get a string argument
+							let ptr = unsafe { args.next_arg::<*const i8>() };
+
+							if !ptr.is_null() {
+								match unsafe { CStr::from_ptr(ptr) }.to_str() {
+									Ok(s) => {
+										result.push_str(s);
+										#[cfg(feature = "diagnostics")]
+										diagnostics.add_arg("arg_str", format!("{:?}", s));
+									}
+									Err(_) => result.push_str("(invalid)"),
 								}
-								Err(_) => result.push_str("(invalid)"),
+							} else {
+								result.push_str("(null)");
 							}
-						} else {
-							result.push_str("(null)");
+						}
+						'%' => {
+							result.push('%');
+						}
+						_ => {
+							// Unsupported format specifier, just include it as-is
+							result.push('%');
+							result.push(next);
 						}
 					}
-					'%' => {
-						result.push('%');
-					}
-					_ => {
-						// Unsupported format specifier, just include it as-is
-						result.push('%');
-						result.push(next);
-					}
+				} else {
+					// Trailing %
+					result.push('%');
 				}
 			} else {
-				// Trailing %
-				result.push('%');
+				result.push(c);
 			}
-		} else {
-			result.push(c);
 		}
-	}
 
-	// Copy result to the output buffer
-	let c_result = match CString::new(result) {
-		Ok(s) => s,
-		Err(_) => {
-			return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err;
+		// Copy result to the output buffer
+		let c_result = match CString::new(result) {
+			Ok(s) => s,
+			Err(_) => {
+				return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err;
+			}
+		};
+
+		let bytes = c_result.as_bytes_with_nul();
+		let copy_len = bytes.len().min(SPRINTF_BUFFER_SIZE);
+
+		// Copy bytes
+		unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), arg1 as *mut u8, copy_len) };
+
+		// Ensure null termination if we truncated or filled exactly
+		// If copy_len < SPRINTF_BUFFER_SIZE, the null byte from as_bytes_with_nul is already copied.
+		// If copy_len == SPRINTF_BUFFER_SIZE, we forced a cut, so we must manually null-terminate at the end.
+		if copy_len == SPRINTF_BUFFER_SIZE && SPRINTF_BUFFER_SIZE > 0 {
+			unsafe { *((arg1 as *mut u8).add(SPRINTF_BUFFER_SIZE - 1)) = 0 };
 		}
-	};
 
-	let bytes = c_result.as_bytes_with_nul();
-	let copy_len = bytes.len().min(SPRINTF_BUFFER_SIZE);
+		#[cfg(feature = "diagnostics")]
+		diagnostics.set_result(format!("{:?}", c_result)).emit();
 
-	// Copy bytes
-	unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), arg1 as *mut u8, copy_len) };
-
-	// Ensure null termination if we truncated or filled exactly
-	// If copy_len < SPRINTF_BUFFER_SIZE, the null byte from as_bytes_with_nul is already copied.
-	// If copy_len == SPRINTF_BUFFER_SIZE, we forced a cut, so we must manually null-terminate at the end.
-	if copy_len == SPRINTF_BUFFER_SIZE && SPRINTF_BUFFER_SIZE > 0 {
-		unsafe { *((arg1 as *mut u8).add(SPRINTF_BUFFER_SIZE - 1)) = 0 };
-	}
-
-	#[cfg(feature = "diagnostics")]
-	diagnostics.set_result(format!("{:?}", c_result)).emit();
-
-	PF_Err_NONE as PF_Err
+		PF_Err_NONE as PF_Err
+	})
 }
 
 pub unsafe extern "C" fn strcpy_sys(arg1: *mut A_char, arg2: *const A_char) -> *mut A_char {

@@ -14,7 +14,7 @@ fn load_sample_input() -> (Layer<Depth8>, Vec<u8>) {
 		.to_rgba8();
 	let (width, height) = img.dimensions();
 	let raw = img.into_raw();
-	let layer = Layer::<Depth8>::from_raw(raw.clone(), width, height).expect("failed to wrap input.png as a Layer");
+	let layer = Layer::<Depth8>::from_rgba8(raw.clone(), width, height).expect("failed to wrap input.png as a Layer");
 	(layer, raw)
 }
 
@@ -23,7 +23,7 @@ fn render_rgba(instance: &mut PluginInstance) -> Vec<u8> {
 	let (width, height) = instance.output_size();
 	let mut buffer = vec![0u8; (width * height * 4) as usize];
 	instance
-		.write_rendered_pixels(&mut buffer)
+		.write_output_rgba8(&mut buffer)
 		.expect("write_output_rgba failed");
 	buffer
 }
@@ -37,9 +37,7 @@ fn nothing_plugin_is_a_true_passthrough() {
 		return;
 	};
 
-	let mut instance = aexlo::Host::get()
-		.try_load(&plugin_path)
-		.expect("failed to load plugin");
+	let mut instance = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 	let (input, expected) = load_sample_input();
 	instance.set_input_layer(input);
 
@@ -61,9 +59,7 @@ fn fill_color_produces_exact_uniform_output() {
 		return;
 	};
 
-	let mut instance = aexlo::Host::get()
-		.try_load(&plugin_path)
-		.expect("failed to load plugin");
+	let mut instance = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 	let (input, _) = load_sample_input();
 	instance.set_input_layer(input);
 

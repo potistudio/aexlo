@@ -89,10 +89,10 @@ fn list_fixtures() -> Vec<String> {
 	names
 }
 
-/// Load the shared `input.png` as an RGBA8 buffer, if present, so effects that
+/// Load the shared `fixtures/input.png` as an RGBA8 buffer, if present, so effects that
 /// read their input layer have something meaningful to work on.
 fn load_input_image() -> Option<(Vec<u8>, u32, u32)> {
-	let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../input.png");
+	let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/input.png");
 	match image::open(&path) {
 		Ok(img) => {
 			let img = img.to_rgba8();
@@ -173,14 +173,16 @@ fn main() -> eframe::Result<()> {
 fn publish_main_window(handle: &impl raw_window_handle::HasWindowHandle) {
 	#[cfg(windows)]
 	{
-		use raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
+		use raw_window_handle::RawWindowHandle;
 		let Ok(window) = handle.window_handle() else {
 			return;
 		};
 		let RawWindowHandle::Win32(win) = window.as_raw() else {
 			return;
 		};
-		aexlo::set_main_window(win.hwnd.get() as *mut std::ffi::c_void);
+		// SAFETY: this is the app's own live window, re-published every frame
+		// while plugins run in it.
+		unsafe { aexlo::set_main_window(win.hwnd.get() as *mut std::ffi::c_void) };
 	}
 	#[cfg(not(windows))]
 	{
@@ -295,7 +297,7 @@ impl AexloApp {
 		let choice = self.plugins[self.selected].clone();
 		log::info!("Loading plugin '{}' from {:?}", choice.label, choice.path);
 
-		match aexlo::Host::get().try_load(&choice.path) {
+		match aexlo::Host::get().load(&choice.path) {
 			Ok(mut instance) => {
 				// `PF_Cmd_ABOUT` can open a modal dialog (Looks does). Leave that
 				// to an explicit action so the playground can finish starting.
@@ -422,7 +424,7 @@ impl AexloApp {
 	/// Feed the shared input image (if any) into the instance's input layer.
 	fn apply_input(&self, instance: &mut PluginInstance) {
 		if let Some((bytes, w, h)) = &self.input {
-			match Layer::<Depth8>::from_raw(bytes.clone(), *w, *h) {
+			match Layer::<Depth8>::from_rgba8(bytes.clone(), *w, *h) {
 				Ok(layer) => instance.set_input_layer(layer),
 				Err(e) => log::warn!("Failed to build input layer: {e}"),
 			}
@@ -475,7 +477,7 @@ impl AexloApp {
 			self.height = out_h as usize;
 		}
 
-		if let Err(e) = instance.write_rendered_pixels(&mut self.pixels) {
+		if let Err(e) = instance.write_output_rgba8(&mut self.pixels) {
 			self.render_error = Some(e.to_string());
 		}
 	}
@@ -746,6 +748,10 @@ fn param_widget(ui: &mut egui::Ui, control: &mut ParamControl) -> bool {
 				let cy = ui.add(egui::DragValue::new(y).speed(1.0).prefix("y ")).changed();
 				let cz = ui.add(egui::DragValue::new(z).speed(1.0).prefix("z ")).changed();
 				cx || cy || cz
+			}
+			_ => {
+				ui.label("(unsupported)");
+				false
 			}
 		}
 	})

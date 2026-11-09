@@ -13,7 +13,7 @@ fn load_sample_input() -> Layer<Depth8> {
 		.expect("failed to open workspace input.png")
 		.to_rgba8();
 	let (width, height) = img.dimensions();
-	Layer::<Depth8>::from_raw(img.into_raw(), width, height).expect("failed to wrap input.png as a Layer")
+	Layer::<Depth8>::from_rgba8(img.into_raw(), width, height).expect("failed to wrap input.png as a Layer")
 }
 
 fn render_rgba(instance: &mut PluginInstance) -> Vec<u8> {
@@ -21,7 +21,7 @@ fn render_rgba(instance: &mut PluginInstance) -> Vec<u8> {
 	let (width, height) = instance.output_size();
 	let mut buffer = vec![0u8; (width * height * 4) as usize];
 	instance
-		.write_rendered_pixels(&mut buffer)
+		.write_output_rgba8(&mut buffer)
 		.expect("write_output_rgba failed");
 	buffer
 }
@@ -35,9 +35,7 @@ fn bitonic_pixel_sorter_param_set_get_roundtrip() {
 		eprintln!("skipping: fixture 'BitonicPixelSorter' not present locally");
 		return;
 	};
-	let mut instance = aexlo::Host::get()
-		.try_load(&plugin_path)
-		.expect("failed to load plugin");
+	let mut instance = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 
 	// [2] Mode (popup), [3] Order (popup), [4] Threshold Min (float), [5] Threshold Max (float).
 	instance.set_param(2, ParamValue::Popup(2)).unwrap();
@@ -60,9 +58,7 @@ fn bitonic_pixel_sorter_set_param_rejects_invalid_calls() {
 		eprintln!("skipping: fixture 'BitonicPixelSorter' not present locally");
 		return;
 	};
-	let mut instance = aexlo::Host::get()
-		.try_load(&plugin_path)
-		.expect("failed to load plugin");
+	let mut instance = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 
 	assert!(matches!(
 		instance.set_param(0, ParamValue::Popup(1)),
@@ -92,16 +88,12 @@ fn bitonic_pixel_sorter_direction_param_changes_render_output() {
 		return;
 	};
 
-	let mut horizontal = aexlo::Host::get()
-		.try_load(&plugin_path)
-		.expect("failed to load plugin");
+	let mut horizontal = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 	horizontal.set_input_layer(load_sample_input());
 	horizontal.set_param(12, ParamValue::Popup(1)).unwrap(); // Direction = Horizontal
 	let horizontal_output = render_rgba(&mut horizontal);
 
-	let mut vertical = aexlo::Host::get()
-		.try_load(&plugin_path)
-		.expect("failed to load plugin");
+	let mut vertical = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 	vertical.set_input_layer(load_sample_input());
 	vertical.set_param(12, ParamValue::Popup(2)).unwrap(); // Direction = Vertical
 	let vertical_output = render_rgba(&mut vertical);
@@ -122,9 +114,7 @@ fn deep_glow_covers_remaining_param_types_roundtrip() {
 		eprintln!("skipping: fixture 'DeepGlow2' not present locally");
 		return;
 	};
-	let mut instance = aexlo::Host::get()
-		.try_load(&plugin_path)
-		.expect("failed to load plugin");
+	let mut instance = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 
 	// [24] Radius (float), [40] Mask Invert (checkbox), [50] Iris Sampling Quality (popup),
 	// [67] Aspect Angle (angle), [84] Color.
