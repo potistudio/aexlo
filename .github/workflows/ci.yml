@@ -46,7 +46,7 @@ jobs:
       # Fixture tests skip plugins that are not checked in (fixtures/plugins),
       # and GPU tests skip when the runner has no device.
       - name: test
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --no-fail-fast
 
       - name: doc (aexlo)
         run: cargo doc -p aexlo --no-deps --locked
