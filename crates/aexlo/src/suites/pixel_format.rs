@@ -13,7 +13,7 @@
 use super::world::{alloc_world, dispose_world_sys, world_pixel_format};
 use crate::PluginInstance;
 use crate::core::diagnostics::diag;
-use crate::sdk::*;
+use crate::sys::*;
 use std::os::raw::c_void;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -129,7 +129,7 @@ unsafe extern "C" fn add_supported_pixel_format(effect_ref: PF_ProgPtr, pixelFor
 			"effect_ref" => format!("{:#x}", effect_ref as usize),
 			"pixelFormat" => format!("{:#x}", pixelFormat),
 		);
-		let format = crate::sdk::fourcc(pixelFormat);
+		let format = crate::sys::fourcc(pixelFormat);
 		with_instance(effect_ref, |i| i.add_supported_pixel_format(format))
 	})
 }
@@ -176,7 +176,7 @@ unsafe extern "C" fn new_world_of_pixel_format(
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let clamp = |v: A_u_long| v.min(A_long::MAX as A_u_long) as A_long;
-		let format = crate::sdk::fourcc(pixelFormat);
+		let format = crate::sys::fourcc(pixelFormat);
 		unsafe { *world = alloc_world(clamp(width), clamp(height), 4 * depth.bytes(), format) };
 		PF_Err_NONE
 	})

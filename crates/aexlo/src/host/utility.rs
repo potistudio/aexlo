@@ -1,6 +1,6 @@
 use crate::core::diagnostics::*;
-use crate::sdk::*;
 use crate::suites::macros::stub_log;
+use crate::sys::*;
 use std::os::raw::c_void;
 #[cfg(windows)]
 use std::sync::atomic::AtomicIsize;

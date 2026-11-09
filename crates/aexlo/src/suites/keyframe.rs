@@ -5,7 +5,7 @@
 //! answer accordingly, anything addressing a keyframe by index gets
 //! `PF_Err_INVALID_INDEX`, and adding keyframes is refused with `A_Err_GENERIC`.
 
-use crate::sdk::{
+use crate::sys::{
 	A_Boolean, A_Err, A_Err_GENERIC, A_Time, A_long, A_short, AEGP_AddKeyframesInfoH, AEGP_KeyframeEase,
 	AEGP_KeyframeFlags, AEGP_KeyframeIndex, AEGP_KeyframeInterpolationType, AEGP_KeyframeSuite4, AEGP_LTimeMode,
 	AEGP_NumKF_NO_DATA, AEGP_PluginID, AEGP_StreamRefH, AEGP_StreamValue2, PF_Err_BAD_CALLBACK_PARAM,

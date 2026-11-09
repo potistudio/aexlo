@@ -101,20 +101,12 @@ mod observe;
 mod param_value;
 mod pipl;
 mod pixel;
-mod sdk;
 mod strict;
+pub mod sys;
 mod time;
 mod utils;
 
 pub(crate) mod suites;
-
-/// The raw After Effects SDK bindings this crate is built against.
-///
-/// [`PluginEntryPoint`], [`Layer::as_sys`] and the `From` conversions on
-/// [`Pixel`] use these types, so name them through this path to get exactly
-/// the version aexlo uses. A breaking release of `after-effects-sys` is a
-/// breaking release of aexlo.
-pub use after_effects_sys as sys;
 
 pub use core::error::{AexloError, Result};
 pub use instance::{CustomControlEvent, CustomControlImage, Loader, PluginInstance, RenderPath};

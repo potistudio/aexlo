@@ -1,6 +1,6 @@
 //! String marshalling shared by the suite callbacks.
 
-use crate::sdk::A_char;
+use crate::sys::A_char;
 use std::ffi::CStr;
 
 /// Copy `src` into a fixed `A_char` buffer as a NUL-terminated C string,

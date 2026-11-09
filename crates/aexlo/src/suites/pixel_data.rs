@@ -9,7 +9,7 @@
 //! possible here.
 
 use crate::core::diagnostics::diag;
-use crate::sdk::{
+use crate::sys::{
 	PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_Pixel8, PF_Pixel16, PF_PixelDataSuite2,
 	PF_PixelFloat, PF_PixelPtr,
 };

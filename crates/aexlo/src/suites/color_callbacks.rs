@@ -19,7 +19,7 @@
 //! anything meaningful in `in_data.effect_ref` yet.
 
 use crate::core::diagnostics::diag;
-use crate::sdk::{
+use crate::sys::{
 	A_long, PF_ColorCallbacks16Suite1, PF_ColorCallbacksFloatSuite1, PF_ColorCallbacksSuite1, PF_Err,
 	PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_Fixed, PF_Pixel, PF_Pixel16, PF_PixelFloat, PF_ProgPtr,
 };

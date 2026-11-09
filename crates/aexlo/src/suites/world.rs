@@ -30,7 +30,7 @@
 /// - `dispose_world_stub`: Releases previously allocated pixel buffer memory
 /// - `get_pixel_format_stub`: Queries the pixel format of a given world buffer
 /// - `create_world_suite_2`: Factory function that constructs the suite vtable
-use crate::sdk::{
+use crate::sys::{
 	A_long, PF_Boolean, PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_PixelFormat,
 	PF_PixelFormat_ARGB32, PF_PixelFormat_ARGB64, PF_PixelFormat_ARGB128, PF_PixelFormat_GPU_BGRA128, PF_ProgPtr,
 	PF_RationalScale, PF_UnionableRect, PF_WorldFlag_WRITEABLE, PF_WorldFlags, PF_WorldSuite2,
@@ -113,7 +113,7 @@ pub(super) fn alloc_world(width: A_long, height: A_long, bytes_per_pixel: i32, f
 	// `PF_WORLD_IS_DEEP` reads this flag, so a 16 bpc world must carry it.
 	let mut world_flags = PF_WorldFlag_WRITEABLE;
 	if format == PF_PixelFormat_ARGB64 as u32 {
-		world_flags |= crate::sdk::PF_WorldFlag_DEEP as PF_WorldFlags;
+		world_flags |= crate::sys::PF_WorldFlag_DEEP as PF_WorldFlags;
 	}
 
 	PF_EffectWorld {
@@ -317,7 +317,7 @@ pub(crate) unsafe extern "C" fn new_world_util(
 	effect_ref: PF_ProgPtr,
 	width: A_long,
 	height: A_long,
-	flags: crate::sdk::PF_NewWorldFlags,
+	flags: crate::sys::PF_NewWorldFlags,
 	world: *mut PF_EffectWorld,
 ) -> PF_Err {
 	crate::core::ffi::guard("new_world_util", || {
@@ -326,7 +326,7 @@ pub(crate) unsafe extern "C" fn new_world_util(
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
-		let deep = flags & crate::sdk::PF_NewWorldFlag_DEEP_PIXELS as crate::sdk::PF_NewWorldFlags != 0;
+		let deep = flags & crate::sys::PF_NewWorldFlag_DEEP_PIXELS as crate::sys::PF_NewWorldFlags != 0;
 		let (bytes, format) = if deep {
 			(8, PF_PixelFormat_ARGB64 as u32)
 		} else {
@@ -373,14 +373,14 @@ mod tests {
 				effect,
 				4,
 				3,
-				crate::sdk::PF_NewWorldFlag_CLEAR_PIXELS as crate::sdk::PF_NewWorldFlags,
+				crate::sys::PF_NewWorldFlag_CLEAR_PIXELS as crate::sys::PF_NewWorldFlags,
 				&mut world,
 			)
 		};
 		assert_eq!(err, PF_Err_NONE);
 		assert!(!world.data.is_null());
 		assert_eq!((world.width, world.height, world.rowbytes), (4, 3, 16));
-		assert_eq!(world.world_flags & crate::sdk::PF_WorldFlag_DEEP as PF_WorldFlags, 0);
+		assert_eq!(world.world_flags & crate::sys::PF_WorldFlag_DEEP as PF_WorldFlags, 0);
 		unsafe { *(world.data as *mut u8) = 7 };
 		assert_eq!(unsafe { dispose_world_sys(effect, &mut world) }, PF_Err_NONE);
 		assert!(world.data.is_null());
@@ -390,13 +390,13 @@ mod tests {
 				effect,
 				2,
 				2,
-				crate::sdk::PF_NewWorldFlag_DEEP_PIXELS as crate::sdk::PF_NewWorldFlags,
+				crate::sys::PF_NewWorldFlag_DEEP_PIXELS as crate::sys::PF_NewWorldFlags,
 				&mut world,
 			)
 		};
 		assert_eq!(err, PF_Err_NONE);
 		assert_eq!(world.rowbytes, 16);
-		let deep = crate::sdk::PF_WorldFlag_DEEP as PF_WorldFlags;
+		let deep = crate::sys::PF_WorldFlag_DEEP as PF_WorldFlags;
 		assert_ne!(world.world_flags & deep, 0);
 		assert_eq!(unsafe { dispose_world_sys(effect, &mut world) }, PF_Err_NONE);
 

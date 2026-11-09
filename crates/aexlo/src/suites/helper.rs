@@ -6,7 +6,7 @@
 
 use crate::core::diagnostics::diag;
 use crate::host::app::with_app_host_ffi as with_host;
-use crate::sdk::*;
+use crate::sys::*;
 
 /// Map a `PF_ExtendedSuiteTool_*` to the legacy `PF_SuiteTool_*` reported by
 /// `PF_HelperSuite1`; tools the legacy enum has no name for map to `NONE`.

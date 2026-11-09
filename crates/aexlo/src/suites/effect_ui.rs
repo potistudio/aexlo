@@ -13,7 +13,7 @@ use super::ffi::read_c_str;
 use crate::PluginInstance;
 use crate::core::diagnostics::diag;
 use crate::host::app::{AppPixelF, with_app_host_ffi as with_host};
-use crate::sdk::{
+use crate::sys::{
 	A_FloatPoint, A_LPoint, A_char, DRAWBOT_ColorRGBA, DRAWBOT_DrawRef, DRAWBOT_PathRef, PF_AsyncManagerP, PF_Boolean,
 	PF_ContextH, PF_EffectCustomUIOverlayThemeSuite1, PF_EffectCustomUISuite1, PF_EffectCustomUISuite2,
 	PF_EffectUISuite1, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_EventExtra, PF_InData, PF_ProgPtr,

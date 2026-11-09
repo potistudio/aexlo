@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
-use crate::sdk::{
+use crate::sys::{
 	A_Boolean, A_Err, A_char, A_long, AEGP_MemHandle, AEGP_MemSize, AEGP_MemorySuite1, AEGP_PluginID,
 	PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_Err_OUT_OF_MEMORY,
 };

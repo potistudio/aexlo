@@ -58,7 +58,7 @@ mod imp {
 	use std::collections::HashMap;
 	use std::ffi::c_void;
 
-	use crate::sdk::{PF_GPU_Framework, PF_GPU_Framework_METAL};
+	use crate::sys::{PF_GPU_Framework, PF_GPU_Framework_METAL};
 	use foreign_types::ForeignType;
 	use metal::{Buffer, CommandQueue, Device, MTLResourceOptions};
 
@@ -239,7 +239,7 @@ mod imp {
 	use std::ffi::c_void;
 	use std::sync::Arc;
 
-	use crate::sdk::{PF_GPU_Framework, PF_GPU_Framework_CUDA};
+	use crate::sys::{PF_GPU_Framework, PF_GPU_Framework_CUDA};
 	use cudarc::driver::result::stream::StreamKind;
 	use cudarc::driver::{CudaContext, CudaSlice, CudaStream, DevicePtr, sys};
 
@@ -527,7 +527,7 @@ mod imp {
 mod imp {
 	use std::ffi::c_void;
 
-	use crate::sdk::{PF_GPU_Framework, PF_GPU_Framework_NONE};
+	use crate::sys::{PF_GPU_Framework, PF_GPU_Framework_NONE};
 
 	/// Fallback stub: no GPU backend exists for this platform, so a context can
 	/// never be created and every accessor is inert. Keeps the crate compiling.

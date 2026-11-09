@@ -6,7 +6,7 @@
 use super::ffi::read_c_str;
 use crate::core::diagnostics::diag;
 use crate::host::app::{AppPixel8, InfoLine, with_app_host_ffi as with_host};
-use crate::sdk::{A_char, PF_AdvAppSuite1, PF_AdvAppSuite2, PF_Err, PF_Err_NONE, PF_Pixel};
+use crate::sys::{A_char, PF_AdvAppSuite1, PF_AdvAppSuite2, PF_Err, PF_Err_NONE, PF_Pixel};
 
 /// Build an [`InfoLine`] from optional left/right-justified C strings.
 ///

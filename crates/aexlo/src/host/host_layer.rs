@@ -40,7 +40,7 @@ impl HostLayer {
 		self.layer.height()
 	}
 
-	pub(crate) fn as_sys(&mut self) -> crate::sdk::PF_LayerDef {
+	pub(crate) fn as_sys(&mut self) -> crate::sys::PF_LayerDef {
 		self.layer.as_sys()
 	}
 }

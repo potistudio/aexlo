@@ -134,7 +134,7 @@ impl AexloError {
 	/// (`PF_Interrupt_CANCEL`, e.g. after [`AppHost::abort_requested`](crate::AppHost::abort_requested)).
 	pub fn is_cancelled(&self) -> bool {
 		matches!(self, AexloError::PluginExecutionFailed { code, .. }
-			if *code == crate::sdk::PF_Interrupt_CANCEL as i64)
+			if *code == crate::sys::PF_Interrupt_CANCEL as i64)
 	}
 }
 

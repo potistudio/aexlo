@@ -85,7 +85,7 @@ pub mod world;
 
 #[cfg(feature = "diagnostics")]
 use crate::core::diagnostics::DiagnosticBuilder;
-use crate::sdk::*;
+use crate::sys::*;
 static COMP_SUITE_4: AEGP_CompSuite4 = comp::create_comp_suite_4();
 static AEGP_WORLD_1: AEGP_WorldSuite1 = aegp_world::suite_1();
 static AEGP_WORLD_2: AEGP_WorldSuite2 = aegp_world::suite_2();

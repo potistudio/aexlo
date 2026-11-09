@@ -8,7 +8,7 @@
 use super::ffi::{read_c_str, write_c_str};
 use crate::core::diagnostics::diag;
 use crate::host::app::{AppPixelF, AppPoint, ProgressId, with_app_host_ffi as with_host};
-use crate::sdk::{
+use crate::sys::{
 	_PF_AppProgressDialog, A_UTF16Char, A_char, A_long, A_short, AsLong, PF_App_Color, PF_App_ColorType,
 	PF_AppPersonalTextInfo, PF_AppProgressDialogP, PF_Boolean, PF_ContextH, PF_CursorType, PF_Err,
 	PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_EyeDropperSampleMode, PF_FontName, PF_FontStyleSheet,
@@ -87,7 +87,7 @@ unsafe extern "C" fn get_language(lang_tagZ: *mut A_char) -> PF_Err {
 			return PF_Err_NONE;
 		}
 		with_host(|host| {
-			let buf = unsafe { std::slice::from_raw_parts_mut(lang_tagZ, crate::sdk::PF_APP_LANG_TAG_SIZE as usize) };
+			let buf = unsafe { std::slice::from_raw_parts_mut(lang_tagZ, crate::sys::PF_APP_LANG_TAG_SIZE as usize) };
 			buf.fill(0);
 			write_c_str(buf, &host.language());
 			PF_Err_NONE
@@ -535,7 +535,7 @@ mod tests {
 			suite.PF_AppGetBgColor.unwrap()(&mut c);
 			assert_eq!((c.red, c.green, c.blue), (1, 2, 3));
 
-			let mut lang = [0 as A_char; crate::sdk::PF_APP_LANG_TAG_SIZE as usize];
+			let mut lang = [0 as A_char; crate::sys::PF_APP_LANG_TAG_SIZE as usize];
 			suite.PF_AppGetLanguage.unwrap()(lang.as_mut_ptr());
 			assert_eq!(CStr::from_ptr(lang.as_ptr()).to_str().unwrap(), "ja_JP");
 
@@ -570,7 +570,7 @@ mod tests {
 
 			// Particular copies all five tag bytes, so an empty language must
 			// not leave the caller's previous contents in the tail.
-			let mut lang = [-1 as A_char; crate::sdk::PF_APP_LANG_TAG_SIZE as usize];
+			let mut lang = [-1 as A_char; crate::sys::PF_APP_LANG_TAG_SIZE as usize];
 			suite.PF_AppGetLanguage.unwrap()(lang.as_mut_ptr());
 			assert!(lang.iter().all(|b| *b == 0));
 		}

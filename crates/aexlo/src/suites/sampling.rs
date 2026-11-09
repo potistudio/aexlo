@@ -16,7 +16,7 @@
 //! Channels are averaged as stored, i.e. premultiplied for AE's worlds.
 
 use super::pixel_norm::NormalizedPixel;
-use crate::sdk::{
+use crate::sys::{
 	PF_BatchSample16Func, PF_BatchSampleFunc, PF_BatchSamplingSuite1, PF_EffectWorld, PF_Err,
 	PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_Fixed, PF_ModeFlags, PF_Pixel, PF_Pixel16, PF_PixelFloat, PF_ProgPtr,
 	PF_Quality, PF_SampPB, PF_Sampling8Suite1, PF_Sampling16Suite1, PF_SamplingFloatSuite1,

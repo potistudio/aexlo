@@ -4,7 +4,7 @@
 //! `FastBlur` is a separable box blur: high quality is three passes, anything
 //! else is one, and the mode flags are ignored. Platform worlds are refused.
 
-use crate::sdk::{
+use crate::sys::{
 	A_Err, A_FpLong, A_long, A_u_long, AEGP_PlatformWorldH, AEGP_PluginID, AEGP_WorldH, AEGP_WorldSuite1,
 	AEGP_WorldSuite2, AEGP_WorldSuite3, AEGP_WorldType, AEGP_WorldType_8, AEGP_WorldType_16, AEGP_WorldType_32,
 	PF_EffectWorld, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_ModeFlags, PF_Pixel8, PF_Pixel16, PF_PixelFloat,
@@ -478,7 +478,7 @@ mod tests {
 		assert_eq!(unsafe { fill_out(handle, &mut out) }, PF_Err_NONE);
 		assert_eq!(
 			unsafe { super::super::world::world_pixel_format(&out) },
-			crate::sdk::PF_PixelFormat_ARGB128 as u32
+			crate::sys::PF_PixelFormat_ARGB128 as u32
 		);
 		unsafe { dispose_world(handle) };
 		assert_eq!(super::super::world::allocated_format(&out), None);

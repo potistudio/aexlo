@@ -1,6 +1,6 @@
 use std::ptr::{null, null_mut};
 
-use crate::sdk::*;
+use crate::sys::*;
 
 use crate::PluginInstance;
 use crate::core::constants::{DEFAULT_HEIGHT as HEIGHT, DEFAULT_WIDTH as WIDTH};
@@ -11,11 +11,11 @@ unsafe extern "C" fn checkout_layer_stub(
 	effect_ref: PF_ProgPtr,
 	index: PF_ParamIndex,
 	checkout_idL: A_long,
-	req: *const crate::sdk::PF_RenderRequest,
+	req: *const crate::sys::PF_RenderRequest,
 	_what_time: A_long,
 	_time_step: A_long,
 	_time_scale: A_u_long,
-	checkout_result: *mut crate::sdk::PF_CheckoutResult,
+	checkout_result: *mut crate::sys::PF_CheckoutResult,
 ) -> PF_Err {
 	crate::core::ffi::guard("checkout_layer_stub", || {
 		//== Validation ==//
@@ -51,20 +51,20 @@ unsafe extern "C" fn checkout_layer_stub(
 			None => (WIDTH as i32, HEIGHT as i32),
 		};
 
-		let result = crate::sdk::PF_CheckoutResult {
-			result_rect: crate::sdk::PF_Rect {
+		let result = crate::sys::PF_CheckoutResult {
+			result_rect: crate::sys::PF_Rect {
 				left: 0,
 				top: 0,
 				right: layer_w,
 				bottom: layer_h,
 			},
-			max_result_rect: crate::sdk::PF_Rect {
+			max_result_rect: crate::sys::PF_Rect {
 				left: 0,
 				top: 0,
 				right: layer_w,
 				bottom: layer_h,
 			},
-			par: crate::sdk::PF_RationalScale { num: 1, den: 1 },
+			par: crate::sys::PF_RationalScale { num: 1, den: 1 },
 			solid: 1,
 			reservedB: [0; 3],
 			ref_width: layer_w,
@@ -218,12 +218,12 @@ fn empty_pre_render_output() -> PF_PreRenderOutput {
 
 /// Data structure to hold smart render state and provide callbacks.
 pub(crate) struct SmartRenderData {
-	pre_input: Box<crate::sdk::PF_PreRenderInput>,
-	pre_output: Box<crate::sdk::PF_PreRenderOutput>,
-	pre_callbacks: Box<crate::sdk::PF_PreRenderCallbacks>,
+	pre_input: Box<crate::sys::PF_PreRenderInput>,
+	pre_output: Box<crate::sys::PF_PreRenderOutput>,
+	pre_callbacks: Box<crate::sys::PF_PreRenderCallbacks>,
 
-	input: Box<crate::sdk::PF_SmartRenderInput>,
-	callbacks: Box<crate::sdk::PF_SmartRenderCallbacks>,
+	input: Box<crate::sys::PF_SmartRenderInput>,
+	callbacks: Box<crate::sys::PF_SmartRenderCallbacks>,
 
 	/// Bits per channel of CPU renders: the depth of the instance's worlds.
 	cpu_bitdepth: i16,
@@ -233,11 +233,11 @@ impl SmartRenderData {
 	/// Creates a new SmartRenderData with default values.
 	pub fn new() -> Self {
 		Self {
-			pre_input: Box::new(crate::sdk::PF_PreRenderInput {
+			pre_input: Box::new(crate::sys::PF_PreRenderInput {
 				bitdepth: 8,
 				device_index: 4294967295,
-				output_request: crate::sdk::PF_RenderRequest {
-					rect: crate::sdk::PF_LRect {
+				output_request: crate::sys::PF_RenderRequest {
+					rect: crate::sys::PF_LRect {
 						left: 0,
 						top: 0,
 						right: WIDTH as i32,
@@ -253,12 +253,12 @@ impl SmartRenderData {
 				gpu_data: null(),
 			}),
 			pre_output: Box::new(empty_pre_render_output()),
-			pre_callbacks: Box::new(crate::sdk::PF_PreRenderCallbacks {
+			pre_callbacks: Box::new(crate::sys::PF_PreRenderCallbacks {
 				checkout_layer: Some(checkout_layer_stub),
 				GuidMixInPtr: None,
 			}),
 
-			input: Box::new(crate::sdk::PF_SmartRenderInput {
+			input: Box::new(crate::sys::PF_SmartRenderInput {
 				output_request: PF_RenderRequest {
 					rect: PF_LRect {
 						left: 0,
@@ -278,7 +278,7 @@ impl SmartRenderData {
 				what_gpu: 0,
 				device_index: 4294967295,
 			}),
-			callbacks: Box::new(crate::sdk::PF_SmartRenderCallbacks {
+			callbacks: Box::new(crate::sys::PF_SmartRenderCallbacks {
 				checkout_layer_pixels: Some(checkout_layer_pixels_stub),
 				checkin_layer_pixels: Some(checkin_layer_pixels_stub),
 				checkout_output: Some(checkout_output_sys),

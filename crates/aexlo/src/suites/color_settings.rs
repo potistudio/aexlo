@@ -7,7 +7,7 @@
 //! `AEGP_DisposeColorProfile`. ICC data, descriptions (which need the AEGP
 //! Memory Suite), views and blending tables are refused with `A_Err_GENERIC`.
 
-use crate::sdk::*;
+use crate::sys::*;
 
 use super::layer::Timeline;
 use crate::core::diagnostics::diag;

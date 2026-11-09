@@ -1,6 +1,6 @@
 use std::ffi::{CStr, CString};
 
-use crate::sdk::{A_char, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_INTERNAL_STRUCT_DAMAGED, PF_Err_NONE};
+use crate::sys::{A_char, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_INTERNAL_STRUCT_DAMAGED, PF_Err_NONE};
 
 #[cfg(feature = "diagnostics")]
 use crate::core::diagnostics::DiagnosticBuilder;

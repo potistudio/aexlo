@@ -24,7 +24,7 @@ use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
 use std::sync::{LazyLock, Mutex};
 
-use crate::sdk::*;
+use crate::sys::*;
 
 use crate::PluginInstance;
 

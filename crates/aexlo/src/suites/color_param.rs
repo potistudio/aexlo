@@ -2,7 +2,7 @@
 //! channels. A COLOR param stores its value as an 8-bpc `PF_Pixel`; the suite
 //! reports each channel normalized to `0.0..=1.0`.
 
-use crate::sdk::{
+use crate::sys::{
 	PF_ColorParamSuite1, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_MAX_CHAN8, PF_ParamDef, PF_PixelFloat,
 	PF_ProgPtr,
 };
@@ -64,7 +64,7 @@ pub const fn create_color_param_suite_1() -> PF_ColorParamSuite1 {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::sdk::PF_Pixel;
+	use crate::sys::PF_Pixel;
 
 	#[test]
 	fn converts_8bit_color_value_to_normalized_float() {

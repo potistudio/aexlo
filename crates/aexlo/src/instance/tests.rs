@@ -16,9 +16,9 @@ fn bare_instance() -> PluginInstance {
 #[test]
 fn param_kind_covers_value_less_params() {
 	let mut fx = bare_instance();
-	fx.add_instance_param(param_of_type(crate::sdk::PF_Param_GROUP_START as PF_ParamType));
-	let mut button = param_of_type(crate::sdk::PF_Param_BUTTON as PF_ParamType);
-	button.ui_flags = crate::sdk::PF_PUI_INVISIBLE as crate::sdk::PF_ParamUIFlags;
+	fx.add_instance_param(param_of_type(crate::sys::PF_Param_GROUP_START as PF_ParamType));
+	let mut button = param_of_type(crate::sys::PF_Param_BUTTON as PF_ParamType);
+	button.ui_flags = crate::sys::PF_PUI_INVISIBLE as crate::sys::PF_ParamUIFlags;
 	fx.add_instance_param(button);
 
 	assert_eq!(fx.param_kind(0), Some(crate::ParamKind::Layer));
@@ -32,7 +32,7 @@ fn param_kind_covers_value_less_params() {
 #[test]
 fn point3d_round_trips() {
 	let mut fx = bare_instance();
-	fx.add_instance_param(param_of_type(crate::sdk::PF_Param_POINT_3D as PF_ParamType));
+	fx.add_instance_param(param_of_type(crate::sys::PF_Param_POINT_3D as PF_ParamType));
 	let value = ParamValue::Point3D {
 		x: 1.5,
 		y: -2.0,
@@ -54,7 +54,7 @@ fn set_time_reaches_in_data() {
 #[test]
 fn param_index_space_is_shared_across_accessors() {
 	let mut fx = bare_instance();
-	let mut float_def = param_of_type(crate::sdk::PF_Param_FLOAT_SLIDER as PF_ParamType);
+	let mut float_def = param_of_type(crate::sys::PF_Param_FLOAT_SLIDER as PF_ParamType);
 	float_def.u.fs_d.value = 1.5;
 	fx.add_instance_param(float_def);
 
@@ -67,7 +67,7 @@ fn param_index_space_is_shared_across_accessors() {
 	assert_eq!(fx.param_values(), vec![(1, ParamValue::Float(1.5))]);
 	assert_eq!(
 		fx.param_by_index(1).map(|def| def.param_type),
-		Some(crate::sdk::PF_Param_FLOAT_SLIDER as PF_ParamType)
+		Some(crate::sys::PF_Param_FLOAT_SLIDER as PF_ParamType)
 	);
 
 	fx.set_param(1, ParamValue::Float(2.0)).unwrap();
@@ -105,7 +105,7 @@ fn in_data_size_follows_input_not_output() {
 #[test]
 fn fixed_slider_uses_16_16_fixed_point() {
 	let mut fx = bare_instance();
-	fx.add_instance_param(param_of_type(crate::sdk::PF_Param_FIX_SLIDER as PF_ParamType));
+	fx.add_instance_param(param_of_type(crate::sys::PF_Param_FIX_SLIDER as PF_ParamType));
 
 	fx.set_param(1, ParamValue::Fixed(2.5)).unwrap();
 
@@ -122,12 +122,12 @@ fn initial_size_is_visible_during_sequence_setup() {
 	static HEIGHT_SEEN: AtomicI32 = AtomicI32::new(0);
 	unsafe extern "C" fn entry(
 		cmd: PF_Cmd,
-		input: *mut crate::sdk::PF_InData,
-		_output: *mut crate::sdk::PF_OutData,
-		_params: crate::sdk::PF_ParamList,
-		_world: *mut crate::sdk::PF_LayerDef,
+		input: *mut crate::sys::PF_InData,
+		_output: *mut crate::sys::PF_OutData,
+		_params: crate::sys::PF_ParamList,
+		_world: *mut crate::sys::PF_LayerDef,
 		_extra: *mut c_void,
-	) -> crate::sdk::PF_Err {
+	) -> crate::sys::PF_Err {
 		if cmd == RawCommand::SequenceSetup.to_sys() {
 			WIDTH_SEEN.store(unsafe { (*input).width }, Ordering::SeqCst);
 			HEIGHT_SEEN.store(unsafe { (*input).height }, Ordering::SeqCst);
@@ -149,12 +149,12 @@ fn initial_input_and_distinct_output_are_visible_in_all_setup_commands() {
 	static CHECKED: AtomicUsize = AtomicUsize::new(0);
 	unsafe extern "C" fn entry(
 		cmd: PF_Cmd,
-		input: *mut crate::sdk::PF_InData,
-		_output: *mut crate::sdk::PF_OutData,
-		_params: crate::sdk::PF_ParamList,
-		world: *mut crate::sdk::PF_LayerDef,
+		input: *mut crate::sys::PF_InData,
+		_output: *mut crate::sys::PF_OutData,
+		_params: crate::sys::PF_ParamList,
+		world: *mut crate::sys::PF_LayerDef,
 		_extra: *mut c_void,
-	) -> crate::sdk::PF_Err {
+	) -> crate::sys::PF_Err {
 		if [
 			RawCommand::GlobalSetup,
 			RawCommand::ParamsSetup,
@@ -189,20 +189,20 @@ fn custom_ui_click_sees_the_context_from_new_context() {
 	static CLICK: AtomicU32 = AtomicU32::new(0);
 	unsafe extern "C" fn entry(
 		cmd: PF_Cmd,
-		_input: *mut crate::sdk::PF_InData,
-		_output: *mut crate::sdk::PF_OutData,
-		_params: crate::sdk::PF_ParamList,
-		_world: *mut crate::sdk::PF_LayerDef,
+		_input: *mut crate::sys::PF_InData,
+		_output: *mut crate::sys::PF_OutData,
+		_params: crate::sys::PF_ParamList,
+		_world: *mut crate::sys::PF_LayerDef,
 		extra: *mut c_void,
-	) -> crate::sdk::PF_Err {
+	) -> crate::sys::PF_Err {
 		if cmd == RawCommand::Event.to_sys() && !extra.is_null() {
-			let extra = unsafe { &*(extra.cast::<crate::sdk::PF_EventExtra>()) };
+			let extra = unsafe { &*(extra.cast::<crate::sys::PF_EventExtra>()) };
 			let context = unsafe { *extra.contextH };
 			if context.is_null() {
 				CLICK.store(3, Ordering::SeqCst);
-			} else if extra.e_type == crate::sdk::PF_Event_NEW_CONTEXT {
+			} else if extra.e_type == crate::sys::PF_Event_NEW_CONTEXT {
 				unsafe { (*context).plugin_state[0] = 0xA11 };
-			} else if extra.e_type == crate::sdk::PF_Event_DO_CLICK {
+			} else if extra.e_type == crate::sys::PF_Event_DO_CLICK {
 				let stamp = unsafe { (*context).plugin_state[0] };
 				CLICK.store(if stamp == 0xA11 { 1 } else { 2 }, Ordering::SeqCst);
 			}

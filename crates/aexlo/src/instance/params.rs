@@ -74,7 +74,7 @@ impl PluginInstance {
 				blue,
 				alpha,
 			} => {
-				target.u.cd.value = crate::sdk::PF_Pixel {
+				target.u.cd.value = crate::sys::PF_Pixel {
 					alpha,
 					red,
 					green,
@@ -102,12 +102,12 @@ impl PluginInstance {
 	/// # Errors
 	/// [`AexloError::PluginExecutionFailed`] if the plugin rejects the command.
 	pub fn user_changed_param(&mut self, index: usize) -> Result<()> {
-		let mut extra = crate::sdk::PF_UserChangedParamExtra {
-			param_index: index as crate::sdk::PF_ParamIndex,
+		let mut extra = crate::sys::PF_UserChangedParamExtra {
+			param_index: index as crate::sys::PF_ParamIndex,
 		};
 		self.call_plugin(
 			RawCommand::UserChangedParam,
-			(&mut extra as *mut crate::sdk::PF_UserChangedParamExtra).cast(),
+			(&mut extra as *mut crate::sys::PF_UserChangedParamExtra).cast(),
 		)?;
 		self.follow_params_ui()
 	}
@@ -116,7 +116,7 @@ impl PluginInstance {
 	/// `PF_Cmd_UPDATE_PARAMS_UI` when the plugin raises
 	/// `PF_OutFlag_SEND_UPDATE_PARAMS_UI`.
 	fn follow_params_ui(&mut self) -> Result<()> {
-		let flag = crate::sdk::PF_OutFlag_SEND_UPDATE_PARAMS_UI as PF_OutFlags;
+		let flag = crate::sys::PF_OutFlag_SEND_UPDATE_PARAMS_UI as PF_OutFlags;
 		if self.out_data.out_flags & flag == 0 {
 			return Ok(());
 		}
@@ -304,7 +304,7 @@ impl PluginInstance {
 	/// After Effects opens that control from `PF_Cmd_EVENT`. The Options button
 	/// is a separate `PF_Cmd_DO_DIALOG`.
 	pub fn has_custom_ui(&self) -> bool {
-		let control = crate::sdk::PF_PUI_CONTROL;
+		let control = crate::sys::PF_PUI_CONTROL;
 		self.params.iter().any(|param| param.ui_flags & control != 0)
 	}
 
@@ -340,7 +340,7 @@ impl PluginInstance {
 		let width = width.clamp(1, 2048) as i32;
 		let height = height.clamp(1, 2048) as i32;
 		self.prepare_custom_control(index, width, height);
-		let (flags, _) = self.dispatch_effect_event(index, crate::sdk::PF_Event_DRAW, width, height, None);
+		let (flags, _) = self.dispatch_effect_event(index, crate::sys::PF_Event_DRAW, width, height, None);
 		Ok(wants_redraw(flags))
 	}
 
@@ -365,7 +365,7 @@ impl PluginInstance {
 		self.prepare_custom_control(index, width, height);
 		let (flags, send_drag) = self.dispatch_effect_event(
 			index,
-			crate::sdk::PF_Event_DO_CLICK,
+			crate::sys::PF_Event_DO_CLICK,
 			width,
 			height,
 			// `last_time` belongs to drag samples. A click is the mouse going down.
@@ -397,7 +397,7 @@ impl PluginInstance {
 		self.prepare_custom_control(index, width, height);
 		let (flags, send_drag) = self.dispatch_effect_event(
 			index,
-			crate::sdk::PF_Event_DRAG,
+			crate::sys::PF_Event_DRAG,
 			width,
 			height,
 			Some(ControlPointer { x, y, last }),
@@ -414,7 +414,7 @@ impl PluginInstance {
 	pub fn param_hidden(&self, index: usize) -> bool {
 		self.params
 			.get(index)
-			.is_some_and(|p| p.ui_flags & crate::sdk::PF_PUI_INVISIBLE as crate::sdk::PF_ParamUIFlags != 0)
+			.is_some_and(|p| p.ui_flags & crate::sys::PF_PUI_INVISIBLE as crate::sys::PF_ParamUIFlags != 0)
 	}
 
 	/// Whether the plugin disabled (greyed out) the parameter at `index`
@@ -422,7 +422,7 @@ impl PluginInstance {
 	pub fn param_disabled(&self, index: usize) -> bool {
 		self.params
 			.get(index)
-			.is_some_and(|p| p.ui_flags & crate::sdk::PF_PUI_DISABLED as crate::sdk::PF_ParamUIFlags != 0)
+			.is_some_and(|p| p.ui_flags & crate::sys::PF_PUI_DISABLED as crate::sys::PF_ParamUIFlags != 0)
 	}
 
 	/// Apply a plugin's `PF_UpdateParamUI` request: copy the UI-only fields from

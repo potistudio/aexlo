@@ -11,7 +11,7 @@
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
 
-use crate::sdk::{
+use crate::sys::{
 	A_Boolean, A_Err, A_LRect, A_Time, A_short, A_u_long, AEGP_AsyncFrameRequestRefcon, AEGP_AsyncRequestId,
 	AEGP_CancelRefcon, AEGP_ChannelOrder, AEGP_EffectRefH, AEGP_FrameReceiptH, AEGP_ItemH, AEGP_ItemQuality,
 	AEGP_ItemQuality_BEST, AEGP_LayerH, AEGP_LayerRenderOptionsH, AEGP_LayerRenderOptionsSuite2, AEGP_MatteMode,
@@ -387,7 +387,7 @@ unsafe extern "C" fn render_and_checkout_layer_frame(
 
 unsafe extern "C" fn render_layer_async(
 	_optionsH: AEGP_LayerRenderOptionsH,
-	_callback: crate::sdk::AEGP_AsyncFrameReadyCallback,
+	_callback: crate::sys::AEGP_AsyncFrameReadyCallback,
 	_refcon: AEGP_AsyncFrameRequestRefcon,
 	_request_out: *mut AEGP_AsyncRequestId,
 ) -> A_Err {

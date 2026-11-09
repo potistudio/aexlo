@@ -16,7 +16,7 @@
 
 use std::cell::Cell;
 
-use crate::sdk::*;
+use crate::sys::*;
 
 use crate::PluginInstance;
 use crate::core::diagnostics::diag;

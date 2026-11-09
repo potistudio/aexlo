@@ -128,8 +128,8 @@ pub enum ParamKind {
 }
 
 impl ParamKind {
-	pub(crate) fn from_sys(param_type: crate::sdk::PF_ParamType) -> Self {
-		use crate::sdk::*;
+	pub(crate) fn from_sys(param_type: crate::sys::PF_ParamType) -> Self {
+		use crate::sys::*;
 		#[allow(non_upper_case_globals)]
 		match param_type {
 			PF_Param_LAYER => Self::Layer,

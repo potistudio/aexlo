@@ -10,7 +10,7 @@
 //! - [`RenderContext`]: the frame being processed (size, time, downsampling).
 
 use crate::core::constants::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
-use crate::sdk::*;
+use crate::sys::*;
 use std::ptr::null_mut;
 
 const AE_VERSION_26_3_0: PF_SpecVersion = PF_SpecVersion { major: 13, minor: 29 };

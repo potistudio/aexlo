@@ -35,64 +35,64 @@ impl PluginInstance {
 	/// Whether global setup set `PF_OutFlag_I_DO_DIALOG`, so the effect
 	/// controls window shows an Options button.
 	pub fn has_options_button(&self) -> bool {
-		self.global_out_flags & crate::sdk::PF_OutFlag_I_DO_DIALOG as PF_OutFlags != 0
+		self.global_out_flags & crate::sys::PF_OutFlag_I_DO_DIALOG as PF_OutFlags != 0
 	}
 
 	pub(super) fn prepare_custom_control(&mut self, index: usize, width: i32, height: i32) {
 		if self.custom_ui_ready.contains(&index) {
 			return;
 		}
-		self.dispatch_effect_event(index, crate::sdk::PF_Event_NEW_CONTEXT, width, height, None);
-		self.dispatch_effect_event(index, crate::sdk::PF_Event_ACTIVATE, width, height, None);
+		self.dispatch_effect_event(index, crate::sys::PF_Event_NEW_CONTEXT, width, height, None);
+		self.dispatch_effect_event(index, crate::sys::PF_Event_ACTIVATE, width, height, None);
 		self.custom_ui_ready.insert(index);
 	}
 
 	pub(super) fn dispatch_effect_event(
 		&mut self,
 		index: usize,
-		event: crate::sdk::PF_EventType,
+		event: crate::sys::PF_EventType,
 		width: i32,
 		height: i32,
 		pointer: Option<ControlPointer>,
 	) -> (i32, bool) {
 		let mut kept = self.ui_contexts.remove(&index).unwrap_or_else(LiveUiContext::new);
 		// SAFETY: `PF_EventExtra` is a plain C struct (integers, raw pointers, unions of those), for which all-zero bytes are a valid value.
-		let mut extra: crate::sdk::PF_EventExtra = unsafe { std::mem::zeroed() };
+		let mut extra: crate::sys::PF_EventExtra = unsafe { std::mem::zeroed() };
 		extra.contextH = kept.handle();
 		extra.e_type = event;
-		extra.effect_win.index = index as crate::sdk::PF_ParamIndex;
-		extra.effect_win.area = crate::sdk::PF_EA_CONTROL as crate::sdk::PF_EffectArea;
-		extra.effect_win.current_frame = crate::sdk::PF_Rect {
+		extra.effect_win.index = index as crate::sys::PF_ParamIndex;
+		extra.effect_win.area = crate::sys::PF_EA_CONTROL as crate::sys::PF_EffectArea;
+		extra.effect_win.current_frame = crate::sys::PF_Rect {
 			left: 0,
 			top: 0,
 			right: width,
 			bottom: height,
 		};
-		let drawing = event == crate::sdk::PF_Event_DRAW
+		let drawing = event == crate::sys::PF_Event_DRAW
 			&& crate::suites::drawbot::begin_frame(width.max(1) as u32, height.max(1) as u32);
 		if drawing && let Some(draw) = crate::suites::drawbot::current_draw_ref() {
 			kept.set_draw_ref(draw);
 		}
-		if event == crate::sdk::PF_Event_DRAW {
-			extra.u.draw = crate::sdk::PF_DrawEventInfo {
+		if event == crate::sys::PF_Event_DRAW {
+			extra.u.draw = crate::sys::PF_DrawEventInfo {
 				update_rect: extra.effect_win.current_frame,
 				depth: 32,
 			};
 		} else if let Some(pointer) = pointer {
-			extra.u.do_click = crate::sdk::PF_DoClickEventInfo {
+			extra.u.do_click = crate::sys::PF_DoClickEventInfo {
 				when: 0,
-				screen_point: crate::sdk::PF_Point {
+				screen_point: crate::sys::PF_Point {
 					h: pointer.x,
 					v: pointer.y,
 				},
 				num_clicks: 1,
 				modifiers: 0,
 				continue_refcon: [0; 4],
-				send_drag: (event == crate::sdk::PF_Event_DRAG) as crate::sdk::PF_Boolean,
-				last_time: pointer.last as crate::sdk::PF_Boolean,
+				send_drag: (event == crate::sys::PF_Event_DRAG) as crate::sys::PF_Boolean,
+				last_time: pointer.last as crate::sys::PF_Boolean,
 			};
 		}
-		let result = self.call_plugin(RawCommand::Event, (&mut extra as *mut crate::sdk::PF_EventExtra).cast());
+		let result = self.call_plugin(RawCommand::Event, (&mut extra as *mut crate::sys::PF_EventExtra).cast());
 		// The draw ref is only valid for this DRAW. A later click must not
 		// see a surface the rasteriser has already finished.
 		kept.clear_draw_ref();
@@ -112,7 +112,7 @@ impl PluginInstance {
 		);
 		let send_drag = matches!(
 			event,
-			crate::sdk::PF_Event_DO_CLICK | crate::sdk::PF_Event_DRAG // SAFETY: `event` is a click or drag here, so the plugin's reply is in `u.do_click`.
+			crate::sys::PF_Event_DO_CLICK | crate::sys::PF_Event_DRAG // SAFETY: `event` is a click or drag here, so the plugin's reply is in `u.do_click`.
 		) && unsafe { extra.u.do_click.send_drag } != 0;
 		self.ui_contexts.insert(index, kept);
 		(extra.evt_out_flags, send_drag)
@@ -145,7 +145,7 @@ impl PluginInstance {
 
 		self.call_plugin(
 			RawCommand::SmartPreRender,
-			(&mut extra as *mut crate::sdk::PF_PreRenderExtra).cast(),
+			(&mut extra as *mut crate::sys::PF_PreRenderExtra).cast(),
 		)?;
 
 		self.smart_render_data.sync();
@@ -160,7 +160,7 @@ impl PluginInstance {
 
 		let result = self.call_plugin(
 			RawCommand::SmartRender,
-			(&mut extra as *mut crate::sdk::PF_SmartRenderExtra).cast(),
+			(&mut extra as *mut crate::sys::PF_SmartRenderExtra).cast(),
 		);
 		self.end_output_guard();
 
@@ -270,7 +270,7 @@ impl PluginInstance {
 
 		self.call_plugin(
 			RawCommand::SmartRenderGpu,
-			(&mut extra as *mut crate::sdk::PF_SmartRenderExtra).cast(),
+			(&mut extra as *mut crate::sys::PF_SmartRenderExtra).cast(),
 		)
 	}
 
@@ -461,7 +461,7 @@ impl PluginInstance {
 	///
 	/// Only meaningful once global setup has run (i.e. after [`Host::load`]).
 	pub fn supports_smart_render(&self) -> bool {
-		let flag = crate::sdk::PF_OutFlag2_SUPPORTS_SMART_RENDER as crate::sdk::PF_OutFlags2;
+		let flag = crate::sys::PF_OutFlag2_SUPPORTS_SMART_RENDER as crate::sys::PF_OutFlags2;
 		self.global_out_flags2 & flag != 0
 	}
 
@@ -595,7 +595,7 @@ impl PluginInstance {
 		// SAFETY: the layer's buffer is exactly `w * h * bpp` bytes.
 		let bytes = unsafe { std::slice::from_raw_parts(layer.data_ptr(), w * h * bpp) };
 		guarded.load_rows(bytes);
-		self.world.data = guarded.data_ptr() as *mut crate::sdk::PF_Pixel;
+		self.world.data = guarded.data_ptr() as *mut crate::sys::PF_Pixel;
 		self.world.rowbytes = guarded.rowbytes() as i32;
 		self.output_guard = Some(guarded);
 	}

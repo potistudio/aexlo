@@ -5,7 +5,7 @@
 
 use crate::core::diagnostics::diag;
 use crate::host::app::with_app_host_ffi as with_host;
-use crate::sdk::{
+use crate::sys::{
 	A_long, AsLong, PF_AdvItemSuite1, PF_Boolean, PF_ContextH, PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM,
 	PF_Err_NONE, PF_InData, PF_Step, PF_Step_BACKWARD,
 };
@@ -121,7 +121,7 @@ pub(super) const fn create_adv_item_suite_1() -> PF_AdvItemSuite1 {
 mod tests {
 	use super::*;
 	use crate::host::app::{AppHost, TEST_APP_HOST};
-	use crate::sdk::PF_Step_FORWARD;
+	use crate::sys::PF_Step_FORWARD;
 	use std::sync::{Arc, Mutex};
 
 	#[derive(Clone, Default)]

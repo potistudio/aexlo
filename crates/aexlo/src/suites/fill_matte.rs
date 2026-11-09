@@ -10,7 +10,7 @@
 //! passing through avoids inventing data).
 
 use crate::core::diagnostics::diag;
-use crate::sdk::{
+use crate::sys::{
 	A_long, PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_FillMatteSuite2, PF_Pixel, PF_Pixel16,
 	PF_PixelFloat, PF_ProgPtr, PF_Rect,
 };

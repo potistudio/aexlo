@@ -3,7 +3,7 @@
 //! coordinates; the suite reports them as `A_FloatPoint` in the same units
 //! (the fixed→float conversion does not change the coordinate space).
 
-use crate::sdk::{
+use crate::sys::{
 	A_FloatPoint, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_ParamDef, PF_PointParamSuite1, PF_ProgPtr,
 };
 

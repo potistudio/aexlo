@@ -168,7 +168,7 @@ impl Observer for LogObserver {
 
 /// The SDK name of a `PF_Cmd_*` value, without its `PF_Cmd_` prefix.
 pub fn command_name(command: i32) -> &'static str {
-	use crate::sdk::*;
+	use crate::sys::*;
 	const NAMES: &[(u32, &str)] = &[
 		(PF_Cmd_ABOUT as u32, "ABOUT"),
 		(PF_Cmd_GLOBAL_SETUP as u32, "GLOBAL_SETUP"),
@@ -270,7 +270,7 @@ mod tests {
 
 	#[test]
 	fn names_commands_by_sdk_name() {
-		assert_eq!(command_name(crate::sdk::PF_Cmd_SMART_RENDER), "SMART_RENDER");
+		assert_eq!(command_name(crate::sys::PF_Cmd_SMART_RENDER), "SMART_RENDER");
 		assert_eq!(command_name(-5), "UNKNOWN");
 	}
 

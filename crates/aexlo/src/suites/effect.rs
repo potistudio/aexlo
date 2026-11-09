@@ -12,7 +12,7 @@
 //! version 4) but has no effect-mask calls. Version 4 appends those calls;
 //! aexlo's effects have no effect masks.
 
-use crate::sdk::{
+use crate::sys::{
 	A_Err, A_Err_GENERIC, A_Time, A_char, A_long, A_u_long, AEGP_EffectFlags, AEGP_EffectFlags_ACTIVE,
 	AEGP_EffectIndex, AEGP_EffectRefH, AEGP_EffectSuite1, AEGP_EffectSuite2, AEGP_EffectSuite3, AEGP_EffectSuite4,
 	AEGP_InstalledEffectKey, AEGP_LayerH, AEGP_MaskIDVal, AEGP_PluginID, AEGP_StreamRefH, PF_Cmd,

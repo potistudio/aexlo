@@ -66,7 +66,7 @@ fn float_depth_passes_values_through_unclamped() {
 //==== Pixel ==========================================
 #[test]
 fn pixels_are_bit_compatible_with_the_sys_pixels() {
-	use crate::sdk::{PF_Pixel8, PF_Pixel16, PF_Pixel32};
+	use crate::sys::{PF_Pixel8, PF_Pixel16, PF_Pixel32};
 
 	assert_eq!(size_of::<Pixel<Depth8>>(), size_of::<PF_Pixel8>());
 	assert_eq!(size_of::<Pixel<Depth16>>(), size_of::<PF_Pixel16>());
@@ -154,7 +154,7 @@ fn unit_conversion_is_rgba() {
 
 #[test]
 fn sys_pixels_convert_both_ways() {
-	use crate::sdk::{PF_Pixel8, PF_Pixel16, PF_Pixel32};
+	use crate::sys::{PF_Pixel8, PF_Pixel16, PF_Pixel32};
 
 	let p8 = Pixel::<Depth8>::from_argb([9, 8, 7, 6]);
 	let s8: PF_Pixel8 = p8.into();
@@ -406,7 +406,7 @@ fn as_sys_describes_the_buffer() {
 		assert_eq!(world.extent_hint.top, 0);
 		assert_eq!((world.extent_hint.right, world.extent_hint.bottom), (5, 3));
 		assert_eq!((world.pix_aspect_ratio.num, world.pix_aspect_ratio.den), (1, 1));
-		let is_deep = world.world_flags & crate::sdk::PF_WorldFlag_DEEP as crate::sdk::PF_WorldFlags != 0;
+		let is_deep = world.world_flags & crate::sys::PF_WorldFlag_DEEP as crate::sys::PF_WorldFlags != 0;
 		assert_eq!(is_deep, deep, "deep flag at {}", D::KIND);
 	}
 	check::<Depth8>(false);

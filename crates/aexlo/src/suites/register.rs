@@ -1,6 +1,6 @@
 //! AEGP registration scoped to an owning plugin instance.
 #![allow(non_snake_case)]
-use crate::sdk::*;
+use crate::sys::*;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::ffi::c_void;

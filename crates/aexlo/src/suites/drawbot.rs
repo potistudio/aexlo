@@ -10,7 +10,7 @@
 //! When none of those files is present, `SupportsText` reports false and
 //! `DrawString` does nothing.
 
-use crate::sdk::*;
+use crate::sys::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::OnceLock;

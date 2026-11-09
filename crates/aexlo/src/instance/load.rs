@@ -8,12 +8,12 @@ use super::*;
 /// when called, report their real entry point name (and other PiPL metadata) back
 /// through the `PF_PluginDataCB2` callback instead of the host parsing a resource.
 type PluginDataEntryFn = unsafe extern "C" fn(
-	crate::sdk::PF_PluginDataPtr,
-	crate::sdk::PF_PluginDataCB2,
-	*const crate::sdk::SPBasicSuite,
+	crate::sys::PF_PluginDataPtr,
+	crate::sys::PF_PluginDataCB2,
+	*const crate::sys::SPBasicSuite,
 	*const std::os::raw::c_char,
 	*const std::os::raw::c_char,
-) -> crate::sdk::PF_Err;
+) -> crate::sys::PF_Err;
 
 #[derive(Default)]
 struct PluginDataInfo {
@@ -21,17 +21,17 @@ struct PluginDataInfo {
 }
 
 unsafe extern "C" fn receive_plugin_data(
-	in_ptr: crate::sdk::PF_PluginDataPtr,
-	_in_name: *const crate::sdk::A_u_char,
-	_in_match_name: *const crate::sdk::A_u_char,
-	_in_category: *const crate::sdk::A_u_char,
-	in_entry_point_name: *const crate::sdk::A_u_char,
-	_in_kind: crate::sdk::A_long,
-	_in_api_version_major: crate::sdk::A_long,
-	_in_api_version_minor: crate::sdk::A_long,
-	_in_reserved_info: crate::sdk::A_long,
-	_in_support_url: *const crate::sdk::A_u_char,
-) -> crate::sdk::A_Err {
+	in_ptr: crate::sys::PF_PluginDataPtr,
+	_in_name: *const crate::sys::A_u_char,
+	_in_match_name: *const crate::sys::A_u_char,
+	_in_category: *const crate::sys::A_u_char,
+	in_entry_point_name: *const crate::sys::A_u_char,
+	_in_kind: crate::sys::A_long,
+	_in_api_version_major: crate::sys::A_long,
+	_in_api_version_minor: crate::sys::A_long,
+	_in_reserved_info: crate::sys::A_long,
+	_in_support_url: *const crate::sys::A_u_char,
+) -> crate::sys::A_Err {
 	crate::core::ffi::guard("receive_plugin_data", || {
 		if in_ptr.is_null() || in_entry_point_name.is_null() {
 			return PF_Err_INVALID_CALLBACK;
@@ -392,8 +392,8 @@ impl PluginInstance {
 	}
 
 	/// Build the `SPBasicSuite` vtable handed to the plugin for acquiring host suites.
-	fn build_pica_suite() -> Box<crate::sdk::SPBasicSuite> {
-		Box::new(crate::sdk::SPBasicSuite {
+	fn build_pica_suite() -> Box<crate::sys::SPBasicSuite> {
+		Box::new(crate::sys::SPBasicSuite {
 			AcquireSuite: Some(crate::suites::rusty_acquire_suite),
 			ReleaseSuite: Some(crate::suites::rusty_release_suite),
 			IsEqual: None,
@@ -517,7 +517,7 @@ impl PluginInstance {
 	/// Ask the plugin what its real entry point symbol is via the modern
 	/// `PluginDataEntryFunction2` protocol -- the same self-description mechanism
 	/// After Effects itself uses instead of parsing a binary PiPL resource.
-	fn query_declared_entry_point(lib: &Library, pica: &crate::sdk::SPBasicSuite) -> Option<String> {
+	fn query_declared_entry_point(lib: &Library, pica: &crate::sys::SPBasicSuite) -> Option<String> {
 		// SAFETY: The SDK fixes `PluginDataEntryFunction2`'s signature as `PluginDataEntryFn`.
 		let entry_fn = unsafe { lib.symbol::<PluginDataEntryFn>(PLUGIN_DATA_ENTRY_SYMBOL) }.ok()?;
 
@@ -528,9 +528,9 @@ impl PluginInstance {
 		// SAFETY: `entry_fn` has the SDK's signature; every argument is a live local or the instance's PICA suite.
 		let result = unsafe {
 			entry_fn(
-				&mut info as *mut PluginDataInfo as crate::sdk::PF_PluginDataPtr,
+				&mut info as *mut PluginDataInfo as crate::sys::PF_PluginDataPtr,
 				Some(receive_plugin_data),
-				pica as *const crate::sdk::SPBasicSuite,
+				pica as *const crate::sys::SPBasicSuite,
 				host_name.as_ptr(),
 				host_version.as_ptr(),
 			)
@@ -548,7 +548,7 @@ impl PluginInstance {
 	/// platform symbol recorded in the PiPL resource, then [`FALLBACK_ENTRY_POINT_CANDIDATES`].
 	fn resolve_entry_point(
 		lib: &Library,
-		pica: &crate::sdk::SPBasicSuite,
+		pica: &crate::sys::SPBasicSuite,
 		binary: &Path,
 	) -> Result<(PluginEntryPoint, String)> {
 		let declared = Self::query_declared_entry_point(lib, pica);

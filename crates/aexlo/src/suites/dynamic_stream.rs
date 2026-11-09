@@ -13,7 +13,7 @@
 //! return `A_Err_GENERIC`. A failed lookup writes a null stream ref so the
 //! caller does not dispose an uninitialised pointer.
 
-use crate::sdk::*;
+use crate::sys::*;
 
 use super::stream::{Node, Stream, new_stream_handle, stream_of};
 use crate::PluginInstance;

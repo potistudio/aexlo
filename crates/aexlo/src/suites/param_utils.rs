@@ -6,7 +6,7 @@
 //! host is [`update_param_ui`], which lets a plugin refresh a parameter's UI state
 //! (twirl collapse, disabled, name, …) in response to a user edit.
 
-use crate::sdk::*;
+use crate::sys::*;
 
 use crate::PluginInstance;
 

@@ -7,7 +7,7 @@
 //! layer and the comp; see [`layer`](super::layer)). Reads report that comp.
 //! Creating, deleting, renaming or moving an item is refused.
 
-use crate::sdk::*;
+use crate::sys::*;
 
 use super::aegp_memory::handle_from_bytes;
 use super::layer::{Timeline, current_effect, item_handle};

@@ -9,7 +9,7 @@
 
 #[cfg(feature = "diagnostics")]
 use crate::core::diagnostics::*; // Adjusted import path
-use crate::sdk::*;
+use crate::sys::*;
 use std::alloc::{Layout, alloc, dealloc, realloc};
 use std::os::raw::c_void;
 use std::ptr;

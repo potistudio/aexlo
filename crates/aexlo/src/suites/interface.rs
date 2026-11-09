@@ -9,7 +9,7 @@
 //! layer starts at comp time 0), and the camera geometry is After Effects'
 //! default comp camera (50 mm preset) for the effect's layer.
 
-use crate::sdk::{
+use crate::sys::{
 	A_Err, A_FpLong, A_Matrix4, A_Time, A_long, A_short, A_u_long, AEGP_EffectRefH, AEGP_LayerH,
 	AEGP_PFInterfaceSuite1, AEGP_PluginID, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_ProgPtr,
 };

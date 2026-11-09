@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
 
-use crate::sdk::{
+use crate::sys::{
 	A_Boolean, A_Err, A_FpLong, A_char, A_long, A_u_long, AEGP_MemHandle, AEGP_PersistentBlobH,
 	AEGP_PersistentDataSuite3, AEGP_PluginID,
 };

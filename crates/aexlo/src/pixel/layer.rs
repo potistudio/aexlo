@@ -1,4 +1,4 @@
-use crate::sdk::{PF_LayerDef, PF_Pixel};
+use crate::sys::{PF_LayerDef, PF_Pixel};
 
 use super::{Depth8, Depth16, Depth32, Pixel, PixelDepth, PixelDepthKind};
 use core::ops::{Index, IndexMut};
@@ -217,13 +217,13 @@ where
 			// AE marks 16 bpc worlds deep (`PF_WORLD_IS_DEEP`); 32 bpc worlds are
 			// told apart through `PF_GetPixelFormat` instead.
 			world_flags: if D::KIND == PixelDepthKind::U16 {
-				crate::sdk::PF_WorldFlag_DEEP as crate::sdk::PF_WorldFlags
+				crate::sys::PF_WorldFlag_DEEP as crate::sys::PF_WorldFlags
 			} else {
 				0
 			},
 			width: self.width as i32,
 			height: self.height as i32,
-			extent_hint: crate::sdk::PF_UnionableRect {
+			extent_hint: crate::sys::PF_UnionableRect {
 				left: 0,
 				top: 0,
 				right: self.width as i32,
@@ -232,7 +232,7 @@ where
 			platform_ref: null_mut(),
 			reserved_long1: 0,
 			reserved_long4: null_mut(),
-			pix_aspect_ratio: crate::sdk::PF_RationalScale { num: 1, den: 1 },
+			pix_aspect_ratio: crate::sys::PF_RationalScale { num: 1, den: 1 },
 			reserved_long2: null_mut(),
 			origin_x: 0,
 			origin_y: 0,

@@ -35,7 +35,7 @@
 
 #[cfg(feature = "diagnostics")]
 use crate::core::diagnostics::DiagnosticBuilder;
-use crate::sdk::*;
+use crate::sys::*;
 use rayon::prelude::*;
 use std::cell::Cell;
 use std::ops::Range;

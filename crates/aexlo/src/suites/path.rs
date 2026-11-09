@@ -11,7 +11,7 @@ use super::ffi::write_c_str;
 use crate::PluginInstance;
 use crate::core::diagnostics::diag;
 use crate::mask::{ArcTable, MaskPath, bezier_deriv, bezier_point};
-use crate::sdk::{
+use crate::sys::{
 	A_char, A_long, A_u_long, PF_Boolean, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_INVALID_INDEX, PF_Err_NONE,
 	PF_FpLong, PF_MAX_PATH_NAME_LEN, PF_MaskMode, PF_PathDataSuite1, PF_PathID, PF_PathOutlinePtr, PF_PathQuerySuite1,
 	PF_PathSegPrepPtr, PF_PathVertex, PF_ProgPtr,
