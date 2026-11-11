@@ -45,8 +45,8 @@ impl PixelDepth for Depth16 {
 	}
 }
 
-impl From<after_effects_sys::PF_Pixel16> for Pixel<Depth16> {
-	fn from(pixel_sys: after_effects_sys::PF_Pixel16) -> Self {
+impl From<crate::sys::PF_Pixel16> for Pixel<Depth16> {
+	fn from(pixel_sys: crate::sys::PF_Pixel16) -> Self {
 		Pixel {
 			alpha: pixel_sys.alpha,
 			red: pixel_sys.red,
@@ -71,9 +71,9 @@ impl From<[u16; 4]> for Pixel<Depth16> {
 }
 
 /// Converts a `Pixel<Depth16>` into an `after_effects_sys::PF_Pixel16`.
-impl From<Pixel<Depth16>> for after_effects_sys::PF_Pixel16 {
+impl From<Pixel<Depth16>> for crate::sys::PF_Pixel16 {
 	fn from(val: Pixel<Depth16>) -> Self {
-		after_effects_sys::PF_Pixel16 {
+		crate::sys::PF_Pixel16 {
 			alpha: val.alpha,
 			red: val.red,
 			green: val.green,
@@ -86,7 +86,7 @@ impl Pixel<Depth16> {
 	/// Creates a `Pixel<Depth16>` from a pointer to a `PF_Pixel16` struct.
 	/// # Safety
 	/// `sys` must be valid for reads and point to an initialized `PF_Pixel16`.
-	pub unsafe fn from_sys(sys: *const after_effects_sys::PF_Pixel16) -> Self {
+	pub unsafe fn from_sys(sys: *const crate::sys::PF_Pixel16) -> Self {
 		// SAFETY: The caller guarantees `sys` is valid for reads and initialized.
 		unsafe { (*sys).into() }
 	}

@@ -7,7 +7,7 @@
 //! `AEGP_DisposeColorProfile`. ICC data, descriptions (which need the AEGP
 //! Memory Suite), views and blending tables are refused with `A_Err_GENERIC`.
 
-use after_effects_sys::*;
+use crate::sys::*;
 
 use super::layer::Timeline;
 use crate::core::diagnostics::diag;
@@ -22,7 +22,7 @@ const SRGB: ColorProfile = ColorProfile { approximate_gamma: 2.2 };
 
 fn unsupported(name: &str) -> A_Err {
 	log::warn!("AEGP_ColorSettingsSuite2/{name}: aexlo does no color management");
-	A_Err_GENERIC as A_Err
+	A_Err_GENERIC
 }
 
 /// # Safety
@@ -71,13 +71,13 @@ unsafe extern "C" fn get_new_working_space_color_profile(
 		);
 
 		if Timeline::of(compH as _).is_none() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let Some(out) = (unsafe { color_profilePP.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = Box::into_raw(Box::new(SRGB)) as AEGP_ColorProfileP;
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -122,11 +122,11 @@ unsafe extern "C" fn dispose_color_profile(color_profileP: AEGP_ColorProfileP) -
 		);
 
 		if color_profileP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		// SAFETY: non-null profiles only come from `get_new_working_space_color_profile`.
 		drop(unsafe { Box::from_raw(color_profileP as *mut ColorProfile) });
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -138,13 +138,13 @@ unsafe extern "C" fn get_color_profile_approximate_gamma(
 		diag!("AEGP_ColorSettingsSuite2/AEGP_GetColorProfileApproximateGamma");
 
 		let Some(profile) = (unsafe { profile_of(color_profileP) }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let Some(out) = (unsafe { approx_gammaP.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = profile.approximate_gamma;
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -153,13 +153,13 @@ unsafe extern "C" fn is_rgb_color_profile(color_profileP: AEGP_ConstColorProfile
 		diag!("AEGP_ColorSettingsSuite2/AEGP_IsRGBColorProfile");
 
 		if unsafe { profile_of(color_profileP) }.is_none() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let Some(out) = (unsafe { is_rgbPB.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = 1;
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -172,7 +172,7 @@ unsafe extern "C" fn set_working_color_space(
 		diag!("AEGP_ColorSettingsSuite5/AEGP_SetWorkingColorSpace");
 		// The working space stays sRGB. Accepting the call lets a plugin that
 		// asked for wire version 6 continue into its render.
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -180,15 +180,15 @@ unsafe extern "C" fn is_ocio_used(_aegp_plugin_id: AEGP_PluginID, is_used_out: *
 	crate::core::ffi::guard("is_ocio_used", || {
 		diag!("AEGP_ColorSettingsSuite5/AEGP_IsOCIOColorManagementUsed");
 		let Some(out) = (unsafe { is_used_out.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = 0;
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn ocio_unavailable() -> A_Err {
-	crate::core::ffi::guard("ocio_unavailable", || PF_Err_BAD_CALLBACK_PARAM as A_Err)
+	crate::core::ffi::guard("ocio_unavailable", || PF_Err_BAD_CALLBACK_PARAM)
 }
 
 unsafe extern "C" fn get_ocio_configuration_file(
@@ -284,13 +284,10 @@ mod tests {
 		unsafe {
 			assert_eq!(
 				suite.AEGP_GetColorProfileApproximateGamma.unwrap()(profile, &mut gamma),
-				PF_Err_NONE as A_Err
+				PF_Err_NONE
 			);
-			assert_eq!(
-				suite.AEGP_IsRGBColorProfile.unwrap()(profile, &mut rgb),
-				PF_Err_NONE as A_Err
-			);
-			assert_eq!(suite.AEGP_DisposeColorProfile.unwrap()(profile), PF_Err_NONE as A_Err);
+			assert_eq!(suite.AEGP_IsRGBColorProfile.unwrap()(profile, &mut rgb), PF_Err_NONE);
+			assert_eq!(suite.AEGP_DisposeColorProfile.unwrap()(profile), PF_Err_NONE);
 		}
 		assert_eq!((gamma, rgb), (2.2, 1));
 	}
@@ -300,7 +297,7 @@ mod tests {
 		let suite = create_color_settings_suite_2();
 		let mut profile: AEGP_ColorProfileP = std::ptr::null_mut();
 		let err = unsafe { suite.AEGP_GetNewWorkingSpaceColorProfile.unwrap()(0, std::ptr::null_mut(), &mut profile) };
-		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as A_Err);
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
 		assert!(profile.is_null());
 	}
 }

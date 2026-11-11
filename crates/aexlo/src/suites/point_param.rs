@@ -3,7 +3,7 @@
 //! coordinates; the suite reports them as `A_FloatPoint` in the same units
 //! (the fixed→float conversion does not change the coordinate space).
 
-use after_effects_sys::{
+use crate::sys::{
 	A_FloatPoint, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_ParamDef, PF_PointParamSuite1, PF_ProgPtr,
 };
 
@@ -18,17 +18,17 @@ unsafe extern "C" fn get_floating_point_value_from_point_def_sys(
 		//== Validation ==//
 		if effect_ref.is_null() {
 			log::error!("the arg `effect_ref` is null.");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		if point_defP.is_null() {
 			log::error!("the arg `point_defP` is null.");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		if fp_pointP.is_null() {
 			log::error!("the arg `fp_pointP` is null.");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		//== Implementation ==//
@@ -44,7 +44,7 @@ unsafe extern "C" fn get_floating_point_value_from_point_def_sys(
 			"point_defP" => format!("{:?}", point_defP);
 			result: format!("({}, {})", point.x, point.y),
 		);
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -71,7 +71,7 @@ mod tests {
 		let mut out = A_FloatPoint { x: 0.0, y: 0.0 };
 		let effect_ref = 1usize as PF_ProgPtr;
 		let err = unsafe { get_floating_point_value_from_point_def_sys(effect_ref, &param, &mut out) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		assert_eq!(out.x, 3.5);
 		assert_eq!(out.y, -2.0);
 	}
@@ -83,15 +83,15 @@ mod tests {
 		let effect_ref = 1usize as PF_ProgPtr;
 		assert_eq!(
 			unsafe { get_floating_point_value_from_point_def_sys(std::ptr::null_mut(), &param, &mut out) },
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			PF_Err_BAD_CALLBACK_PARAM
 		);
 		assert_eq!(
 			unsafe { get_floating_point_value_from_point_def_sys(effect_ref, std::ptr::null(), &mut out) },
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			PF_Err_BAD_CALLBACK_PARAM
 		);
 		assert_eq!(
 			unsafe { get_floating_point_value_from_point_def_sys(effect_ref, &param, std::ptr::null_mut()) },
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			PF_Err_BAD_CALLBACK_PARAM
 		);
 	}
 }

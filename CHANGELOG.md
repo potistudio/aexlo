@@ -5,6 +5,27 @@ All notable changes to the `aexlo` crate are recorded here. The format follows
 [Semantic Versioning](https://semver.org/): while it is `0.x`, a minor release
 may break the API, and every breaking change is listed below.
 
+## [Unreleased]
+
+## [0.1.1] - 2026-11-11
+
+### Changed (breaking)
+
+- `aexlo::sys` gives every SDK enum constant aexlo uses the type of its SDK
+  typedef (`PF_Err_NONE` is a `PF_Err`, `PF_Cmd_RENDER` a `PF_Cmd`, ...), so a
+  constant has the same type on Windows and macOS. The raw `after-effects-sys`
+  types them `i32` on Windows and `u32` on macOS, so code that cast a constant
+  for macOS (`PF_Err_NONE as u32`) no longer needs it, and code that compared one
+  with a `u32` needs a cast on both. `PF_ExtendedSuiteTool_*`, `PF_SuiteTool_*`
+  and `PF_Step_*` are `A_long`. A constant aexlo does not use keeps the
+  platform type; every other item is still `after-effects-sys`'s (#21).
+
+### Fixed
+
+- The crate's documentation builds on docs.rs: the macOS target is documented
+  instead of the Windows one, which cannot cross-build the SEH shim there
+  (#41).
+
 ## [0.1.0] - 2026-11-09
 
 The first public release. It loads `.aex` / `.plugin` effects outside After
@@ -54,4 +75,6 @@ and legacy paths. See the README for which SDK suites are implemented.
   `PF_Err_INTERNAL_STRUCT_DAMAGED`. An access violation crashes the process
   as on macOS instead of being reported as a failed command.
 
+[Unreleased]: https://github.com/potistudio/aexlo/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/potistudio/aexlo/releases/tag/v0.1.1
 [0.1.0]: https://github.com/potistudio/aexlo/releases/tag/v0.1.0

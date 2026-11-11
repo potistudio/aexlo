@@ -5,7 +5,7 @@
 //! channels: lookups answer "not found" and there is nothing to check out.
 
 use crate::core::diagnostics::diag;
-use after_effects_sys::{
+use crate::sys::{
 	A_long, A_u_long, PF_ChannelChunk, PF_ChannelDesc, PF_ChannelIndex, PF_ChannelRef, PF_ChannelRefPtr,
 	PF_ChannelSuite1, PF_ChannelType, PF_DataType, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_ParamIndex,
 	PF_ProgPtr,
@@ -25,10 +25,10 @@ unsafe extern "C" fn get_layer_channel_count(
 
 		let _ = (effect_ref, param_index);
 		let Some(out) = (unsafe { num_channelsPL.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = 0;
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -37,12 +37,12 @@ unsafe extern "C" fn get_layer_channel_count(
 /// # Safety
 /// Each pointer must be null or writable.
 unsafe fn not_found(
-	foundPB: *mut after_effects_sys::PF_Boolean,
+	foundPB: *mut crate::sys::PF_Boolean,
 	refP: *mut PF_ChannelRef,
 	descP: *mut PF_ChannelDesc,
 ) -> PF_Err {
 	let Some(found) = (unsafe { foundPB.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	};
 	*found = 0;
 	unsafe {
@@ -53,14 +53,14 @@ unsafe fn not_found(
 			*d = std::mem::zeroed();
 		}
 	}
-	PF_Err_NONE as PF_Err
+	PF_Err_NONE
 }
 
 unsafe extern "C" fn get_layer_channel_indexed_ref_and_desc(
 	effect_ref: PF_ProgPtr,
 	param_index: PF_ParamIndex,
 	channel_index: PF_ChannelIndex,
-	foundPB: *mut after_effects_sys::PF_Boolean,
+	foundPB: *mut crate::sys::PF_Boolean,
 	channel_refP: *mut PF_ChannelRef,
 	channel_descP: *mut PF_ChannelDesc,
 ) -> PF_Err {
@@ -79,7 +79,7 @@ unsafe extern "C" fn get_layer_channel_typed_ref_and_desc(
 	effect_ref: PF_ProgPtr,
 	param_index: PF_ParamIndex,
 	channel_type: PF_ChannelType,
-	foundPB: *mut after_effects_sys::PF_Boolean,
+	foundPB: *mut crate::sys::PF_Boolean,
 	channel_refP: *mut PF_ChannelRef,
 	channel_descP: *mut PF_ChannelDesc,
 ) -> PF_Err {
@@ -118,7 +118,7 @@ unsafe extern "C" fn checkout_layer_channel(
 		if let Some(chunk) = unsafe { channel_chunkP.as_mut() } {
 			*chunk = unsafe { std::mem::zeroed() };
 		}
-		PF_Err_BAD_CALLBACK_PARAM as PF_Err
+		PF_Err_BAD_CALLBACK_PARAM
 	})
 }
 
@@ -134,7 +134,7 @@ unsafe extern "C" fn checkin_layer_channel(
 			"channel_chunkP" => format!("{:#x}", channel_chunkP as usize),
 		);
 		let _ = (effect_ref, channel_refP, channel_chunkP);
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 

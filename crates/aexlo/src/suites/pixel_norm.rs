@@ -3,7 +3,7 @@
 //! written once and monomorphized per depth (used by the color-callback and
 //! fill-matte suites).
 
-use after_effects_sys::{PF_MAX_CHAN8, PF_MAX_CHAN16, PF_Pixel, PF_Pixel16, PF_PixelFloat};
+use crate::sys::{PF_MAX_CHAN8, PF_MAX_CHAN16, PF_Pixel, PF_Pixel16, PF_PixelFloat};
 
 /// A pixel whose channels can round-trip through normalized `f64` values.
 ///

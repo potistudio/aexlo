@@ -13,7 +13,7 @@
 //! return `A_Err_GENERIC`. A failed lookup writes a null stream ref so the
 //! caller does not dispose an uninitialised pointer.
 
-use after_effects_sys::*;
+use crate::sys::*;
 
 use super::stream::{Node, Stream, new_stream_handle, stream_of};
 use crate::PluginInstance;
@@ -23,20 +23,20 @@ use crate::suites::effect::with_param;
 const NAME_CAP: usize = AEGP_MAX_STREAM_MATCH_NAME_SIZE as usize;
 
 fn none() -> A_Err {
-	PF_Err_NONE as A_Err
+	PF_Err_NONE
 }
 
 fn bad() -> A_Err {
-	PF_Err_BAD_CALLBACK_PARAM as A_Err
+	PF_Err_BAD_CALLBACK_PARAM
 }
 
 fn missing() -> A_Err {
-	PF_Err_INVALID_INDEX as A_Err
+	PF_Err_INVALID_INDEX
 }
 
 fn refuse(name: &str) -> A_Err {
 	log::warn!("AEGP_DynamicStreamSuite/{name}: aexlo's streams are fixed");
-	A_Err_GENERIC as A_Err
+	A_Err_GENERIC
 }
 
 fn clear_stream(out: *mut AEGP_StreamRefH) {
@@ -316,7 +316,7 @@ unsafe extern "C" fn get_dynamic_stream_flags(
 		let Some(out) = (unsafe { stream_flagsP.as_mut() }) else {
 			return bad();
 		};
-		*out = AEGP_DynStreamFlag_ACTIVE_EYEBALL as AEGP_DynStreamFlags;
+		*out = AEGP_DynStreamFlag_ACTIVE_EYEBALL;
 		none()
 	})
 }

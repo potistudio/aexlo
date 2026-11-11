@@ -2,7 +2,7 @@
 //! layer" popup), set through
 //! [`PluginInstance::set_layer_param`](crate::PluginInstance::set_layer_param).
 
-use after_effects_sys::{A_long, PF_LayerDef, PF_LayerDefault_MYSELF};
+use crate::sys::{A_long, PF_LayerDef, PF_LayerDefault_MYSELF};
 
 use crate::gpu::GPU_BYTES_PER_PIXEL;
 use crate::host::host_layer::HostLayer;

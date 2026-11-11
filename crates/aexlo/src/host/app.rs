@@ -380,9 +380,8 @@ pub trait AppHost: Send + Sync {
 	// ---- AE Plugin Helper Suite / Suite2 ------------------------------------
 
 	/// The selected tool, as a `PF_ExtendedSuiteTool_*` value.
-	#[allow(clippy::unnecessary_cast)] // `PF_ExtendedSuiteTool_*` is `u32` on macOS only.
 	fn current_tool(&self) -> i32 {
-		after_effects_sys::PF_ExtendedSuiteTool_NONE as i32
+		crate::sys::PF_ExtendedSuiteTool_NONE
 	}
 
 	/// Select a tool (`PF_ExtendedSuiteTool_*`).
@@ -475,11 +474,9 @@ pub(crate) fn with_app_host<R>(f: impl FnOnce(&dyn AppHost) -> R) -> R {
 /// [`with_app_host`] for FFI callbacks: a panicking host is reported to the
 /// plugin as `PF_Err_INTERNAL_STRUCT_DAMAGED` instead of unwinding across the
 /// FFI boundary.
-pub(crate) fn with_app_host_ffi(
-	f: impl FnOnce(&dyn AppHost) -> after_effects_sys::PF_Err,
-) -> after_effects_sys::PF_Err {
+pub(crate) fn with_app_host_ffi(f: impl FnOnce(&dyn AppHost) -> crate::sys::PF_Err) -> crate::sys::PF_Err {
 	std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| with_app_host(f))).unwrap_or_else(|_| {
 		log::error!("AppHost panicked; reporting PF_Err_INTERNAL_STRUCT_DAMAGED");
-		after_effects_sys::PF_Err_INTERNAL_STRUCT_DAMAGED as after_effects_sys::PF_Err
+		crate::sys::PF_Err_INTERNAL_STRUCT_DAMAGED
 	})
 }

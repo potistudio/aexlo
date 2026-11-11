@@ -4,7 +4,7 @@
 use core::fmt;
 use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign};
 
-/// Define a `u32` flag set whose named flags come from `after_effects_sys`.
+/// Define a `u32` flag set whose named flags come from `crate::sys`.
 ///
 /// Unknown bits are kept, so a flag newer than this crate survives a round
 /// trip through [`bits`](OutFlags::bits).
@@ -21,7 +21,7 @@ macro_rules! sdk_flags {
 		impl $name {
 			$(
 				#[doc = concat!("`", stringify!($sys), "`")]
-				pub const $flag: Self = Self(after_effects_sys::$sys as u32);
+				pub const $flag: Self = Self(crate::sys::$sys as u32);
 			)*
 
 			/// Every flag this crate names, with its name, for `Debug`.
@@ -215,21 +215,19 @@ sdk_flags! {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PixelFormat(u32);
 
-// The SDK constants are `u32` on macOS but `i32` on Windows (#21).
-#[allow(clippy::unnecessary_cast)]
 impl PixelFormat {
 	/// `PF_PixelFormat_ARGB32`: 8 bpc ARGB.
-	pub const ARGB32: Self = Self(after_effects_sys::PF_PixelFormat_ARGB32 as u32);
+	pub const ARGB32: Self = Self(crate::sys::PF_PixelFormat_ARGB32 as u32);
 	/// `PF_PixelFormat_ARGB64`: 16 bpc ARGB.
-	pub const ARGB64: Self = Self(after_effects_sys::PF_PixelFormat_ARGB64 as u32);
+	pub const ARGB64: Self = Self(crate::sys::PF_PixelFormat_ARGB64 as u32);
 	/// `PF_PixelFormat_ARGB128`: 32 bpc float ARGB.
-	pub const ARGB128: Self = Self(after_effects_sys::PF_PixelFormat_ARGB128 as u32);
+	pub const ARGB128: Self = Self(crate::sys::PF_PixelFormat_ARGB128 as u32);
 	/// `PF_PixelFormat_GPU_BGRA128`: 32 bpc float BGRA on the GPU.
-	pub const GPU_BGRA128: Self = Self(after_effects_sys::PF_PixelFormat_GPU_BGRA128 as u32);
+	pub const GPU_BGRA128: Self = Self(crate::sys::PF_PixelFormat_GPU_BGRA128 as u32);
 	/// `PF_PixelFormat_BGRA32`: 8 bpc BGRA (Premiere).
-	pub const BGRA32: Self = Self(after_effects_sys::PF_PixelFormat_BGRA32 as u32);
+	pub const BGRA32: Self = Self(crate::sys::PF_PixelFormat_BGRA32 as u32);
 	/// `PF_PixelFormat_VUYA32`: 8 bpc VUYA (Premiere).
-	pub const VUYA32: Self = Self(after_effects_sys::PF_PixelFormat_VUYA32 as u32);
+	pub const VUYA32: Self = Self(crate::sys::PF_PixelFormat_VUYA32 as u32);
 
 	/// The format with FourCC `fourcc`.
 	#[must_use]
