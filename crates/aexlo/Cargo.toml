@@ -12,11 +12,15 @@ keywords = ["after-effects", "graphics", "emulator"]
 categories = ["emulators"]
 readme = "../../README.md"
 
-# After Effects plugins only exist for Windows and macOS; docs.rs builds Linux
-# by default.
+# After Effects plugins only exist for Windows and macOS, and docs.rs builds
+# every listed target on Linux. The Windows target cannot build the SEH shim
+# (`src/seh_call.cpp` includes <windows.h>, which the MSVC SDK provides and
+# docs.rs does not), and Linux has no SDK bindings, so the docs are the macOS
+# build.
 [package.metadata.docs.rs]
 all-features = true
-targets = ["x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
+targets = ["aarch64-apple-darwin"]
+default-target = "aarch64-apple-darwin"
 
 [features]
 # Colored stdout tracing of every suite call (see `core::diagnostics`).
