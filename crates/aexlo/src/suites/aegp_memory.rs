@@ -175,7 +175,12 @@ mod tests {
 			std::ptr::write_bytes(ptr.cast::<u8>(), 0x5a, 4);
 			suite.AEGP_UnlockMemHandle.unwrap()(handle);
 			assert_eq!(suite.AEGP_FreeMemHandle.unwrap()(handle), PF_Err_NONE);
-			assert_ne!(suite.AEGP_FreeMemHandle.unwrap()(handle), PF_Err_NONE);
+			// Not `handle` again: a test on another thread may already have been
+			// given its address, and freeing it would free that test's block.
+			assert_eq!(
+				suite.AEGP_FreeMemHandle.unwrap()(std::ptr::null_mut()),
+				PF_Err_BAD_CALLBACK_PARAM
+			);
 		}
 	}
 }
