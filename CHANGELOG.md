@@ -7,6 +7,19 @@ may break the API, and every breaking change is listed below.
 
 ## [Unreleased]
 
+### Added
+
+- `Loader::observer` installs an `Observer` before `PF_Cmd_GLOBAL_SETUP`, so
+  setup commands, the suite calls they make and what they allocate are
+  observed too.
+- `PluginInstance::allocations` lists the handles and worlds the plugin holds
+  (`LiveAllocation`) while an observer is installed or allocation tracking is
+  on, and `PluginInstance::read_allocation` copies their bytes between
+  commands.
+- `PluginInstance::state` returns an `InstanceState`: the `global_data` and
+  `sequence_data` handles, the next command's time, and the `PF_OutData` the
+  last command left.
+
 ## [0.2.0] - 2026-11-18
 
 ### Changed (breaking)
