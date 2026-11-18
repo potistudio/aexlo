@@ -14,9 +14,10 @@ may break the API, and every breaking change is listed below.
 - `aexlo::sys` gives every SDK enum constant aexlo uses the type of its SDK
   typedef (`PF_Err_NONE` is a `PF_Err`, `PF_Cmd_RENDER` a `PF_Cmd`, ...), so a
   constant has the same type on Windows and macOS. The raw `after-effects-sys`
-  types them `i32` on Windows and `u32` on macOS, so code that cast a constant
-  for macOS (`PF_Err_NONE as u32`) no longer needs it, and code that compared one
-  with a `u32` needs a cast on both. `PF_ExtendedSuiteTool_*`, `PF_SuiteTool_*`
+  types them `i32` on Windows and `u32` on macOS, so a cast that code needed on
+  macOS only (`PF_Err_NONE as PF_Err`) can go, and code that used one as a `u32`
+  (`let code: u32 = PF_Err_NONE`, or a comparison with a `u32`) now needs
+  `as u32` on both. `PF_ExtendedSuiteTool_*`, `PF_SuiteTool_*`
   and `PF_Step_*` are `A_long`. A constant aexlo does not use keeps the
   platform type; every other item is still `after-effects-sys`'s (#21).
 
