@@ -85,7 +85,8 @@ pub fn cases(base: &Variant, info: &PluginInfo, count: usize, seed: u64) -> Vec<
 				.params
 				.iter()
 				.filter(|q| q.name.trim().eq_ignore_ascii_case(p.name.trim()))
-				.count() == 1;
+				.count()
+				== 1;
 		if unique {
 			p.name.trim().to_string()
 		} else {
