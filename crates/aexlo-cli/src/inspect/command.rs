@@ -16,7 +16,7 @@ PLUGIN COMMANDS (each runs on the plugin's thread and is traced)
   dialog                    PF_Cmd_DO_DIALOG (the Options button)
   time <frame> [fps]        Move to a frame  [fps: 30]
   size <w> <h>              Output size of later renders
-  input <png|black|white|gradient> [w h]
+  input <png> | input <black|white|gradient> [w h]
                             Replace the input layer (keeps its depth)
   depth <8|16|32>           Convert the input (project) depth
   reload                    Tear the plugin down and load it again (a crate
@@ -171,20 +171,23 @@ pub fn parse(line: &str) -> Result<Command> {
 			[w, h] => Command::Size(dimension(w)?, dimension(h)?),
 			_ => bail!("size <w> <h>"),
 		},
-		"input" => {
-			let size = match args.get(1..) {
-				Some([w, h]) => Some((dimension(w)?, dimension(h)?)),
-				Some([]) | None => None,
-				_ => bail!("input <png|black|white|gradient> [w h]"),
-			};
-			Command::Input(match args.first().copied() {
-				Some("black") => InputSource::Fill([0.0, 0.0, 0.0, 1.0], size),
-				Some("white") => InputSource::Fill([1.0; 4], size),
-				Some("gradient") => InputSource::Gradient(size),
-				Some(path) if size.is_none() => InputSource::Png(PathBuf::from(path)),
-				_ => bail!("input <png|black|white|gradient> [w h]"),
-			})
-		}
+		"input" => match args.first().copied() {
+			Some(kind @ ("black" | "white" | "gradient")) => {
+				let size = match &args[1..] {
+					[w, h] => Some((dimension(w)?, dimension(h)?)),
+					[] => None,
+					_ => bail!("input <black|white|gradient> [w h]"),
+				};
+				Command::Input(match kind {
+					"black" => InputSource::Fill([0.0, 0.0, 0.0, 1.0], size),
+					"white" => InputSource::Fill([1.0; 4], size),
+					_ => InputSource::Gradient(size),
+				})
+			}
+			// Everything else is a path, spaces and all.
+			Some(_) => Command::Input(InputSource::Png(PathBuf::from(unquote(rest)))),
+			None => bail!("input <png> | input <black|white|gradient> [w h]"),
+		},
 		"depth" => Command::Depth(match args.as_slice() {
 			["8"] => PixelDepthKind::U8,
 			["16"] => PixelDepthKind::U16,
@@ -342,6 +345,14 @@ mod tests {
 		};
 		assert!(spaced.poison_output && spaced.guard_bands && !spaced.track_allocations);
 		assert!(parse("set Gain").is_err());
+		assert_eq!(
+			parse("input my frames/a b.png").unwrap(),
+			Command::Input(InputSource::Png("my frames/a b.png".into()))
+		);
+		assert_eq!(
+			parse("input black 4 2").unwrap(),
+			Command::Input(InputSource::Fill([0.0, 0.0, 0.0, 1.0], Some((4, 2))))
+		);
 		assert!(parse("render sideways").is_err());
 		assert!(parse("frobnicate").is_err());
 
