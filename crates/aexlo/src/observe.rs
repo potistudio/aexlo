@@ -119,6 +119,23 @@ pub enum CheckoutKind {
 	CheckinParam,
 }
 
+/// A host allocation the plugin still holds, as listed by
+/// [`PluginInstance::allocations`](crate::PluginInstance::allocations).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct LiveAllocation {
+	/// What was allocated.
+	pub kind: AllocationKind,
+	/// The allocation's address, as the plugin sees it: the handle for a
+	/// [`AllocationKind::Handle`], the first pixel for a
+	/// [`AllocationKind::World`].
+	pub address: usize,
+	/// The size in bytes it was allocated with.
+	pub bytes: usize,
+	/// The command during which it was allocated, e.g. `"GLOBAL_SETUP"`.
+	pub allocated_in: &'static str,
+}
+
 /// Receives events from a [`PluginInstance`](crate::PluginInstance). Every
 /// method has an empty default, so implement only what you need.
 ///

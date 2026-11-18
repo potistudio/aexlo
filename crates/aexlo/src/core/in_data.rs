@@ -70,6 +70,11 @@ impl EffectState {
 		}
 	}
 
+	/// The `global_data` and `sequence_data` handles.
+	pub fn handles(&self) -> (PF_Handle, PF_Handle) {
+		(self.global_data, self.sequence_data)
+	}
+
 	/// Drop the sequence handle so the next `SEQUENCE_SETUP` allocates from scratch.
 	pub fn reset_sequence(&mut self) {
 		self.sequence_data = null_mut();

@@ -136,6 +136,30 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 	handle_ptr as PF_Handle
 }
 
+/// The data behind a handle this host allocated and its current size, or
+/// `None` when the handle is null or its header is not ours.
+///
+/// # Safety
+/// `handle` must be a live handle from [`host_new_handle_impl`].
+pub(crate) unsafe fn handle_contents(handle: usize) -> Option<(*const u8, usize)> {
+	let handle = handle as *const *const u8;
+	if handle.is_null() {
+		return None;
+	}
+	// SAFETY: the caller guarantees `handle` is live, so it holds the data pointer.
+	let user_ptr = unsafe { *handle };
+	if user_ptr.is_null() {
+		return None;
+	}
+	// SAFETY: a live handle's data starts `HANDLE_ALIGNMENT` bytes into an
+	// allocation whose header holds the magic and the size.
+	let (magic, size) = unsafe {
+		let base = user_ptr.sub(HANDLE_ALIGNMENT);
+		(*(base as *const u64), *(base.add(8) as *const usize))
+	};
+	(magic == HANDLE_MAGIC).then_some((user_ptr, size))
+}
+
 /// Locks the handle and returns the data pointer.
 pub(crate) unsafe extern "C" fn host_lock_handle_impl(pf_handle: PF_Handle) -> *mut c_void {
 	#[cfg(feature = "diagnostics")]

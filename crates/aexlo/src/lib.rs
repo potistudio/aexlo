@@ -109,7 +109,7 @@ mod utils;
 pub(crate) mod suites;
 
 pub use core::error::{AexloError, Result};
-pub use instance::{CustomControlEvent, CustomControlImage, Loader, PluginInstance, RenderPath};
+pub use instance::{CustomControlEvent, CustomControlImage, InstanceState, Loader, PluginInstance, RenderPath};
 pub use time::Time;
 
 /// Window plugins should treat as After Effects' main window
@@ -169,6 +169,6 @@ pub use pixel::{AnyLayer, Depth8, Depth16, Depth32, Layer, LayerError, Pixel, Pi
 
 /// Observation hooks ([`PluginInstance::set_observer`]).
 pub use observe::{
-	AllocationEvent, AllocationKind, CheckoutEvent, CheckoutKind, CommandEvent, CommandPhase, LogObserver,
-	ObserveLevel, Observer, SuiteCallEvent, command_name,
+	AllocationEvent, AllocationKind, CheckoutEvent, CheckoutKind, CommandEvent, CommandPhase, LiveAllocation,
+	LogObserver, ObserveLevel, Observer, SuiteCallEvent, command_name,
 };

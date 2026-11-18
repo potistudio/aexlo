@@ -214,3 +214,59 @@ fn custom_ui_click_sees_the_context_from_new_context() {
 	fx.click_custom_control(1, 4, 4, 32, 16).unwrap();
 	assert_eq!(CLICK.load(Ordering::SeqCst), 1);
 }
+
+#[test]
+fn an_observer_from_the_loader_sees_setup_memory_and_can_read_it() {
+	unsafe extern "C" fn entry(
+		cmd: PF_Cmd,
+		input: *mut crate::sys::PF_InData,
+		output: *mut crate::sys::PF_OutData,
+		_params: crate::sys::PF_ParamList,
+		_world: *mut crate::sys::PF_LayerDef,
+		_extra: *mut c_void,
+	) -> crate::sys::PF_Err {
+		let utils = unsafe { &*(*input).utils };
+		let fill = |size: u64, byte: u8| {
+			let handle = unsafe { utils.host_new_handle.unwrap()(size) };
+			unsafe { std::ptr::write_bytes(*handle as *mut u8, byte, size as usize) };
+			handle
+		};
+		if cmd == RawCommand::GlobalSetup.to_sys() {
+			unsafe { (*output).global_data = fill(8, 0xAB) };
+		} else if cmd == RawCommand::SequenceSetup.to_sys() {
+			unsafe { (*output).sequence_data = fill(4, 0x5E) };
+		} else if cmd == RawCommand::About.to_sys() {
+			// A scratch handle that only lives for the command.
+			let scratch = fill(16, 0);
+			unsafe { utils.host_dispose_handle.unwrap()(scratch) };
+		}
+		PF_Err_NONE
+	}
+	let observer: Arc<dyn Observer> = Arc::new(crate::LogObserver);
+	let mut fx = unsafe { Host::get().entry_loader(entry) }
+		.observer(observer, ObserveLevel::Commands)
+		.size(8, 8)
+		.load()
+		.unwrap();
+	fx.about().unwrap();
+
+	let state = fx.state();
+	let global = state.global_data.expect("global_data");
+	let sequence = state.sequence_data.expect("sequence_data");
+	let mut live: Vec<(usize, usize, &str)> = fx
+		.allocations()
+		.iter()
+		.map(|a| (a.address, a.bytes, a.allocated_in))
+		.collect();
+	live.sort_by_key(|(_, bytes, _)| *bytes);
+	assert_eq!(live, [(sequence, 4, "SEQUENCE_SETUP"), (global, 8, "GLOBAL_SETUP")]);
+	assert_eq!(fx.read_allocation(global, 0, 64), Some(vec![0xAB; 8]));
+	assert_eq!(fx.read_allocation(sequence, 2, 1), Some(vec![0x5E]));
+	assert_eq!(fx.read_allocation(sequence, 5, 1), None, "past the end");
+	assert_eq!(fx.read_allocation(global + 1, 0, 1), None, "not an allocation");
+
+	// Without an observer, disposals go unseen: nothing is kept.
+	fx.set_observer(None, ObserveLevel::Commands);
+	assert!(fx.allocations().is_empty());
+	assert_eq!(fx.read_allocation(global, 0, 1), None);
+}

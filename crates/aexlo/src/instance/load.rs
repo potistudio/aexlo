@@ -171,6 +171,7 @@ enum Source {
 pub struct Loader {
 	source: Source,
 	strict: crate::Strict,
+	observer: Option<(Arc<dyn crate::Observer>, crate::ObserveLevel)>,
 	size: Option<(u32, u32)>,
 	input: Option<AnyLayer>,
 	output_size: Option<(u32, u32)>,
@@ -181,6 +182,7 @@ impl Loader {
 		Self {
 			source,
 			strict: crate::Strict::default(),
+			observer: None,
 			size: None,
 			input: None,
 			output_size: None,
@@ -191,6 +193,14 @@ impl Loader {
 	/// allocates during setup is tracked too (see [`PluginInstance::finish`]).
 	pub fn strict(mut self, strict: crate::Strict) -> Self {
 		self.strict = strict;
+		self
+	}
+
+	/// Install an observer before the first command, so it sees setup too:
+	/// `GLOBAL_SETUP`, `PARAMS_SETUP`, `SEQUENCE_SETUP` and what they call
+	/// and allocate (see [`PluginInstance::set_observer`]).
+	pub fn observer(mut self, observer: Arc<dyn crate::Observer>, level: crate::ObserveLevel) -> Self {
+		self.observer = Some((observer, level));
 		self
 	}
 
@@ -262,6 +272,9 @@ impl Loader {
 			instance.set_render_size(width, height);
 		}
 		instance.set_strict(self.strict);
+		if let Some((observer, level)) = self.observer {
+			instance.set_observer(Some(observer), level);
+		}
 
 		match self.source {
 			Source::Path(_) => instance.load()?,

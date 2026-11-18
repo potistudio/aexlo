@@ -365,6 +365,37 @@ impl LiveUiContext {
 	}
 }
 
+/// A snapshot of an instance's host-side state, from
+/// [`PluginInstance::state`].
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct InstanceState {
+	/// The `global_data` handle the plugin returned, if any.
+	pub global_data: Option<usize>,
+	/// The `sequence_data` handle the plugin returned, if any.
+	pub sequence_data: Option<usize>,
+	/// `PF_InData::current_time` of the next command.
+	pub current_time: i32,
+	/// `PF_InData::time_step` of the next command.
+	pub time_step: i32,
+	/// `PF_InData::time_scale` of the next command.
+	pub time_scale: u32,
+	/// `PF_OutData::out_flags` as the last command left them.
+	pub last_out_flags: crate::OutFlags,
+	/// `PF_OutData::out_flags2` as the last command left them.
+	pub last_out_flags2: crate::OutFlags2,
+	/// `PF_OutData::width` and `height` as the last command left them.
+	pub last_out_size: (i32, i32),
+	/// `PF_OutData::origin` as the last command left it.
+	pub last_origin: (i32, i32),
+	/// `PF_OutData::return_msg` as the last command left it.
+	pub last_message: String,
+	/// Whether `PF_Cmd_GPU_DEVICE_SETUP` succeeded and awaits its setdown.
+	pub gpu_device_ready: bool,
+	/// Whether the plugin has been set down.
+	pub torn_down: bool,
+}
+
 /// What a custom-control click or drag asked the host to do next.
 pub struct CustomControlEvent {
 	/// The plugin set `PF_EO_ALWAYS_UPDATE` or `PF_EO_UPDATE_NOW`.
@@ -415,6 +446,7 @@ impl PluginInstance {
 		self.strict = strict;
 		if let Ok(mut tracker) = self.tracker.lock() {
 			tracker.strict = strict;
+			tracker.settle();
 		}
 	}
 
@@ -455,8 +487,69 @@ impl PluginInstance {
 	pub fn set_observer(&mut self, observer: Option<Arc<dyn Observer>>, level: ObserveLevel) {
 		if let Ok(mut tracker) = self.tracker.lock() {
 			tracker.observer = observer.clone();
+			tracker.settle();
 		}
 		self.observer = observer.map(|observer| Installed { observer, level });
+	}
+
+	/// The handles and worlds the plugin got from the host and still holds,
+	/// by address.
+	///
+	/// Allocations are kept while an observer is installed or
+	/// [`Strict::track_allocations`](crate::Strict) is on, from the command
+	/// that turned it on; install the observer with [`Loader::observer`] to
+	/// include what setup allocates. Only the thread dispatching a command is
+	/// tracked: memory got or freed from iterate worker threads is missed
+	/// (see [`Self::set_parallel_iterate`]).
+	pub fn allocations(&self) -> Vec<crate::LiveAllocation> {
+		self.tracker.lock().map(|t| t.live()).unwrap_or_default()
+	}
+
+	/// Copy up to `len` bytes, from `offset` on, of a live allocation listed
+	/// by [`Self::allocations`]: a handle's data (at its current size, after
+	/// any resize), or a world's pixel rows. `None` when nothing live starts
+	/// at `address` or `offset` is past its end.
+	///
+	/// Reads what the plugin left there between commands. A plugin that
+	/// frees host memory from an iterate worker thread leaves an entry
+	/// behind that this would read after the free; run such a plugin with
+	/// [`Self::set_parallel_iterate`] off while inspecting its memory.
+	pub fn read_allocation(&self, address: usize, offset: usize, len: usize) -> Option<Vec<u8>> {
+		let (kind, bytes) = self.tracker.lock().ok()?.find_live(address)?;
+		let (data, size) = match kind {
+			// SAFETY: the tracker saw the plugin get this handle and has not
+			// seen it disposed, and no command runs while `self` is borrowed.
+			crate::AllocationKind::Handle => unsafe { crate::suites::handle::handle_contents(address)? },
+			crate::AllocationKind::World => (address as *const u8, bytes),
+		};
+		if offset > size {
+			return None;
+		}
+		let len = len.min(size - offset);
+		// SAFETY: `data..data + size` is the live allocation's own memory.
+		Some(unsafe { std::slice::from_raw_parts(data.add(offset), len) }.to_vec())
+	}
+
+	/// The host-side state carried between commands, and what the plugin
+	/// returned in `PF_OutData` from the last one.
+	pub fn state(&self) -> InstanceState {
+		let handle = |h: crate::sys::PF_Handle| (!h.is_null()).then_some(h as usize);
+		let (global_data, sequence_data) = self.effect_state.handles();
+		let (current_time, time_step, time_scale) = self.render_context.time();
+		InstanceState {
+			global_data: handle(global_data),
+			sequence_data: handle(sequence_data),
+			current_time,
+			time_step,
+			time_scale,
+			last_out_flags: crate::OutFlags::from_bits(self.out_data.out_flags as u32),
+			last_out_flags2: crate::OutFlags2::from_bits(self.out_data.out_flags2 as u32),
+			last_out_size: (self.out_data.width, self.out_data.height),
+			last_origin: (self.out_data.origin.h, self.out_data.origin.v),
+			last_message: self.message(),
+			gpu_device_ready: self.gpu_device_ready,
+			torn_down: self.torn_down,
+		}
 	}
 
 	/// Get a pointer to the instance's persistent output world (`PF_LayerDef`/`PF_EffectWorld`).

@@ -395,8 +395,45 @@ impl Tracker {
 		self.report.leaks.extend(leaks);
 	}
 
+	/// Whether allocations are kept in [`Self::live`]: for leak tracking, and
+	/// for an observer's [`PluginInstance::allocations`].
+	///
+	/// [`PluginInstance::allocations`]: crate::PluginInstance::allocations
+	fn keeps_live(&self) -> bool {
+		self.strict.track_allocations || self.observer.is_some()
+	}
+
+	/// Forget every allocation when nothing keeps them any more: disposals
+	/// are no longer seen, so the entries would go stale.
+	pub(crate) fn settle(&mut self) {
+		if !self.keeps_live() {
+			self.live.clear();
+		}
+	}
+
+	/// The allocations the plugin holds, by address.
+	pub(crate) fn live(&self) -> Vec<crate::LiveAllocation> {
+		let mut live: Vec<crate::LiveAllocation> = self
+			.live
+			.iter()
+			.map(|(&address, l)| crate::LiveAllocation {
+				kind: l.kind,
+				address,
+				bytes: l.bytes,
+				allocated_in: l.command,
+			})
+			.collect();
+		live.sort_by_key(|l| l.address);
+		live
+	}
+
+	/// The kind and size of the live allocation at `address`.
+	pub(crate) fn find_live(&self, address: usize) -> Option<(crate::AllocationKind, usize)> {
+		self.live.get(&address).map(|l| (l.kind, l.bytes))
+	}
+
 	fn allocated(&mut self, kind: crate::AllocationKind, address: usize, bytes: usize) {
-		if self.strict.track_allocations {
+		if self.keeps_live() {
 			self.live.insert(
 				address,
 				Live {
