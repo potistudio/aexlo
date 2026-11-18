@@ -7,7 +7,7 @@ may break the API, and every breaking change is listed below.
 
 ## [Unreleased]
 
-## [0.1.1] - 2026-11-11
+## [0.2.0] - 2026-11-18
 
 ### Changed (breaking)
 
@@ -75,6 +75,6 @@ and legacy paths. See the README for which SDK suites are implemented.
   `PF_Err_INTERNAL_STRUCT_DAMAGED`. An access violation crashes the process
   as on macOS instead of being reported as a failed command.
 
-[Unreleased]: https://github.com/potistudio/aexlo/compare/v0.1.1...HEAD
-[0.1.1]: https://github.com/potistudio/aexlo/releases/tag/v0.1.1
+[Unreleased]: https://github.com/potistudio/aexlo/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/potistudio/aexlo/releases/tag/v0.2.0
 [0.1.0]: https://github.com/potistudio/aexlo/releases/tag/v0.1.0
