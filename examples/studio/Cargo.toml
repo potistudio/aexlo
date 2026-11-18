@@ -11,7 +11,6 @@ description = "A small compositor for exercising aexlo end to end: layers, shape
 [dependencies]
 aexlo = { workspace = true }
 ab_glyph = "0.2.32"
-anyhow = { workspace = true }
 eframe = { workspace = true }
 env_logger = { workspace = true }
 epaint_default_fonts = "0.35.0"

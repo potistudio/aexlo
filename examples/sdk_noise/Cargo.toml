@@ -16,12 +16,8 @@ harness = false
 
 [dependencies]
 aexlo = { workspace = true }
-chrono = { workspace = true }
-colored = { workspace = true }
 env_logger = { workspace = true }
 image = { workspace = true, features = ["png"] }
-log = { workspace = true }
-mtpng = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

@@ -9,11 +9,9 @@ publish = false
 
 [dependencies]
 aexlo = { workspace = true }
-anyhow = { workspace = true }
 eframe = { workspace = true }
 env_logger = { workspace = true }
 image = { workspace = true, features = ["png"] }
 log = { workspace = true }
-rand = "0.10.2"
 raw-window-handle = "0.6.2"
 rfd = "0.17.2"
