@@ -270,3 +270,49 @@ fn an_observer_from_the_loader_sees_setup_memory_and_can_read_it() {
 	assert!(fx.allocations().is_empty());
 	assert_eq!(fx.read_allocation(global, 0, 1), None);
 }
+
+#[test]
+fn arguments_reach_only_an_observer_that_asked_for_them() {
+	use std::sync::Mutex;
+	#[derive(Default)]
+	struct Calls(Mutex<Vec<String>>);
+	impl Observer for Calls {
+		fn suite_call(&self, event: &crate::SuiteCallEvent) {
+			let args: Vec<String> = event.args.iter().map(|(n, v)| format!("{n}={v}")).collect();
+			self.0
+				.lock()
+				.unwrap()
+				.push(format!("{}::{}({})", event.suite, event.function, args.join(",")));
+		}
+	}
+	unsafe extern "C" fn entry(
+		cmd: PF_Cmd,
+		input: *mut crate::sys::PF_InData,
+		_output: *mut crate::sys::PF_OutData,
+		_params: crate::sys::PF_ParamList,
+		_world: *mut crate::sys::PF_LayerDef,
+		_extra: *mut c_void,
+	) -> crate::sys::PF_Err {
+		if cmd == RawCommand::About.to_sys() {
+			let utils = unsafe { &*(*input).utils };
+			let handle = unsafe { utils.host_new_handle.unwrap()(24) };
+			unsafe { utils.host_dispose_handle.unwrap()(handle) };
+		}
+		PF_Err_NONE
+	}
+	for (level, expected) in [
+		(ObserveLevel::Calls, "PF_HandleSuite1::host_new_handle()"),
+		(ObserveLevel::Arguments, "PF_HandleSuite1::host_new_handle(size=24)"),
+	] {
+		let calls = Arc::new(Calls::default());
+		let mut fx = unsafe { Host::get().entry_loader(entry) }
+			.observer(calls.clone(), level)
+			.size(8, 8)
+			.load()
+			.unwrap();
+		fx.about().unwrap();
+		let seen = calls.0.lock().unwrap();
+		assert_eq!(seen.first().map(String::as_str), Some(expected), "{level:?}: {seen:?}");
+		assert!(seen[1].starts_with("PF_HandleSuite1::host_dispose_handle"), "{seen:?}");
+	}
+}

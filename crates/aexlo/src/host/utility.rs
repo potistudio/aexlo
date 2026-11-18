@@ -228,28 +228,17 @@ unsafe extern "C" fn iterate_stub(
 	dst: *mut PF_EffectWorld,
 ) -> PF_Err {
 	crate::core::ffi::guard("iterate_stub", || {
-		#[cfg(not(feature = "diagnostics"))]
-		let _ = (in_data, progress_base, progress_final);
-
-		#[cfg(feature = "diagnostics")]
-		DiagnosticBuilder::new()
-			.set_name("UtilityCallbacks/iterate")
-			.add_arg("in_data", format!("{:?}", in_data))
-			.add_arg("progress_base", progress_base)
-			.add_arg("progress_final", progress_final)
-			.add_arg("src", format!("{:?}", src))
-			.add_arg(
-				"area",
-				if !area.is_null() {
-					format!("{:?}", area)
-				} else {
-					"(null)".to_string()
-				},
-			)
-			.add_arg("refcon", format!("{:?}", refcon))
-			.add_arg("pix_fn", if pix_fn.is_some() { "Some" } else { "None" })
-			.add_arg("dst", format!("{:?}", dst))
-			.emit();
+		diag!("UtilityCallbacks/iterate",
+			"in_data" => format!("{in_data:?}"),
+			"progress_base" => progress_base,
+			"progress_final" => progress_final,
+			"src" => format!("{src:?}"),
+			// SAFETY: a non-null `area` points at the plugin's rect.
+			"area" => if area.is_null() { "(null)".to_string() } else { format!("{:?}", unsafe { *area }) },
+			"refcon" => format!("{refcon:?}"),
+			"pix_fn" => if pix_fn.is_some() { "Some" } else { "None" },
+			"dst" => format!("{dst:?}"),
+		);
 
 		if dst.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
@@ -370,12 +359,10 @@ const PF_PLAT_DATA_RES_FILE_PATH_W: PF_PlatDataID = 8;
 
 unsafe extern "C" fn get_platform_data_impl(effect_ref: PF_ProgPtr, which: PF_PlatDataID, data: *mut c_void) -> PF_Err {
 	crate::core::ffi::guard("get_platform_data_impl", || {
-		#[cfg(feature = "diagnostics")]
-		DiagnosticBuilder::new()
-			.set_name("get_platform_data")
-			.add_arg("which", which)
-			.add_arg("data", format!("{:?}", data))
-			.emit();
+		diag!("UtilityCallbacks/get_platform_data",
+			"which" => which,
+			"data" => format!("{data:?}"),
+		);
 
 		if data.is_null() {
 			log::warn!("get_platform_data: data pointer is null");

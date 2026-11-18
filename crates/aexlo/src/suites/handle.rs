@@ -7,8 +7,7 @@
 //! The `user_data` MUST be 16-byte aligned to support SIMD operations safely.
 //! The handle points to the user_data start.
 
-#[cfg(feature = "diagnostics")]
-use crate::core::diagnostics::*; // Adjusted import path
+use crate::core::diagnostics::diag;
 use crate::sys::*;
 use std::alloc::{Layout, alloc, dealloc, realloc};
 use std::os::raw::c_void;
@@ -32,14 +31,7 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 	// trace, not info: plugins allocate handles inside their per-frame paths.
 	log::trace!("host_new_handle: ENTRY with size={} (0x{:x})", size, size);
 
-	#[cfg(feature = "diagnostics")]
-	{
-		DiagnosticBuilder::new()
-			.set_name("PF_HandleSuite1/host_new_handle")
-			.add_arg("size", size)
-			.set_result(0)
-			.emit();
-	}
+	diag!("PF_HandleSuite1/host_new_handle", "size" => size);
 
 	// Sanity check BEFORE any conversion
 	// A_HandleSize is u64 on Windows, so check for unreasonably large values
@@ -162,14 +154,7 @@ pub(crate) unsafe fn handle_contents(handle: usize) -> Option<(*const u8, usize)
 
 /// Locks the handle and returns the data pointer.
 pub(crate) unsafe extern "C" fn host_lock_handle_impl(pf_handle: PF_Handle) -> *mut c_void {
-	#[cfg(feature = "diagnostics")]
-	{
-		DiagnosticBuilder::new()
-			.set_name("PF_HandleSuite1/host_lock_handle")
-			.add_arg("pf_handle", format!("{:?}", pf_handle))
-			.set_result(0)
-			.emit();
-	}
+	diag!("PF_HandleSuite1/host_lock_handle", "pf_handle" => format!("{pf_handle:?}"));
 
 	if pf_handle.is_null() {
 		return ptr::null_mut();
@@ -181,16 +166,14 @@ pub(crate) unsafe extern "C" fn host_lock_handle_impl(pf_handle: PF_Handle) -> *
 
 /// Unlocks the handle. (No-op in this simple implementation)
 pub(crate) unsafe extern "C" fn host_unlock_handle_impl(pf_handle: PF_Handle) {
-	#[cfg(feature = "diagnostics")]
-	log::trace!("host_unlock_handle called");
+	diag!("PF_HandleSuite1/host_unlock_handle", "pf_handle" => format!("{pf_handle:?}"));
 
 	let _ = pf_handle;
 }
 
 /// Disposes the handle and frees memory.
 pub(crate) unsafe extern "C" fn host_dispose_handle_impl(pf_handle: PF_Handle) {
-	#[cfg(feature = "diagnostics")]
-	log::trace!("host_dispose_handle called");
+	diag!("PF_HandleSuite1/host_dispose_handle", "pf_handle" => format!("{pf_handle:?}"));
 
 	if pf_handle.is_null() {
 		return;
@@ -248,8 +231,7 @@ pub(crate) unsafe extern "C" fn host_dispose_handle_impl(pf_handle: PF_Handle) {
 
 /// Returns the size of the allocated data.
 pub(crate) unsafe extern "C" fn host_get_handle_size_impl(pf_handle: PF_Handle) -> A_HandleSize {
-	#[cfg(feature = "diagnostics")]
-	log::trace!("host_get_handle_size called");
+	diag!("PF_HandleSuite1/host_get_handle_size", "pf_handle" => format!("{pf_handle:?}"));
 
 	if pf_handle.is_null() {
 		log::warn!("host_get_handle_size: NULL handle passed");
@@ -320,8 +302,10 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(new_sizeL: A_HandleSize,
 	crate::core::ffi::guard("host_resize_handle_impl", || {
 		log::debug!("host_resize_handle: new_size={}, handlePH={:p}", new_sizeL, handlePH);
 
-		#[cfg(feature = "diagnostics")]
-		log::trace!("host_resize_handle called, new_size: {}", new_sizeL);
+		diag!("PF_HandleSuite1/host_resize_handle",
+			"new_sizeL" => new_sizeL,
+			"handlePH" => format!("{handlePH:?}"),
+		);
 
 		// Deref handlePH to check if it points to a handle
 		if handlePH.is_null() {

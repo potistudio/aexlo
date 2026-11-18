@@ -83,8 +83,7 @@ pub mod transform;
 pub mod utility;
 pub mod world;
 
-#[cfg(feature = "diagnostics")]
-use crate::core::diagnostics::DiagnosticBuilder;
+use crate::core::diagnostics::diag;
 use crate::sys::*;
 static COMP_SUITE_4: AEGP_CompSuite4 = comp::create_comp_suite_4();
 static AEGP_WORLD_1: AEGP_WorldSuite1 = aegp_world::suite_1();
@@ -298,13 +297,11 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 	};
 
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("SPBasicSuite/AcquireSuite")
-		.add_arg("name", format!("{:?}", unsafe { CStr::from_ptr(name) }))
-		.add_arg("version", version)
-		.add_arg("suite", format!("{:?}", suite))
-		.emit();
+	diag!("SPBasicSuite/AcquireSuite",
+		"name" => format!("{suite_name:?}"),
+		"version" => version,
+		"suite" => format!("{suite:?}"),
+	);
 
 	match (suite_name, version) {
 		// Static suites: pointers into the shared SUITE_CONTAINER.
@@ -541,20 +538,17 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 /// # Safety
 /// This function is unsafe because it handles raw pointers.
 #[allow(non_snake_case)]
-// `version` is only read by the diagnostics build; suppress the unused warning otherwise.
-#[cfg_attr(not(feature = "diagnostics"), allow(unused_variables))]
 pub unsafe extern "C" fn rusty_release_suite(name: *const ::std::os::raw::c_char, version: i32) -> PF_Err {
 	crate::core::ffi::guard("rusty_release_suite", || {
-		#[cfg(feature = "diagnostics")]
-		DiagnosticBuilder::new()
-			.set_name("SPBasicSuite/ReleaseSuite")
-			.add_arg("name", format!("{:?}", unsafe { CStr::from_ptr(name) }))
-			.add_arg("version", version)
-			.emit();
-
 		if name.is_null() {
+			diag!("SPBasicSuite/ReleaseSuite", "name" => "(null)", "version" => version);
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
+		diag!("SPBasicSuite/ReleaseSuite",
+			// SAFETY: `name` is non-null, and the plugin passes a C string.
+			"name" => format!("{:?}", unsafe { CStr::from_ptr(name) }),
+			"version" => version,
+		);
 
 		// Every suite is a process-wide shared static (see the module docs); nothing
 		// is allocated per acquire, so releasing one is a no-op.

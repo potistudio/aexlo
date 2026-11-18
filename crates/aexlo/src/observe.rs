@@ -8,7 +8,7 @@
 //!
 //! [`PluginInstance::set_observer`]: crate::PluginInstance::set_observer
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,6 +22,10 @@ pub enum ObserveLevel {
 	/// the thread that dispatched the command. Calls made from iterate worker
 	/// threads are not reported.
 	Calls,
+	/// Calls, with their arguments (and result, where the host reports one)
+	/// as text in [`SuiteCallEvent::args`]: what the `diagnostics` feature
+	/// prints, without rebuilding. Formatting them costs time on every call.
+	Arguments,
 }
 
 /// Whether a [`CommandEvent`] marks the start or the end of a command.
@@ -61,6 +65,13 @@ pub struct SuiteCallEvent {
 	pub suite: &'static str,
 	/// The function, e.g. `"PF_NewWorld"`.
 	pub function: &'static str,
+	/// The arguments as `(name, value)` text, at [`ObserveLevel::Arguments`];
+	/// empty otherwise. Pointers are shown as addresses, and names ending in
+	/// `(out)` are what the host wrote back.
+	pub args: Vec<(&'static str, String)>,
+	/// What the host returned, for the calls that report it, at
+	/// [`ObserveLevel::Arguments`].
+	pub result: Option<String>,
 }
 
 /// The plugin got memory from the host or gave it back. Reported whether or
@@ -170,7 +181,15 @@ impl Observer for LogObserver {
 	}
 
 	fn suite_call(&self, event: &SuiteCallEvent) {
-		log::debug!("{}::{}", event.suite, event.function);
+		let args: Vec<String> = event
+			.args
+			.iter()
+			.map(|(name, value)| format!("{name}: {value}"))
+			.collect();
+		match &event.result {
+			Some(result) => log::debug!("{}::{}({}) -> {result}", event.suite, event.function, args.join(", ")),
+			None => log::debug!("{}::{}({})", event.suite, event.function, args.join(", ")),
+		}
 	}
 
 	fn allocation(&self, event: &AllocationEvent) {
@@ -235,25 +254,41 @@ thread_local! {
 	/// asked for [`ObserveLevel::Calls`]: suite callbacks without an
 	/// `effect_ref` (and the ones that have one) are attributed through it.
 	static CALLS: RefCell<Option<Arc<dyn Observer>>> = const { RefCell::new(None) };
+	/// Whether that observer asked for [`ObserveLevel::Arguments`].
+	static DETAILS: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Make `observer` the target of suite-call events on this thread until the
 /// returned guard drops, restoring whatever was there (commands nest: a
-/// plugin's setup may trigger an arbitrary-data callback).
-pub(crate) fn enter_calls(observer: Option<Arc<dyn Observer>>) -> CallsGuard {
+/// plugin's setup may trigger an arbitrary-data callback). `details` asks
+/// for arguments too.
+pub(crate) fn enter_calls(observer: Option<Arc<dyn Observer>>, details: bool) -> CallsGuard {
+	let details = details && observer.is_some();
 	let previous = CALLS.with(|c| std::mem::replace(&mut *c.borrow_mut(), observer));
-	CallsGuard { previous }
+	let previous_details = DETAILS.with(|d| d.replace(details));
+	CallsGuard {
+		previous,
+		previous_details,
+	}
 }
 
 pub(crate) struct CallsGuard {
 	previous: Option<Arc<dyn Observer>>,
+	previous_details: bool,
 }
 
 impl Drop for CallsGuard {
 	fn drop(&mut self) {
 		let previous = self.previous.take();
 		CALLS.with(|c| *c.borrow_mut() = previous);
+		DETAILS.with(|d| d.set(self.previous_details));
 	}
+}
+
+/// Whether this thread's observer wants arguments, so `diag!` should format
+/// them.
+pub(crate) fn wants_details() -> bool {
+	DETAILS.with(Cell::get)
 }
 
 /// Report a suite call named `"Suite/Function"` to this thread's observer.
@@ -263,7 +298,34 @@ pub(crate) fn suite_call(name: &'static str) {
 	CALLS.with(|c| {
 		if let Some(observer) = c.borrow().as_ref() {
 			let (suite, function) = name.split_once('/').unwrap_or(("", name));
-			observer.suite_call(&SuiteCallEvent { suite, function });
+			observer.suite_call(&SuiteCallEvent {
+				suite,
+				function,
+				args: Vec::new(),
+				result: None,
+			});
+		}
+	});
+}
+
+/// [`suite_call`] with the arguments and result `diag!` formatted.
+pub(crate) fn suite_call_detailed(name: &'static str, args: Vec<(&'static str, String)>, result: Option<String>) {
+	// The `diagnostics` feature formats them for every call; hand them only
+	// to an observer that asked.
+	let (args, result) = if wants_details() {
+		(args, result)
+	} else {
+		(Vec::new(), None)
+	};
+	CALLS.with(|c| {
+		if let Some(observer) = c.borrow().as_ref() {
+			let (suite, function) = name.split_once('/').unwrap_or(("", name));
+			observer.suite_call(&SuiteCallEvent {
+				suite,
+				function,
+				args,
+				result,
+			});
 		}
 	});
 }
@@ -296,10 +358,11 @@ mod tests {
 		let recorder = Arc::new(Recorder::default());
 		suite_call("Ignored/Before");
 		{
-			let _guard = enter_calls(Some(recorder.clone()));
+			let _guard = enter_calls(Some(recorder.clone()), false);
 			suite_call("PF_WorldSuite2/PF_NewWorld");
 			{
-				let _inner = enter_calls(None);
+				let _inner = enter_calls(None, true);
+				assert!(!wants_details(), "no observer, no details");
 				suite_call("Ignored/Nested");
 			}
 			suite_call("PF_HandleSuite1/host_new_handle");

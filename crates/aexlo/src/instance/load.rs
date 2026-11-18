@@ -744,7 +744,10 @@ impl PluginInstance {
 			.as_ref()
 			.filter(|installed| installed.level >= ObserveLevel::Calls)
 			.map(|installed| installed.observer.clone());
-		let calls_guard = crate::observe::enter_calls(calls);
+		let details = observer
+			.as_ref()
+			.is_some_and(|installed| installed.level >= ObserveLevel::Arguments);
+		let calls_guard = crate::observe::enter_calls(calls, details);
 		let name = crate::observe::command_name(command as i32);
 		let tracking = self.tracking();
 		let resumed = tracking

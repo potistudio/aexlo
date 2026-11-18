@@ -33,8 +33,7 @@
 //! clamp the source coordinate to the nearest edge pixel instead of reading out
 //! of bounds.
 
-#[cfg(feature = "diagnostics")]
-use crate::core::diagnostics::DiagnosticBuilder;
+use crate::core::diagnostics::diag;
 use crate::sys::*;
 use rayon::prelude::*;
 use std::cell::Cell;
@@ -257,8 +256,7 @@ macro_rules! define_iterate_entries {
 			pix_fn: Option<IterPixFn<$pix>>,
 			dst: *mut PF_EffectWorld,
 		) -> PF_Err {
-			#[cfg(feature = "diagnostics")]
-			emit_iterate_diag(
+			report_iterate(
 				concat!($diag_prefix, "/iterate"),
 				src,
 				area,
@@ -282,8 +280,7 @@ macro_rules! define_iterate_entries {
 			pix_fn: Option<IterPixFn<$pix>>,
 			dst: *mut PF_EffectWorld,
 		) -> PF_Err {
-			#[cfg(feature = "diagnostics")]
-			emit_iterate_diag(
+			report_iterate(
 				concat!($diag_prefix, "/iterate_origin"),
 				src,
 				area,
@@ -307,8 +304,7 @@ macro_rules! define_iterate_entries {
 			pix_fn: Option<IterPixFn<$pix>>,
 			dst: *mut PF_EffectWorld,
 		) -> PF_Err {
-			#[cfg(feature = "diagnostics")]
-			emit_iterate_diag(
+			report_iterate(
 				concat!($diag_prefix, "/iterate_origin_non_clip_src"),
 				src,
 				area,
@@ -345,9 +341,8 @@ define_iterate_entries!(
 	"IterateFloatSuite"
 );
 
-/// Shared diagnostics emitter for the macro-generated entry points.
-#[cfg(feature = "diagnostics")]
-fn emit_iterate_diag(
+/// Report one of the macro-generated entry points to `diag!`.
+fn report_iterate(
 	name: &'static str,
 	src: *mut PF_EffectWorld,
 	area: *const PF_Rect,
@@ -356,26 +351,21 @@ fn emit_iterate_diag(
 	has_pix_fn: bool,
 	dst: *mut PF_EffectWorld,
 ) {
-	let mut builder = DiagnosticBuilder::new();
-	builder.set_name(name);
-	builder.add_arg("src", format!("{:?}", src));
-	builder.add_arg(
-		"area",
-		if !area.is_null() {
-			format!("{:?}", unsafe { *area })
-		} else {
-			"(null)".to_string()
-		},
-	);
-	if !origin.is_null() {
+	diag!(name,
+		"src" => format!("{src:?}"),
+		// SAFETY: non-null `area` and `origin` point at the plugin's values.
+		"area" => if area.is_null() { "(null)".to_string() } else { format!("{:?}", unsafe { *area }) },
 		// PF_Point doesn't derive Debug in the bindings; format the fields directly.
-		let o = unsafe { *origin };
-		builder.add_arg("origin", format!("({}, {})", o.h, o.v));
-	}
-	builder.add_arg("refcon", format!("{:?}", refcon));
-	builder.add_arg("pix_fn", if has_pix_fn { "Some" } else { "None" });
-	builder.add_arg("dst", format!("{:?}", dst));
-	builder.emit();
+		"origin" => if origin.is_null() {
+			"(null)".to_string()
+		} else {
+			let o = unsafe { *origin };
+			format!("({}, {})", o.h, o.v)
+		},
+		"refcon" => format!("{refcon:?}"),
+		"pix_fn" => if has_pix_fn { "Some" } else { "None" },
+		"dst" => format!("{dst:?}"),
+	);
 }
 
 /// Real `iterate_lut`: map `src` through per-channel 256-entry lookup tables
