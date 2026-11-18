@@ -108,6 +108,11 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 			}
 			"--strict" => strict = Strict::all(),
 			"--serial" => serial = true,
+			"-h" | "--help" => {
+				print!("aexlo inspect <plugin> [OPTIONS]\n\n{USAGE}\n{}", command::HELP);
+				return Ok(());
+			}
+			"--exec" | "--script" if script.is_some() => bail!("give either --exec or --script, once"),
 			"--exec" => {
 				script = Some(Script::Parsed(command::parse_script(&crate::next_value(
 					&mut args, &arg,
@@ -255,7 +260,7 @@ fn batch(setup: Setup, script: Script, print_trace: bool, format: Format) -> Res
 			}
 		}
 	}
-	batch.report();
+	batch.finish();
 	let failed = batch.failed;
 	drop(batch);
 	if failed > 0 {
@@ -429,12 +434,34 @@ impl Batch {
 	/// The analysis of everything so far.
 	fn report(&mut self) {
 		let snapshot = self.engine.snapshot();
-		let memory = snapshot.as_ref().map(|s| {
+		let memory = self.memory(snapshot.as_ref());
+		self.print_report(snapshot, memory);
+	}
+
+	/// The final report. The plugin is unloaded first, so it covers
+	/// `GLOBAL_SETDOWN` and the handles still held then (strict leaks); the
+	/// state, params and memory are as they were just before.
+	fn finish(&mut self) {
+		let mut snapshot = self.engine.snapshot();
+		let memory = self.memory(snapshot.as_ref());
+		self.engine.shutdown();
+		if let Some(s) = snapshot.as_mut() {
+			s.findings = self.engine.findings().to_vec();
+		}
+		self.print_report(snapshot, memory);
+	}
+
+	/// The first bytes of each live allocation.
+	fn memory(&self, snapshot: Option<&Snapshot>) -> Option<Vec<MemoryDump>> {
+		snapshot.map(|s| {
 			s.allocations
 				.iter()
 				.map(|a| (a.address, self.engine.read(a.address, 0, 64)))
-				.collect::<Vec<_>>()
-		});
+				.collect()
+		})
+	}
+
+	fn print_report(&mut self, snapshot: Option<Snapshot>, memory: Option<Vec<MemoryDump>>) {
 		match self.json.as_mut() {
 			Some(out) => {
 				let rec = self.recorder.lock();

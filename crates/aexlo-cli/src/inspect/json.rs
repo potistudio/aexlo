@@ -279,7 +279,10 @@ pub fn report(
 		"gpu": s.gpu,
 		"custom_ui": s.custom_ui,
 		"options_button": s.options_button,
-		"pixel_formats": s.pixel_formats,
+		// `PixelFormat(ARGB128)` -> `ARGB128`
+		"pixel_formats": s.pixel_formats.iter().map(|f| {
+			f.strip_prefix("PixelFormat(").and_then(|f| f.strip_suffix(')')).unwrap_or(f)
+		}).collect::<Vec<_>>(),
 		"out_flags": flags(s.out_flags.bits(), format!("{:?}", s.out_flags)),
 		"out_flags2": flags(s.out_flags2.bits(), format!("{:?}", s.out_flags2)),
 	});

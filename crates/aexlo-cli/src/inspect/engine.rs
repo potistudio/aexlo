@@ -197,20 +197,30 @@ impl Engine {
 				let (w, h) = fx.output_size();
 				Ok(format!("rendered {w}x{h} ({path:?})"))
 			}
-			Command::Set { key, value } => {
+			Command::Set { .. } | Command::SetWords(_) => {
 				let fx = self.instance()?;
-				let index = crate::resolve_param_key(fx, key)?;
-				let parsed = match popup_choice(fx, index, value) {
+				let (index, key, value) = match command {
+					Command::Set { key, value } => (crate::resolve_param_key(fx, key)?, key.clone(), value.clone()),
+					Command::SetWords(words) => split_words(fx, words)?,
+					_ => unreachable!(),
+				};
+				settable(fx, index)?;
+				let parsed = match popup_choice(fx, index, &value) {
 					Some(choice) => ParamValue::Popup(choice),
-					None => crate::parse_param_value(fx, index, value)?,
+					None => crate::parse_param_value(fx, index, &value)?,
 				};
 				fx.set_param(index, parsed.clone())
 					.with_context(|| format!("setting parameter {key}"))?;
-				Ok(format!("#{index} = {}", describe_value(&parsed)))
+				let mut message = format!("#{index} = {}", describe_value(&parsed));
+				if let Some(warning) = out_of_range(fx, index, &parsed) {
+					message += &format!("  ({warning})");
+				}
+				Ok(message)
 			}
 			Command::Changed(key) => {
 				let fx = self.instance()?;
 				let index = crate::resolve_param_key(fx, key)?;
+				existing(fx, index)?;
 				fx.user_changed_param(index)
 					.context("PF_Cmd_USER_CHANGED_PARAM failed")?;
 				Ok(format!("told the plugin #{index} changed"))
@@ -357,6 +367,21 @@ impl Engine {
 }
 
 impl Engine {
+	/// Every strict-mode finding so far, oldest first.
+	pub fn findings(&self) -> &[String] {
+		&self.findings
+	}
+
+	/// Tear the plugin down now, recorded as an `unload` step: the
+	/// `GLOBAL_SETDOWN` is traced and the handles still held then are judged
+	/// leaks.
+	pub fn shutdown(&mut self) {
+		if self.instance.is_some() {
+			self.recorder.step("unload");
+		}
+		self.unload();
+	}
+
 	/// Tear the plugin down while still observed, so SETDOWN is traced.
 	fn unload(&mut self) {
 		if let Some(fx) = self.instance.take() {
@@ -371,10 +396,7 @@ impl Engine {
 
 impl Drop for Engine {
 	fn drop(&mut self) {
-		if self.instance.is_some() {
-			self.recorder.step("unload");
-		}
-		self.unload();
+		self.shutdown();
 	}
 }
 
@@ -424,7 +446,12 @@ pub fn load_png(path: &Path) -> Result<AnyLayer> {
 }
 
 fn save_output(fx: &PluginInstance, path: &Path) -> Result<()> {
-	let exr = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("exr"));
+	let extension = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
+	let exr = match extension.as_deref() {
+		Some("png") => false,
+		Some("exr") => true,
+		_ => bail!("save writes .png or .exr, not {}", path.display()),
+	};
 	let depth = match (exr, fx.output_depth()) {
 		(true, _) => PixelDepthKind::F32,
 		(false, PixelDepthKind::U8) => PixelDepthKind::U8,
@@ -438,6 +465,70 @@ fn save_output(fx: &PluginInstance, path: &Path) -> Result<()> {
 }
 
 /// A popup's 1-based choice named `value` (ignoring case).
+/// Split `set Noise variation 25` into the parameter and its value: the
+/// longest run of leading words that names a parameter is the name
+/// (`Emitter Type 2` sets `Emitter Type`, not a group named `Emitter`).
+fn split_words(fx: &PluginInstance, text: &str) -> Result<(usize, String, String)> {
+	let words: Vec<&str> = text.split_whitespace().collect();
+	// A key names something when it is an index or some parameter is called
+	// that (ignoring case); an ambiguous name still ends the search, so its
+	// error says which parameters it matches.
+	let names = |key: &str| {
+		key.trim_start_matches('#').parse::<usize>().is_ok()
+			|| (1..fx.param_count()).any(|i| fx.param_name(i).is_some_and(|n| n.trim().eq_ignore_ascii_case(key)))
+	};
+	for taken in (1..words.len()).rev() {
+		let key = words[..taken].join(" ");
+		if names(&key) {
+			let index = crate::resolve_param_key(fx, &key)?;
+			return Ok((index, key, words[taken..].join(" ")));
+		}
+	}
+	// Nothing matched: the error for the first word lists the names.
+	let first = words.first().copied().unwrap_or_default();
+	Err(crate::resolve_param_key(fx, first)
+		.err()
+		.unwrap_or_else(|| anyhow::anyhow!("set <param> <value>")))
+}
+
+/// `index` is one of the plugin's parameters (not the input layer, #0).
+fn existing(fx: &PluginInstance, index: usize) -> Result<()> {
+	let last = fx.param_count().saturating_sub(1);
+	if index == 0 || index > last {
+		bail!("no parameter #{index} (the plugin has #1..#{last}; #0 is the input layer)");
+	}
+	Ok(())
+}
+
+/// `index` exists and holds a value `set` can change.
+fn settable(fx: &PluginInstance, index: usize) -> Result<()> {
+	existing(fx, index)?;
+	if fx.get_param(index).is_none() {
+		let kind = fx.param_kind(index).map_or("unknown".into(), |k| format!("{k:?}"));
+		let name = fx.param_name(index).unwrap_or_default();
+		bail!("parameter #{index} '{name}' is a {kind} and has no value to set");
+	}
+	Ok(())
+}
+
+/// A note when `value` lies outside what the plugin declared: its slider
+/// range, or its popup's choices. The value is set anyway, since a plugin
+/// may well be tested with one.
+fn out_of_range(fx: &PluginInstance, index: usize, value: &ParamValue) -> Option<String> {
+	let number = match *value {
+		ParamValue::Float(v) => v,
+		ParamValue::Fixed(v) => f64::from(v),
+		ParamValue::Slider(v) => f64::from(v),
+		ParamValue::Popup(v) => {
+			let count = fx.param_choices(index)?.len();
+			return (v < 1 || v as usize > count).then(|| format!("outside the popup's choices 1..{count}"));
+		}
+		_ => return None,
+	};
+	let (min, max) = fx.param_slider_range(index)?;
+	(number < min || number > max).then(|| format!("outside the slider range {min}..{max}"))
+}
+
 fn popup_choice(fx: &PluginInstance, index: usize, value: &str) -> Option<i32> {
 	let choices = fx.param_choices(index)?;
 	let position = choices

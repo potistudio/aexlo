@@ -248,7 +248,7 @@ fn memory_it_moved(d: &mut Diagnosis, rec: &Recording, index: usize, snapshot: O
 					fmt_duration(free.at.saturating_sub(e.at))
 				),
 			),
-			None if live => d.note(Tone::Warn, "  never freed: still held (Memory tab shows its bytes)"),
+			None if live => d.note(Tone::Warn, "  never freed: still held"),
 			None => d.note(Tone::Dim, "  no traced free, and no longer live"),
 		}
 	}
@@ -569,7 +569,7 @@ fn allocation(rec: &Recording, index: usize, snapshot: Option<&Snapshot>) -> Dia
 	}
 	let live = snapshot.and_then(|s| s.allocations.iter().find(|a| a.address == address));
 	match live {
-		Some(a) => d.kv("now", format!("live ({} B), see the Memory tab", a.bytes), Tone::Good),
+		Some(a) => d.kv("now", format!("live ({} B)", a.bytes), Tone::Plain),
 		None => d.kv("now", "not live", Tone::Dim),
 	}
 	if let Some(s) = snapshot {

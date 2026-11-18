@@ -239,3 +239,71 @@ fn json_format_reports_a_missing_plugin_as_an_event() {
 	assert_eq!(line["event"], "error");
 	assert!(line["error"].as_str().unwrap().contains("no plugin"), "{line}");
 }
+
+#[test]
+fn the_final_report_covers_global_setdown_and_its_leaks() {
+	let (ok, all) = inspect_json(
+		"inspect_final",
+		&["--strict", "--exec", "set Mode Leak; report; render"],
+		"",
+	);
+	assert!(ok, "{all:#?}");
+	let reports = events(&all, "report");
+	assert_eq!(reports.len(), 2, "{all:#?}");
+	assert_eq!(
+		reports[0]["findings"],
+		serde_json::json!([]),
+		"nothing is judged before SETDOWN"
+	);
+	let last = reports[1];
+	let findings = last["findings"].as_array().unwrap();
+	assert!(
+		findings
+			.iter()
+			.any(|f| f.as_str().unwrap().contains("still held after GLOBAL_SETDOWN")),
+		"{last:#}"
+	);
+	assert!(
+		last["commands"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.any(|c| c["command"] == "PF_Cmd_GLOBAL_SETDOWN"),
+		"{last:#}"
+	);
+	// The state is the one before the unload: the leaked handle is listed.
+	assert_eq!(last["memory"].as_array().unwrap().len(), 1, "{last:#}");
+}
+
+#[test]
+fn set_warns_out_of_range_and_names_what_it_cannot_set() {
+	let (ok, all) = inspect_json(
+		"inspect_set",
+		&[
+			"--exec",
+			"set mode 99; set Gain=9; set 0 1; save out.foo; strict poison, guard",
+		],
+		"",
+	);
+	assert!(!ok, "{all:#?}");
+	let commands = events(&all, "command");
+	let text = |i: usize, field: &str| commands[i][field].as_str().unwrap_or_default().to_string();
+	assert!(text(0, "message").contains("outside the popup's choices"), "{all:#?}");
+	assert!(text(1, "message").contains("outside the slider range"), "{all:#?}");
+	assert!(text(2, "error").contains("#0 is the input layer"), "{all:#?}");
+	assert!(text(3, "error").contains(".png or .exr"), "{all:#?}");
+	assert_eq!(commands[4]["ok"], true, "{all:#?}");
+}
+
+#[test]
+fn help_and_conflicting_scripts() {
+	let dir = common::scratch("inspect_help");
+	let out = common::aexlo(&["inspect", "--help"], &dir);
+	assert!(out.status.success());
+	let text = String::from_utf8_lossy(&out.stdout);
+	assert!(text.contains("--format") && text.contains("PLUGIN COMMANDS"), "{text}");
+
+	let out = common::aexlo(&["inspect", "x", "--exec", "about", "--script", "-"], &dir);
+	assert!(!out.status.success());
+	assert!(String::from_utf8_lossy(&out.stderr).contains("either --exec or --script"));
+}

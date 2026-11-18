@@ -570,12 +570,28 @@ fn preset_variant(manifest: Option<&Path>, name: &str) -> Result<aexlo_harness::
 	}
 }
 
-/// A `--set` key: a plain index (`3`), `#3`, or a declared name.
+/// A `--set` key: a plain index (`3`), `#3`, or a declared name (exactly,
+/// or else ignoring case when that picks out one parameter).
 fn resolve_param_key(instance: &PluginInstance, key: &str) -> Result<usize> {
-	if let Ok(index) = key.trim().parse::<usize>() {
+	let key = key.trim();
+	if let Ok(index) = key.parse::<usize>() {
 		return Ok(index);
 	}
-	aexlo_harness::apply::resolve_param(instance, key.trim()).map_err(anyhow::Error::msg)
+	let exact = aexlo_harness::apply::resolve_param(instance, key).map_err(anyhow::Error::msg);
+	if exact.is_ok() || key.starts_with('#') {
+		return exact;
+	}
+	let folded: Vec<usize> = (1..instance.param_count())
+		.filter(|&i| {
+			instance
+				.param_name(i)
+				.is_some_and(|n| n.trim().eq_ignore_ascii_case(key))
+		})
+		.collect();
+	match folded[..] {
+		[index] => Ok(index),
+		_ => exact,
+	}
 }
 
 fn cmd_bench(args: impl Iterator<Item = String>) -> Result<()> {
@@ -764,7 +780,10 @@ pub(crate) fn parse_param_value(instance: &PluginInstance, index: usize, raw: &s
 		ParamValue::Fixed(_) => ParamValue::Fixed(raw.parse().with_context(|| bad(raw, "a number"))?),
 		ParamValue::Slider(_) => ParamValue::Slider(raw.parse().with_context(|| bad(raw, "an integer"))?),
 		ParamValue::Popup(_) => ParamValue::Popup(raw.parse().with_context(|| bad(raw, "an integer"))?),
-		ParamValue::Angle(_) => ParamValue::Angle(raw.parse().with_context(|| bad(raw, "a number"))?),
+		ParamValue::Angle(_) => {
+			let degrees = raw.trim().trim_end_matches('°').trim_end_matches("deg").trim();
+			ParamValue::Angle(degrees.parse().with_context(|| bad(raw, "a number of degrees"))?)
+		}
 		ParamValue::Checkbox(_) => ParamValue::Checkbox(parse_bool(raw)?),
 		ParamValue::Point { .. } => {
 			let (x, y) = raw.split_once(',').with_context(|| bad(raw, "'x,y'"))?;
@@ -793,14 +812,31 @@ pub(crate) fn parse_param_value(instance: &PluginInstance, index: usize, raw: &s
 
 fn parse_bool(raw: &str) -> Result<bool> {
 	match raw.trim().to_ascii_lowercase().as_str() {
-		"true" => Ok(true),
-		"false" => Ok(false),
-		_ => bail!("expected a boolean (true/false), got '{raw}'"),
+		"true" | "on" | "yes" | "1" => Ok(true),
+		"false" | "off" | "no" | "0" => Ok(false),
+		_ => bail!("expected a boolean (true/false, on/off, 1/0), got '{raw}'"),
 	}
 }
 
-/// Parse an `r,g,b` or `r,g,b,a` color (0-255 per channel).
+/// Parse an `r,g,b` or `r,g,b,a` color (0-255 per channel), or `#rrggbb`
+/// / `#rrggbbaa`.
 fn parse_color(raw: &str) -> Result<ParamValue> {
+	if let Some(hex) = raw.trim().strip_prefix('#') {
+		let channel = |i: usize| -> Result<u8> {
+			hex.get(i..i + 2)
+				.and_then(|h| u8::from_str_radix(h, 16).ok())
+				.with_context(|| bad(raw, "'#rrggbb' or '#rrggbbaa'"))
+		};
+		if hex.len() != 6 && hex.len() != 8 {
+			bail!("{}", bad(raw, "'#rrggbb' or '#rrggbbaa'"));
+		}
+		return Ok(ParamValue::Color {
+			red: channel(0)?,
+			green: channel(2)?,
+			blue: channel(4)?,
+			alpha: if hex.len() == 8 { channel(6)? } else { 255 },
+		});
+	}
 	let parts: Vec<&str> = raw.split(',').map(str::trim).collect();
 	if parts.len() != 3 && parts.len() != 4 {
 		bail!("color expects 'r,g,b' or 'r,g,b,a', got '{raw}'");

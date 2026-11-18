@@ -48,11 +48,20 @@ VIEW
 pub enum Command {
 	About,
 	Render(RenderPath),
-	Set { key: String, value: String },
+	/// `set "<key>" <value>` or `set <key>=<value>`: the key as given.
+	Set {
+		key: String,
+		value: String,
+	},
+	/// `set <words...>`: the engine finds where the name ends.
+	SetWords(String),
 	Changed(String),
 	UpdateUi,
 	Dialog,
-	Time { frame: i32, fps: u32 },
+	Time {
+		frame: i32,
+		fps: u32,
+	},
 	Size(u32, u32),
 	Input(InputSource),
 	Depth(PixelDepthKind),
@@ -132,20 +141,14 @@ pub fn parse(line: &str) -> Result<Command> {
 			["gpu"] => RenderPath::Gpu,
 			_ => bail!("render [auto|smart|legacy|gpu]"),
 		}),
-		"set" => {
-			// The value may contain spaces ("1, 2"): everything after the key.
-			let (key, value) = rest
-				.split_once(char::is_whitespace)
-				.or_else(|| rest.split_once('='))
-				.context("set <param> <value>")?;
-			Command::Set {
-				key: key.trim().to_string(),
-				value: value.trim().trim_start_matches('=').trim().to_string(),
-			}
-		}
-		"changed" => match args.as_slice() {
-			[key] => Command::Changed(key.to_string()),
-			_ => bail!("changed <param>"),
+		"set" => match split_set(rest) {
+			Some((key, value)) => Command::Set { key, value },
+			None if rest.split_whitespace().count() >= 2 => Command::SetWords(rest.to_string()),
+			None => bail!("set <param> <value>"),
+		},
+		"changed" => match unquote(rest) {
+			"" => bail!("changed <param>"),
+			key => Command::Changed(key.to_string()),
 		},
 		"updateui" | "update-ui" => none("updateui").map(|_| Command::UpdateUi)?,
 		"dialog" => none("dialog").map(|_| Command::Dialog)?,
@@ -195,15 +198,16 @@ pub fn parse(line: &str) -> Result<Command> {
 			["args" | "arguments"] => ObserveLevel::Arguments,
 			_ => bail!("level <commands|calls|args>"),
 		}),
-		"strict" => Command::Strict(parse_strict(&args)?),
+		// `poison, guard` is one list.
+		"strict" => Command::Strict(parse_strict(&args.concat())?),
 		"serial" => Command::Serial(match args.as_slice() {
 			["on"] => true,
 			["off"] => false,
 			_ => bail!("serial <on|off>"),
 		}),
-		"save" => match args.as_slice() {
-			[_] => Command::Save(PathBuf::from(rest)),
-			_ => bail!("save <path>"),
+		"save" => match unquote(rest) {
+			"" => bail!("save <path>"),
+			path => Command::Save(PathBuf::from(path)),
 		},
 		"mem" | "memory" => Command::Mem(match args.as_slice() {
 			["global"] => MemTarget::Global,
@@ -244,14 +248,15 @@ pub fn parse_address(raw: &str) -> Result<usize> {
 	parsed.with_context(|| format!("'{raw}' is not an address"))
 }
 
-fn parse_strict(args: &[&str]) -> Result<Strict> {
-	match args {
-		["on" | "all"] => Ok(Strict::all()),
-		["off" | "none"] => Ok(Strict::default()),
-		[list] => {
+fn parse_strict(list: &str) -> Result<Strict> {
+	match list {
+		"on" | "all" => Ok(Strict::all()),
+		"off" | "none" => Ok(Strict::default()),
+		"" => bail!("strict <on|off|poison,guard,alloc,checkout>"),
+		list => {
 			let mut strict = Strict::default();
-			for item in list.split(',') {
-				match item.trim() {
+			for item in list.split(',').filter(|item| !item.is_empty()) {
+				match item {
 					"poison" => strict.poison_output = true,
 					"guard" | "guards" => strict.guard_bands = true,
 					"alloc" | "allocations" => strict.track_allocations = true,
@@ -261,8 +266,30 @@ fn parse_strict(args: &[&str]) -> Result<Strict> {
 			}
 			Ok(strict)
 		}
-		_ => bail!("strict <on|off|poison,guard,alloc,checkout>"),
 	}
+}
+
+/// `"text"` or `'text'` without its quotes; anything else as it is.
+pub fn unquote(text: &str) -> &str {
+	let text = text.trim();
+	for quote in ['"', '\''] {
+		if let Some(inner) = text.strip_prefix(quote).and_then(|t| t.strip_suffix(quote)) {
+			return inner;
+		}
+	}
+	text
+}
+
+/// `set`'s key and value when the line says where the key ends: quoted
+/// (`"Noise variation" 25`) or before an `=` (`Noise variation=25`).
+/// `None` for plain words (`Noise variation 25`), which the engine splits.
+fn split_set(rest: &str) -> Option<(String, String)> {
+	let (key, value) = ['"', '\'']
+		.into_iter()
+		.find_map(|quote| rest.strip_prefix(quote)?.split_once(quote))
+		.or_else(|| rest.split_once('='))?;
+	let (key, value) = (key.trim(), value.trim().trim_start_matches('=').trim());
+	(!key.is_empty() && !value.is_empty()).then(|| (key.to_string(), value.to_string()))
 }
 
 #[cfg(test)]
@@ -274,10 +301,7 @@ mod tests {
 		assert_eq!(parse("render smart").unwrap(), Command::Render(RenderPath::Smart));
 		assert_eq!(
 			parse(":set Center 10, 20").unwrap(),
-			Command::Set {
-				key: "Center".into(),
-				value: "10, 20".into()
-			}
+			Command::SetWords("Center 10, 20".into())
 		);
 		assert_eq!(
 			parse("set 2=0.5").unwrap(),
@@ -291,6 +315,33 @@ mod tests {
 		let strict = parse("strict poison,alloc").unwrap();
 		let Command::Strict(strict) = strict else { panic!() };
 		assert!(strict.poison_output && strict.track_allocations && !strict.guard_bands);
+		let set = |key: &str, value: &str| Command::Set {
+			key: key.into(),
+			value: value.into(),
+		};
+		assert_eq!(
+			parse("set \"Noise variation\" 25").unwrap(),
+			set("Noise variation", "25")
+		);
+		assert_eq!(parse("set Noise variation=25").unwrap(), set("Noise variation", "25"));
+		assert_eq!(parse("set 'Gain' = 2").unwrap(), set("Gain", "2"));
+		assert_eq!(
+			parse("changed \"Threshold Min\"").unwrap(),
+			Command::Changed("Threshold Min".into())
+		);
+		assert_eq!(
+			parse("changed Threshold Min").unwrap(),
+			Command::Changed("Threshold Min".into())
+		);
+		assert_eq!(
+			parse("save \"out dir/a b.png\"").unwrap(),
+			Command::Save("out dir/a b.png".into())
+		);
+		let Command::Strict(spaced) = parse("strict poison, guard").unwrap() else {
+			panic!()
+		};
+		assert!(spaced.poison_output && spaced.guard_bands && !spaced.track_allocations);
+		assert!(parse("set Gain").is_err());
 		assert!(parse("render sideways").is_err());
 		assert!(parse("frobnicate").is_err());
 
