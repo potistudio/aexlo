@@ -59,7 +59,8 @@ pub const USAGE: &str = "\
                        newest matching call (e.g. --exec \"render; focus checkout\");
                        `report` prints the analysis then, `clear` forgets the
                        trace so far, `quit` stops reading.
-                       `:help` in the TUI lists the commands.
+                       `:help` in the TUI lists the commands; docs/inspect.md
+                       describes them and every JSON event.
 ";
 
 /// Default input size when no `--input` or `--size` is given.

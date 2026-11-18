@@ -140,6 +140,8 @@ aexlo inspect MyGlow --format json --exec "render; focus checkout"
 aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
 ```
 
+オプション、コマンド、JSON のフィールドはすべて [docs/inspect.ja.md](docs/inspect.ja.md) で説明しています。
+
 ## 実装の進捗
 
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 89% (32/36)

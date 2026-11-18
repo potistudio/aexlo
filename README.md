@@ -158,6 +158,9 @@ aexlo inspect MyGlow --format json --exec "render; focus checkout"
 aexlo inspect MyGlow --format json --script -    # one command per line on stdin
 ```
 
+Every option, command and JSON field is described in
+[docs/inspect.md](https://github.com/potistudio/aexlo/blob/master/docs/inspect.md).
+
 ## Implementation Progress
 
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 89% (32/36)
