@@ -19,6 +19,11 @@ may break the API, and every breaking change is listed below.
 - `PluginInstance::state` returns an `InstanceState`: the `global_data` and
   `sequence_data` handles, the next command's time, and the `PF_OutData` the
   last command left.
+- `ObserveLevel::Arguments` hands each suite call's arguments and result to
+  the observer (`SuiteCallEvent::args`, `SuiteCallEvent::result`); the lower
+  levels leave them empty and pay nothing for them. The Handle and Iterate
+  suites, `AcquireSuite` / `ReleaseSuite` and the utility callbacks are now
+  reported as suite calls too.
 
 ## [0.2.0] - 2026-11-18
 

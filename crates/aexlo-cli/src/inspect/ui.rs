@@ -13,6 +13,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Cell, Clear, Paragraph, Row, Table, TableState, Tabs, Wrap};
 
 use super::command::{self, Command, HELP, MemTarget};
+use super::diagnose::{self, Tone};
 use super::engine::Snapshot;
 use super::recorder::{Kind, Recorder, fmt_duration};
 
@@ -80,8 +81,17 @@ pub struct App {
 	pub snapshot: Option<Snapshot>,
 	busy: Option<(String, Instant)>,
 	filter: String,
-	/// Trace lines scrolled up from the bottom (0: following).
+	/// Trace lines scrolled up from the bottom, for the view.
 	trace_back: usize,
+	/// The focused trace line, counted up from the bottom (0: the newest,
+	/// following new entries).
+	trace_sel: usize,
+	/// Whether the diagnosis of the focused line is open.
+	focus: bool,
+	/// The diagnosis shown, for `(seq, generation)`, so it is not rebuilt
+	/// every frame.
+	diagnosis: Option<((u64, u64), String, Vec<Line<'static>>)>,
+	diag_scroll: u16,
 	calls: TableState,
 	params: TableState,
 	log_back: usize,
@@ -105,6 +115,10 @@ impl App {
 			busy: None,
 			filter: String::new(),
 			trace_back: 0,
+			trace_sel: 0,
+			focus: false,
+			diagnosis: None,
+			diag_scroll: 0,
 			calls: TableState::default().with_selected(0),
 			params: TableState::default().with_selected(0),
 			log_back: 0,
@@ -229,16 +243,22 @@ impl App {
 			Command::Clear => {
 				self.recorder.lock().clear();
 				self.trace_back = 0;
+				self.trace_sel = 0;
 				self.info("trace cleared");
 				None
 			}
 			Command::Find(text) => {
 				self.filter = text;
 				self.trace_back = 0;
+				self.trace_sel = 0;
 				self.calls.select(Some(0));
 				None
 			}
 			Command::Mem(target) => self.select_memory(target),
+			Command::Focus(query) => {
+				self.focus_on(&query);
+				None
+			}
 			command => {
 				if let Some((running, _)) = &self.busy {
 					self.error(format!("{line}  ✗ still running `{running}`"));
@@ -247,6 +267,37 @@ impl App {
 				self.busy = Some((line.clone(), Instant::now()));
 				Some(Action::Run(line, command))
 			}
+		}
+	}
+
+	/// Focus the trace entry `query` names (see [`diagnose::find`]).
+	fn focus_on(&mut self, query: &str) {
+		let rec = self.recorder.lock();
+		let found = diagnose::find(&rec, query).map(|pos| rec.trace.len() - 1 - pos);
+		drop(rec);
+		match found {
+			Some(from_bottom) => {
+				self.filter.clear();
+				self.trace_sel = from_bottom;
+				self.tab = Tab::Trace;
+				self.focus = true;
+			}
+			None => self.error(format!("nothing in the trace matches '{query}'")),
+		}
+	}
+
+	/// Focus the newest call of the function selected in the Calls tab.
+	fn focus_selected_function(&mut self) {
+		let rec = self.recorder.lock();
+		let calls = sorted_calls(&rec, &self.filter);
+		let picked = self.calls.selected().and_then(|i| calls.get(i).copied());
+		drop(rec);
+		if let Some((suite, function)) = picked {
+			self.filter = format!("{suite}::{function}");
+			self.trace_sel = 0;
+			self.trace_back = 0;
+			self.tab = Tab::Trace;
+			self.focus = true;
 		}
 	}
 
@@ -316,9 +367,22 @@ impl App {
 
 		let page = 20;
 		match key.code {
-			KeyCode::Char(':') | KeyCode::Enter if !(self.tab == Tab::Params && key.code == KeyCode::Enter) => {
-				self.prompt = Some(String::new())
+			KeyCode::Enter => match self.tab {
+				Tab::Params => return self.scroll_key(key.code, page),
+				Tab::Trace => self.focus = !self.focus,
+				Tab::Calls => self.focus_selected_function(),
+				_ => self.prompt = Some(String::new()),
+			},
+			KeyCode::Char('d') if self.tab == Tab::Trace => self.focus = !self.focus,
+			KeyCode::Esc if self.focus => self.focus = false,
+			KeyCode::Char('J') if self.tab == Tab::Trace && self.focus => {
+				self.diag_scroll = self.diag_scroll.saturating_add(3)
 			}
+			KeyCode::Char('K') if self.tab == Tab::Trace && self.focus => {
+				self.diag_scroll = self.diag_scroll.saturating_sub(3)
+			}
+			KeyCode::Char(':') => self.prompt = Some(String::new()),
+			KeyCode::Char('f') => self.prompt = Some("focus ".into()),
 			KeyCode::Char('/') => self.prompt = Some("find ".into()),
 			KeyCode::Char('?') => self.help = true,
 			KeyCode::Char('q') => return Some(Action::Quit),
@@ -349,7 +413,7 @@ impl App {
 			_ => 0,
 		};
 		match self.tab {
-			Tab::Trace => self.trace_back = apply(self.trace_back, -delta, usize::MAX / 4),
+			Tab::Trace => self.trace_sel = apply(self.trace_sel, -delta, usize::MAX / 4),
 			Tab::Log => self.log_back = apply(self.log_back, -delta, self.log.len()),
 			Tab::Calls => {
 				let n = self.recorder.lock().calls.len();
@@ -462,7 +526,8 @@ impl App {
 		let prompt_line = match &self.prompt {
 			Some(text) => Line::from(vec![Span::raw(":").bold(), Span::raw(text.clone()), Span::raw("█")]),
 			None => Line::from(
-				"  : command   / find   r render   a about   Tab/1-7 tabs   j/k scroll   ? help   q quit".dark_gray(),
+				"  : command  / find  f focus  Enter diagnose  r render  Tab/1-7 tabs  j/k move  ? help  q quit"
+					.dark_gray(),
 			),
 		};
 		frame.render_widget(Paragraph::new(prompt_line), prompt);
@@ -471,7 +536,7 @@ impl App {
 			let area = centered(frame.area(), 84, 34);
 			frame.render_widget(Clear, area);
 			frame.render_widget(
-				Paragraph::new(format!("{HELP}\nKEYS\n  Memory: ←→↑↓/hjkl move  [ ] (K J) allocation  PgUp/PgDn  g/G\n  Params: Enter fills `set <index> `\n\n(any key closes)"))
+				Paragraph::new(format!("{HELP}\nKEYS\n  Memory: ←→↑↓/hjkl move  [ ] (K J) allocation  PgUp/PgDn  g/G\n  Trace: j/k pick a line, Enter (or d) diagnoses it, J/K scroll the diagnosis, Esc closes\n  Calls: Enter focuses the newest call of that function\n  Params: Enter fills `set <index> `\n\n(any key closes)"))
 					.block(Block::bordered().title(" help ")),
 				area,
 			);
@@ -525,36 +590,44 @@ impl App {
 	}
 
 	fn draw_trace(&mut self, frame: &mut Frame, area: Rect) {
+		let (area, focus_area) = if self.focus {
+			let [top, bottom] = Layout::vertical([Constraint::Percentage(40), Constraint::Percentage(60)]).areas(area);
+			(top, Some(bottom))
+		} else {
+			(area, None)
+		};
 		let rec = self.recorder.lock();
-		let height = area.height.saturating_sub(2) as usize;
+		let height = (area.height.saturating_sub(2) as usize).max(1);
 		let filter = self.filter.to_ascii_lowercase();
 		let matches =
 			|e: &super::recorder::Entry| filter.is_empty() || e.describe().to_ascii_lowercase().contains(&filter);
-		// Walk back from the end: cost follows how far up the view is.
-		let mut picked = Vec::with_capacity(height);
-		let mut skipped = 0;
-		for entry in rec.trace.iter().rev() {
-			if !matches(entry) {
-				continue;
-			}
-			if skipped < self.trace_back {
-				skipped += 1;
-				continue;
-			}
-			picked.push(entry);
-			if picked.len() == height {
-				break;
+
+		// Walk back from the end, only as far as the view and the focus need.
+		let want = self.trace_sel.max(self.trace_back + height - 1) + 1;
+		let mut positions = Vec::with_capacity(want.min(4096));
+		for (pos, entry) in rec.trace.iter().enumerate().rev() {
+			if matches(entry) {
+				positions.push(pos);
+				if positions.len() == want {
+					break;
+				}
 			}
 		}
-		if picked.len() < height && skipped > 0 {
-			// Scrolled past the top: settle at the top.
-			self.trace_back = skipped.saturating_sub(height - picked.len());
+		self.trace_sel = self.trace_sel.min(positions.len().saturating_sub(1));
+		if self.trace_sel < self.trace_back {
+			self.trace_back = self.trace_sel;
+		} else if self.trace_sel >= self.trace_back + height {
+			self.trace_back = self.trace_sel + 1 - height;
 		}
-		let lines: Vec<Line> = picked
+		let selected = positions.get(self.trace_sel).copied();
+		let visible = &positions[self.trace_back.min(positions.len())..(self.trace_back + height).min(positions.len())];
+
+		let lines: Vec<Line> = visible
 			.iter()
 			.rev()
-			.map(|e| {
-				let style = match &e.kind {
+			.map(|&pos| {
+				let e = &rec.trace[pos];
+				let mut style = match &e.kind {
 					Kind::Step(_) => Style::new().magenta().bold(),
 					Kind::Begin(_) => Style::new().cyan().bold(),
 					Kind::End { error: Some(_), .. } => Style::new().red().bold(),
@@ -564,14 +637,24 @@ impl App {
 					Kind::Checkout { .. } => Style::new().blue(),
 					Kind::Call { .. } => Style::new(),
 				};
+				let focused = Some(pos) == selected;
+				if focused {
+					style = style.reversed();
+				}
 				Line::from(vec![
-					Span::raw(format!("{:>7} {:>10.3}ms ", e.seq, e.at.as_secs_f64() * 1e3)).dark_gray(),
+					Span::raw(format!(
+						"{}{:>7} {:>10.3}ms ",
+						if focused { "▶" } else { " " },
+						e.seq,
+						e.at.as_secs_f64() * 1e3
+					))
+					.dark_gray(),
 					Span::raw("│ ".repeat(e.depth)).dark_gray(),
 					Span::styled(e.describe(), style),
 				])
 			})
 			.collect();
-		let follow = if self.trace_back == 0 { "following" } else { "scrolled" };
+		let follow = if self.trace_sel == 0 { "following" } else { "scrolled" };
 		let mut title = format!(" trace: {} entries, {follow}", rec.trace.len());
 		if rec.dropped > 0 {
 			title += &format!(", {} oldest dropped", rec.dropped);
@@ -579,7 +662,56 @@ impl App {
 		if !self.filter.is_empty() {
 			title += &format!(", filter \"{}\"", self.filter);
 		}
-		drop(rec);
+		if !self.focus {
+			title += ", Enter: diagnose";
+		}
+
+		// The diagnosis of the focused line, rebuilt when it or the trace changes.
+		if let (Some(focus_area), Some(pos)) = (focus_area, selected) {
+			let key = (rec.trace[pos].seq, rec.generation);
+			if self.diagnosis.as_ref().map(|(k, _, _)| *k) != Some(key) {
+				if self.diagnosis.as_ref().map(|(k, _, _)| k.0) != Some(key.0) {
+					self.diag_scroll = 0;
+				}
+				let d = diagnose::diagnose(&rec, pos, self.snapshot.as_ref());
+				let lines = d
+					.lines
+					.iter()
+					.map(|parts| {
+						Line::from(
+							parts
+								.iter()
+								.map(|(tone, text)| Span::styled(text.clone(), tone_style(*tone)))
+								.collect::<Vec<_>>(),
+						)
+					})
+					.collect();
+				self.diagnosis = Some((key, d.title, lines));
+			}
+			drop(rec);
+			if let Some((_, title, lines)) = &self.diagnosis {
+				frame.render_widget(
+					Paragraph::new(lines.clone())
+						.scroll((self.diag_scroll, 0))
+						.wrap(Wrap { trim: false })
+						.block(
+							Block::bordered()
+								.border_style(Style::new().yellow())
+								.title(format!(" diagnosis: {title} ").bold())
+								.title_bottom(" J/K scroll · Esc close ".dark_gray()),
+						),
+					focus_area,
+				);
+			}
+		} else {
+			drop(rec);
+			if let Some(focus_area) = focus_area {
+				frame.render_widget(
+					Paragraph::new("nothing to focus").block(Block::bordered().title(" diagnosis ")),
+					focus_area,
+				);
+			}
+		}
 		frame.render_widget(Paragraph::new(lines).block(Block::bordered().title(title + " ")), area);
 	}
 
@@ -588,14 +720,10 @@ impl App {
 		let mut commands: Vec<_> = rec.commands.iter().collect();
 		commands.sort_by_key(|(_, s)| std::cmp::Reverse(s.total));
 		let filter = self.filter.to_ascii_lowercase();
-		let mut calls: Vec<_> = rec
-			.calls
-			.iter()
-			.filter(|((suite, function), _)| {
-				filter.is_empty() || format!("{suite}::{function}").to_ascii_lowercase().contains(&filter)
-			})
+		let calls: Vec<_> = sorted_calls(&rec, &self.filter)
+			.into_iter()
+			.map(|key| (key, &rec.calls[&key]))
 			.collect();
-		calls.sort_by(|a, b| b.1.count.cmp(&a.1.count).then(a.0.cmp(b.0)));
 		let step = rec.step;
 
 		let command_rows = commands.len().min(10) as u16 + 3;
@@ -988,6 +1116,32 @@ impl App {
 			Paragraph::new(lines).block(Block::bordered().title(" log: results, and what the plugin printed (│) ")),
 			area,
 		);
+	}
+}
+
+/// The Calls tab's functions, busiest first, matching `filter`.
+fn sorted_calls(rec: &super::recorder::Recording, filter: &str) -> Vec<(&'static str, &'static str)> {
+	let filter = filter.to_ascii_lowercase();
+	let mut calls: Vec<_> = rec
+		.calls
+		.iter()
+		.filter(|((suite, function), _)| {
+			filter.is_empty() || format!("{suite}::{function}").to_ascii_lowercase().contains(&filter)
+		})
+		.collect();
+	calls.sort_by(|a, b| b.1.count.cmp(&a.1.count).then(a.0.cmp(b.0)));
+	calls.into_iter().map(|(key, _)| *key).collect()
+}
+
+fn tone_style(tone: Tone) -> Style {
+	match tone {
+		Tone::Heading => Style::new().bold().underlined(),
+		Tone::Key => Style::new().dark_gray(),
+		Tone::Plain => Style::new(),
+		Tone::Good => Style::new().green(),
+		Tone::Warn => Style::new().yellow(),
+		Tone::Bad => Style::new().red().bold(),
+		Tone::Dim => Style::new().dark_gray(),
 	}
 }
 

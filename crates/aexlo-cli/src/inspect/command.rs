@@ -22,7 +22,9 @@ PLUGIN COMMANDS (each runs on the plugin's thread and is traced)
   reload                    Tear the plugin down and load it again (a crate
                             given as <plugin> is rebuilt first)
 HOST SETTINGS
-  level <commands|calls>    Trace only commands, or every suite call too
+  level <commands|calls|args>
+                            Trace only commands, every suite call too, or
+                            calls with their arguments  [args]
   strict <on|off|poison,guard,alloc,checkout>
                             Strict-mode checks; findings go to State
   serial <on|off>           Run iterate callbacks on the plugin's thread, so
@@ -31,6 +33,9 @@ HOST SETTINGS
 VIEW
   mem <address|global|sequence>
                             Show an allocation in the Memory tab
+  focus <text|#seq>         Diagnose the newest trace line containing <text>
+                            (or entry #seq): its arguments, the command it
+                            ran in, the memory it names, what came around it
   find <text>               Filter the Trace and Calls tabs (empty: clear)
   clear                     Forget the trace and totals
   help                      This text
@@ -56,6 +61,7 @@ pub enum Command {
 	Serial(bool),
 	Save(PathBuf),
 	Mem(MemTarget),
+	Focus(String),
 	Find(String),
 	Clear,
 	Help,
@@ -82,7 +88,7 @@ impl Command {
 	pub fn is_engine(&self) -> bool {
 		!matches!(
 			self,
-			Command::Mem(_) | Command::Find(_) | Command::Clear | Command::Help | Command::Quit
+			Command::Mem(_) | Command::Focus(_) | Command::Find(_) | Command::Clear | Command::Help | Command::Quit
 		)
 	}
 }
@@ -178,7 +184,8 @@ pub fn parse(line: &str) -> Result<Command> {
 		"level" => Command::Level(match args.as_slice() {
 			["commands" | "cmd"] => ObserveLevel::Commands,
 			["calls" | "call"] => ObserveLevel::Calls,
-			_ => bail!("level <commands|calls>"),
+			["args" | "arguments"] => ObserveLevel::Arguments,
+			_ => bail!("level <commands|calls|args>"),
 		}),
 		"strict" => Command::Strict(parse_strict(&args)?),
 		"serial" => Command::Serial(match args.as_slice() {
@@ -197,6 +204,12 @@ pub fn parse(line: &str) -> Result<Command> {
 			_ => bail!("mem <address|global|sequence>"),
 		}),
 		"find" | "/" => Command::Find(rest.to_string()),
+		"focus" | "f" | "diag" => {
+			if rest.is_empty() {
+				bail!("focus <text|#seq>");
+			}
+			Command::Focus(rest.to_string())
+		}
 		"clear" => none("clear").map(|_| Command::Clear)?,
 		"help" | "?" => Command::Help,
 		"quit" | "q" | "exit" => Command::Quit,

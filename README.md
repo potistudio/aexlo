@@ -137,8 +137,11 @@ aexlo inspect MyGlow --exec "render; set Radius 50; render smart"
 It traces every command and the host suite functions the plugin calls back,
 totals them per function, and shows the parameters, the `PF_InData` /
 `PF_OutData` state, the handles and worlds the plugin holds as a hex dump
-(highlighting what the last command changed) and the output frame. `--exec`
-prints the same analysis as text. Given a crate directory, `:reload` rebuilds
+(highlighting what the last command changed) and the output frame. Focus a
+trace line (Enter, or `:focus <text|#seq>`) for a diagnosis of it: the call's
+arguments and result, the command it ran in, the memory it allocated or
+names and whether that is still held, or, for a failed command, its error
+and the last call before it. `--exec` prints the same analysis as text. Given a crate directory, `:reload` rebuilds
 it and keeps the parameter values.
 
 ## Implementation Progress

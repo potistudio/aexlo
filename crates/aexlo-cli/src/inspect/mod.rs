@@ -10,6 +10,7 @@
 //! text, for scripts and CI.
 
 mod command;
+mod diagnose;
 mod engine;
 mod recorder;
 mod term;
@@ -36,7 +37,8 @@ pub const USAGE: &str = "\
         -i, --input <png>    Input layer  [default: a gradient]
         --size <W>x<H>       Size of the default input and of the output
         --depth <8|16|32>    Project depth  [default: 8]
-        --level <l>          calls (every suite call) or commands  [default: calls]
+        --level <l>          args (every suite call with its arguments),
+                             calls (without them) or commands  [default: args]
         --strict             Every strict check from the first command
         --serial             Iterate callbacks on the plugin's thread, so
                              their suite calls are traced too
@@ -44,6 +46,8 @@ pub const USAGE: &str = "\
                              the analysis (e.g. --exec \"render; set 1 2; render\")
         --script <file>      Like --exec, one command per line
         --trace              With --exec/--script, print the whole trace
+                       `focus <text>` in --exec prints the diagnosis of the
+                       newest matching call (e.g. --exec \"render; focus checkout\")
                        `:help` in the TUI lists the commands.
 ";
 
@@ -55,7 +59,7 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 	let mut input: Option<PathBuf> = None;
 	let mut size: Option<(u32, u32)> = None;
 	let mut depth = PixelDepthKind::U8;
-	let mut level = ObserveLevel::Calls;
+	let mut level = ObserveLevel::Arguments;
 	let mut strict = Strict::default();
 	let mut serial = false;
 	let mut script: Option<String> = None;
@@ -83,9 +87,10 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 			}
 			"--level" => {
 				level = match crate::next_value(&mut args, &arg)?.as_str() {
+					"args" => ObserveLevel::Arguments,
 					"calls" => ObserveLevel::Calls,
 					"commands" => ObserveLevel::Commands,
-					other => bail!("--level expects calls or commands, got '{other}'"),
+					other => bail!("--level expects args, calls or commands, got '{other}'"),
 				}
 			}
 			"--strict" => strict = Strict::all(),
@@ -146,6 +151,21 @@ fn batch(setup: Setup, commands: &[(String, Command)], print_trace: bool) -> Res
 	let mut engine = Engine::load(setup, recorder.clone())?;
 	let mut failed = 0;
 	for (line, command) in commands {
+		if let Command::Focus(query) = command {
+			let snapshot = engine.snapshot();
+			let rec = recorder.lock();
+			match diagnose::find(&rec, query) {
+				Some(index) => print!(
+					"» {line}\n{}",
+					diagnose::diagnose(&rec, index, snapshot.as_ref()).to_text()
+				),
+				None => {
+					failed += 1;
+					println!("» {line}  ✗ nothing in the trace matches '{query}'");
+				}
+			}
+			continue;
+		}
 		if !command.is_engine() {
 			println!("» {line}  (skipped: only meaningful in the TUI)");
 			continue;

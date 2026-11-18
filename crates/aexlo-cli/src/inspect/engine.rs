@@ -302,7 +302,9 @@ impl Engine {
 				save_output(fx, path)?;
 				Ok(format!("saved {}", path.display()))
 			}
-			Command::Mem(_) | Command::Find(_) | Command::Clear | Command::Help | Command::Quit => Ok(String::new()),
+			Command::Mem(_) | Command::Focus(_) | Command::Find(_) | Command::Clear | Command::Help | Command::Quit => {
+				Ok(String::new())
+			}
 		}
 	}
 

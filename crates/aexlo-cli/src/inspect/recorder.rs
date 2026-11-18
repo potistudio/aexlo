@@ -25,6 +25,32 @@ pub struct Entry {
 	pub kind: Kind,
 }
 
+/// What one suite call was given and returned (at `level args`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CallDetail {
+	pub args: Vec<(&'static str, String)>,
+	pub result: Option<String>,
+}
+
+impl CallDetail {
+	/// `name=value, ...` (and `-> result`), cut to `max` characters.
+	pub fn inline(&self, max: usize) -> String {
+		let mut text = self
+			.args
+			.iter()
+			.map(|(name, value)| format!("{name}={value}"))
+			.collect::<Vec<_>>()
+			.join(", ");
+		if let Some(result) = &self.result {
+			text += &format!(" -> {result}");
+		}
+		if text.chars().count() > max {
+			text = text.chars().take(max.saturating_sub(1)).collect::<String>() + "…";
+		}
+		text
+	}
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Kind {
 	/// A user command was issued.
@@ -38,6 +64,9 @@ pub enum Kind {
 	Call {
 		suite: &'static str,
 		function: &'static str,
+		detail: CallDetail,
+		/// The last of the folded repeats, when its detail differs.
+		last: Option<Box<CallDetail>>,
 	},
 	Alloc {
 		kind: AllocationKind,
@@ -61,7 +90,18 @@ impl Entry {
 				Some(code) => format!("◀ PF_Cmd_{name}  {}  ({})", err_name(*code), fmt_duration(*duration)),
 				None => format!("◀ PF_Cmd_{name}  ({})", fmt_duration(*duration)),
 			},
-			Kind::Call { suite, function } => format!("{suite}::{function}"),
+			Kind::Call {
+				suite,
+				function,
+				detail,
+				..
+			} => {
+				if detail.args.is_empty() && detail.result.is_none() {
+					format!("{suite}::{function}")
+				} else {
+					format!("{suite}::{function}({})", detail.inline(120))
+				}
+			}
 			Kind::Alloc {
 				kind,
 				allocated,
@@ -130,12 +170,28 @@ impl Recording {
 			// Begin is pushed before the stack grows, End after it shrinks.
 			_ => self.stack.len(),
 		};
+		// Fold consecutive calls of one function (per-pixel sampling would
+		// flood the trace), keeping the first and the last call's detail.
 		if let Some(last) = self.trace.back_mut()
-			&& matches!(kind, Kind::Call { .. })
-			&& last.kind == kind
 			&& last.depth == depth
+			&& let (
+				Kind::Call {
+					suite,
+					function,
+					detail,
+					last: latest,
+				},
+				Kind::Call {
+					suite: new_suite,
+					function: new_function,
+					detail: new_detail,
+					..
+				},
+			) = (&mut last.kind, &kind)
+			&& (*suite, *function) == (*new_suite, *new_function)
 		{
 			last.repeat = last.repeat.saturating_add(1);
+			*latest = (new_detail != detail).then(|| Box::new(new_detail.clone()));
 			return;
 		}
 		self.seq += 1;
@@ -239,7 +295,13 @@ impl Recorder {
 }
 
 impl Recorder {
-	fn on_command(&self, name: &'static str, phase: CommandPhase, duration: Option<Duration>, error: Option<i32>) {
+	pub(super) fn on_command(
+		&self,
+		name: &'static str,
+		phase: CommandPhase,
+		duration: Option<Duration>,
+		error: Option<i32>,
+	) {
 		let mut rec = self.lock();
 		match phase {
 			CommandPhase::Begin => {
@@ -266,7 +328,7 @@ impl Recorder {
 		}
 	}
 
-	fn on_call(&self, suite: &'static str, function: &'static str) {
+	pub(super) fn on_call(&self, suite: &'static str, function: &'static str, detail: CallDetail) {
 		last::SUITE.set(suite);
 		last::FUNCTION.set(function);
 		let mut rec = self.lock();
@@ -284,7 +346,12 @@ impl Recorder {
 		{
 			stat.commands.push(command);
 		}
-		rec.push(Kind::Call { suite, function });
+		rec.push(Kind::Call {
+			suite,
+			function,
+			detail,
+			last: None,
+		});
 	}
 }
 
@@ -294,7 +361,14 @@ impl Observer for Recorder {
 	}
 
 	fn suite_call(&self, event: &SuiteCallEvent) {
-		self.on_call(event.suite, event.function);
+		self.on_call(
+			event.suite,
+			event.function,
+			CallDetail {
+				args: event.args.clone(),
+				result: event.result.clone(),
+			},
+		);
 	}
 
 	fn allocation(&self, event: &AllocationEvent) {
@@ -360,7 +434,7 @@ mod tests {
 	use super::*;
 
 	fn call(rec: &Recorder, function: &'static str) {
-		rec.on_call("Suite", function);
+		rec.on_call("Suite", function, CallDetail::default());
 	}
 
 	#[test]

@@ -69,3 +69,32 @@ fn strict_findings_and_bad_commands_are_reported() {
 	assert!(!ok);
 	assert!(out.contains("unknown command 'frobnicate'"), "{out}");
 }
+
+#[test]
+fn focus_diagnoses_a_call_and_a_failed_command() {
+	let (ok, out) = inspect(
+		"inspect_focus",
+		&[
+			"--size",
+			"16x8",
+			"--exec",
+			"set Mode Leak; render smart; focus host_new_handle; set Mode Error; render legacy; focus ◀ PF_Cmd_RENDER",
+		],
+	);
+	assert!(!ok, "the failed render fails the run:\n{out}");
+	for expected in [
+		"── PF_HandleSuite1::host_new_handle ──",
+		// Its arguments, and the handle it left behind.
+		"size             64",
+		"+ alloc Handle",
+		"never freed: still held",
+		// The failed command: its error, explained.
+		"PF_Err_INTERNAL_STRUCT_DAMAGED (512)",
+		"around it",
+	] {
+		assert!(out.contains(expected), "missing {expected:?} in:\n{out}");
+	}
+
+	let (ok, out) = inspect("inspect_focus_none", &["--exec", "focus no_such_call"]);
+	assert!(!ok, "{out}");
+}
