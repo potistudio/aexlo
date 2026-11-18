@@ -11,6 +11,7 @@
 
 mod bench;
 mod dev;
+mod inspect;
 mod preview;
 mod session;
 mod toolkit;
@@ -25,7 +26,7 @@ use std::process::ExitCode;
 use aexlo::{ParamValue, PluginInstance, RenderPath};
 use anyhow::{Context, Result, bail};
 
-const USAGE: &str = "\
+const USAGE_HEAD: &str = "\
 aexlo - run After Effects plugins without After Effects
 
 USAGE:
@@ -53,6 +54,9 @@ COMMANDS:
     params <plugin>    List the plugin's parameters (index, name, value)
     dialog <plugin>    Send PF_Cmd_DO_DIALOG, the effect's Options button, and
                        keep the process alive while a plugin window is visible
+";
+
+const USAGE_TAIL: &str = "\
     dev    [filter]     Rerun a #[aexlo_test::preview] test on save + live viewer
                               (built-in `bacon` replacement; add a name to filter tests)
                               Like `cargo build`: defaults to the crate in the
@@ -154,6 +158,10 @@ Cargo.toml) to build its cdylib and render that - a one-shot alternative to
 platform's extension, e.g. `SDK_Noise` -> `SDK_Noise.plugin`.
 ";
 
+fn print_usage() {
+	print!("{USAGE_HEAD}{}{USAGE_TAIL}", inspect::USAGE);
+}
+
 fn main() -> ExitCode {
 	let _ = env_logger::try_init();
 	let mut args = std::env::args().skip(1);
@@ -192,25 +200,26 @@ fn main() -> ExitCode {
 
 fn run(command: Option<String>, args: impl Iterator<Item = String>) -> Result<()> {
 	let Some(command) = command else {
-		print!("{USAGE}");
+		print_usage();
 		bail!("no command given");
 	};
 
 	match command.as_str() {
 		"-h" | "--help" | "help" => {
-			print!("{USAGE}");
+			print_usage();
 			Ok(())
 		}
 		"about" => cmd_about(args),
 		"params" => cmd_params(args),
 		"dialog" => cmd_dialog(args),
+		"inspect" => inspect::run(args),
 		"render" => cmd_render(args),
 		"bench" => cmd_bench(args),
 		"view" => cmd_view(args),
 		"dev" => cmd_dev(args),
 		"preview" => cmd_preview(args),
 		other => {
-			print!("{USAGE}");
+			print_usage();
 			bail!("unknown command '{other}'");
 		}
 	}

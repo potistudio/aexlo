@@ -41,6 +41,14 @@ notify = "8.2.0"
 # `aexlo dev --bin --web`: serve the live preview over a tiny local HTTP server.
 tiny_http = "0.12.0"
 
+# `aexlo inspect`: the terminal UI (crossterm comes re-exported).
+ratatui = "0.30.2"
+
+# `aexlo inspect` keeps the terminal usable around a plugin that prints or
+# crashes: stdio redirection and a crash signal handler.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.186"
+
 [dev-dependencies]
 image = { workspace = true, features = ["png"] }
 serde_json = { workspace = true }
