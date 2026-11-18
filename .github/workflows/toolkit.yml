@@ -4,7 +4,7 @@ name: toolkit
 
 on:
   push:
-    branches: [master]
+    branches: [master, develop]
   pull_request:
 
 jobs:
@@ -13,6 +13,7 @@ jobs:
     with:
       manifest: fixtures/aexlo.toml
       aexlo-path: .
+      name: fixtures
       # macOS only until a real Windows build is committed:
       # fixtures/plugins/windows/SDK_Noise.aex is a symlink to a local
       # After Effects install, so the runner never finds the plugin.
@@ -23,3 +24,4 @@ jobs:
     with:
       manifest: examples/plugins/noise/aexlo.toml
       aexlo-path: .
+      name: noise-demo

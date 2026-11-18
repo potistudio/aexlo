@@ -4,12 +4,11 @@
 //! `FastBlur` is a separable box blur: high quality is three passes, anything
 //! else is one, and the mode flags are ignored. Platform worlds are refused.
 
-use after_effects_sys::{
+use crate::sys::{
 	A_Err, A_FpLong, A_long, A_u_long, AEGP_PlatformWorldH, AEGP_PluginID, AEGP_WorldH, AEGP_WorldSuite1,
 	AEGP_WorldSuite2, AEGP_WorldSuite3, AEGP_WorldType, AEGP_WorldType_8, AEGP_WorldType_16, AEGP_WorldType_32,
 	PF_EffectWorld, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_ModeFlags, PF_Pixel8, PF_Pixel16, PF_PixelFloat,
 	PF_Quality, PF_Quality_HI, PF_RationalScale, PF_UnionableRect, PF_WorldFlag_DEEP, PF_WorldFlag_WRITEABLE,
-	PF_WorldFlags,
 };
 
 struct World {
@@ -21,9 +20,9 @@ struct World {
 }
 
 fn bytes_per_pixel(kind: i32) -> usize {
-	if kind == AEGP_WorldType_16 as i32 {
+	if kind == AEGP_WorldType_16 {
 		8
-	} else if kind == AEGP_WorldType_32 as i32 {
+	} else if kind == AEGP_WorldType_32 {
 		16
 	} else {
 		4
@@ -46,9 +45,9 @@ fn alloc(kind: i32, width: i32, height: i32) -> AEGP_WorldH {
 /// A world filled from `layer`, subsampled by `down_x`/`down_y` (values below 1
 /// mean no subsample). Channel order is ARGB, matching `PF_Pixel`.
 fn depth_kind(kind: i32) -> crate::pixel::PixelDepthKind {
-	if kind == AEGP_WorldType_16 as i32 {
+	if kind == AEGP_WorldType_16 {
 		crate::pixel::PixelDepthKind::U16
-	} else if kind == AEGP_WorldType_32 as i32 {
+	} else if kind == AEGP_WorldType_32 {
 		crate::pixel::PixelDepthKind::F32
 	} else {
 		crate::pixel::PixelDepthKind::U8
@@ -60,10 +59,10 @@ pub(crate) fn world_from_layer(kind: i32, layer: &crate::pixel::AnyLayer, down_x
 	let down_y = down_y.max(1) as usize;
 	let width = (layer.width() as usize / down_x).max(1);
 	let height = (layer.height() as usize / down_y).max(1);
-	let kind = if kind == AEGP_WorldType_16 as i32 || kind == AEGP_WorldType_32 as i32 {
+	let kind = if kind == AEGP_WorldType_16 || kind == AEGP_WorldType_32 {
 		kind
 	} else {
-		AEGP_WorldType_8 as i32
+		AEGP_WorldType_8
 	};
 	let handle = alloc(kind, width as i32, height as i32);
 	let units = layer.to_unit_rgba();
@@ -86,11 +85,11 @@ pub(crate) fn world_from_layer(kind: i32, layer: &crate::pixel::AnyLayer, down_x
 
 fn write_pixel(dest: &mut [u8], kind: i32, alpha: f32, red: f32, green: f32, blue: f32) {
 	let store = |channel: f32, max: f64| (channel as f64 * max).round().clamp(0.0, max);
-	if kind == AEGP_WorldType_32 as i32 {
+	if kind == AEGP_WorldType_32 {
 		for (offset, channel) in [alpha, red, green, blue].into_iter().enumerate() {
 			dest[offset * 4..offset * 4 + 4].copy_from_slice(&channel.to_le_bytes());
 		}
-	} else if kind == AEGP_WorldType_16 as i32 {
+	} else if kind == AEGP_WorldType_16 {
 		for (offset, channel) in [alpha, red, green, blue].into_iter().enumerate() {
 			let bytes = (store(channel, 32768.0) as u16).to_le_bytes();
 			dest[offset * 2..offset * 2 + 2].copy_from_slice(&bytes);
@@ -128,46 +127,46 @@ unsafe extern "C" fn new_world(
 ) -> A_Err {
 	crate::core::ffi::guard("new_world", || {
 		if world_out.is_null() || width <= 0 || height <= 0 {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		let kind = if kind == AEGP_WorldType_16 as i32 || kind == AEGP_WorldType_32 as i32 {
+		let kind = if kind == AEGP_WorldType_16 || kind == AEGP_WorldType_32 {
 			kind
 		} else {
-			AEGP_WorldType_8 as i32
+			AEGP_WorldType_8
 		};
 		unsafe { *world_out = alloc(kind, width, height) };
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn dispose_world(handle: AEGP_WorldH) -> A_Err {
 	crate::core::ffi::guard("dispose_world", || {
 		if handle.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let slot = unsafe { Box::from_raw(handle as *mut *mut World) };
 		if !slot.is_null() {
 			let world = unsafe { Box::from_raw(*slot) };
 			super::world::untag_host_world(world.pixels.as_ptr() as usize);
 		}
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn get_type(handle: AEGP_WorldH, out: *mut AEGP_WorldType) -> A_Err {
 	crate::core::ffi::guard("get_type", || {
 		let (Some(world), Some(out)) = (unsafe { world_mut(handle) }, unsafe { out.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = world.kind;
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn get_size(handle: AEGP_WorldH, width: *mut A_long, height: *mut A_long) -> A_Err {
 	crate::core::ffi::guard("get_size", || {
 		let Some(world) = (unsafe { world_mut(handle) }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if let Some(width) = unsafe { width.as_mut() } {
 			*width = world.width;
@@ -175,59 +174,53 @@ unsafe extern "C" fn get_size(handle: AEGP_WorldH, width: *mut A_long, height: *
 		if let Some(height) = unsafe { height.as_mut() } {
 			*height = world.height;
 		}
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn get_row_bytes(handle: AEGP_WorldH, row_bytes: *mut A_u_long) -> A_Err {
 	crate::core::ffi::guard("get_row_bytes", || {
 		let (Some(world), Some(row_bytes)) = (unsafe { world_mut(handle) }, unsafe { row_bytes.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*row_bytes = world.row_bytes as A_u_long;
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn base_addr<T>(handle: AEGP_WorldH, expected: i32, out: *mut *mut T) -> A_Err {
 	crate::core::ffi::guard("base_addr", || {
 		let (Some(world), Some(out)) = (unsafe { world_mut(handle) }, unsafe { out.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if world.kind != expected {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = world.pixels.as_mut_ptr().cast();
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn get_base8(handle: AEGP_WorldH, out: *mut *mut PF_Pixel8) -> A_Err {
-	crate::core::ffi::guard("get_base8", || unsafe {
-		base_addr(handle, AEGP_WorldType_8 as i32, out)
-	})
+	crate::core::ffi::guard("get_base8", || unsafe { base_addr(handle, AEGP_WorldType_8, out) })
 }
 
 unsafe extern "C" fn get_base16(handle: AEGP_WorldH, out: *mut *mut PF_Pixel16) -> A_Err {
-	crate::core::ffi::guard("get_base16", || unsafe {
-		base_addr(handle, AEGP_WorldType_16 as i32, out)
-	})
+	crate::core::ffi::guard("get_base16", || unsafe { base_addr(handle, AEGP_WorldType_16, out) })
 }
 
 unsafe extern "C" fn get_base32(handle: AEGP_WorldH, out: *mut *mut PF_PixelFloat) -> A_Err {
-	crate::core::ffi::guard("get_base32", || unsafe {
-		base_addr(handle, AEGP_WorldType_32 as i32, out)
-	})
+	crate::core::ffi::guard("get_base32", || unsafe { base_addr(handle, AEGP_WorldType_32, out) })
 }
 
 unsafe extern "C" fn fill_out(handle: AEGP_WorldH, out: *mut PF_EffectWorld) -> A_Err {
 	crate::core::ffi::guard("fill_out", || {
 		let (Some(world), Some(out)) = (unsafe { world_mut(handle) }, unsafe { out.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		let mut flags = PF_WorldFlag_WRITEABLE as PF_WorldFlags;
-		if world.kind == AEGP_WorldType_16 as i32 {
-			flags |= PF_WorldFlag_DEEP as PF_WorldFlags;
+		let mut flags = PF_WorldFlag_WRITEABLE;
+		if world.kind == AEGP_WorldType_16 {
+			flags |= PF_WorldFlag_DEEP;
 		}
 		// `PF_GetPixelFormat` looks worlds up by `data`; without a tag a deep
 		// world reads back as `ARGB32` and the plugin iterates it as 8 bpc.
@@ -256,7 +249,7 @@ unsafe extern "C" fn fill_out(handle: AEGP_WorldH, out: *mut PF_EffectWorld) -> 
 			reserved_long3: 0,
 			dephault: 0,
 		};
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -364,15 +357,15 @@ unsafe extern "C" fn fast_blur_sys(
 ) -> A_Err {
 	crate::core::ffi::guard("fast_blur_sys", || {
 		let Some(world) = (unsafe { world_mut(handle) }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		fast_blur(world, radius, quality);
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn unsupported_platform() -> A_Err {
-	crate::core::ffi::guard("unsupported_platform", || PF_Err_BAD_CALLBACK_PARAM as A_Err)
+	crate::core::ffi::guard("unsupported_platform", || PF_Err_BAD_CALLBACK_PARAM)
 }
 
 unsafe extern "C" fn new_platform(
@@ -452,7 +445,7 @@ mod tests {
 
 	#[test]
 	fn fast_blur_spreads_a_pixel_into_its_neighbours() {
-		let handle = alloc(AEGP_WorldType_8 as i32, 5, 1);
+		let handle = alloc(AEGP_WorldType_8, 5, 1);
 		{
 			let world = unsafe { world_mut(handle) }.unwrap();
 			// ARGB, pixel x=2 is opaque white.
@@ -472,21 +465,20 @@ mod tests {
 	#[test]
 	fn world_from_layer_writes_argb() {
 		let layer = crate::pixel::AnyLayer::U8(crate::pixel::Layer::from_fn(1, 1, |_, _| crate::pixel::Pixel::red()));
-		let handle = world_from_layer(AEGP_WorldType_8 as i32, &layer, 1, 1);
+		let handle = world_from_layer(AEGP_WorldType_8, &layer, 1, 1);
 		let world = unsafe { world_mut(handle) }.unwrap();
 		assert_eq!(&world.pixels[..4], &[255, 255, 0, 0]);
 		unsafe { dispose_world(handle) };
 	}
 
 	#[test]
-	#[allow(clippy::unnecessary_cast)] // `PF_PixelFormat_*` is `u32` on macOS only.
 	fn filled_out_float_world_reports_its_pixel_format() {
-		let handle = alloc(AEGP_WorldType_32 as i32, 2, 2);
+		let handle = alloc(AEGP_WorldType_32, 2, 2);
 		let mut out: PF_EffectWorld = unsafe { std::mem::zeroed() };
-		assert_eq!(unsafe { fill_out(handle, &mut out) }, PF_Err_NONE as A_Err);
+		assert_eq!(unsafe { fill_out(handle, &mut out) }, PF_Err_NONE);
 		assert_eq!(
 			unsafe { super::super::world::world_pixel_format(&out) },
-			after_effects_sys::PF_PixelFormat_ARGB128 as u32
+			crate::sys::PF_PixelFormat_ARGB128 as u32
 		);
 		unsafe { dispose_world(handle) };
 		assert_eq!(super::super::world::allocated_format(&out), None);

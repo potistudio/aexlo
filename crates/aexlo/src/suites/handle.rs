@@ -9,7 +9,7 @@
 
 #[cfg(feature = "diagnostics")]
 use crate::core::diagnostics::*; // Adjusted import path
-use after_effects_sys::*;
+use crate::sys::*;
 use std::alloc::{Layout, alloc, dealloc, realloc};
 use std::os::raw::c_void;
 use std::ptr;
@@ -302,13 +302,13 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(new_sizeL: A_HandleSize,
 		// Deref handlePH to check if it points to a handle
 		if handlePH.is_null() {
 			log::error!("host_resize_handle: handlePH is NULL");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let pf_handle = unsafe { *handlePH };
 
 		if pf_handle.is_null() {
 			log::error!("host_resize_handle: pf_handle is NULL");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		let user_ptr = unsafe { *(pf_handle as *mut *mut u8) };
@@ -318,7 +318,7 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(new_sizeL: A_HandleSize,
 			// Standard behavior usually implies a valid handle has valid data or strict rules.
 			// For safety, let's fail.
 			log::error!("host_resize_handle: user_ptr is NULL");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		let header_size = HANDLE_ALIGNMENT;
@@ -334,7 +334,7 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(new_sizeL: A_HandleSize,
 				pf_handle,
 				user_ptr
 			);
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		let old_size = unsafe { *(base_ptr.add(8) as *mut usize) };
@@ -350,7 +350,7 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(new_sizeL: A_HandleSize,
 			Ok(value) => value,
 			Err(_) => {
 				log::error!("host_resize_handle: invalid negative new_size {}", new_sizeL);
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 		};
 
@@ -363,21 +363,21 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(new_sizeL: A_HandleSize,
 				new_size,
 				old_size
 			);
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		let old_total = match header_size.checked_add(old_size) {
 			Some(value) => value,
 			None => {
 				log::error!("host_resize_handle: old size overflow");
-				return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err;
+				return PF_Err_INTERNAL_STRUCT_DAMAGED;
 			}
 		};
 		let new_total = match header_size.checked_add(new_size) {
 			Some(value) => value,
 			None => {
 				log::error!("host_resize_handle: new size overflow");
-				return PF_Err_OUT_OF_MEMORY as PF_Err;
+				return PF_Err_OUT_OF_MEMORY;
 			}
 		};
 
@@ -388,7 +388,7 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(new_sizeL: A_HandleSize,
 
 			if new_ptr.is_null() {
 				log::error!("host_resize_handle: realloc failed");
-				return PF_Err_OUT_OF_MEMORY as PF_Err;
+				return PF_Err_OUT_OF_MEMORY;
 			}
 
 			// Update size in prefix
@@ -401,10 +401,10 @@ pub(crate) unsafe extern "C" fn host_resize_handle_impl(new_sizeL: A_HandleSize,
 			// Update handle to point to the new user pointer
 			unsafe { *(pf_handle as *mut *mut u8) = new_user_ptr };
 
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		} else {
 			log::error!("host_resize_handle: invalid old layout logic");
-			PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err
+			PF_Err_INTERNAL_STRUCT_DAMAGED
 		}
 	})
 }

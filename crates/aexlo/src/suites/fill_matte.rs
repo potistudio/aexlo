@@ -10,7 +10,7 @@
 //! passing through avoids inventing data).
 
 use crate::core::diagnostics::diag;
-use after_effects_sys::{
+use crate::sys::{
 	A_long, PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_FillMatteSuite2, PF_Pixel, PF_Pixel16,
 	PF_PixelFloat, PF_ProgPtr, PF_Rect,
 };
@@ -48,12 +48,12 @@ fn row_ptr(world: &PF_EffectWorld, y: i32) -> *mut u8 {
 unsafe fn fill_world<P: Copy>(color: *const P, dst_rect: *const PF_Rect, world: *mut PF_EffectWorld) -> PF_Err {
 	if world.is_null() {
 		log::error!("fill: world is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	}
 	let world = &unsafe { *world };
 	if world.data.is_null() {
 		log::error!("fill: world.data is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	}
 
 	// SAFETY: every PF pixel type is plain-old-data, so zeroed = transparent black.
@@ -64,7 +64,7 @@ unsafe fn fill_world<P: Copy>(color: *const P, dst_rect: *const PF_Rect, world: 
 	};
 
 	let Some(rect) = clipped_rect(dst_rect, world) else {
-		return PF_Err_NONE as PF_Err;
+		return PF_Err_NONE;
 	};
 
 	for y in rect.top..rect.bottom {
@@ -75,7 +75,7 @@ unsafe fn fill_world<P: Copy>(color: *const P, dst_rect: *const PF_Rect, world: 
 		}
 	}
 
-	PF_Err_NONE as PF_Err
+	PF_Err_NONE
 }
 
 /// Depth-generic (un)premultiplication against a matte color.
@@ -90,14 +90,14 @@ unsafe fn premultiply_world<P: NormalizedPixel>(
 ) -> PF_Err {
 	if dst.is_null() {
 		log::error!("premultiply: dst is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	}
 	let src = if src.is_null() { dst } else { src };
 	let src_world = &unsafe { *src };
 	let dst_world = &unsafe { *dst };
 	if src_world.data.is_null() || dst_world.data.is_null() {
 		log::error!("premultiply: world data is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	}
 
 	let matte = if color.is_null() {
@@ -129,7 +129,7 @@ unsafe fn premultiply_world<P: NormalizedPixel>(
 		}
 	}
 
-	PF_Err_NONE as PF_Err
+	PF_Err_NONE
 }
 
 // ============================================================================
@@ -314,7 +314,7 @@ mod tests {
 		};
 
 		let err = unsafe { fill_8_sys(std::ptr::null_mut(), &color, &rect, &mut world) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		for y in 0..h {
 			for x in 0..w {
 				let p = buf[(y * w + x) as usize];
@@ -337,7 +337,7 @@ mod tests {
 		];
 		let mut world = world_over(2, 2, &mut buf);
 		let err = unsafe { fill_16_sys(std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), &mut world) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		for p in &buf {
 			assert_eq!((p.alpha, p.red, p.green, p.blue), (0, 0, 0, 0));
 		}
@@ -362,7 +362,7 @@ mod tests {
 			blue: -0.25,
 		};
 		let err = unsafe { fill_float_sys(std::ptr::null_mut(), &color, std::ptr::null(), &mut world) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		for p in &buf {
 			// Float fills carry HDR values through untouched.
 			assert_eq!((p.red, p.green, p.blue), (2.5, 0.5, -0.25));
@@ -382,7 +382,7 @@ mod tests {
 		];
 		let mut world = world_over(2, 2, &mut buf);
 		let err = unsafe { premultiply_sys(std::ptr::null_mut(), 1, &mut world) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		let p = buf[0];
 		// a = 128/255: red 255 -> 128, green 100 -> ~50.
 		assert_eq!(p.alpha, 128);
@@ -403,10 +403,10 @@ mod tests {
 		let mut world = world_over(1, 1, &mut buf);
 		let err =
 			unsafe { premultiply_color_16_sys(std::ptr::null_mut(), &mut world, std::ptr::null(), 1, &mut world) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		let err =
 			unsafe { premultiply_color_16_sys(std::ptr::null_mut(), &mut world, std::ptr::null(), 0, &mut world) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		let p = buf[0];
 		assert!((p.red as i32 - orig.red as i32).abs() <= 2, "red {}", p.red);
 		assert!((p.green as i32 - orig.green as i32).abs() <= 2, "green {}", p.green);
@@ -433,7 +433,7 @@ mod tests {
 			blue: 255,
 		};
 		let err = unsafe { premultiply_color_8_sys(std::ptr::null_mut(), &mut world, &matte, 1, &mut world) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		let p = buf[0];
 		assert_eq!((p.alpha, p.red, p.green, p.blue), (0, 255, 255, 255));
 	}
@@ -449,11 +449,11 @@ mod tests {
 					std::ptr::null_mut(),
 				)
 			},
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			PF_Err_BAD_CALLBACK_PARAM
 		);
 		assert_eq!(
 			unsafe { premultiply_sys(std::ptr::null_mut(), 1, std::ptr::null_mut()) },
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			PF_Err_BAD_CALLBACK_PARAM
 		);
 	}
 }

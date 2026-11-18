@@ -24,7 +24,7 @@ use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
 use std::sync::{LazyLock, Mutex};
 
-use after_effects_sys::*;
+use crate::sys::*;
 
 use crate::PluginInstance;
 
@@ -34,20 +34,20 @@ macro_rules! gpu_context_or_bail {
 	($effect_ref:expr, $who:literal) => {{
 		if $effect_ref.is_null() {
 			log::error!(concat!($who, ": effect_ref is null"));
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let instance = match PluginInstance::get_instance_ptr($effect_ref) {
 			Some(ptr) => unsafe { ptr.as_ref() },
 			None => {
 				log::error!(concat!($who, ": no plugin instance for effect_ref"));
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 		};
 		match instance.gpu_context() {
 			Some(ctx) => ctx,
 			None => {
 				log::error!(concat!($who, ": GPU context not initialised"));
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 		}
 	}};
@@ -59,20 +59,20 @@ macro_rules! gpu_context_mut_or_bail {
 	($effect_ref:expr, $who:literal) => {{
 		if $effect_ref.is_null() {
 			log::error!(concat!($who, ": effect_ref is null"));
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let instance = match PluginInstance::get_instance_ptr($effect_ref) {
 			Some(mut ptr) => unsafe { ptr.as_mut() },
 			None => {
 				log::error!(concat!($who, ": no plugin instance for effect_ref"));
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 		};
 		match instance.gpu_context_mut() {
 			Some(ctx) => ctx,
 			None => {
 				log::error!(concat!($who, ": GPU context not initialised"));
-				return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
 		}
 	}};
@@ -83,10 +83,10 @@ unsafe extern "C" fn get_device_count(effect_ref: PF_ProgPtr, device_countP: *mu
 	crate::core::ffi::guard("get_device_count", || {
 		let _ = gpu_context_or_bail!(effect_ref, "GetDeviceCount");
 		if device_countP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		unsafe { *device_countP = 1 };
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -105,7 +105,7 @@ unsafe extern "C" fn get_device_info(
 	crate::core::ffi::guard("get_device_info", || {
 		let ctx = gpu_context_or_bail!(effect_ref, "GetDeviceInfo");
 		if device_infoP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		let info = PF_GPUDeviceInfo {
@@ -119,7 +119,7 @@ unsafe extern "C" fn get_device_info(
 			offscreen_opengl_devicePV: std::ptr::null_mut(),
 		};
 		unsafe { *device_infoP = info };
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -137,20 +137,20 @@ unsafe extern "C" fn get_gpu_world_data(
 	crate::core::ffi::guard("get_gpu_world_data", || {
 		let ctx = gpu_context_or_bail!(effect_ref, "GetGPUWorldData");
 		if worldP.is_null() || pixPP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		match ctx.buffer_object_ptr(worldP as usize) {
 			Some(buffer) => {
 				unsafe { *pixPP = buffer };
-				PF_Err_NONE as PF_Err
+				PF_Err_NONE
 			}
 			None => {
 				log::error!(
 					"GetGPUWorldData: no GPU buffer registered for world {:#x}",
 					worldP as usize
 				);
-				PF_Err_BAD_CALLBACK_PARAM as PF_Err
+				PF_Err_BAD_CALLBACK_PARAM
 			}
 		}
 	})
@@ -169,15 +169,15 @@ unsafe extern "C" fn allocate_device_memory(
 	crate::core::ffi::guard("allocate_device_memory", || {
 		let ctx = gpu_context_mut_or_bail!(effect_ref, "AllocateDeviceMemory");
 		if memoryPP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		match ctx.alloc_raw(size) {
 			Some(memory) => {
 				unsafe { *memoryPP = memory };
-				PF_Err_NONE as PF_Err
+				PF_Err_NONE
 			}
-			None => PF_Err_OUT_OF_MEMORY as PF_Err,
+			None => PF_Err_OUT_OF_MEMORY,
 		}
 	})
 }
@@ -191,10 +191,10 @@ unsafe extern "C" fn free_device_memory(
 	crate::core::ffi::guard("free_device_memory", || {
 		let ctx = gpu_context_mut_or_bail!(effect_ref, "FreeDeviceMemory");
 		if ctx.free_raw(memoryP) {
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		} else {
 			log::error!("FreeDeviceMemory: unknown allocation {:#x}", memoryP as usize);
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			PF_Err_BAD_CALLBACK_PARAM
 		}
 	})
 }
@@ -208,11 +208,11 @@ unsafe extern "C" fn get_gpu_world_size(
 ) -> PF_Err {
 	crate::core::ffi::guard("get_gpu_world_size", || {
 		if worldP.is_null() || size_in_bytesP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let world = unsafe { &*worldP };
 		unsafe { *size_in_bytesP = world.height as usize * world.rowbytes as usize };
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -224,21 +224,21 @@ unsafe extern "C" fn get_gpu_world_device_index(
 ) -> PF_Err {
 	crate::core::ffi::guard("get_gpu_world_device_index", || {
 		if worldP.is_null() || device_indexP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		unsafe { *device_indexP = 0 };
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
 /// Exclusive device access is a no-op: aexlo drives one plugin on one thread, so
 /// there is never contention over the device.
 unsafe extern "C" fn acquire_exclusive_device_access(_effect_ref: PF_ProgPtr, _device_index: A_u_long) -> PF_Err {
-	crate::core::ffi::guard("acquire_exclusive_device_access", || PF_Err_NONE as PF_Err)
+	crate::core::ffi::guard("acquire_exclusive_device_access", || PF_Err_NONE)
 }
 
 unsafe extern "C" fn release_exclusive_device_access(_effect_ref: PF_ProgPtr, _device_index: A_u_long) -> PF_Err {
-	crate::core::ffi::guard("release_exclusive_device_access", || PF_Err_NONE as PF_Err)
+	crate::core::ffi::guard("release_exclusive_device_access", || PF_Err_NONE)
 }
 
 /// aexlo keeps no device-memory cache, so there is never anything to purge.
@@ -252,7 +252,7 @@ unsafe extern "C" fn purge_device_memory(
 		if let Some(out) = unsafe { bytes_purgedP0.as_mut() } {
 			*out = 0;
 		}
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -274,21 +274,21 @@ unsafe extern "C" fn allocate_host_memory(
 ) -> PF_Err {
 	crate::core::ffi::guard("allocate_host_memory", || {
 		let Some(out) = (unsafe { memoryPP.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let Ok(layout) = Layout::from_size_align(size.max(1), HOST_ALIGN) else {
-			return PF_Err_OUT_OF_MEMORY as PF_Err;
+			return PF_Err_OUT_OF_MEMORY;
 		};
 		let ptr = unsafe { std::alloc::alloc(layout) };
 		if ptr.is_null() {
-			return PF_Err_OUT_OF_MEMORY as PF_Err;
+			return PF_Err_OUT_OF_MEMORY;
 		}
 		HOST_ALLOCS
 			.lock()
 			.unwrap_or_else(|e| e.into_inner())
 			.insert(ptr as usize, layout.size());
 		*out = ptr as *mut c_void;
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -304,11 +304,11 @@ unsafe extern "C" fn free_host_memory(
 			.remove(&(memoryP as usize));
 		let Some(size) = size else {
 			log::error!("FreeHostMemory: unknown allocation {:#x}", memoryP as usize);
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		// SAFETY: the block came from `allocate_host_memory` with this exact layout.
 		unsafe { std::alloc::dealloc(memoryP as *mut u8, Layout::from_size_align_unchecked(size, HOST_ALIGN)) };
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -323,7 +323,7 @@ unsafe extern "C" fn purge_host_memory(
 		if let Some(out) = unsafe { bytes_purgedP0.as_mut() } {
 			*out = 0;
 		}
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -350,18 +350,17 @@ unsafe extern "C" fn create_gpu_world(
 	crate::core::ffi::guard("create_gpu_world", || {
 		let ctx = gpu_context_mut_or_bail!(effect_ref, "CreateGPUWorld");
 		let Some(out) = (unsafe { worldPP.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		#[allow(clippy::unnecessary_cast)] // `PF_PixelFormat_*` is `u32` on macOS only.
 		if pixel_format as u32 != PF_PixelFormat_GPU_BGRA128 as u32 || width <= 0 || height <= 0 {
 			log::error!("CreateGPUWorld: unsupported {width}x{height} world of format {pixel_format:#x}");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		let rowbytes = width * crate::gpu::GPU_BYTES_PER_PIXEL as A_long;
 		let byte_len = rowbytes as usize * height as usize;
 		let mut world: PF_EffectWorld = unsafe { std::mem::zeroed() };
-		world.world_flags = PF_WorldFlag_WRITEABLE as PF_WorldFlags;
+		world.world_flags = PF_WorldFlag_WRITEABLE;
 		world.rowbytes = rowbytes;
 		world.width = width;
 		world.height = height;
@@ -379,11 +378,11 @@ unsafe extern "C" fn create_gpu_world(
 		if !ctx.ensure_buffer(key, byte_len) || (clear_pixB != 0 && !ctx.write_buffer(key, &vec![0; byte_len])) {
 			ctx.release_buffer(key);
 			drop(unsafe { Box::from_raw(world) });
-			return PF_Err_OUT_OF_MEMORY as PF_Err;
+			return PF_Err_OUT_OF_MEMORY;
 		}
 		CREATED_GPU_WORLDS.lock().unwrap_or_else(|e| e.into_inner()).insert(key);
 		*out = world;
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -399,12 +398,12 @@ unsafe extern "C" fn dispose_gpu_world(effect_ref: PF_ProgPtr, worldP: *mut PF_E
 				"DisposeGPUWorld: {:#x} was not created by CreateGPUWorld",
 				worldP as usize
 			);
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		ctx.release_buffer(worldP as usize);
 		// SAFETY: boxed in `create_gpu_world` and removed from the live set above.
 		drop(unsafe { Box::from_raw(worldP) });
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -444,18 +443,12 @@ mod tests {
 		unsafe {
 			assert_eq!(
 				suite.AllocateHostMemory.unwrap()(std::ptr::null_mut(), 0, 100, &mut mem),
-				PF_Err_NONE as PF_Err
+				PF_Err_NONE
 			);
 			assert_eq!(mem as usize % HOST_ALIGN, 0);
 			std::ptr::write_bytes(mem as *mut u8, 0xab, 100);
-			assert_eq!(
-				suite.FreeHostMemory.unwrap()(std::ptr::null_mut(), 0, mem),
-				PF_Err_NONE as PF_Err
-			);
-			assert_ne!(
-				suite.FreeHostMemory.unwrap()(std::ptr::null_mut(), 0, mem),
-				PF_Err_NONE as PF_Err
-			);
+			assert_eq!(suite.FreeHostMemory.unwrap()(std::ptr::null_mut(), 0, mem), PF_Err_NONE);
+			assert_ne!(suite.FreeHostMemory.unwrap()(std::ptr::null_mut(), 0, mem), PF_Err_NONE);
 
 			let mut purged = 1;
 			suite.PurgeHostMemory.unwrap()(std::ptr::null_mut(), 0, 1 << 20, &mut purged);

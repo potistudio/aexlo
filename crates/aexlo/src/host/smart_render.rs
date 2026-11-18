@@ -1,6 +1,6 @@
 use std::ptr::{null, null_mut};
 
-use after_effects_sys::*;
+use crate::sys::*;
 
 use crate::PluginInstance;
 use crate::core::constants::{DEFAULT_HEIGHT as HEIGHT, DEFAULT_WIDTH as WIDTH};
@@ -11,27 +11,27 @@ unsafe extern "C" fn checkout_layer_stub(
 	effect_ref: PF_ProgPtr,
 	index: PF_ParamIndex,
 	checkout_idL: A_long,
-	req: *const after_effects_sys::PF_RenderRequest,
+	req: *const crate::sys::PF_RenderRequest,
 	_what_time: A_long,
 	_time_step: A_long,
 	_time_scale: A_u_long,
-	checkout_result: *mut after_effects_sys::PF_CheckoutResult,
+	checkout_result: *mut crate::sys::PF_CheckoutResult,
 ) -> PF_Err {
 	crate::core::ffi::guard("checkout_layer_stub", || {
 		//== Validation ==//
 		if effect_ref.is_null() {
 			log::error!("checkout_layer: effect_ref is null");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		if req.is_null() {
 			log::error!("checkout_layer: request pointer is null");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		if checkout_result.is_null() {
 			log::error!("checkout_layer: checkout_result pointer is null");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		//== Implementation ==//
@@ -51,20 +51,20 @@ unsafe extern "C" fn checkout_layer_stub(
 			None => (WIDTH as i32, HEIGHT as i32),
 		};
 
-		let result = after_effects_sys::PF_CheckoutResult {
-			result_rect: after_effects_sys::PF_Rect {
+		let result = crate::sys::PF_CheckoutResult {
+			result_rect: crate::sys::PF_Rect {
 				left: 0,
 				top: 0,
 				right: layer_w,
 				bottom: layer_h,
 			},
-			max_result_rect: after_effects_sys::PF_Rect {
+			max_result_rect: crate::sys::PF_Rect {
 				left: 0,
 				top: 0,
 				right: layer_w,
 				bottom: layer_h,
 			},
-			par: after_effects_sys::PF_RationalScale { num: 1, den: 1 },
+			par: crate::sys::PF_RationalScale { num: 1, den: 1 },
 			solid: 1,
 			reservedB: [0; 3],
 			ref_width: layer_w,
@@ -89,7 +89,7 @@ unsafe extern "C" fn checkout_layer_stub(
 			result: format!("{:?}", result),
 		);
 
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -102,12 +102,12 @@ unsafe extern "C" fn checkout_layer_pixels_stub(
 		//== Validation ==//
 		if effect_ref.is_null() {
 			log::error!("checkout_layer_pixels: effect_ref is null");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		if pixels.is_null() {
 			log::warn!("checkout_layer_pixels: pixels pointer is null");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		//== Implementation ==//
@@ -118,7 +118,7 @@ unsafe extern "C" fn checkout_layer_pixels_stub(
 				"checkout_layer_pixels: no instance found for effect_ref {:#x}",
 				effect_ref as usize
 			);
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 
 		// The caller passes an *uninitialized* `PF_EffectWorld*` slot (see the SDK's
@@ -139,7 +139,7 @@ unsafe extern "C" fn checkout_layer_pixels_stub(
 			result: format!("{:?}", world),
 		);
 
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -151,7 +151,7 @@ unsafe extern "C" fn checkin_layer_pixels_stub(_effect_ref: PF_ProgPtr, _checkou
 			"checkout_idL" => _checkout_idL,
 		);
 
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -160,12 +160,12 @@ unsafe extern "C" fn checkout_output_sys(effect_ref: PF_ProgPtr, output: *mut *m
 		//== Validation ==//
 		if effect_ref.is_null() {
 			log::error!("checkout_output: effect_ref is null");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		if output.is_null() {
 			log::error!("checkout_output: output pointer is null");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
 		//== Implementation ==//
@@ -174,7 +174,7 @@ unsafe extern "C" fn checkout_output_sys(effect_ref: PF_ProgPtr, output: *mut *m
 				"checkout_output: No instance found for effect_ref {:#x}",
 				effect_ref as usize
 			);
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 
 		// Hand back a pointer into the instance's persistent output world, not a
@@ -189,7 +189,7 @@ unsafe extern "C" fn checkout_output_sys(effect_ref: PF_ProgPtr, output: *mut *m
 			result: format!("`output` is set to internal output layer {:#x}", output as usize),
 		);
 
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	})
 }
 
@@ -218,12 +218,12 @@ fn empty_pre_render_output() -> PF_PreRenderOutput {
 
 /// Data structure to hold smart render state and provide callbacks.
 pub(crate) struct SmartRenderData {
-	pre_input: Box<after_effects_sys::PF_PreRenderInput>,
-	pre_output: Box<after_effects_sys::PF_PreRenderOutput>,
-	pre_callbacks: Box<after_effects_sys::PF_PreRenderCallbacks>,
+	pre_input: Box<crate::sys::PF_PreRenderInput>,
+	pre_output: Box<crate::sys::PF_PreRenderOutput>,
+	pre_callbacks: Box<crate::sys::PF_PreRenderCallbacks>,
 
-	input: Box<after_effects_sys::PF_SmartRenderInput>,
-	callbacks: Box<after_effects_sys::PF_SmartRenderCallbacks>,
+	input: Box<crate::sys::PF_SmartRenderInput>,
+	callbacks: Box<crate::sys::PF_SmartRenderCallbacks>,
 
 	/// Bits per channel of CPU renders: the depth of the instance's worlds.
 	cpu_bitdepth: i16,
@@ -233,11 +233,11 @@ impl SmartRenderData {
 	/// Creates a new SmartRenderData with default values.
 	pub fn new() -> Self {
 		Self {
-			pre_input: Box::new(after_effects_sys::PF_PreRenderInput {
+			pre_input: Box::new(crate::sys::PF_PreRenderInput {
 				bitdepth: 8,
 				device_index: 4294967295,
-				output_request: after_effects_sys::PF_RenderRequest {
-					rect: after_effects_sys::PF_LRect {
+				output_request: crate::sys::PF_RenderRequest {
+					rect: crate::sys::PF_LRect {
 						left: 0,
 						top: 0,
 						right: WIDTH as i32,
@@ -253,12 +253,12 @@ impl SmartRenderData {
 				gpu_data: null(),
 			}),
 			pre_output: Box::new(empty_pre_render_output()),
-			pre_callbacks: Box::new(after_effects_sys::PF_PreRenderCallbacks {
+			pre_callbacks: Box::new(crate::sys::PF_PreRenderCallbacks {
 				checkout_layer: Some(checkout_layer_stub),
 				GuidMixInPtr: None,
 			}),
 
-			input: Box::new(after_effects_sys::PF_SmartRenderInput {
+			input: Box::new(crate::sys::PF_SmartRenderInput {
 				output_request: PF_RenderRequest {
 					rect: PF_LRect {
 						left: 0,
@@ -278,7 +278,7 @@ impl SmartRenderData {
 				what_gpu: 0,
 				device_index: 4294967295,
 			}),
-			callbacks: Box::new(after_effects_sys::PF_SmartRenderCallbacks {
+			callbacks: Box::new(crate::sys::PF_SmartRenderCallbacks {
 				checkout_layer_pixels: Some(checkout_layer_pixels_stub),
 				checkin_layer_pixels: Some(checkin_layer_pixels_stub),
 				checkout_output: Some(checkout_output_sys),
@@ -384,7 +384,7 @@ impl SmartRenderData {
 
 	/// Whether the current render is a GPU render (see [`Self::configure_gpu`]).
 	pub fn is_gpu(&self) -> bool {
-		self.input.what_gpu != PF_GPU_Framework_NONE as PF_GPU_Framework
+		self.input.what_gpu != PF_GPU_Framework_NONE
 	}
 
 	/// Set the depth CPU renders advertise (8, 16 or 32), applying it now unless
@@ -403,12 +403,12 @@ impl SmartRenderData {
 	/// smart-render fallback does not leave the plugin believing it should still
 	/// produce a GPU frame.
 	pub fn configure_cpu(&mut self) {
-		self.pre_input.what_gpu = PF_GPU_Framework_NONE as PF_GPU_Framework;
+		self.pre_input.what_gpu = PF_GPU_Framework_NONE;
 		self.pre_input.device_index = 0;
 		self.pre_input.bitdepth = self.cpu_bitdepth;
 		self.pre_input.gpu_data = null();
 
-		self.input.what_gpu = PF_GPU_Framework_NONE as PF_GPU_Framework;
+		self.input.what_gpu = PF_GPU_Framework_NONE;
 		self.input.device_index = 0;
 		self.input.bitdepth = self.cpu_bitdepth;
 		self.input.gpu_data = null();

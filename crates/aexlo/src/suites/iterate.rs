@@ -35,7 +35,7 @@
 
 #[cfg(feature = "diagnostics")]
 use crate::core::diagnostics::DiagnosticBuilder;
-use after_effects_sys::*;
+use crate::sys::*;
 use rayon::prelude::*;
 use std::cell::Cell;
 use std::ops::Range;
@@ -92,7 +92,7 @@ unsafe fn iterate_pixels<P>(
 	dst: *mut PF_EffectWorld,
 ) -> PF_Err {
 	if dst.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	}
 
 	// A null `src` is legal: the SDK's iterate then walks `dst` only, which is how
@@ -108,7 +108,7 @@ unsafe fn iterate_pixels<P>(
 	let dst_world = &unsafe { *dst };
 
 	if src_world.data.is_null() || dst_world.data.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	}
 
 	let (origin_h, origin_v) = if origin.is_null() {
@@ -145,7 +145,7 @@ unsafe fn iterate_pixels<P>(
 		rect.bottom = rect.bottom.min(origin_v + src_world.height);
 	} else if src_world.width <= 0 || src_world.height <= 0 {
 		// Non-clip clamping needs at least one source pixel to point at.
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	}
 
 	let start_x = rect.left;
@@ -155,7 +155,7 @@ unsafe fn iterate_pixels<P>(
 	let height = (rect.bottom - rect.top).max(0);
 
 	if width == 0 || height == 0 {
-		return PF_Err_NONE as PF_Err;
+		return PF_Err_NONE;
 	}
 
 	// Prepare pointers and strides for thread-safe access
@@ -179,8 +179,8 @@ unsafe fn iterate_pixels<P>(
 	// As a generic suite implementation, we must rely on this contract.
 	let refcon_addr = refcon as usize;
 
-	// First callback error, if any. `PF_Err` is `u32` on macOS and `i32` elsewhere;
-	// staging it through an `i64` sidesteps the platform-dependent atomic type.
+	// First callback error, if any. Staged through an `i64` so one atomic holds
+	// whichever error type the callback returns.
 	let error_capsule = AtomicI64::new(PF_Err_NONE as i64);
 
 	// Rows in parallel (unless serial iteration was requested), pixels within a
@@ -230,7 +230,7 @@ unsafe fn iterate_pixels<P>(
 				// 3. `src_pixel` is only read (clip/clamp keeps it inside the source buffer).
 				// 4. `func` is an external C function. We trust it adheres to the `Iterate` contract.
 				let err = unsafe { func(refcon_ptr, current_x, current_y, src_pixel, dst_pixel) };
-				if err != PF_Err_NONE as PF_Err {
+				if err != PF_Err_NONE {
 					// Attempt to store the first error. We don't care if we overwrite another error or lose one race.
 					error_capsule.store(err as i64, Ordering::Relaxed);
 					return; // Stop processing this row
@@ -434,7 +434,7 @@ pub(crate) unsafe extern "C" fn iterate_lut_sys(
 					blue: luts.b[px.blue as usize],
 				};
 			}
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 
 		let tables = LutTables {
@@ -471,11 +471,11 @@ pub(crate) unsafe extern "C" fn iterate_generic_sys(
 	crate::core::ffi::guard("iterate_generic_sys", || {
 		let Some(func) = fn_func else {
 			log::error!("iterate_generic: fn_func is null");
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 
 		if iterationsL <= 0 {
-			return PF_Err_NONE as PF_Err;
+			return PF_Err_NONE;
 		}
 
 		// Cast refcon to usize so it can cross the rayon closure; the plugin owns
@@ -495,7 +495,7 @@ pub(crate) unsafe extern "C" fn iterate_generic_sys(
 			// exactly once and the plugin guarantees refcon thread-safety per the
 			// iterate_generic contract.
 			let err = unsafe { func(refcon_addr as *mut c_void, thread_index, i, iterationsL) };
-			if err != PF_Err_NONE as PF_Err {
+			if err != PF_Err_NONE {
 				error_capsule.store(err as i64, Ordering::Relaxed);
 			}
 		});
@@ -509,14 +509,14 @@ pub(crate) unsafe extern "C" fn iterate_generic_sys(
 unsafe extern "C" fn aegp_get_num_threads_sys(num_threadsPL: *mut A_long) -> A_Err {
 	crate::core::ffi::guard("aegp_get_num_threads_sys", || {
 		let Some(out) = (unsafe { num_threadsPL.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = if PARALLEL_ITERATE.get() {
 			rayon::current_num_threads() as A_long
 		} else {
 			1
 		};
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -582,7 +582,7 @@ mod tests {
 		seen.lock().unwrap().insert(std::thread::current().id());
 		// Give the pool a chance to spread work when running in parallel.
 		std::thread::sleep(std::time::Duration::from_micros(200));
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	}
 
 	#[test]
@@ -623,22 +623,18 @@ mod tests {
 	unsafe extern "C" fn accumulate(refcon: *mut c_void, _thread: A_long, i: A_long, _n: A_long) -> PF_Err {
 		let sum = unsafe { &*(refcon as *const AtomicI64) };
 		sum.fetch_add(i as i64, Ordering::Relaxed);
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	}
 
 	unsafe extern "C" fn fail_at_zero(_refcon: *mut c_void, _thread: A_long, i: A_long, _n: A_long) -> PF_Err {
-		if i == 0 {
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
-		} else {
-			PF_Err_NONE as PF_Err
-		}
+		if i == 0 { PF_Err_BAD_CALLBACK_PARAM } else { PF_Err_NONE }
 	}
 
 	#[test]
 	fn iterate_generic_visits_every_index_once() {
 		let sum = AtomicI64::new(0);
 		let err = unsafe { iterate_generic_sys(100, &sum as *const _ as *mut c_void, Some(accumulate)) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		// 0 + 1 + ... + 99
 		assert_eq!(sum.load(Ordering::Relaxed), 4950);
 	}
@@ -646,18 +642,18 @@ mod tests {
 	#[test]
 	fn iterate_generic_propagates_callback_errors() {
 		let err = unsafe { iterate_generic_sys(8, std::ptr::null_mut(), Some(fail_at_zero)) };
-		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as PF_Err);
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
 	}
 
 	#[test]
 	fn iterate_generic_rejects_null_fn_and_accepts_zero_iterations() {
 		assert_eq!(
 			unsafe { iterate_generic_sys(10, std::ptr::null_mut(), None) },
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			PF_Err_BAD_CALLBACK_PARAM
 		);
 		assert_eq!(
 			unsafe { iterate_generic_sys(0, std::ptr::null_mut(), Some(accumulate)) },
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		);
 	}
 
@@ -677,7 +673,7 @@ mod tests {
 				blue: 32768 - px.blue,
 			};
 		}
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	}
 
 	#[test]
@@ -715,7 +711,7 @@ mod tests {
 				&mut dst,
 			)
 		};
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		for p in &dst_buf {
 			assert_eq!((p.alpha, p.red, p.green, p.blue), (32768, 0, 24576, 32768));
 		}
@@ -729,7 +725,7 @@ mod tests {
 		out: *mut PF_PixelFloat,
 	) -> PF_Err {
 		unsafe { *out = *in_ };
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	}
 
 	#[test]
@@ -771,7 +767,7 @@ mod tests {
 				&mut dst,
 			)
 		};
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		for y in 0..h {
 			for x in 0..w {
 				let p = dst_buf[(y * w + x) as usize];
@@ -794,7 +790,7 @@ mod tests {
 		out: *mut PF_Pixel,
 	) -> PF_Err {
 		unsafe { *out = *in_ };
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	}
 
 	/// 2x2 source pasted into a 4x4 destination at origin (1, 1): only the
@@ -840,7 +836,7 @@ mod tests {
 				&mut dst,
 			)
 		};
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		for y in 0..dh {
 			for x in 0..dw {
 				let p = dst_buf[(y * dw + x) as usize];
@@ -898,7 +894,7 @@ mod tests {
 				&mut dst,
 			)
 		};
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		for y in 0..dh {
 			for x in 0..dw {
 				let p = dst_buf[(y * dw + x) as usize];
@@ -956,7 +952,7 @@ mod tests {
 				&mut dst,
 			)
 		};
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		for p in &dst_buf {
 			assert_eq!((p.alpha, p.red, p.green, p.blue), (200, 6, 7, 11));
 		}
@@ -969,7 +965,7 @@ mod tests {
 		_in: *mut PF_Pixel16,
 		_out: *mut PF_Pixel16,
 	) -> PF_Err {
-		PF_Err_OUT_OF_MEMORY as PF_Err
+		PF_Err_OUT_OF_MEMORY
 	}
 
 	#[test]
@@ -999,7 +995,7 @@ mod tests {
 				&mut world,
 			)
 		};
-		assert_eq!(err, PF_Err_OUT_OF_MEMORY as PF_Err);
+		assert_eq!(err, PF_Err_OUT_OF_MEMORY);
 
 		let err = unsafe {
 			iterate_16_sys(
@@ -1013,6 +1009,6 @@ mod tests {
 				std::ptr::null_mut(),
 			)
 		};
-		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as PF_Err);
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
 	}
 }

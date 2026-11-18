@@ -12,7 +12,7 @@
 //! version 4) but has no effect-mask calls. Version 4 appends those calls;
 //! aexlo's effects have no effect masks.
 
-use after_effects_sys::{
+use crate::sys::{
 	A_Err, A_Err_GENERIC, A_Time, A_char, A_long, A_u_long, AEGP_EffectFlags, AEGP_EffectFlags_ACTIVE,
 	AEGP_EffectIndex, AEGP_EffectRefH, AEGP_EffectSuite1, AEGP_EffectSuite2, AEGP_EffectSuite3, AEGP_EffectSuite4,
 	AEGP_InstalledEffectKey, AEGP_LayerH, AEGP_MaskIDVal, AEGP_PluginID, AEGP_StreamRefH, PF_Cmd,
@@ -55,7 +55,7 @@ pub(crate) fn with_param<R>(effect_ref: PF_ProgPtr, index: usize, f: impl FnOnce
 
 fn unsupported(name: &str) -> A_Err {
 	log::warn!("AEGP_EffectSuite2/{name}: aexlo has no layers or installed-effect registry");
-	A_Err_GENERIC as A_Err
+	A_Err_GENERIC
 }
 
 unsafe extern "C" fn get_layer_num_effects(_layerH: AEGP_LayerH, _num_effectsPL: *mut A_long) -> A_Err {
@@ -101,13 +101,13 @@ unsafe extern "C" fn get_effect_param_union_by_index(
 		);
 
 		let Some(effect_ref) = (unsafe { effect_ref_of(effect_refH) }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let Ok(index) = usize::try_from(param_index) else {
-			return PF_Err_INVALID_INDEX as A_Err;
+			return PF_Err_INVALID_INDEX;
 		};
 		let Some((param_type, u)) = with_param(effect_ref, index, |def| (def.param_type, def.u)) else {
-			return PF_Err_INVALID_INDEX as A_Err;
+			return PF_Err_INVALID_INDEX;
 		};
 		unsafe {
 			if let Some(out) = param_typeP.as_mut() {
@@ -117,7 +117,7 @@ unsafe extern "C" fn get_effect_param_union_by_index(
 				*out = u;
 			}
 		}
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -129,13 +129,13 @@ unsafe extern "C" fn get_effect_flags(effect_refH: AEGP_EffectRefH, effect_flags
 		);
 
 		if unsafe { effect_ref_of(effect_refH) }.is_none() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let Some(out) = (unsafe { effect_flagsP.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		*out = AEGP_EffectFlags_ACTIVE as AEGP_EffectFlags;
-		PF_Err_NONE as A_Err
+		*out = AEGP_EffectFlags_ACTIVE;
+		PF_Err_NONE
 	})
 }
 
@@ -189,11 +189,11 @@ unsafe extern "C" fn dispose_effect(effect_refH: AEGP_EffectRefH) -> A_Err {
 		);
 
 		if effect_refH.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		// SAFETY: non-null effect handles only come from `new_effect_handle`.
 		drop(unsafe { Box::from_raw(effect_refH as *mut Effect) });
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -270,13 +270,13 @@ unsafe extern "C" fn duplicate_effect(
 		);
 
 		let Some(effect_ref) = (unsafe { effect_ref_of(original_effect_refH) }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let Some(out) = (unsafe { duplicate_effect_refPH.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = new_effect_handle(effect_ref);
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -287,13 +287,13 @@ unsafe extern "C" fn num_effect_mask(effect_refH: AEGP_EffectRefH, num_masksPL: 
 		);
 
 		if unsafe { effect_ref_of(effect_refH) }.is_none() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let Some(out) = (unsafe { num_masksPL.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = 0;
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -308,9 +308,9 @@ unsafe extern "C" fn get_effect_mask_id(
 		);
 
 		if unsafe { effect_ref_of(effect_refH) }.is_none() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		PF_Err_INVALID_INDEX as A_Err
+		PF_Err_INVALID_INDEX
 	})
 }
 
@@ -456,19 +456,13 @@ mod tests {
 		let mut dup: AEGP_EffectRefH = std::ptr::null_mut();
 		let mut flags: AEGP_EffectFlags = 0;
 		unsafe {
-			assert_eq!(
-				suite.AEGP_DuplicateEffect.unwrap()(handle, &mut dup),
-				PF_Err_NONE as A_Err
-			);
+			assert_eq!(suite.AEGP_DuplicateEffect.unwrap()(handle, &mut dup), PF_Err_NONE);
 			assert_eq!(effect_ref_of(dup), Some(effect_ref));
-			assert_eq!(
-				suite.AEGP_GetEffectFlags.unwrap()(dup, &mut flags),
-				PF_Err_NONE as A_Err
-			);
-			assert_eq!(suite.AEGP_DisposeEffect.unwrap()(dup), PF_Err_NONE as A_Err);
-			assert_eq!(suite.AEGP_DisposeEffect.unwrap()(handle), PF_Err_NONE as A_Err);
+			assert_eq!(suite.AEGP_GetEffectFlags.unwrap()(dup, &mut flags), PF_Err_NONE);
+			assert_eq!(suite.AEGP_DisposeEffect.unwrap()(dup), PF_Err_NONE);
+			assert_eq!(suite.AEGP_DisposeEffect.unwrap()(handle), PF_Err_NONE);
 		}
-		assert_eq!(flags, AEGP_EffectFlags_ACTIVE as AEGP_EffectFlags);
+		assert_eq!(flags, AEGP_EffectFlags_ACTIVE);
 	}
 
 	#[test]
@@ -478,12 +472,12 @@ mod tests {
 		let mut n: A_u_long = 9;
 		let mut id: AEGP_MaskIDVal = 0;
 		unsafe {
-			assert_eq!(suite.AEGP_NumEffectMask.unwrap()(handle, &mut n), PF_Err_NONE as A_Err);
+			assert_eq!(suite.AEGP_NumEffectMask.unwrap()(handle, &mut n), PF_Err_NONE);
 			assert_eq!(
 				suite.AEGP_GetEffectMaskID.unwrap()(handle, 0, &mut id),
-				PF_Err_INVALID_INDEX as A_Err
+				PF_Err_INVALID_INDEX
 			);
-			assert_eq!(suite.AEGP_DisposeEffect.unwrap()(handle), PF_Err_NONE as A_Err);
+			assert_eq!(suite.AEGP_DisposeEffect.unwrap()(handle), PF_Err_NONE);
 		}
 		assert_eq!(n, 0);
 	}
@@ -495,12 +489,9 @@ mod tests {
 		unsafe {
 			assert_ne!(
 				suite.AEGP_GetEffectFlags.unwrap()(std::ptr::null_mut(), &mut flags),
-				PF_Err_NONE as A_Err
+				PF_Err_NONE
 			);
-			assert_ne!(
-				suite.AEGP_DisposeEffect.unwrap()(std::ptr::null_mut()),
-				PF_Err_NONE as A_Err
-			);
+			assert_ne!(suite.AEGP_DisposeEffect.unwrap()(std::ptr::null_mut()), PF_Err_NONE);
 		}
 	}
 }

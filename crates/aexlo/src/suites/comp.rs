@@ -9,7 +9,7 @@
 //! the project's one item (the same handle; see [`aegp_item`](super::aegp_item)).
 //! Creating or changing anything is refused with `A_Err_GENERIC`.
 
-use after_effects_sys::*;
+use crate::sys::*;
 
 use super::layer::{Timeline, answer, comp_handle, item_handle};
 use crate::core::diagnostics::diag;
@@ -22,13 +22,13 @@ unsafe extern "C" fn get_comp_from_item(itemH: AEGP_ItemH, compPH: *mut AEGP_Com
 	crate::core::ffi::guard("get_comp_from_item", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompFromItem", "itemH" => format!("{:#x}", itemH as usize));
 		let Some(out) = (unsafe { compPH.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if Timeline::of(itemH as _).is_none() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = comp_handle(itemH as PF_ProgPtr);
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -36,19 +36,19 @@ unsafe extern "C" fn get_item_from_comp(compH: AEGP_CompH, itemPH: *mut AEGP_Ite
 	crate::core::ffi::guard("get_item_from_comp", || {
 		diag!("AEGP_CompSuite10/AEGP_GetItemFromComp", "compH" => format!("{:#x}", compH as usize));
 		let Some(out) = (unsafe { itemPH.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if Timeline::of(compH as _).is_none() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = item_handle(compH as PF_ProgPtr);
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
 fn unsupported(name: &str) -> A_Err {
 	log::warn!("AEGP_CompSuite10/{name}: aexlo's comp is fixed");
-	A_Err_GENERIC as A_Err
+	A_Err_GENERIC
 }
 
 /// Stubs for the calls that create, edit or select things.
@@ -207,7 +207,7 @@ unsafe extern "C" fn get_comp_shutter_angle_phase(
 	crate::core::ffi::guard("get_comp_shutter_angle_phase", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompShutterAnglePhase", "compH" => format!("{:#x}", compH as usize));
 		if Timeline::of(compH as _).is_none() || angle.is_null() || phase.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		unsafe {
 			*angle = A_Ratio {
@@ -219,7 +219,7 @@ unsafe extern "C" fn get_comp_shutter_angle_phase(
 				den: 1,
 			};
 		}
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -235,13 +235,13 @@ unsafe extern "C" fn get_comp_shutter_frame_range(
 	crate::core::ffi::guard("get_comp_shutter_frame_range", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompShutterFrameRange", "compH" => format!("{:#x}", compH as usize));
 		let Some(t) = Timeline::of(compH as _) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let Some(time) = (unsafe { comp_timeP.as_ref() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if start.is_null() || duration.is_null() || time.scale == 0 {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		// One frame is `time_step / time_scale` s; at a scale of `time_scale * 360`
 		// it is `time_step * 360` ticks, so a degree of shutter is `time_step` ticks.
@@ -258,7 +258,7 @@ unsafe extern "C" fn get_comp_shutter_frame_range(
 				scale: scale as A_u_long,
 			};
 		}
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -377,7 +377,7 @@ macro_rules! refuse_v4 {
 		$(unsafe extern "C" fn $fn_name($($arg: $ty),*) -> A_Err {
 			$(let _ = $arg;)*
 			diag!(concat!("AEGP_CompSuite4/", $name));
-			A_Err_GENERIC as A_Err
+			A_Err_GENERIC
 		})*
 	};
 }
@@ -436,7 +436,7 @@ mod tests {
 		let suite = create_comp_suite_10();
 		let mut fps: A_FpLong = -1.0;
 		let err = unsafe { suite.AEGP_GetCompFramerate.unwrap()(std::ptr::null_mut(), &mut fps) };
-		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as A_Err);
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
 		assert_eq!(fps, -1.0);
 	}
 
@@ -448,11 +448,11 @@ mod tests {
 		let mut current_fps = -1.0;
 		let old_err = unsafe { old.AEGP_GetCompFramerate.unwrap()(std::ptr::null_mut(), &mut old_fps) };
 		let current_err = unsafe { current.AEGP_GetCompFramerate.unwrap()(std::ptr::null_mut(), &mut current_fps) };
-		assert_eq!(old_err, PF_Err_BAD_CALLBACK_PARAM as A_Err);
+		assert_eq!(old_err, PF_Err_BAD_CALLBACK_PARAM);
 		assert_eq!(old_err, current_err);
 		assert_eq!((old_fps, current_fps), (-1.0, -1.0));
 		let result = unsafe { old.AEGP_GetCompFrameDuration.unwrap()(std::ptr::null_mut(), std::ptr::null_mut()) };
-		assert_eq!(result, PF_Err_BAD_CALLBACK_PARAM as A_Err);
+		assert_eq!(result, PF_Err_BAD_CALLBACK_PARAM);
 	}
 
 	#[test]
@@ -461,12 +461,12 @@ mod tests {
 		let marker = 1usize as AEGP_LayerH;
 		let mut result = marker;
 		let err = unsafe { suite.AEGP_CreateTextLayerInComp.unwrap()(std::ptr::null_mut(), &mut result) };
-		assert_eq!(err, A_Err_GENERIC as A_Err);
+		assert_eq!(err, A_Err_GENERIC);
 		assert_eq!(result, marker);
 		let err = unsafe {
 			suite.AEGP_CreateNullInComp.unwrap()(std::ptr::null(), std::ptr::null_mut(), std::ptr::null(), &mut result)
 		};
-		assert_eq!(err, A_Err_GENERIC as A_Err);
+		assert_eq!(err, A_Err_GENERIC);
 		assert_eq!(result, marker);
 	}
 

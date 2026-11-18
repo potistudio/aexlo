@@ -16,7 +16,7 @@
 
 use std::cell::Cell;
 
-use after_effects_sys::*;
+use crate::sys::*;
 
 use crate::PluginInstance;
 use crate::core::diagnostics::diag;
@@ -118,20 +118,20 @@ impl Timeline {
 
 fn unsupported(name: &str) -> A_Err {
 	log::warn!("AEGP_LayerSuite/{name}: aexlo's timeline is a fixed single layer");
-	A_Err_GENERIC as A_Err
+	A_Err_GENERIC
 }
 
 /// Resolve `handle` and write `value(timeline)` to `out`, or report a bad
 /// handle or a null out-param.
 pub(crate) fn answer<T>(handle: *mut std::ffi::c_void, out: *mut T, value: impl FnOnce(&Timeline) -> T) -> A_Err {
 	let Some(timeline) = Timeline::of(handle) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	};
 	let Some(out) = (unsafe { out.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	};
 	*out = value(&timeline);
-	PF_Err_NONE as A_Err
+	PF_Err_NONE
 }
 
 unsafe extern "C" fn get_comp_num_layers(compH: AEGP_CompH, num_layersPL: *mut A_long) -> A_Err {
@@ -152,7 +152,7 @@ unsafe extern "C" fn get_comp_layer_by_index(
 			"layer_indexL" => layer_indexL,
 		);
 		if layer_indexL != 0 && Timeline::of(compH as _).is_some() {
-			return PF_Err_INVALID_INDEX as A_Err;
+			return PF_Err_INVALID_INDEX;
 		}
 		answer(compH as _, layerPH, |_| layer_handle(compH as PF_ProgPtr))
 	})
@@ -203,7 +203,7 @@ unsafe extern "C" fn get_layer_name(
 	crate::core::ffi::guard("get_layer_name", || {
 		diag!("AEGP_LayerSuite/AEGP_GetLayerName", "layerH" => format!("{:#x}", layerH as usize));
 		if Timeline::of(layerH as _).is_none() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		unsafe {
 			if let Some(out) = layer_nameZ0.as_mut() {
@@ -213,7 +213,7 @@ unsafe extern "C" fn get_layer_name(
 				*out = 0;
 			}
 		}
-		PF_Err_NONE as A_Err
+		PF_Err_NONE
 	})
 }
 
@@ -234,9 +234,7 @@ unsafe extern "C" fn set_layer_quality(_layerH: AEGP_LayerH, _quality: AEGP_Laye
 unsafe extern "C" fn get_layer_flags(layerH: AEGP_LayerH, layer_flagsP: *mut AEGP_LayerFlags) -> A_Err {
 	crate::core::ffi::guard("get_layer_flags", || {
 		diag!("AEGP_LayerSuite/AEGP_GetLayerFlags", "layerH" => format!("{:#x}", layerH as usize));
-		answer(layerH as _, layer_flagsP, |_| {
-			AEGP_LayerFlag_VIDEO_ACTIVE as AEGP_LayerFlags
-		})
+		answer(layerH as _, layer_flagsP, |_| AEGP_LayerFlag_VIDEO_ACTIVE)
 	})
 }
 
@@ -350,7 +348,7 @@ unsafe extern "C" fn get_layer_transfer_mode(
 		answer(layerH as _, transfer_modeP, |_| AEGP_LayerTransferMode {
 			mode: PF_Xfer_IN_FRONT as PF_TransferMode,
 			flags: 0,
-			track_matte: AEGP_TrackMatte_NO_TRACK_MATTE as AEGP_TrackMatte,
+			track_matte: AEGP_TrackMatte_NO_TRACK_MATTE,
 		})
 	})
 }
@@ -443,7 +441,7 @@ unsafe extern "C" fn is_video_active(
 	crate::core::ffi::guard("is_video_active", || {
 		diag!("AEGP_LayerSuite/AEGP_IsVideoActive", "layerH" => format!("{:#x}", layerH as usize));
 		let Some(time) = (unsafe { timePT.as_ref() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		answer(layerH as _, is_activePB, |t| {
 			let frame = t.frame_of(time);
@@ -478,7 +476,7 @@ unsafe extern "C" fn convert_comp_to_layer_time(
 	crate::core::ffi::guard("convert_comp_to_layer_time", || {
 		diag!("AEGP_LayerSuite/AEGP_ConvertCompToLayerTime", "layerH" => format!("{:#x}", layerH as usize));
 		let Some(time) = (unsafe { comp_timePT.as_ref() }).copied() else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		answer(layerH as _, layer_timePT, |_| time)
 	})
@@ -492,7 +490,7 @@ unsafe extern "C" fn convert_layer_to_comp_time(
 	crate::core::ffi::guard("convert_layer_to_comp_time", || {
 		diag!("AEGP_LayerSuite/AEGP_ConvertLayerToCompTime", "layerH" => format!("{:#x}", layerH as usize));
 		let Some(time) = (unsafe { layer_timePT.as_ref() }).copied() else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		answer(layerH as _, comp_timePT, |_| time)
 	})
@@ -508,7 +506,7 @@ unsafe extern "C" fn get_layer_dancing_rand_value(
 	crate::core::ffi::guard("get_layer_dancing_rand_value", || {
 		diag!("AEGP_LayerSuite/AEGP_GetLayerDancingRandValue", "layerH" => format!("{:#x}", layerH as usize));
 		let Some(time) = (unsafe { comp_timePT.as_ref() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		answer(layerH as _, rand_valuePL, |t| {
 			// splitmix64 of the frame number.
@@ -606,7 +604,7 @@ unsafe extern "C" fn get_layer_from_layer_id(
 			"id" => id,
 		);
 		if id != LAYER_ID && Timeline::of(parent_compH as _).is_some() {
-			return PF_Err_INVALID_INDEX as A_Err;
+			return PF_Err_INVALID_INDEX;
 		}
 		answer(parent_compH as _, layerPH, |_| layer_handle(parent_compH as PF_ProgPtr))
 	})
@@ -653,9 +651,7 @@ unsafe extern "C" fn get_layer_sampling_quality(
 ) -> A_Err {
 	crate::core::ffi::guard("get_layer_sampling_quality", || {
 		diag!("AEGP_LayerSuite/AEGP_GetLayerSamplingQuality", "layerH" => format!("{:#x}", layerH as usize));
-		answer(layerH as _, qualityP, |_| {
-			AEGP_LayerSamplingQual_BILINEAR as AEGP_LayerSamplingQuality
-		})
+		answer(layerH as _, qualityP, |_| AEGP_LayerSamplingQual_BILINEAR)
 	})
 }
 
@@ -697,9 +693,9 @@ unsafe extern "C" fn get_light_type(light_layerH: AEGP_LayerH, _light_typeP: *mu
 	crate::core::ffi::guard("get_light_type", || {
 		diag!("AEGP_LightSuite1/AEGP_GetLightType", "light_layerH" => format!("{:#x}", light_layerH as usize));
 		if Timeline::of(light_layerH as _).is_none() {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		A_Err_GENERIC as A_Err
+		A_Err_GENERIC
 	})
 }
 
@@ -893,7 +889,7 @@ mod tests {
 		let suite = create_layer_suite_5();
 		let mut time = A_Time { value: 7, scale: 7 };
 		let err = unsafe { suite.AEGP_GetLayerDuration.unwrap()(std::ptr::null_mut(), 0, &mut time) };
-		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM as A_Err);
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
 		assert_eq!((time.value, time.scale), (7, 7));
 	}
 }

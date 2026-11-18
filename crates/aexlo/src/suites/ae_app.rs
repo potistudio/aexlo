@@ -8,8 +8,8 @@
 use super::ffi::{read_c_str, write_c_str};
 use crate::core::diagnostics::diag;
 use crate::host::app::{AppPixelF, AppPoint, ProgressId, with_app_host_ffi as with_host};
-use after_effects_sys::{
-	_PF_AppProgressDialog, A_UTF16Char, A_char, A_long, A_short, PF_App_Color, PF_App_ColorType,
+use crate::sys::{
+	_PF_AppProgressDialog, A_UTF16Char, A_char, A_long, A_short, AsLong, PF_App_Color, PF_App_ColorType,
 	PF_AppPersonalTextInfo, PF_AppProgressDialogP, PF_Boolean, PF_ContextH, PF_CursorType, PF_Err,
 	PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_EyeDropperSampleMode, PF_FontName, PF_FontStyleSheet,
 	PF_Interrupt_CANCEL, PF_PixelFloat, PF_Point, PF_Rect, PFAppSuite4, PFAppSuite5, PFAppSuite6,
@@ -84,14 +84,13 @@ unsafe extern "C" fn get_language(lang_tagZ: *mut A_char) -> PF_Err {
 		);
 
 		if lang_tagZ.is_null() {
-			return PF_Err_NONE as PF_Err;
+			return PF_Err_NONE;
 		}
 		with_host(|host| {
-			let buf =
-				unsafe { std::slice::from_raw_parts_mut(lang_tagZ, after_effects_sys::PF_APP_LANG_TAG_SIZE as usize) };
+			let buf = unsafe { std::slice::from_raw_parts_mut(lang_tagZ, crate::sys::PF_APP_LANG_TAG_SIZE as usize) };
 			buf.fill(0);
 			write_c_str(buf, &host.language());
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -111,11 +110,11 @@ unsafe extern "C" fn is_render_engine(render_enginePB: *mut PF_Boolean) -> PF_Er
 		);
 
 		if render_enginePB.is_null() {
-			return PF_Err_NONE as PF_Err;
+			return PF_Err_NONE;
 		}
 		with_host(|host| {
 			unsafe { *render_enginePB = host.is_render_engine() as PF_Boolean };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -127,7 +126,7 @@ unsafe extern "C" fn get_bg_color(bg_colorP: *mut PF_App_Color) -> PF_Err {
 		);
 
 		if bg_colorP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		with_host(|host| {
 			let c = host.bg_color();
@@ -138,7 +137,7 @@ unsafe extern "C" fn get_bg_color(bg_colorP: *mut PF_App_Color) -> PF_Err {
 					blue: c.blue,
 				}
 			};
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -151,7 +150,7 @@ unsafe extern "C" fn get_color(color_type: PF_App_ColorType, app_colorP: *mut PF
 		);
 
 		if app_colorP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		with_host(|host| {
 			let c = host.color(color_type);
@@ -162,7 +161,7 @@ unsafe extern "C" fn get_color(color_type: PF_App_ColorType, app_colorP: *mut PF
 					blue: c.blue,
 				}
 			};
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -174,7 +173,7 @@ unsafe extern "C" fn get_personal_info(ptiP: *mut PF_AppPersonalTextInfo) -> PF_
 		);
 
 		if ptiP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		with_host(|host| {
 			let info = host.personal_info();
@@ -182,7 +181,7 @@ unsafe extern "C" fn get_personal_info(ptiP: *mut PF_AppPersonalTextInfo) -> PF_
 			write_c_str(&mut pti.name, &info.name);
 			write_c_str(&mut pti.org, &info.org);
 			write_c_str(&mut pti.serial_str, &info.serial);
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -205,8 +204,7 @@ unsafe extern "C" fn get_font_style_sheet(
 		);
 
 		with_host(|host| {
-			#[allow(clippy::unnecessary_cast)] // `PF_FontStyleSheet` is `u32` on macOS only.
-			let font = host.font_style_sheet(sheet as i32);
+			let font = host.font_style_sheet(sheet.long());
 			unsafe {
 				if let Some(name) = font_nameP0.as_mut() {
 					write_c_str(&mut name.font_nameAC, &font.name);
@@ -221,7 +219,7 @@ unsafe extern "C" fn get_font_style_sheet(
 					}
 				}
 			}
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -234,7 +232,7 @@ unsafe extern "C" fn set_cursor(cursor: PF_CursorType) -> PF_Err {
 
 		with_host(|host| {
 			host.set_cursor(cursor);
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -255,7 +253,7 @@ unsafe extern "C" fn color_picker_dialog(
 		);
 
 		if sample_colorP.is_null() || new_colorP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		with_host(|host| {
 			let title = unsafe { read_c_str(dialog_titleZ0) };
@@ -263,9 +261,9 @@ unsafe extern "C" fn color_picker_dialog(
 			match host.pick_color(title.as_deref(), sample, use_ws_to_monitor_xformB != 0) {
 				Some(c) => {
 					unsafe { *new_colorP = to_ffi_pixel(c) };
-					PF_Err_NONE as PF_Err
+					PF_Err_NONE
 				}
-				None => PF_Interrupt_CANCEL as PF_Err,
+				None => PF_Interrupt_CANCEL,
 			}
 		})
 	})
@@ -278,12 +276,12 @@ unsafe extern "C" fn get_mouse(pointP: *mut PF_Point) -> PF_Err {
 		);
 
 		if pointP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		with_host(|host| {
 			let p = host.mouse();
 			unsafe { *pointP = PF_Point { h: p.h, v: p.v } };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -298,7 +296,7 @@ unsafe extern "C" fn invalidate_rect(contextH: PF_ContextH, rectP0: *const PF_Re
 		with_host(|host| {
 			let rect = unsafe { rectP0.as_ref() }.map(|r| (r.left, r.top, r.right, r.bottom));
 			host.invalidate_rect(contextH as usize, rect);
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -311,13 +309,13 @@ unsafe extern "C" fn convert_local_to_global(localP: *const PF_Point, globalP: *
 		);
 
 		if localP.is_null() || globalP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		with_host(|host| {
 			let l = unsafe { &*localP };
 			let g = host.local_to_global(AppPoint { h: l.h, v: l.v });
 			unsafe { *globalP = PF_Point { h: g.h, v: g.v } };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -337,13 +335,13 @@ unsafe extern "C" fn get_color_at_global_point(
 		);
 
 		if globalP.is_null() || outColorP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		with_host(|host| {
 			let g = unsafe { &*globalP };
 			let c = host.color_at_global_point(AppPoint { h: g.h, v: g.v }, eyeSize, mode);
 			unsafe { *outColorP = to_ffi_pixel(c) };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -363,14 +361,14 @@ unsafe extern "C" fn create_progress_dialog(
 		);
 
 		if prog_dlgPP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		with_host(|host| {
 			let title = unsafe { read_utf16(titleZ) }.unwrap_or_default();
 			let cancel = unsafe { read_utf16(cancel_strZ0) };
 			let id = host.progress_begin(&title, cancel.as_deref(), indeterminateB != 0);
 			unsafe { *prog_dlgPP = progress_handle(id) };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -389,13 +387,13 @@ unsafe extern "C" fn progress_dialog_update(
 		);
 
 		if prog_dlgP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		with_host(|host| {
 			if host.progress_update(progress_id(prog_dlgP), countL, totalL) {
-				PF_Err_NONE as PF_Err
+				PF_Err_NONE
 			} else {
-				PF_Interrupt_CANCEL as PF_Err
+				PF_Interrupt_CANCEL
 			}
 		})
 	})
@@ -408,11 +406,11 @@ unsafe extern "C" fn dispose_progress_dialog(prog_dlgP: PF_AppProgressDialogP) -
 		);
 
 		if prog_dlgP.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		with_host(|host| {
 			host.progress_end(progress_id(prog_dlgP));
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -537,7 +535,7 @@ mod tests {
 			suite.PF_AppGetBgColor.unwrap()(&mut c);
 			assert_eq!((c.red, c.green, c.blue), (1, 2, 3));
 
-			let mut lang = [0 as A_char; after_effects_sys::PF_APP_LANG_TAG_SIZE as usize];
+			let mut lang = [0 as A_char; crate::sys::PF_APP_LANG_TAG_SIZE as usize];
 			suite.PF_AppGetLanguage.unwrap()(lang.as_mut_ptr());
 			assert_eq!(CStr::from_ptr(lang.as_ptr()).to_str().unwrap(), "ja_JP");
 
@@ -552,19 +550,16 @@ mod tests {
 			let sample = std::mem::zeroed::<PF_PixelFloat>();
 			let mut out = sample;
 			let err = suite.PF_AppColorPickerDialog.unwrap()(std::ptr::null(), &sample, 0, &mut out);
-			assert_eq!(err, PF_Interrupt_CANCEL as PF_Err);
+			assert_eq!(err, PF_Interrupt_CANCEL);
 
 			let title: Vec<u16> = "Hi\0".encode_utf16().collect();
 			let mut dlg: PF_AppProgressDialogP = std::ptr::null_mut();
 			suite.PF_CreateNewAppProgressDialog.unwrap()(title.as_ptr(), std::ptr::null(), 0, &mut dlg);
 			assert!(!dlg.is_null());
-			assert_eq!(
-				suite.PF_AppProgressDialogUpdate.unwrap()(dlg, 1, 20),
-				PF_Err_NONE as PF_Err
-			);
+			assert_eq!(suite.PF_AppProgressDialogUpdate.unwrap()(dlg, 1, 20), PF_Err_NONE);
 			assert_eq!(
 				suite.PF_AppProgressDialogUpdate.unwrap()(dlg, 10, 20),
-				PF_Interrupt_CANCEL as PF_Err
+				PF_Interrupt_CANCEL
 			);
 		}
 		use_host(HeadlessAppHost);
@@ -575,7 +570,7 @@ mod tests {
 
 			// Particular copies all five tag bytes, so an empty language must
 			// not leave the caller's previous contents in the tail.
-			let mut lang = [-1 as A_char; after_effects_sys::PF_APP_LANG_TAG_SIZE as usize];
+			let mut lang = [-1 as A_char; crate::sys::PF_APP_LANG_TAG_SIZE as usize];
 			suite.PF_AppGetLanguage.unwrap()(lang.as_mut_ptr());
 			assert!(lang.iter().all(|b| *b == 0));
 		}

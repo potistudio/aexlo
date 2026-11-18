@@ -167,9 +167,8 @@ impl Observer for LogObserver {
 }
 
 /// The SDK name of a `PF_Cmd_*` value, without its `PF_Cmd_` prefix.
-#[allow(clippy::unnecessary_cast)] // `PF_Cmd_*` is `u32` on macOS only.
 pub fn command_name(command: i32) -> &'static str {
-	use after_effects_sys::*;
+	use crate::sys::*;
 	const NAMES: &[(u32, &str)] = &[
 		(PF_Cmd_ABOUT as u32, "ABOUT"),
 		(PF_Cmd_GLOBAL_SETUP as u32, "GLOBAL_SETUP"),
@@ -270,12 +269,8 @@ mod tests {
 	}
 
 	#[test]
-	#[allow(clippy::unnecessary_cast)] // `PF_Cmd_*` is `u32` on macOS only.
 	fn names_commands_by_sdk_name() {
-		assert_eq!(
-			command_name(after_effects_sys::PF_Cmd_SMART_RENDER as i32),
-			"SMART_RENDER"
-		);
+		assert_eq!(command_name(crate::sys::PF_Cmd_SMART_RENDER), "SMART_RENDER");
 		assert_eq!(command_name(-5), "UNKNOWN");
 	}
 

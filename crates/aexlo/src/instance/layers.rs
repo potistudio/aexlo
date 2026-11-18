@@ -104,11 +104,9 @@ impl PluginInstance {
 	pub fn supports_depth(&self, depth: PixelDepthKind) -> bool {
 		match depth {
 			PixelDepthKind::U8 => true,
-			PixelDepthKind::U16 => {
-				self.global_out_flags & after_effects_sys::PF_OutFlag_DEEP_COLOR_AWARE as PF_OutFlags != 0
-			}
+			PixelDepthKind::U16 => self.global_out_flags & crate::sys::PF_OutFlag_DEEP_COLOR_AWARE as PF_OutFlags != 0,
 			PixelDepthKind::F32 => {
-				self.global_out_flags2 & after_effects_sys::PF_OutFlag2_FLOAT_COLOR_AWARE as PF_OutFlags2 != 0
+				self.global_out_flags2 & crate::sys::PF_OutFlag2_FLOAT_COLOR_AWARE as PF_OutFlags2 != 0
 			}
 		}
 	}
@@ -181,7 +179,7 @@ impl PluginInstance {
 	}
 
 	/// Record that smart-render `checkout_id` refers to the layer parameter at `index`.
-	pub(crate) fn record_layer_checkout(&mut self, checkout_id: after_effects_sys::A_long, index: usize) {
+	pub(crate) fn record_layer_checkout(&mut self, checkout_id: crate::sys::A_long, index: usize) {
 		self.layer_checkouts.insert(checkout_id, index);
 	}
 
@@ -200,15 +198,15 @@ impl PluginInstance {
 	/// GPU world for a layer parameter, `None` for an unlinked one.
 	pub(crate) fn checked_out_world(
 		&mut self,
-		checkout_id: after_effects_sys::A_long,
-	) -> Option<*mut after_effects_sys::PF_EffectWorld> {
+		checkout_id: crate::sys::A_long,
+	) -> Option<*mut crate::sys::PF_EffectWorld> {
 		let gpu = self.smart_render_data.is_gpu();
 		match self.layer_checkouts.get(&checkout_id).copied().unwrap_or(0) {
 			0 => Some(self.input_world_ptr()),
 			index => self
 				.linked_layers
 				.get_mut(&index)
-				.map(|l| l.world_ptr(gpu) as *mut after_effects_sys::PF_EffectWorld),
+				.map(|l| l.world_ptr(gpu) as *mut crate::sys::PF_EffectWorld),
 		}
 	}
 
@@ -220,7 +218,7 @@ impl PluginInstance {
 	/// Register the implicit `PF_Param_LAYER` parameter at index 0, backed by `input_layer`.
 	pub(super) fn push_input_layer_param(&mut self) {
 		self.params.push(PF_ParamDef {
-			uu: after_effects_sys::PF_ParamDef__bindgen_ty_1 { id: 0 },
+			uu: crate::sys::PF_ParamDef__bindgen_ty_1 { id: 0 },
 			ui_flags: 0,
 			ui_width: 0,
 			ui_height: 0,

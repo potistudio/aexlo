@@ -6,7 +6,7 @@
 use super::ffi::read_c_str;
 use crate::core::diagnostics::diag;
 use crate::host::app::{AppPixel8, InfoLine, with_app_host_ffi as with_host};
-use after_effects_sys::{A_char, PF_AdvAppSuite1, PF_AdvAppSuite2, PF_Err, PF_Err_NONE, PF_Pixel};
+use crate::sys::{A_char, PF_AdvAppSuite1, PF_AdvAppSuite2, PF_Err, PF_Err_NONE, PF_Pixel};
 
 /// Build an [`InfoLine`] from optional left/right-justified C strings.
 ///
@@ -25,7 +25,7 @@ macro_rules! host_action {
 			diag!($diag);
 			with_host(|host| {
 				host.$method();
-				PF_Err_NONE as PF_Err
+				PF_Err_NONE
 			})
 		}
 	};
@@ -72,7 +72,7 @@ unsafe extern "C" fn info_draw_text3(line1Z0: *const A_char, line2Z0: *const A_c
 				]
 			};
 			host.info_draw_text(&lines);
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -109,7 +109,7 @@ unsafe extern "C" fn info_draw_text3_plus(
 				]
 			};
 			host.info_draw_text(&lines);
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -127,7 +127,7 @@ unsafe extern "C" fn info_draw_color(color: PF_Pixel) -> PF_Err {
 				green: color.green,
 				blue: color.blue,
 			});
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
@@ -140,7 +140,7 @@ unsafe extern "C" fn append_info_text(appendZ0: *const A_char) -> PF_Err {
 
 		with_host(|host| {
 			host.append_info_text(&unsafe { read_c_str(appendZ0) }.unwrap_or_default());
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		})
 	})
 }
