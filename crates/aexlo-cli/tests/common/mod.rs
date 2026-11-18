@@ -107,9 +107,12 @@ pub fn misbehave_artifact() -> PathBuf {
 		"libaexlo_misbehave.so"
 	};
 	// Copy it away: cargo re-links target/debug outputs on every build, and
-	// other tests build the same crate concurrently.
+	// other tests build the same crate concurrently. Each call gets a
+	// directory of its own, since `scratch` empties the one it is given.
+	static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+	let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 	let built = workspace().join("target/debug").join(name);
-	let copy = scratch("misbehave_artifact").join(name);
+	let copy = scratch(&format!("misbehave_artifact/{}-{call}", std::process::id())).join(name);
 	for _ in 0..50 {
 		if std::fs::copy(&built, &copy).is_ok() {
 			return copy;

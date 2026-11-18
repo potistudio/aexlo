@@ -38,6 +38,7 @@ VIEW
                             ran in, the memory it names, what came around it
   find <text>               Filter the Trace and Calls tabs (empty: clear)
   clear                     Forget the trace and totals
+  report                    (--exec/--script) Print the analysis now
   help                      This text
   quit                      Leave (q in normal mode)
 ";
@@ -64,6 +65,7 @@ pub enum Command {
 	Focus(String),
 	Find(String),
 	Clear,
+	Report,
 	Help,
 	Quit,
 }
@@ -88,7 +90,13 @@ impl Command {
 	pub fn is_engine(&self) -> bool {
 		!matches!(
 			self,
-			Command::Mem(_) | Command::Focus(_) | Command::Find(_) | Command::Clear | Command::Help | Command::Quit
+			Command::Mem(_)
+				| Command::Focus(_)
+				| Command::Find(_)
+				| Command::Clear
+				| Command::Report
+				| Command::Help
+				| Command::Quit
 		)
 	}
 }
@@ -211,6 +219,7 @@ pub fn parse(line: &str) -> Result<Command> {
 			Command::Focus(rest.to_string())
 		}
 		"clear" => none("clear").map(|_| Command::Clear)?,
+		"report" => none("report").map(|_| Command::Report)?,
 		"help" | "?" => Command::Help,
 		"quit" | "q" | "exit" => Command::Quit,
 		"" => bail!("empty command"),

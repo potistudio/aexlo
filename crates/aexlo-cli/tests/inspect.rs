@@ -98,3 +98,144 @@ fn focus_diagnoses_a_call_and_a_failed_command() {
 	let (ok, out) = inspect("inspect_focus_none", &["--exec", "focus no_such_call"]);
 	assert!(!ok, "{out}");
 }
+
+/// `aexlo inspect <plugin> --format json <args>`, with `stdin` piped in:
+/// the exit status and one JSON value per stdout line.
+fn inspect_json(scratch: &str, args: &[&str], stdin: &str) -> (bool, Vec<serde_json::Value>) {
+	use std::io::Write;
+	let plugin = common::misbehave_artifact();
+	let dir = common::scratch(scratch);
+	let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_aexlo"))
+		.current_dir(&dir)
+		.arg("inspect")
+		.arg(&plugin)
+		.args(["--format", "json"])
+		.args(args)
+		.stdin(std::process::Stdio::piped())
+		.stdout(std::process::Stdio::piped())
+		.stderr(std::process::Stdio::piped())
+		.spawn()
+		.expect("spawning aexlo");
+	child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+	let out = child.wait_with_output().unwrap();
+	let stdout = String::from_utf8_lossy(&out.stdout);
+	let events = stdout
+		.lines()
+		.map(|line| {
+			serde_json::from_str(line).unwrap_or_else(|e| {
+				panic!(
+					"not a JSON line ({e}): {line:?}\nstdout:\n{stdout}\nstderr:\n{}",
+					String::from_utf8_lossy(&out.stderr)
+				)
+			})
+		})
+		.collect();
+	(out.status.success(), events)
+}
+
+fn events<'a>(all: &'a [serde_json::Value], name: &str) -> Vec<&'a serde_json::Value> {
+	all.iter().filter(|e| e["event"] == name).collect()
+}
+
+#[test]
+fn json_format_prints_one_event_per_line() {
+	let (ok, all) = inspect_json(
+		"inspect_json",
+		&[
+			"--size",
+			"16x8",
+			"--exec",
+			"set Mode Leak; render smart; focus host_new_handle; set Mode Error; render legacy",
+		],
+		"",
+	);
+	assert!(!ok, "the failed render fails the run: {all:#?}");
+	assert_eq!(all[0]["event"], "loaded", "{all:#?}");
+
+	let commands = events(&all, "command");
+	assert_eq!(commands.len(), 4, "{all:#?}");
+	let smart = commands[1];
+	assert_eq!(smart["ok"], true);
+	assert_eq!(smart["allocations"], 1, "the Leak mode's handle: {smart:#}");
+	assert!(
+		smart["commands"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.any(|c| c["command"] == "PF_Cmd_SMART_RENDER"),
+		"{smart:#}"
+	);
+	assert!(smart["step"].as_str().unwrap().starts_with('#'), "{smart:#}");
+	let failed = commands[3];
+	assert_eq!(failed["ok"], false);
+	assert_eq!(failed["commands"][0]["error"]["name"], "PF_Err_INTERNAL_STRUCT_DAMAGED");
+
+	let focus = events(&all, "focus");
+	let focus = focus.first().expect("a focus event");
+	assert_eq!(focus["entry"]["type"], "call");
+	assert_eq!(focus["entry"]["function"], "host_new_handle");
+	assert_eq!(focus["entry"]["args"][0]["name"], "size");
+	let sections = focus["diagnosis"]["sections"].as_array().unwrap();
+	let moved = sections
+		.iter()
+		.find(|s| s["heading"] == "memory it moved")
+		.expect("what the call allocated");
+	assert!(
+		moved["items"].as_array().unwrap().iter().any(|i| i["tone"] == "warn"),
+		"the handle is never freed: {moved:#}"
+	);
+
+	let report = all.last().unwrap();
+	assert_eq!(report["event"], "report");
+	assert_eq!(report["failed"], 1);
+	assert_eq!(report["errors"][0]["command"], "PF_Cmd_RENDER");
+	assert_eq!(report["memory"].as_array().unwrap().len(), 1, "{report:#}");
+	assert_eq!(report["memory"][0]["allocated_in"], "PF_Cmd_SMART_RENDER");
+	assert_eq!(report["params"][0]["name"], "Mode");
+}
+
+#[test]
+fn script_from_stdin_streams_and_keeps_going_past_a_bad_line() {
+	let (ok, all) = inspect_json(
+		"inspect_stdin",
+		&["--script", "-"],
+		"render\nfrobnicate\nclear; render legacy\nreport\nquit\nrender\n",
+	);
+	assert!(!ok, "the unknown command counts as failed: {all:#?}");
+	let kinds: Vec<&str> = all.iter().map(|e| e["event"].as_str().unwrap()).collect();
+	assert_eq!(
+		kinds,
+		["loaded", "command", "command", "command", "command", "report", "report"],
+		"`quit` stops before the last render: {all:#?}"
+	);
+	assert_eq!(all[2]["ok"], false);
+	assert!(all[2]["error"].as_str().unwrap().contains("frobnicate"));
+	// `clear` forgot the first render: only the legacy one is counted.
+	let render = all[5]["commands"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.find(|c| c["command"] == "PF_Cmd_RENDER")
+		.expect("the legacy render");
+	assert_eq!(render["count"], 1, "{:#}", all[5]);
+}
+
+#[test]
+fn json_format_reports_a_missing_plugin_as_an_event() {
+	let dir = common::scratch("inspect_json_missing");
+	let out = common::aexlo(
+		&[
+			"inspect",
+			"no_such_plugin.dylib",
+			"--format",
+			"json",
+			"--exec",
+			"render",
+		],
+		&dir,
+	);
+	assert!(!out.status.success());
+	let line: serde_json::Value = serde_json::from_slice(&out.stdout).expect("one JSON line");
+	assert_eq!(line["event"], "error");
+	assert!(line["error"].as_str().unwrap().contains("no plugin"), "{line}");
+}

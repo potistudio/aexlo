@@ -100,6 +100,26 @@ impl Drop for Session {
 	}
 }
 
+/// Where `--format json` writes, with the plugin's stdout moved out of it.
+///
+/// On Unix the returned writer is the original stdout, and descriptor 1 is
+/// pointed at stderr, so whatever the plugin (or anything else) prints
+/// cannot break a JSON line. Elsewhere it is stdout as it is.
+pub fn json_output() -> Box<dyn Write> {
+	let _ = std::io::stdout().flush();
+	#[cfg(unix)]
+	{
+		use std::os::fd::FromRawFd;
+		// SAFETY: plain descriptor calls on descriptors this process owns.
+		let saved = unsafe { libc::dup(1) };
+		if saved >= 0 && unsafe { libc::dup2(2, 1) } >= 0 {
+			// SAFETY: `saved` is a fresh descriptor owned by nothing else.
+			return Box::new(unsafe { File::from_raw_fd(saved) });
+		}
+	}
+	Box::new(std::io::stdout())
+}
+
 fn restore_screen(out: &mut impl Write) {
 	let _ = disable_raw_mode();
 	let _ = execute!(out, LeaveAlternateScreen, cursor::Show);

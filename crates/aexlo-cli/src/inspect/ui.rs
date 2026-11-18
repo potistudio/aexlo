@@ -255,6 +255,10 @@ impl App {
 				None
 			}
 			Command::Mem(target) => self.select_memory(target),
+			Command::Report => {
+				self.info("report prints the analysis in --exec/--script; here the tabs show it");
+				None
+			}
 			Command::Focus(query) => {
 				self.focus_on(&query);
 				None

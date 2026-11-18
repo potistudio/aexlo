@@ -130,6 +130,16 @@ aexlo inspect MyGlow --exec "render; set Radius 50; render smart"
 トレースの行にフォーカスすると（Enter または `:focus <text|#seq>`）、その行を診断します。呼び出しなら引数と戻り値、実行中のコマンド、確保した・引数で渡されたメモリとそれがまだ保持されているか、失敗したコマンドならエラーとその直前の呼び出しを表示します。
 `--exec` は同じ分析をテキストで出力します。クレートのディレクトリを渡した場合、`:reload` で再ビルドし、パラメーターの値を引き継ぎます。
 
+エージェントやスクリプトから使う場合は、`--format json` で1行に1つの JSON オブジェクトを出力します。
+まず `loaded`、コマンドごとに `command`（結果、発行した `PF_Cmd_*` とそのエラー、`focus` に渡せる `#seq`）、`focus` は診断をセクションに分けて、最後に `report` を出力します。
+プラグイン自身の出力は stderr に回るため、stdout はそのままパースできます。
+`--script -` は stdin からコマンドを読み、1つ答えてから次を読むので、読み込んだプラグインをパイプ越しに操作できます。`report` でその時点の分析を出力し、`clear` でそれまでのトレースを消し、`quit` で終了します。
+
+```bash
+aexlo inspect MyGlow --format json --exec "render; focus checkout"
+aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
+```
+
 ## 実装の進捗
 
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 89% (32/36)

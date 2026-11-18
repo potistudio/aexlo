@@ -144,6 +144,20 @@ names and whether that is still held, or, for a failed command, its error
 and the last call before it. `--exec` prints the same analysis as text. Given a crate directory, `:reload` rebuilds
 it and keeps the parameter values.
 
+For agents and scripts, `--format json` prints one JSON object per line
+instead: `loaded`, then a `command` per command (its result, the `PF_Cmd_*`
+it issued with their errors, and the `#seq` that `focus` takes), a `focus`
+with the diagnosis in sections, and a final `report`. The plugin's own output
+goes to stderr, so stdout stays parseable. `--script -` reads the commands
+from stdin and answers each before reading the next, so one loaded plugin
+can be driven over a pipe; `report` prints the analysis on demand, `clear`
+forgets the trace so far and `quit` ends the session.
+
+```bash
+aexlo inspect MyGlow --format json --exec "render; focus checkout"
+aexlo inspect MyGlow --format json --script -    # one command per line on stdin
+```
+
 ## Implementation Progress
 
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 89% (32/36)

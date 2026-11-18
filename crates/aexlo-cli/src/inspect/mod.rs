@@ -6,16 +6,20 @@
 //! the trace, per-function totals, parameters, host state, the plugin's live
 //! memory as a hex dump (with what the last command changed) and the output.
 //!
-//! `--exec` runs commands without the TUI and prints the same analysis as
-//! text, for scripts and CI.
+//! `--exec` and `--script` run commands without the TUI and print the same
+//! analysis as text, or with `--format json` as one JSON object per line for
+//! agents and scripts (see [`json`]). `--script -` reads the commands from
+//! stdin as they arrive, answering each before reading the next.
 
 mod command;
 mod diagnose;
 mod engine;
+mod json;
 mod recorder;
 mod term;
 mod ui;
 
+use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -44,10 +48,17 @@ pub const USAGE: &str = "\
                              their suite calls are traced too
         --exec <cmds>        No TUI: run `;`-separated commands, then print
                              the analysis (e.g. --exec \"render; set 1 2; render\")
-        --script <file>      Like --exec, one command per line
+        --script <file>      Like --exec, one command per line; `-` reads
+                             them from stdin as they come, answering each
+                             before the next, so a pipe drives one session
+        --format <f>         With --exec/--script: human, or json for one
+                             JSON object per line (loaded, command, focus,
+                             report, error), for agents  [default: human]
         --trace              With --exec/--script, print the whole trace
                        `focus <text>` in --exec prints the diagnosis of the
-                       newest matching call (e.g. --exec \"render; focus checkout\")
+                       newest matching call (e.g. --exec \"render; focus checkout\");
+                       `report` prints the analysis then, `clear` forgets the
+                       trace so far, `quit` stops reading.
                        `:help` in the TUI lists the commands.
 ";
 
@@ -62,8 +73,9 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 	let mut level = ObserveLevel::Arguments;
 	let mut strict = Strict::default();
 	let mut serial = false;
-	let mut script: Option<String> = None;
+	let mut script: Option<Script> = None;
 	let mut print_trace = false;
+	let mut format = Format::Human;
 
 	let mut args = args.peekable();
 	while let Some(arg) = args.next() {
@@ -95,12 +107,28 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 			}
 			"--strict" => strict = Strict::all(),
 			"--serial" => serial = true,
-			"--exec" => script = Some(crate::next_value(&mut args, &arg)?),
+			"--exec" => {
+				script = Some(Script::Parsed(command::parse_script(&crate::next_value(
+					&mut args, &arg,
+				)?)?))
+			}
 			"--script" => {
 				let path = crate::next_value(&mut args, &arg)?;
-				script = Some(std::fs::read_to_string(&path).with_context(|| format!("reading {path}"))?);
+				script = Some(if path == "-" {
+					Script::Stdin
+				} else {
+					let text = std::fs::read_to_string(&path).with_context(|| format!("reading {path}"))?;
+					Script::Parsed(command::parse_script(&text)?)
+				});
 			}
 			"--trace" => print_trace = true,
+			"--format" => {
+				format = match crate::next_value(&mut args, &arg)?.as_str() {
+					"human" => Format::Human,
+					"json" => Format::Json,
+					other => bail!("--format expects human or json, got '{other}'"),
+				}
+			}
 			other if other.starts_with('-') => bail!("unknown option '{other}'"),
 			_ => {
 				if plugin.replace(arg).is_some() {
@@ -110,7 +138,38 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 		}
 	}
 	let plugin = plugin.context("inspect: missing <plugin>")?;
-	let resolved = crate::resolve_plugin(&plugin);
+	let Some(script) = script else {
+		if print_trace {
+			bail!("--trace only applies to --exec and --script");
+		}
+		if format != Format::Human {
+			bail!("--format only applies to --exec and --script");
+		}
+		return tui(prepare(&plugin, input.as_deref(), size, depth, level, strict, serial)?);
+	};
+	let setup = match prepare(&plugin, input.as_deref(), size, depth, level, strict, serial) {
+		Ok(setup) => setup,
+		Err(err) => {
+			if format == Format::Json {
+				emit(&mut std::io::stdout(), &error_event(&err));
+			}
+			return Err(err);
+		}
+	};
+	batch(setup, script, print_trace, format)
+}
+
+/// Find (or build) the plugin and its input.
+fn prepare(
+	plugin: &str,
+	input: Option<&std::path::Path>,
+	size: Option<(u32, u32)>,
+	depth: PixelDepthKind,
+	level: ObserveLevel,
+	strict: Strict,
+	serial: bool,
+) -> Result<Setup> {
+	let resolved = crate::resolve_plugin(plugin);
 	let manifest = Some(resolved.join("Cargo.toml")).filter(|m| resolved.is_dir() && m.exists());
 	let path = match &manifest {
 		Some(manifest) => crate::watch::build_cdylib(manifest)?,
@@ -119,11 +178,11 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 	if !path.exists() {
 		bail!("no plugin at {}", path.display());
 	}
-	let input = match &input {
+	let input = match input {
 		Some(png) => engine::load_png(png)?.convert(depth),
 		None => engine::build_input(&InputSource::Gradient(None), depth, size.unwrap_or(DEFAULT_SIZE))?,
 	};
-	let setup = Setup {
+	Ok(Setup {
 		path,
 		manifest,
 		input,
@@ -131,74 +190,281 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 		level,
 		strict,
 		serial,
-	};
+	})
+}
 
-	match script {
-		Some(text) => batch(setup, &command::parse_script(&text)?, print_trace),
-		None => {
-			if print_trace {
-				bail!("--trace only applies to --exec and --script");
-			}
-			tui(setup)
-		}
-	}
+fn error_event(err: &anyhow::Error) -> serde_json::Value {
+	serde_json::json!({ "event": "error", "error": format!("{err:#}") })
 }
 
 //==== Batch ============================================================
 
-fn batch(setup: Setup, commands: &[(String, Command)], print_trace: bool) -> Result<()> {
+/// Where `--exec` and `--script` take their commands from.
+enum Script {
+	/// Parsed up front, so a typo fails before the plugin loads.
+	Parsed(Vec<(String, Command)>),
+	/// `--script -`: one line at a time as it arrives, answered before the
+	/// next is read, so an agent can drive one loaded plugin over a pipe.
+	Stdin,
+}
+
+fn batch(setup: Setup, script: Script, print_trace: bool, format: Format) -> Result<()> {
+	let json = (format == Format::Json).then(term::json_output);
 	let recorder = Recorder::default();
-	let mut engine = Engine::load(setup, recorder.clone())?;
-	let mut failed = 0;
-	for (line, command) in commands {
-		if let Command::Focus(query) = command {
-			let snapshot = engine.snapshot();
-			let rec = recorder.lock();
-			match diagnose::find(&rec, query) {
-				Some(index) => print!(
-					"» {line}\n{}",
-					diagnose::diagnose(&rec, index, snapshot.as_ref()).to_text()
-				),
-				None => {
-					failed += 1;
-					println!("» {line}  ✗ nothing in the trace matches '{query}'");
+	let plugin = setup.path.display().to_string();
+	let engine = match Engine::load(setup, recorder.clone()) {
+		Ok(engine) => engine,
+		Err(err) => {
+			if let Some(mut out) = json {
+				emit(
+					&mut out,
+					&serde_json::json!({ "event": "error", "error": format!("{err:#}") }),
+				);
+			}
+			return Err(err);
+		}
+	};
+	let mut batch = Batch {
+		engine,
+		recorder,
+		json,
+		print_trace,
+		failed: 0,
+	};
+	batch.loaded(&plugin);
+	match script {
+		Script::Parsed(commands) => {
+			for (line, command) in commands {
+				if !batch.run(&line, Ok(command)) {
+					break;
 				}
 			}
-			continue;
 		}
-		if !command.is_engine() {
-			println!("» {line}  (skipped: only meaningful in the TUI)");
-			continue;
-		}
-		match engine.run(line, command) {
-			Ok(outcome) => {
-				println!("» {line}  ✓ {}", fmt_duration(outcome.elapsed));
-				for text in outcome.message.lines() {
-					println!("  {text}");
+		Script::Stdin => {
+			'lines: for text in std::io::stdin().lock().lines() {
+				let text = text.context("reading commands from stdin")?;
+				for line in text.split(';').map(str::trim) {
+					if line.is_empty() || line.starts_with('#') {
+						continue;
+					}
+					if !batch.run(line, command::parse(line)) {
+						break 'lines;
+					}
 				}
-			}
-			Err(err) => {
-				failed += 1;
-				println!("» {line}  ✗ {err:#}");
 			}
 		}
 	}
-	let snapshot = engine.snapshot();
-	let memory = snapshot.as_ref().map(|s| {
-		s.allocations
-			.iter()
-			.map(|a| (a.address, engine.read(a.address, 0, 64)))
-			.collect::<Vec<_>>()
-	});
-	print!(
-		"{}",
-		report(&recorder, snapshot.as_ref(), memory.as_deref(), print_trace)
-	);
-	drop(engine);
+	batch.report();
+	let failed = batch.failed;
+	drop(batch);
 	if failed > 0 {
 		bail!("{failed} command(s) failed");
 	}
 	Ok(())
+}
+
+/// `--format`: the text `--exec` prints, or NDJSON (see [`json`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Format {
+	Human,
+	Json,
+}
+
+/// One JSON object on a line of its own, flushed so a reader sees it now.
+fn emit(out: &mut dyn Write, value: &serde_json::Value) {
+	let mut line = value.to_string();
+	line.push('\n');
+	let _ = out.write_all(line.as_bytes());
+	let _ = out.flush();
+}
+
+struct Batch {
+	engine: Engine,
+	recorder: Recorder,
+	/// `Some` for `--format json`: where the events go.
+	json: Option<Box<dyn Write>>,
+	print_trace: bool,
+	failed: usize,
+}
+
+impl Batch {
+	fn loaded(&mut self, plugin: &str) {
+		let Some(out) = self.json.as_mut() else { return };
+		let params = self.engine.snapshot().map_or(0, |s| s.params.len());
+		emit(
+			out,
+			&serde_json::json!({ "event": "loaded", "plugin": plugin, "params": params }),
+		);
+	}
+
+	/// Run one command line; false when it was `quit`.
+	fn run(&mut self, line: &str, command: Result<Command>) -> bool {
+		use serde_json::json;
+		let command = match command {
+			Ok(command) => command,
+			Err(err) => {
+				self.failed += 1;
+				match self.json.as_mut() {
+					Some(out) => emit(
+						out,
+						&json!({ "event": "command", "line": line, "ok": false, "error": format!("{err:#}") }),
+					),
+					None => println!("» {line}  ✗ {err:#}"),
+				}
+				return true;
+			}
+		};
+		match &command {
+			Command::Focus(query) => self.focus(line, query),
+			Command::Report => self.report(),
+			Command::Quit => return false,
+			Command::Clear => {
+				self.recorder.lock().clear();
+				self.done(line, Ok(("trace cleared".into(), Duration::ZERO)));
+			}
+			Command::Help => match self.json.as_mut() {
+				Some(out) => emit(out, &json!({ "event": "help", "text": command::HELP })),
+				None => print!("{}", command::HELP),
+			},
+			command if command.is_engine() => {
+				let result = self
+					.engine
+					.run(line, command)
+					.map(|outcome| (outcome.message, outcome.elapsed));
+				self.done(line, result);
+			}
+			// `mem`, `find`: what the TUI shows.
+			_ => match self.json.as_mut() {
+				Some(out) => emit(
+					out,
+					&json!({ "event": "command", "line": line, "ok": true, "skipped": "only meaningful in the TUI" }),
+				),
+				None => println!("» {line}  (skipped: only meaningful in the TUI)"),
+			},
+		}
+		true
+	}
+
+	/// Report a command's outcome.
+	fn done(&mut self, line: &str, result: Result<(String, Duration)>) {
+		if result.is_err() {
+			self.failed += 1;
+		}
+		let Some(out) = self.json.as_mut() else {
+			match result {
+				Ok((message, elapsed)) => {
+					println!("» {line}  ✓ {}", fmt_duration(elapsed));
+					for text in message.lines() {
+						println!("  {text}");
+					}
+				}
+				Err(err) => println!("» {line}  ✗ {err:#}"),
+			}
+			return;
+		};
+		let rec = self.recorder.lock();
+		let step = rec
+			.trace
+			.iter()
+			.rev()
+			.find(|e| matches!(&e.kind, Kind::Step(text) if text == line))
+			.map(|e| e.seq);
+		let mut event = serde_json::json!({ "event": "command", "line": line });
+		match result {
+			Ok((message, elapsed)) => {
+				event["ok"] = true.into();
+				event["elapsed_us"] = u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX).into();
+				event["message"] = message.into();
+			}
+			Err(err) => {
+				event["ok"] = false.into();
+				event["error"] = format!("{err:#}").into();
+			}
+		}
+		if let (Some(event), serde_json::Value::Object(caused)) = (event.as_object_mut(), json::caused(&rec, step)) {
+			event.extend(caused);
+		}
+		drop(rec);
+		emit(out, &event);
+	}
+
+	fn focus(&mut self, line: &str, query: &str) {
+		let snapshot = self.engine.snapshot();
+		let rec = self.recorder.lock();
+		let found = diagnose::find(&rec, query);
+		if found.is_none() {
+			self.failed += 1;
+		}
+		match (self.json.as_mut(), found) {
+			(None, Some(index)) => print!(
+				"» {line}\n{}",
+				diagnose::diagnose(&rec, index, snapshot.as_ref()).to_text()
+			),
+			(None, None) => println!("» {line}  ✗ nothing in the trace matches '{query}'"),
+			(Some(out), Some(index)) => emit(
+				out,
+				&serde_json::json!({
+					"event": "focus",
+					"line": line,
+					"query": query,
+					"ok": true,
+					"entry": json::entry(&rec.trace[index]),
+					"diagnosis": json::diagnosis(&diagnose::diagnose(&rec, index, snapshot.as_ref())),
+				}),
+			),
+			(Some(out), None) => emit(
+				out,
+				&serde_json::json!({
+					"event": "focus",
+					"line": line,
+					"query": query,
+					"ok": false,
+					"error": format!("nothing in the trace matches '{query}'"),
+				}),
+			),
+		}
+	}
+
+	/// The analysis of everything so far.
+	fn report(&mut self) {
+		let snapshot = self.engine.snapshot();
+		let memory = snapshot.as_ref().map(|s| {
+			s.allocations
+				.iter()
+				.map(|a| (a.address, self.engine.read(a.address, 0, 64)))
+				.collect::<Vec<_>>()
+		});
+		match self.json.as_mut() {
+			Some(out) => {
+				let rec = self.recorder.lock();
+				let value = json::report(
+					&rec,
+					snapshot.as_ref(),
+					memory.as_deref(),
+					self.print_trace,
+					self.failed,
+				);
+				drop(rec);
+				emit(out, &value);
+			}
+			None => print!(
+				"{}",
+				report(&self.recorder, snapshot.as_ref(), memory.as_deref(), self.print_trace)
+			),
+		}
+	}
+}
+
+/// What a live allocation is to the plugin, if `global_data` or
+/// `sequence_data`.
+fn role(address: usize, state: &aexlo::InstanceState) -> Option<&'static str> {
+	if Some(address) == state.global_data {
+		Some("global_data")
+	} else if Some(address) == state.sequence_data {
+		Some("sequence_data")
+	} else {
+		None
+	}
 }
 
 /// The first bytes of a live allocation, by address.
@@ -316,13 +582,7 @@ fn report(
 
 	let _ = writeln!(out, "\n== live memory ({})", s.allocations.len());
 	for a in &s.allocations {
-		let label = if Some(a.address) == st.global_data {
-			" (global_data)"
-		} else if Some(a.address) == st.sequence_data {
-			" (sequence_data)"
-		} else {
-			""
-		};
+		let label = role(a.address, st).map_or(String::new(), |role| format!(" ({role})"));
 		let bytes = memory
 			.and_then(|m| m.iter().find(|(addr, _)| *addr == a.address))
 			.and_then(|(_, bytes)| bytes.as_ref())
