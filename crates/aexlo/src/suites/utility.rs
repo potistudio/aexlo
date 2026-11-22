@@ -1,6 +1,6 @@
 //! Dummy implementation for PF Utility Suite (Premiere/AE support callbacks)
 
-use crate::suites::macros::stub_log;
+use crate::suites::stub::stub_log;
 use crate::sys::*;
 use std::os::raw::c_void;
 use std::sync::LazyLock;

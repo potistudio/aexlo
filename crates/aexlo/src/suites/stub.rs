@@ -1,4 +1,4 @@
-//! Macros for generating Suite stub functions
+//! The `stub_log!` macro, which generates the logging stub functions that stand in for unimplemented suite callbacks.
 
 /// Simple logging stub generator
 ///
