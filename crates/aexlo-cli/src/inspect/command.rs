@@ -11,6 +11,8 @@ PLUGIN COMMANDS (each runs on the plugin's thread and is traced)
   render [auto|smart|legacy|gpu]
                             Render a frame through that path  [auto]
   set <param> <value>       Set a parameter (index, #index or name)
+  key <param> <frame> <value>
+                            Add a linear keyframe (`set` replaces them all)
   changed <param>           PF_Cmd_USER_CHANGED_PARAM (+ UPDATE_PARAMS_UI if asked)
   press <button>            Press a button (index, #index, name or the text on
                             it); prints the values the plugin changed
@@ -23,6 +25,11 @@ PLUGIN COMMANDS (each runs on the plugin's thread and is traced)
   input text <string>       Make the layer a text layer showing <string>
                             (\n breaks lines): the plugin gets its glyph
                             outlines and the text, white, as its input
+  input shape <rect|ellipse|triangle|ring>
+                            Make the layer a shape layer: the plugin gets its
+                            paths as streams and the shape, white, as its input
+  mask <rect|ellipse|triangle|ring|none>
+                            Replace the layer's masks
   depth <8|16|32>           Convert the input (project) depth
   reload                    Tear the plugin down and load it again (a crate
                             given as <plugin> is rebuilt first)
@@ -60,6 +67,14 @@ pub enum Command {
 	},
 	/// `set <words...>`: the engine finds where the name ends.
 	SetWords(String),
+	/// `key <param> <frame> <value>`.
+	Key {
+		key: String,
+		frame: i32,
+		value: String,
+	},
+	/// `mask <outline|none>`.
+	Mask(Option<Outline>),
 	Changed(String),
 	/// `press <button>`: the key as given.
 	Press(String),
@@ -93,6 +108,30 @@ pub enum InputSource {
 	Gradient(Option<(u32, u32)>),
 	/// A text layer showing this string.
 	Text(String),
+	/// A shape layer showing this outline.
+	Shape(Outline),
+}
+
+/// The figures `input shape` and `mask` know.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outline {
+	Rect,
+	Ellipse,
+	Triangle,
+	/// An ellipse with a hole: two paths, the inner running backwards.
+	Ring,
+}
+
+impl Outline {
+	fn parse(name: &str) -> Option<Self> {
+		Some(match name {
+			"rect" => Self::Rect,
+			"ellipse" => Self::Ellipse,
+			"triangle" => Self::Triangle,
+			"ring" => Self::Ring,
+			_ => return None,
+		})
+	}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,6 +194,23 @@ pub fn parse(line: &str) -> Result<Command> {
 			None if rest.split_whitespace().count() >= 2 => Command::SetWords(rest.to_string()),
 			None => bail!("set <param> <value>"),
 		},
+		"key" => {
+			const USAGE: &str = "key <param> <frame> <value>";
+			let mut words = rest.rsplitn(3, char::is_whitespace);
+			match (words.next(), words.next(), words.next().map(unquote)) {
+				(Some(value), Some(frame), Some(key)) if !key.is_empty() => Command::Key {
+					key: key.to_string(),
+					frame: frame.parse().context(USAGE)?,
+					value: value.to_string(),
+				},
+				_ => bail!(USAGE),
+			}
+		}
+		"mask" => match args.as_slice() {
+			["none"] => Command::Mask(None),
+			&[name] if let Some(outline) = Outline::parse(name) => Command::Mask(Some(outline)),
+			_ => bail!("mask <rect|ellipse|triangle|ring|none>"),
+		},
 		"changed" => match unquote(rest) {
 			"" => bail!("changed <param>"),
 			key => Command::Changed(key.to_string()),
@@ -189,6 +245,10 @@ pub fn parse(line: &str) -> Result<Command> {
 				Some(text) if !text.is_empty() => Command::Input(InputSource::Text(text.replace("\\n", "\n"))),
 				_ => bail!("input text <string>"),
 			},
+			Some("shape") => match &args[1..] {
+				&[name] if let Some(outline) = Outline::parse(name) => Command::Input(InputSource::Shape(outline)),
+				_ => bail!("input shape <rect|ellipse|triangle|ring>"),
+			},
 			Some(kind @ ("black" | "white" | "gradient")) => {
 				let size = match &args[1..] {
 					[w, h] => Some((dimension(w)?, dimension(h)?)),
@@ -203,7 +263,9 @@ pub fn parse(line: &str) -> Result<Command> {
 			}
 			// Everything else is a path, spaces and all.
 			Some(_) => Command::Input(InputSource::Png(PathBuf::from(unquote(rest)))),
-			None => bail!("input <png> | input <black|white|gradient> [w h] | input text <string>"),
+			None => {
+				bail!("input <png> | input <black|white|gradient> [w h] | input text <string> | input shape <outline>")
+			}
 		},
 		"depth" => Command::Depth(match args.as_slice() {
 			["8"] => PixelDepthKind::U8,
@@ -379,6 +441,21 @@ mod tests {
 			Command::Input(InputSource::Text("two\nlines".into()))
 		);
 		assert!(parse("input text").is_err());
+		assert_eq!(
+			parse("input shape ring").unwrap(),
+			Command::Input(InputSource::Shape(Outline::Ring))
+		);
+		assert!(parse("input shape blob").is_err());
+		assert_eq!(parse("mask none").unwrap(), Command::Mask(None));
+		assert_eq!(
+			parse("key \"Extrude Depth\" 30 12.5").unwrap(),
+			Command::Key {
+				key: "Extrude Depth".into(),
+				frame: 30,
+				value: "12.5".into()
+			}
+		);
+		assert!(parse("key 4 12").is_err());
 		assert!(parse("render sideways").is_err());
 		assert!(parse("frobnicate").is_err());
 

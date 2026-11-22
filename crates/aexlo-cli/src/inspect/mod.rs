@@ -215,6 +215,8 @@ fn prepare(
 		manifest,
 		input,
 		text,
+		project: None,
+		masks: Vec::new(),
 		font,
 		size,
 		level,
