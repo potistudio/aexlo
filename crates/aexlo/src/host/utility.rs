@@ -1,5 +1,4 @@
 use crate::core::diagnostics::*;
-use crate::suites::macros::stub_log;
 use crate::sys::*;
 use std::os::raw::c_void;
 #[cfg(windows)]
@@ -179,17 +178,69 @@ unsafe extern "C" fn copy_sys(
 	})
 }
 
-unsafe extern "C" fn gaussian_kernel_unsupported(
+unsafe extern "C" fn gaussian_kernel_sys(
 	_effect_ref: PF_ProgPtr,
-	_radius: A_FpLong,
-	_flags: PF_KernelFlags,
-	_multiplier: A_FpLong,
-	_diameter: *mut A_long,
-	_kernel: *mut c_void,
+	radius: A_FpLong,
+	flags: PF_KernelFlags,
+	multiplier: A_FpLong,
+	diameter: *mut A_long,
+	kernel: *mut c_void,
 ) -> PF_Err {
-	crate::core::ffi::guard("gaussian_kernel_unsupported", || {
-		log::warn!("Gaussian kernel generation is not implemented");
-		PF_Err_INVALID_CALLBACK
+	crate::core::ffi::guard("gaussian_kernel", || {
+		if diameter.is_null() || kernel.is_null() || !radius.is_finite() || radius < 0.0 || !multiplier.is_finite() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		let reach = radius.ceil();
+		if reach > ((A_long::MAX - 1) / 2) as f64 {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		let reach = reach as A_long;
+		let width = (reach * 2 + 1) as usize;
+		let is_1d = flags & PF_KernelFlag_1D != 0;
+		let Some(count) = (if is_1d { Some(width) } else { width.checked_mul(width) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let format = flags & (PF_KernelFlag_USE_CHAR | PF_KernelFlag_USE_FIXED);
+		if format == PF_KernelFlag_USE_UNDEFINED || count > isize::MAX as usize / std::mem::size_of::<A_long>() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		// A finite Gaussian approximation; exact coefficients can differ from AE.
+		let sigma = (radius / 3.0).max(0.000_001);
+		let weight = |index: usize| {
+			let x = (index % width) as f64 - reach as f64;
+			let y = if is_1d {
+				0.0
+			} else {
+				(index / width) as f64 - reach as f64
+			};
+			(-(x * x + y * y) / (2.0 * sigma * sigma)).exp()
+		};
+		let sum: f64 = (0..count).map(weight).sum();
+		let norm = if flags & PF_KernelFlag_NORMALIZED != 0 {
+			sum
+		} else {
+			1.0
+		};
+		let scale = if format == PF_KernelFlag_USE_CHAR {
+			255.0
+		} else {
+			65536.0
+		};
+		for index in 0..count {
+			let value = weight(index) / norm * multiplier * scale;
+			unsafe {
+				if format == PF_KernelFlag_USE_CHAR {
+					*kernel.cast::<u8>().add(index) = value.round().clamp(0.0, u8::MAX as f64) as u8;
+				} else {
+					*kernel.cast::<A_long>().add(index) =
+						value.round().clamp(A_long::MIN as f64, A_long::MAX as f64) as A_long;
+				}
+			}
+		}
+		unsafe {
+			*diameter = width as A_long;
+		}
+		PF_Err_NONE
 	})
 }
 
@@ -318,18 +369,84 @@ unsafe extern "C" fn iterate_stub(
 	})
 }
 
-stub_log!(get_callback_addr_stub,
+unsafe extern "C" fn get_callback_addr(
 	_effect_ref: PF_ProgPtr,
 	_quality: PF_Quality,
 	_mode_flags: PF_ModeFlags,
-	_which_callback: PF_CallbackID,
-	_fn_ptr: *mut PF_CallbackFunc
-);
+	which_callback: PF_CallbackID,
+	fn_ptr: *mut PF_CallbackFunc,
+) -> PF_Err {
+	crate::core::ffi::guard("get_callback_addr", || {
+		let Some(out) = (unsafe { fn_ptr.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let callbacks = create_utility_callbacks();
+		macro_rules! addr {
+			($field:ident) => {
+				callbacks
+					.$field
+					.map_or(std::ptr::null_mut(), |f| f as *const () as PF_CallbackFunc)
+			};
+		}
+		macro_rules! color_addr {
+			($field:ident) => {
+				callbacks
+					.colorCB
+					.$field
+					.map_or(std::ptr::null_mut(), |f| f as *const () as PF_CallbackFunc)
+			};
+		}
+		*out = match which_callback {
+			PF_Callback_BEGIN_SAMPLING => addr!(begin_sampling),
+			PF_Callback_SUBPIXEL_SAMPLE => addr!(subpixel_sample),
+			PF_Callback_AREA_SAMPLE => addr!(area_sample),
+			PF_Callback_END_SAMPLING => addr!(end_sampling),
+			PF_Callback_COMPOSITE_RECT => addr!(composite_rect),
+			PF_Callback_BLEND => addr!(blend),
+			PF_Callback_CONVOLVE => addr!(convolve),
+			PF_Callback_COPY => addr!(copy),
+			PF_Callback_FILL => addr!(fill),
+			PF_Callback_GAUSSIAN => addr!(gaussian_kernel),
+			PF_Callback_ITERATE => addr!(iterate),
+			PF_Callback_PREMUL => addr!(premultiply),
+			PF_Callback_PREMUL_COLOR => addr!(premultiply_color),
+			PF_Callback_RGB_TO_HLS => color_addr!(RGBtoHLS),
+			PF_Callback_HLS_TO_RGB => color_addr!(HLStoRGB),
+			PF_Callback_RGB_TO_YIQ => color_addr!(RGBtoYIQ),
+			PF_Callback_YIQ_TO_RGB => color_addr!(YIQtoRGB),
+			PF_Callback_LUMINANCE => color_addr!(Luminance),
+			PF_Callback_HUE => color_addr!(Hue),
+			PF_Callback_LIGHTNESS => color_addr!(Lightness),
+			PF_Callback_SATURATION => color_addr!(Saturation),
+			PF_Callback_NEW_WORLD => addr!(new_world),
+			PF_Callback_DISPOSE_WORLD => addr!(dispose_world),
+			PF_Callback_ITERATE_ORIGIN => addr!(iterate_origin),
+			PF_Callback_ITERATE_LUT => addr!(iterate_lut),
+			PF_Callback_TRANSFER_RECT => addr!(transfer_rect),
+			PF_Callback_TRANSFORM_WORLD => addr!(transform_world),
+			PF_Callback_ITERATE_ORIGIN_NON_CLIP_SRC => addr!(iterate_origin_non_clip_src),
+			PF_Callback_ITERATE_GENERIC => addr!(iterate_generic),
+			PF_Callback_SUBPIXEL_SAMPLE16 => addr!(subpixel_sample16),
+			PF_Callback_AREA_SAMPLE16 => addr!(area_sample16),
+			PF_Callback_FILL16 => addr!(fill16),
+			PF_Callback_PREMUL_COLOR16 => addr!(premultiply_color16),
+			PF_Callback_ITERATE16 => addr!(iterate16),
+			PF_Callback_ITERATE_ORIGIN16 => addr!(iterate_origin16),
+			PF_Callback_ITERATE_ORIGIN_NON_CLIP_SRC16 => addr!(iterate_origin_non_clip_src16),
+			_ => std::ptr::null_mut(),
+		};
+		if out.is_null() {
+			PF_Err_INVALID_CALLBACK
+		} else {
+			PF_Err_NONE
+		}
+	})
+}
 
 unsafe extern "C" fn app_stub(_effect_ref: PF_ProgPtr, _selector: A_long, _args: ...) -> PF_Err {
 	crate::core::ffi::guard("app_stub", || {
 		log::warn!("STUB: app called");
-		PF_Err_NONE
+		PF_Err_INVALID_CALLBACK
 	})
 }
 
@@ -422,7 +539,7 @@ unsafe extern "C" fn get_platform_data_impl(effect_ref: PF_ProgPtr, which: PF_Pl
 			}
 			_ => {
 				log::warn!("get_platform_data: unsupported which={}", which);
-				PF_Err_NONE // Return OK for unsupported, as AE does
+				PF_Err_INVALID_CALLBACK
 			}
 		}
 	})
@@ -563,7 +680,7 @@ pub fn create_utility_callbacks() -> Box<_PF_UtilCallbacks> {
 		convolve: Some(crate::suites::transform::convolve_sys),
 		copy: Some(copy_sys),
 		fill: Some(crate::suites::fill_matte::fill_8_sys),
-		gaussian_kernel: Some(gaussian_kernel_unsupported),
+		gaussian_kernel: Some(gaussian_kernel_sys),
 		iterate: Some(iterate_stub),
 		premultiply: Some(crate::suites::fill_matte::premultiply_sys),
 		premultiply_color: Some(crate::suites::fill_matte::premultiply_color_8_sys),
@@ -577,7 +694,7 @@ pub fn create_utility_callbacks() -> Box<_PF_UtilCallbacks> {
 		host_lock_handle: Some(crate::suites::handle::host_lock_handle_impl),
 		host_unlock_handle: Some(crate::suites::handle::host_unlock_handle_impl),
 		host_dispose_handle: Some(crate::suites::handle::host_dispose_handle_impl),
-		get_callback_addr: Some(get_callback_addr_stub),
+		get_callback_addr: Some(get_callback_addr),
 		app: Some(app_stub),
 		ansi: crate::suites::SUITE_CONTAINER.ansi, // Use existing ANSI callbacks
 		// The legacy colorCB block has the same layout as PF_ColorCallbacksSuite1,
@@ -633,6 +750,39 @@ mod tests {
 	fn legacy_path_rejects_null_output() {
 		let result = unsafe { get_platform_data_impl(std::ptr::null_mut(), 2, std::ptr::null_mut()) };
 		assert_eq!(result, PF_Err_BAD_CALLBACK_PARAM);
+	}
+
+	#[test]
+	fn unknown_platform_data_does_not_claim_success() {
+		let mut output = 17usize;
+		let result = unsafe { get_platform_data_impl(std::ptr::null_mut(), i32::MAX, (&raw mut output).cast()) };
+		assert_eq!(result, PF_Err_INVALID_CALLBACK);
+		assert_eq!(output, 17);
+	}
+
+	#[test]
+	fn callback_lookup_returns_live_function_and_rejects_unknown_ids() {
+		let callbacks = create_utility_callbacks();
+		let lookup = callbacks.get_callback_addr.unwrap();
+		let mut addr: PF_CallbackFunc = std::ptr::null_mut();
+		assert_eq!(
+			unsafe { lookup(std::ptr::null_mut(), 0, 0, PF_Callback_GAUSSIAN, &mut addr) },
+			PF_Err_NONE
+		);
+		assert_eq!(addr as *const (), gaussian_kernel_sys as *const ());
+		assert_eq!(
+			unsafe { lookup(std::ptr::null_mut(), 0, 0, PF_Callback_RGB_TO_HLS, &mut addr) },
+			PF_Err_NONE
+		);
+		assert_eq!(
+			addr as *const (),
+			crate::suites::color_callbacks::rgb_to_hls_8_sys as *const ()
+		);
+		assert_eq!(
+			unsafe { lookup(std::ptr::null_mut(), 0, 0, i32::MAX, &mut addr) },
+			PF_Err_INVALID_CALLBACK
+		);
+		assert!(addr.is_null());
 	}
 
 	#[test]
@@ -716,21 +866,97 @@ mod tests {
 	}
 
 	#[test]
-	fn legacy_gaussian_kernel_reports_unsupported() {
+	fn legacy_gaussian_kernel_produces_symmetric_weights() {
 		let mut diameter = -1;
-		let mut kernel = [0i32; 9];
+		let mut kernel = [0i32; 3];
+		let callback = create_utility_callbacks().gaussian_kernel.unwrap();
 		let err = unsafe {
-			create_utility_callbacks().gaussian_kernel.unwrap()(
+			callback(
 				std::ptr::null_mut(),
 				1.0,
-				0,
+				PF_KernelFlag_1D | PF_KernelFlag_NORMALIZED,
 				1.0,
 				&mut diameter,
 				kernel.as_mut_ptr().cast(),
 			)
 		};
-		assert_eq!(err, PF_Err_INVALID_CALLBACK);
-		assert_eq!(diameter, -1);
+		assert_eq!(err, PF_Err_NONE);
+		assert_eq!(diameter, 3);
+		assert_eq!(kernel[0], kernel[2]);
+		assert!(kernel[1] > kernel[0] && kernel[0] > 0);
+		assert!((kernel.iter().sum::<i32>() - 65536).abs() <= 2);
+		let mut char_kernel = [0u8; 9];
+		assert_eq!(
+			unsafe {
+				callback(
+					std::ptr::null_mut(),
+					1.0,
+					PF_KernelFlag_USE_CHAR,
+					1.0,
+					&mut diameter,
+					char_kernel.as_mut_ptr().cast(),
+				)
+			},
+			PF_Err_NONE
+		);
+		assert_eq!(char_kernel[4], 255);
+		assert_eq!(char_kernel[0], char_kernel[8]);
+		assert_eq!(
+			unsafe {
+				callback(
+					std::ptr::null_mut(),
+					f64::NAN,
+					0,
+					1.0,
+					&mut diameter,
+					kernel.as_mut_ptr().cast(),
+				)
+			},
+			PF_Err_BAD_CALLBACK_PARAM
+		);
+	}
+
+	#[test]
+	fn generated_gaussian_kernel_can_blur_an_impulse() {
+		let callbacks = create_utility_callbacks();
+		let mut kernel = [0i32; 3];
+		let mut diameter = 0;
+		let mut src = Layer::<Depth8>::blank(3, 1);
+		let mut dst = Layer::<Depth8>::blank(3, 1);
+		let mut src_world = src.as_sys();
+		let mut dst_world = dst.as_sys();
+		unsafe {
+			(*(src_world.data as *mut PF_Pixel8).add(1)).red = 255;
+			assert_eq!(
+				callbacks.gaussian_kernel.unwrap()(
+					std::ptr::null_mut(),
+					1.0,
+					PF_KernelFlag_1D | PF_KernelFlag_NORMALIZED,
+					1.0,
+					&mut diameter,
+					kernel.as_mut_ptr().cast()
+				),
+				PF_Err_NONE
+			);
+			assert_eq!(
+				callbacks.convolve.unwrap()(
+					std::ptr::null_mut(),
+					&mut src_world,
+					std::ptr::null(),
+					PF_KernelFlag_1D,
+					diameter,
+					std::ptr::null_mut(),
+					kernel.as_mut_ptr().cast(),
+					std::ptr::null_mut(),
+					std::ptr::null_mut(),
+					&mut dst_world
+				),
+				PF_Err_NONE
+			);
+			let pixels = std::slice::from_raw_parts(dst_world.data as *const PF_Pixel8, 3);
+			assert!(pixels[0].red > 0 && pixels[1].red < 255 && pixels[1].red > pixels[0].red);
+			assert_eq!(pixels[0].red, pixels[2].red);
+		}
 	}
 
 	#[test]

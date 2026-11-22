@@ -404,8 +404,92 @@ pub(crate) fn aegp_utility_suite(version: i32) -> *const c_void {
 	suite as *const AEGPUtilitySuiteCompatV11 as *const c_void
 }
 
-unsafe extern "C" fn aegp_noop_ok_stub() -> A_Err {
-	crate::core::ffi::guard("aegp_noop_ok_stub", || PF_Err_NONE)
+unsafe extern "C" fn aegp_unsupported_stub() -> A_Err {
+	crate::core::ffi::guard("aegp_unsupported_stub", || PF_Err_INVALID_CALLBACK)
+}
+
+macro_rules! unsupported_slot {
+	($name:ident, $slot:expr) => {
+		unsafe extern "C" fn $name() -> A_Err {
+			crate::core::ffi::guard(stringify!($name), || {
+				log::warn!("Unsupported AEGP Utility slot {}", $slot);
+				PF_Err_INVALID_CALLBACK
+			})
+		}
+	};
+}
+unsupported_slot!(utility_slot_0, 0);
+unsupported_slot!(utility_slot_1, 1);
+unsupported_slot!(utility_slot_2, 2);
+unsupported_slot!(utility_slot_3, 3);
+unsupported_slot!(utility_slot_4, 4);
+unsupported_slot!(utility_slot_5, 5);
+unsupported_slot!(utility_slot_6, 6);
+unsupported_slot!(utility_slot_7, 7);
+unsupported_slot!(utility_slot_8, 8);
+unsupported_slot!(utility_slot_9, 9);
+unsupported_slot!(utility_slot_10, 10);
+unsupported_slot!(utility_slot_11, 11);
+unsupported_slot!(utility_slot_12, 12);
+unsupported_slot!(utility_slot_13, 13);
+unsupported_slot!(utility_slot_14, 14);
+unsupported_slot!(utility_slot_15, 15);
+unsupported_slot!(utility_slot_16, 16);
+unsupported_slot!(utility_slot_17, 17);
+unsupported_slot!(utility_slot_18, 18);
+unsupported_slot!(utility_slot_19, 19);
+unsupported_slot!(utility_slot_20, 20);
+unsupported_slot!(utility_slot_21, 21);
+unsupported_slot!(utility_slot_22, 22);
+unsupported_slot!(utility_slot_23, 23);
+unsupported_slot!(utility_slot_24, 24);
+unsupported_slot!(utility_slot_25, 25);
+unsupported_slot!(utility_slot_26, 26);
+unsupported_slot!(utility_slot_27, 27);
+unsupported_slot!(utility_slot_28, 28);
+unsupported_slot!(utility_slot_29, 29);
+unsupported_slot!(utility_slot_30, 30);
+unsupported_slot!(utility_slot_31, 31);
+
+unsafe extern "C" fn aegp_report_info(_plugin: AEGP_PluginID, message: *const A_char) -> A_Err {
+	crate::core::ffi::guard("aegp_report_info", || {
+		if message.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		log::info!(
+			"Plugin: {}",
+			unsafe { std::ffi::CStr::from_ptr(message) }.to_string_lossy()
+		);
+		PF_Err_NONE
+	})
+}
+
+unsafe extern "C" fn aegp_start_undo(_name: *const A_char) -> A_Err {
+	crate::core::ffi::guard("aegp_start_undo", || PF_Err_NONE)
+}
+
+unsafe extern "C" fn aegp_end_undo() -> A_Err {
+	crate::core::ffi::guard("aegp_end_undo", || PF_Err_NONE)
+}
+
+unsafe extern "C" fn aegp_start_quiet(state: *mut AEGP_ErrReportState) -> A_Err {
+	crate::core::ffi::guard("aegp_start_quiet", || {
+		let Some(state) = (unsafe { state.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		state.reservedAL = [0; 12];
+		PF_Err_NONE
+	})
+}
+
+unsafe extern "C" fn aegp_end_quiet(_report: A_Boolean, state: *mut AEGP_ErrReportState) -> A_Err {
+	crate::core::ffi::guard("aegp_end_quiet", || {
+		if state.is_null() {
+			PF_Err_BAD_CALLBACK_PARAM
+		} else {
+			PF_Err_NONE
+		}
+	})
 }
 
 unsafe extern "C" fn aegp_register_with_aegp_stub(
@@ -439,11 +523,10 @@ unsafe extern "C" fn aegp_register_with_aegp_stub(
 
 unsafe extern "C" fn aegp_is_scripting_available_stub(out_available_pb: *mut A_Boolean) -> A_Err {
 	crate::core::ffi::guard("aegp_is_scripting_available_stub", || {
-		if !out_available_pb.is_null() {
-			unsafe {
-				*out_available_pb = 1;
-			}
-		}
+		let Some(out) = (unsafe { out_available_pb.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		*out = 0;
 		PF_Err_NONE
 	})
 }
@@ -471,10 +554,10 @@ unsafe extern "C" fn aegp_execute_script_stub(
 		if !_in_script_z.is_null()
 			&& let Ok(script) = unsafe { std::ffi::CStr::from_ptr(_in_script_z) }.to_str()
 		{
-			log::debug!("AEGP_ExecuteScript(len={}): stubbed", script.len());
+			log::debug!("AEGP_ExecuteScript(len={}): unsupported", script.len());
 		}
 
-		PF_Err_NONE
+		PF_Err_INVALID_CALLBACK
 	})
 }
 
@@ -500,8 +583,47 @@ fn utility_suite(
 	scripting_at: usize,
 	execute_at: usize,
 ) -> AEGPUtilitySuiteCompatV11 {
-	let noop = aegp_noop_ok_stub as *const () as *const c_void;
-	let mut suite = AEGPUtilitySuiteCompatV11 { slots: [noop; 48] };
+	let unsupported = aegp_unsupported_stub as *const () as *const c_void;
+	let mut suite = AEGPUtilitySuiteCompatV11 {
+		slots: [unsupported; 48],
+	};
+	suite.slots[0] = utility_slot_0 as *const () as *const c_void;
+	suite.slots[1] = utility_slot_1 as *const () as *const c_void;
+	suite.slots[2] = utility_slot_2 as *const () as *const c_void;
+	suite.slots[3] = utility_slot_3 as *const () as *const c_void;
+	suite.slots[4] = utility_slot_4 as *const () as *const c_void;
+	suite.slots[5] = utility_slot_5 as *const () as *const c_void;
+	suite.slots[6] = utility_slot_6 as *const () as *const c_void;
+	suite.slots[7] = utility_slot_7 as *const () as *const c_void;
+	suite.slots[8] = utility_slot_8 as *const () as *const c_void;
+	suite.slots[9] = utility_slot_9 as *const () as *const c_void;
+	suite.slots[10] = utility_slot_10 as *const () as *const c_void;
+	suite.slots[11] = utility_slot_11 as *const () as *const c_void;
+	suite.slots[12] = utility_slot_12 as *const () as *const c_void;
+	suite.slots[13] = utility_slot_13 as *const () as *const c_void;
+	suite.slots[14] = utility_slot_14 as *const () as *const c_void;
+	suite.slots[15] = utility_slot_15 as *const () as *const c_void;
+	suite.slots[16] = utility_slot_16 as *const () as *const c_void;
+	suite.slots[17] = utility_slot_17 as *const () as *const c_void;
+	suite.slots[18] = utility_slot_18 as *const () as *const c_void;
+	suite.slots[19] = utility_slot_19 as *const () as *const c_void;
+	suite.slots[20] = utility_slot_20 as *const () as *const c_void;
+	suite.slots[21] = utility_slot_21 as *const () as *const c_void;
+	suite.slots[22] = utility_slot_22 as *const () as *const c_void;
+	suite.slots[23] = utility_slot_23 as *const () as *const c_void;
+	suite.slots[24] = utility_slot_24 as *const () as *const c_void;
+	suite.slots[25] = utility_slot_25 as *const () as *const c_void;
+	suite.slots[26] = utility_slot_26 as *const () as *const c_void;
+	suite.slots[27] = utility_slot_27 as *const () as *const c_void;
+	suite.slots[28] = utility_slot_28 as *const () as *const c_void;
+	suite.slots[29] = utility_slot_29 as *const () as *const c_void;
+	suite.slots[30] = utility_slot_30 as *const () as *const c_void;
+	suite.slots[31] = utility_slot_31 as *const () as *const c_void;
+	suite.slots[0] = aegp_report_info as *const () as *const c_void;
+	suite.slots[register_at - 5] = aegp_start_quiet as *const () as *const c_void;
+	suite.slots[register_at - 4] = aegp_end_quiet as *const () as *const c_void;
+	suite.slots[register_at - 2] = aegp_start_undo as *const () as *const c_void;
+	suite.slots[register_at - 1] = aegp_end_undo as *const () as *const c_void;
 	suite.slots[register_at] = aegp_register_with_aegp_stub as *const () as *const c_void;
 	suite.slots[hwnd_at] = aegp_get_main_hwnd as *const () as *const c_void;
 	suite.slots[scripting_at] = aegp_is_scripting_available_stub as *const () as *const c_void;
@@ -523,6 +645,49 @@ fn build_aegp_utility_suite_v6() -> AEGPUtilitySuiteCompatV11 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn unsupported_metadata_callback_does_not_report_success() {
+		let mut id = 123;
+		let err = unsafe { create_utility_suite().GetFilterInstanceID.unwrap()(std::ptr::null_mut(), &mut id) };
+		assert_eq!(err, PF_Err_INVALID_CALLBACK);
+		assert_eq!(id, 123);
+	}
+
+	#[test]
+	fn scripting_reports_unavailable_and_does_not_claim_execution() {
+		let mut available = 1;
+		assert_eq!(unsafe { aegp_is_scripting_available_stub(&mut available) }, PF_Err_NONE);
+		assert_eq!(available, 0);
+		let mut result = 1usize as AEGP_MemHandle;
+		let mut error = 1usize as AEGP_MemHandle;
+		assert_eq!(
+			unsafe { aegp_execute_script_stub(0, c"1".as_ptr().cast(), 0, &mut result, &mut error) },
+			PF_Err_INVALID_CALLBACK
+		);
+		assert!(result.is_null() && error.is_null());
+	}
+
+	#[test]
+	fn utility_quiet_errors_and_unsupported_slots_are_explicit() {
+		let suite = unsafe {
+			&*(aegp_utility_suite(after_effects_sys::kAEGPUtilitySuiteVersion6 as i32)
+				as *const after_effects_sys::AEGP_UtilitySuite6)
+		};
+		let mut state = AEGP_ErrReportState { reservedAL: [42; 12] };
+		assert_eq!(unsafe { suite.AEGP_StartQuietErrors.unwrap()(&mut state) }, PF_Err_NONE);
+		assert_eq!(state.reservedAL, [0; 12]);
+		assert_eq!(
+			unsafe { suite.AEGP_EndQuietErrors.unwrap()(0, &mut state) },
+			PF_Err_NONE
+		);
+		let (mut major, mut minor) = (42, 43);
+		assert_eq!(
+			unsafe { suite.AEGP_GetDriverImplementationVersion.unwrap()(&mut major, &mut minor) },
+			PF_Err_INVALID_CALLBACK
+		);
+		assert_eq!((major, minor), (42, 43));
+	}
 
 	#[test]
 	fn utility_suite_6_registers_a_plugin_and_returns_the_main_window() {

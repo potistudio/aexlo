@@ -190,6 +190,7 @@ Every option, command and JSON field is described in
 △ Effect Custom UI / Overlay Theme: theme values are served, and Drawbot draws
 during `PF_Event_DRAW`. The CLI never sends `PF_Cmd_EVENT`; an embedder does.
 △ Channel: layers are plain 2D images and report no auxiliary channels.
+Legacy Gaussian-kernel generation uses approximate coefficients that have not been checked against After Effects. Legacy blend and convolution currently accept 8-bit worlds only.
 
 ### AEGP
 

@@ -13,12 +13,8 @@
 //! - Implemented suites/callbacks: asserted against independently-derived
 //!   expected values (std math, the documented premultiply formula, plain
 //!   pixel-rect arithmetic) -- never copied from a previous run's output.
-//! - Known gaps: a few `PF_UtilCallbacks` entries (`blend`, `gaussian_kernel`,
-//!   ...) are still `stub_log!` no-ops, and the ANSI `sprintf` emulation only
-//!   substitutes a bare first `%d`/`%s` (no width/precision/other
-//!   conversions). These assertions pin down *today's* behavior so a silent
-//!   regression is caught -- they are expected to start failing, on purpose,
-//!   the day each gap gets a real implementation.
+//! - Callback and ANSI behaviour: checked against the current supported
+//!   semantics, including approximate Gaussian weights.
 
 use serde_json::{Value, json};
 
@@ -148,30 +144,21 @@ fn probe_facts_match_known_correct_values() {
 	assert_eq!(premultiply["px(0,0)"]["b"], round_to_u8(1.0));
 }
 
-/// A handful of `PF_UtilCallbacks` entries are still `stub_log!` no-ops
-/// (`blend`, `gaussian_kernel`, `convolve`, ...), and the ANSI `sprintf`
-/// emulation only substitutes a bare first `%d`/`%s` -- no width, precision,
-/// or any other conversion. This test pins down that *current* behavior so a
-/// silent regression is caught; it's meant to start failing, on purpose, the
-/// day each gap gets a real implementation -- see `crates/aexlo/src/suites/macros.rs`
-/// (`stub_log!`) and `crates/aexlo/src/suites/ansi.rs` (`sprintf_sys`).
+/// Exercise callback output and the current ANSI formatting behaviour.
 #[test]
 fn probe_facts_document_known_runtime_gaps() {
 	let summary = run_probe_and_summarize();
 
-	// `blend` is a stub: it reports success but never touches `dst`, so a
-	// freshly-cleared destination world stays all-zero instead of holding the
-	// blend of (100,201) at ratio 0.5.
+	// The midpoint of 100 and 201 rounds to 151, including the opaque alpha.
 	let blend = fact_json(&summary, "world.blend(100,201,ratio=0.5)");
 	assert_eq!(blend["err"], 0);
-	assert_eq!(blend["px(0,0)"], json!({ "a": 0, "r": 0, "g": 0, "b": 0 }));
+	assert_eq!(blend["px(0,0)"], json!({ "a": 255, "r": 151, "g": 151, "b": 151 }));
 
-	// `gaussian_kernel` is a stub: it reports success but never writes a
-	// diameter or kernel weights.
+	// Approximate normalised weights have the requested diameter and scale.
 	let kernel = fact_json(&summary, "kernel.gaussian(r=2,normalized,long)");
 	assert_eq!(kernel["err"], 0);
-	assert_eq!(kernel["diameter"], 0);
-	assert_eq!(kernel["sum"], 0);
+	assert_eq!(kernel["diameter"], 5);
+	assert!((kernel["sum"].as_i64().unwrap() - 65536).abs() <= 25);
 
 	// sprintf: only a bare first `%d`/`%s` (no flags/width) gets substituted;
 	// everything else in a multi-specifier format is left untouched, and

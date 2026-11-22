@@ -866,7 +866,7 @@ pub(crate) unsafe extern "C" fn convolve_sys(
 			}
 			let weights: Vec<f64> = (0..taps.len())
 				.map(|i| match kernel_type {
-					PF_KernelFlag_USE_CHAR => (unsafe { *(ptr as *const i8).add(i) }) as f64,
+					PF_KernelFlag_USE_CHAR => (unsafe { *(ptr as *const u8).add(i) }) as f64,
 					PF_KernelFlag_USE_FIXED => (unsafe { *(ptr as *const PF_Fixed).add(i) }) as f64 / 65536.0,
 					_ => (unsafe { *(ptr as *const A_long).add(i) }) as f64,
 				})

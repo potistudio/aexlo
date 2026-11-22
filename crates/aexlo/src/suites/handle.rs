@@ -9,9 +9,11 @@
 
 use crate::core::diagnostics::diag;
 use crate::sys::*;
-use std::alloc::{Layout, alloc, dealloc, realloc};
+use std::alloc::{Layout, alloc, alloc_zeroed, dealloc, realloc};
+use std::collections::HashSet;
 use std::os::raw::c_void;
 use std::ptr;
+use std::sync::{LazyLock, Mutex};
 
 /// Alignment for handle memory allocations.
 /// AE plugins often use SIMD, so we align to 16 bytes (max_align_t equivalent for x64/SIMD).
@@ -19,6 +21,14 @@ const HANDLE_ALIGNMENT: usize = 16;
 
 /// Magic number to identify valid handles created by us
 const HANDLE_MAGIC: u64 = 0x4145584C4F484E44; // "AEXLOHND" in ASCII
+static LIVE_HANDLES: LazyLock<Mutex<HashSet<usize>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+
+pub(crate) fn is_owned_handle(handle: usize) -> bool {
+	LIVE_HANDLES
+		.lock()
+		.unwrap_or_else(|err| err.into_inner())
+		.contains(&handle)
+}
 
 // Handle header layout: [magic: u64][size: usize][pad to 16 bytes][user data...]
 
@@ -86,7 +96,7 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 
 	log::debug!("host_new_handle: layout created successfully");
 
-	let ptr = unsafe { alloc(layout) };
+	let ptr = unsafe { alloc_zeroed(layout) };
 	if ptr.is_null() {
 		log::error!("host_new_handle: allocation failed for size {}", size);
 		return ptr::null_mut();
@@ -116,6 +126,10 @@ pub(crate) unsafe extern "C" fn host_new_handle_impl(size: A_HandleSize) -> PF_H
 	}
 
 	unsafe { *handle_ptr = user_ptr as *mut c_void };
+	LIVE_HANDLES
+		.lock()
+		.unwrap_or_else(|err| err.into_inner())
+		.insert(handle_ptr as usize);
 	crate::strict::allocated(crate::AllocationKind::Handle, handle_ptr as usize, requested_size);
 
 	log::trace!(
@@ -176,6 +190,14 @@ pub(crate) unsafe extern "C" fn host_dispose_handle_impl(pf_handle: PF_Handle) {
 	diag!("PF_HandleSuite1/host_dispose_handle", "pf_handle" => format!("{pf_handle:?}"));
 
 	if pf_handle.is_null() {
+		return;
+	}
+	if !LIVE_HANDLES
+		.lock()
+		.unwrap_or_else(|err| err.into_inner())
+		.remove(&(pf_handle as usize))
+	{
+		log::warn!("host_dispose_handle: refusing unknown handle {pf_handle:p}");
 		return;
 	}
 	crate::strict::disposed(crate::AllocationKind::Handle, pf_handle as usize);
@@ -434,5 +456,22 @@ pub const fn create_handle_suite() -> PF_HandleSuite1 {
 		host_dispose_handle: Some(host_dispose_handle_impl),
 		host_get_handle_size: Some(host_get_handle_size_impl),
 		host_resize_handle: Some(host_resize_handle_impl),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	#[test]
+	fn new_handle_starts_zeroed() {
+		unsafe {
+			let handle = host_new_handle_impl(64);
+			assert!(!handle.is_null());
+			let data = host_lock_handle_impl(handle).cast::<u8>();
+			assert!(!data.is_null());
+			assert!(std::slice::from_raw_parts(data, 64).iter().all(|&byte| byte == 0));
+			host_unlock_handle_impl(handle);
+			host_dispose_handle_impl(handle);
+		}
 	}
 }

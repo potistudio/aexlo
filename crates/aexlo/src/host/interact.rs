@@ -186,14 +186,14 @@ unsafe extern "C" fn checkout_layer_audio_stub(
 ) -> PF_Err {
 	crate::core::ffi::guard("checkout_layer_audio_stub", || {
 		log::warn!("STUB: checkout_layer_audio called");
-		PF_Err_NONE
+		PF_Err_INVALID_CALLBACK
 	})
 }
 
 unsafe extern "C" fn checkin_layer_audio_stub(_effect_ref: PF_ProgPtr, _audio: PF_LayerAudio) -> PF_Err {
 	crate::core::ffi::guard("checkin_layer_audio_stub", || {
 		log::warn!("STUB: checkin_layer_audio called");
-		PF_Err_NONE
+		PF_Err_INVALID_CALLBACK
 	})
 }
 
@@ -209,7 +209,7 @@ unsafe extern "C" fn get_audio_data_stub(
 ) -> PF_Err {
 	crate::core::ffi::guard("get_audio_data_stub", || {
 		log::warn!("STUB: get_audio_data called");
-		PF_Err_NONE
+		PF_Err_INVALID_CALLBACK
 	})
 }
 
@@ -237,6 +237,20 @@ pub fn create_interact_callbacks() -> PF_InteractCallbacks {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn unavailable_audio_callbacks_report_errors() {
+		let cb = create_interact_callbacks();
+		let mut audio = std::ptr::null_mut();
+		let result =
+			unsafe { cb.checkout_layer_audio.unwrap()(std::ptr::null_mut(), 0, 0, 1, 1, 0, 1, 1, 0, &mut audio) };
+		assert_eq!(result, PF_Err_INVALID_CALLBACK);
+		assert!(audio.is_null());
+		assert_eq!(
+			unsafe { cb.checkin_layer_audio.unwrap()(std::ptr::null_mut(), audio) },
+			PF_Err_INVALID_CALLBACK
+		);
+	}
 	use crate::host::app::{AppHost, TEST_APP_HOST};
 
 	struct Cancelling;

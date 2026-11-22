@@ -183,6 +183,10 @@ impl PluginInstance {
 		self.layer_checkouts.insert(checkout_id, index);
 	}
 
+	pub(crate) fn has_layer_checkout(&self, checkout_id: crate::sys::A_long) -> bool {
+		self.layer_checkouts.contains_key(&checkout_id)
+	}
+
 	/// Size of the layer behind parameter `index`: the input layer for 0, the
 	/// linked layer otherwise, `None` for an unlinked or non-layer parameter.
 	pub(crate) fn layer_param_size(&self, index: usize) -> Option<(i32, i32)> {
@@ -194,14 +198,14 @@ impl PluginInstance {
 	}
 
 	/// The world to hand out for smart-render `checkout_id`: the input world for
-	/// the input layer (or an id never checked out), the linked layer's CPU or
+	/// the input layer, the linked layer's CPU or
 	/// GPU world for a layer parameter, `None` for an unlinked one.
 	pub(crate) fn checked_out_world(
 		&mut self,
 		checkout_id: crate::sys::A_long,
 	) -> Option<*mut crate::sys::PF_EffectWorld> {
 		let gpu = self.smart_render_data.is_gpu();
-		match self.layer_checkouts.get(&checkout_id).copied().unwrap_or(0) {
+		match self.layer_checkouts.get(&checkout_id).copied()? {
 			0 => Some(self.input_world_ptr()),
 			index => self
 				.linked_layers

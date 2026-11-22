@@ -371,9 +371,29 @@ pub const fn create_world_suite() -> PF_WorldSuite2 {
 	}
 }
 
+pub(crate) const fn create_world_suite_1() -> crate::sys::PF_WorldSuite1 {
+	crate::sys::PF_WorldSuite1 {
+		new_world: Some(new_world_util),
+		dispose_world: Some(dispose_world_sys),
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn world_suite_v1_allocates_and_disposes_using_legacy_flags() {
+		let suite = create_world_suite_1();
+		let mut world = unsafe { std::mem::zeroed() };
+		let effect = 1 as PF_ProgPtr;
+		assert_eq!(
+			unsafe { suite.new_world.unwrap()(effect, 3, 2, crate::sys::PF_NewWorldFlag_DEEP_PIXELS as _, &mut world) },
+			PF_Err_NONE
+		);
+		assert_eq!((world.width, world.height, world.rowbytes), (3, 2, 24));
+		assert_eq!(unsafe { suite.dispose_world.unwrap()(effect, &mut world) }, PF_Err_NONE);
+	}
 
 	#[test]
 	fn disposal_uses_owned_allocation_and_rejects_foreign_data() {

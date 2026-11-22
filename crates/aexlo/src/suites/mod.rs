@@ -89,6 +89,7 @@ pub mod world;
 use crate::core::diagnostics::diag;
 use crate::sys::*;
 static COMP_SUITE_4: AEGP_CompSuite4 = comp::create_comp_suite_4();
+static PF_WORLD_1: PF_WorldSuite1 = world::create_world_suite_1();
 static AEGP_LAYER_RENDER_OPTIONS_1: AEGP_LayerRenderOptionsSuite1 = aegp_render::layer_render_options_suite_1();
 static COMP_SUITE_11: AEGP_CompSuite11 = comp::create_comp_suite_11();
 static AEGP_WORLD_1: AEGP_WorldSuite1 = aegp_world::suite_1();
@@ -320,6 +321,10 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		("PF Handle Suite", 2) => dispatch_static!(suite, suite_name, version, handle),
 		("PF World Transform Suite", 1) => dispatch_static!(suite, suite_name, version, world_transform),
+		("PF World Suite", 1) => {
+			unsafe { *suite = &PF_WORLD_1 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("PF World Suite", 2) => dispatch_static!(suite, suite_name, version, world),
 		// Iterate suites are append-only, so the v2 tables also satisfy v1 requests.
 		("PF Iterate8 Suite", 1..=2) => dispatch_static!(suite, suite_name, version, iterate8),
@@ -604,6 +609,8 @@ mod tests {
 	fn acquire_serves_every_registered_suite() {
 		for (name, version) in [
 			("PF ANSI Suite", 1),
+			("PF World Suite", 1),
+			("PF World Suite", 2),
 			("PF Iterate8 Suite", 2),
 			("PF iterate16 Suite", 1),
 			("PF iterate16 Suite", 2),

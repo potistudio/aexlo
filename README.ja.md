@@ -171,6 +171,7 @@ aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
 △ Effect Custom UI / Overlay Theme：テーマの値は返します。Drawbot は `PF_Event_DRAW` のあいだ描画します。CLI は `PF_Cmd_EVENT` を送らず、埋め込み側が送ります。
 
 △ Channel：レイヤーは通常の 2D 画像であり、補助チャンネルはないものとして応答します。
+旧 Gaussian カーネル生成は近似値を使用し、After Effects との係数比較は未実施です。旧 Blend／Convolve は現在 8 ビット画像に対応します。
 
 ### AEGP
 

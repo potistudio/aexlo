@@ -2,7 +2,7 @@
 
 /// Simple logging stub generator
 ///
-/// Creates an FFI-compatible stub function that logs a warning and returns PF_Err_NONE.
+/// Creates an FFI-compatible stub that reports an unavailable callback.
 ///
 /// # Example
 /// ```ignore
@@ -17,8 +17,10 @@ macro_rules! stub_log {
         #[allow(non_snake_case)]
         #[allow(unused_variables)]
         pub unsafe extern "C" fn $fn_name( $( $arg_name : $arg_ty ),* ) -> PF_Err {
-            log::warn!("STUB: {} called", stringify!($fn_name));
-            PF_Err_NONE
+			crate::core::ffi::guard(stringify!($fn_name), || {
+				log::warn!("Unsupported callback: {}", stringify!($fn_name));
+				crate::sys::PF_Err_INVALID_CALLBACK
+			})
         }
     };
 }
