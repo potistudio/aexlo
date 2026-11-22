@@ -79,7 +79,7 @@ mod point_param;
 pub(crate) mod register;
 pub mod sampling;
 pub(crate) mod stream;
-pub mod stub;
+pub mod stub_log;
 mod text_layer;
 pub mod transform;
 pub mod utility;
