@@ -226,14 +226,15 @@ during `PF_Event_DRAW`. The CLI never sends `PF_Cmd_EVENT`; an embedder does.
 | △ Comp         | △ Dynamic Stream  | ○ Memory               | △ Register             |
 | △ Item         | △ Keyframe        | ○ Iterate              | △ Utility              |
 | △ Light        | ○ Persistent Data | △ Render               | × Camera               |
-| △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
-| △ PF Interface | × Mask Outline    | △ Layer Render Options | × Math                 |
+| △ Effect       | △ Mask            | △ Render Options       | × QueryXform           |
+| △ PF Interface | △ Mask Outline    | △ Layer Render Options | × Math                 |
 | × Proj         | × Text Document   | × Composite            | × Compute Cache        |
 | × Footage      | ○ Text Layer      | × Canvas               | × Hash                 |
 | × Collection   |                   | × Sound Data           | × Render Async Manager |
 | × Marker       |                   |                        |                        |
 
 △ Layer / Comp / Item / Light / Effect / PF Interface / Stream / Dynamic Stream / Keyframe: the project is aexlo's fixed one-layer comp, with no keyframes.
+△ Mask / Mask Outline: read the masks an embedder puts on the layer with `set_mask_paths`; they cannot be changed.
 △ Render / Render Options / Layer Render Options: checkout returns the effect's own input.
 △ Color Settings: the working space is sRGB, with no colour management.
 △ Register: idle hooks are recorded and never called.

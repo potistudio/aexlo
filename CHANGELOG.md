@@ -60,6 +60,12 @@ may break the API, and every breaking change is listed below.
   calls to the observer, so `aexlo inspect` and `aexlo compat` see them.
   `AEGP_ExecuteScript`, and `AEGP_GetPluginPlatformRef` on macOS, report
   themselves as stubs.
+- "AEGP Layer Mask Suite" v6 and v7 and "AEGP Mask Outline Suite" v3 and v5
+  read the masks `PluginInstance::set_mask_paths` puts on the layer, and
+  `AEGP_GetNewMaskStream` gives a mask's outline, opacity, feather and
+  expansion streams. Changing a mask is declined. BitonicPixelSorter, which
+  reads its Path through them once it is registered with AEGP, renders with
+  masks on the layer.
 - `AEGP_SetStreamValue` sets an effect parameter's value, clamped to its valid
   range (a color keeps its alpha), and `AEGP_SetDynamicStreamFlag` hides and
   disables parameters (`PF_PUI_INVISIBLE`, `PF_PUI_DISABLED`), which

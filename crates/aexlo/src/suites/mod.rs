@@ -67,6 +67,7 @@ pub mod interface;
 pub mod iterate;
 mod keyframe;
 mod layer;
+pub(crate) mod layer_mask;
 pub(crate) use layer::enter_effect;
 pub mod param_utils;
 mod path;
@@ -87,6 +88,9 @@ use crate::core::diagnostics::diag;
 use crate::sys::*;
 static COMP_SUITE_4: AEGP_CompSuite4 = comp::create_comp_suite_4();
 static AEGP_WORLD_1: AEGP_WorldSuite1 = aegp_world::suite_1();
+static AEGP_MASK_5: AEGP_MaskSuite5 = layer_mask::mask_suite_5();
+static AEGP_MASK_6: AEGP_MaskSuite6 = layer_mask::mask_suite_6();
+static AEGP_MASK_OUTLINE_3: AEGP_MaskOutlineSuite3 = layer_mask::mask_outline_suite_3();
 static AEGP_WORLD_2: AEGP_WorldSuite2 = aegp_world::suite_2();
 static AEGP_WORLD_3: AEGP_WorldSuite3 = aegp_world::suite_3();
 static AEGP_MEMORY_1: AEGP_MemorySuite1 = aegp_memory::suite_1();
@@ -473,6 +477,23 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		("AEGP Light Suite", 1) => dispatch_static!(suite, suite_name, version, light),
 		("AEGP Text Layer Suite", 1) => dispatch_static!(suite, suite_name, version, text_layer),
+		// Layer Mask wire versions 6 and 7 are AEGP_MaskSuite5 and 6.
+		("AEGP Layer Mask Suite", v) if v == kAEGPMaskSuiteVersion5 as i32 => {
+			unsafe { *suite = &AEGP_MASK_5 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
+		("AEGP Layer Mask Suite", v) if v == kAEGPMaskSuiteVersion6 as i32 => {
+			unsafe { *suite = &AEGP_MASK_6 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
+		// Mask Outline wire versions 3 and 5 are AEGP_MaskOutlineSuite2 and 3;
+		// suite 2 is the first seven entries of suite 3.
+		("AEGP Mask Outline Suite", v)
+			if v == kAEGPMaskOutlineSuiteVersion2 as i32 || v == kAEGPMaskOutlineSuiteVersion3 as i32 =>
+		{
+			unsafe { *suite = &AEGP_MASK_OUTLINE_3 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion4 as i32 => {
 			unsafe {
 				*suite = &COMP_SUITE_4 as *const _ as *const std::ffi::c_void;
@@ -628,6 +649,10 @@ mod tests {
 			("PF Path Query Suite", 1),
 			("PF Path Data Suite", 1),
 			("AEGP Text Layer Suite", 1),
+			("AEGP Layer Mask Suite", 6),
+			("AEGP Layer Mask Suite", 7),
+			("AEGP Mask Outline Suite", 3),
+			("AEGP Mask Outline Suite", 5),
 			("PF AE Adv App Suite", 1),
 			("PF AE Adv App Suite", 2),
 			("PF AE Adv Item Suite", 1),

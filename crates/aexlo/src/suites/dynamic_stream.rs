@@ -108,6 +108,8 @@ fn parent_of(stream: Stream) -> Option<Stream> {
 		Node::Anchor | Node::Position | Node::Scale | Node::Rotation | Node::Opacity => (Node::Transform, 0),
 		Node::Effect => (Node::Effects, 1),
 		Node::Param => (Node::Effect, 0),
+		// aexlo's mask parade lists no masks, so a mask's streams hang off it.
+		Node::MaskOutline | Node::MaskOpacity | Node::MaskFeather | Node::MaskExpansion => (Node::Masks, 2),
 	};
 	Some(Stream {
 		effect_ref: stream.effect_ref,
@@ -121,7 +123,7 @@ fn depth(node: Node) -> A_long {
 		Node::Layer => 0,
 		Node::Transform | Node::Effects | Node::Masks => 1,
 		Node::Anchor | Node::Position | Node::Scale | Node::Rotation | Node::Opacity | Node::Effect => 2,
-		Node::Param => 3,
+		Node::Param | Node::MaskOutline | Node::MaskOpacity | Node::MaskFeather | Node::MaskExpansion => 3,
 	}
 }
 
@@ -149,6 +151,10 @@ fn name_bytes(stream: Stream) -> Vec<u8> {
 		Node::Opacity => b"ADBE Opacity",
 		Node::Effects => b"ADBE Effect Parade",
 		Node::Masks => b"ADBE Mask Parade",
+		Node::MaskOutline => b"ADBE Mask Shape",
+		Node::MaskOpacity => b"ADBE Mask Opacity",
+		Node::MaskFeather => b"ADBE Mask Feather",
+		Node::MaskExpansion => b"ADBE Mask Offset",
 		Node::Effect => {
 			let from_param = param_name(stream.effect_ref, 0);
 			if from_param.is_empty() {
