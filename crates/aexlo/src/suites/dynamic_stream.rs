@@ -10,7 +10,9 @@
 //! effect's display name, or `ADBE Effect` when that name is empty.
 //!
 //! Nothing in the tree can be added, removed, renamed or separated. Those calls
-//! return `A_Err_GENERIC`. A failed lookup writes a null stream ref so the
+//! return `A_Err_GENERIC`. `AEGP_SetDynamicStreamFlag` hides or disables a
+//! parameter (`PF_PUI_INVISIBLE`, `PF_PUI_DISABLED`), as plugins do from
+//! `PF_Cmd_UPDATE_PARAMS_UI`; the other flags change nothing that aexlo shows. A failed lookup writes a null stream ref so the
 //! caller does not dispose an uninitialised pointer.
 
 use crate::sys::*;
@@ -310,28 +312,58 @@ unsafe extern "C" fn get_dynamic_stream_flags(
 ) -> A_Err {
 	crate::core::ffi::guard("get_dynamic_stream_flags", || {
 		diag!("AEGP_DynamicStreamSuite/AEGP_GetDynamicStreamFlags", "streamH" => format!("{:#x}", streamH as usize));
-		if unsafe { stream_of(streamH) }.is_none() {
+		let Some(stream) = (unsafe { stream_of(streamH) }) else {
 			return bad();
-		}
+		};
 		let Some(out) = (unsafe { stream_flagsP.as_mut() }) else {
 			return bad();
 		};
-		*out = AEGP_DynStreamFlag_ACTIVE_EYEBALL;
+		let ui_flags = match stream.node {
+			Node::Param => with_param(stream.effect_ref, stream.index, |def| def.ui_flags).unwrap_or(0),
+			_ => 0,
+		};
+		let mut flags = AEGP_DynStreamFlag_ACTIVE_EYEBALL;
+		if ui_flags & PF_PUI_INVISIBLE != 0 {
+			flags |= AEGP_DynStreamFlag_HIDDEN;
+		}
+		if ui_flags & PF_PUI_DISABLED != 0 {
+			flags |= AEGP_DynStreamFlag_DISABLED;
+		}
+		*out = flags;
 		none()
 	})
 }
 
 unsafe extern "C" fn set_dynamic_stream_flag_v1(
 	streamH: AEGP_StreamRefH,
-	_one_flag: AEGP_DynStreamFlags,
-	_setB: A_Boolean,
+	one_flag: AEGP_DynStreamFlags,
+	setB: A_Boolean,
 ) -> A_Err {
 	crate::core::ffi::guard("set_dynamic_stream_flag_v1", || {
-		diag!("AEGP_DynamicStreamSuite/AEGP_SetDynamicStreamFlag");
-		if unsafe { stream_of(streamH) }.is_none() {
+		diag!("AEGP_DynamicStreamSuite/AEGP_SetDynamicStreamFlag",
+			"streamH" => format!("{:#x}", streamH as usize),
+			"one_flag" => one_flag,
+			"setB" => setB,
+		);
+		let Some(stream) = (unsafe { stream_of(streamH) }) else {
 			return bad();
+		};
+		#[allow(non_upper_case_globals)]
+		let ui_flag = match one_flag {
+			AEGP_DynStreamFlag_HIDDEN => PF_PUI_INVISIBLE,
+			AEGP_DynStreamFlag_DISABLED => PF_PUI_DISABLED,
+			// The eyeball, eliding and reveal flags change nothing aexlo shows.
+			_ => return none(),
+		};
+		if stream.node != Node::Param {
+			return none();
 		}
-		refuse("AEGP_SetDynamicStreamFlag")
+		let Some(mut instance) = PluginInstance::get_instance_ptr(stream.effect_ref) else {
+			return bad();
+		};
+		// SAFETY: effect_ref is the live instance that is running the plugin call.
+		unsafe { instance.as_mut() }.set_param_ui_flag(stream.index, ui_flag, setB != 0);
+		none()
 	})
 }
 

@@ -443,6 +443,18 @@ impl PluginInstance {
 			.is_some_and(|p| p.ui_flags & crate::sys::PF_PUI_DISABLED as crate::sys::PF_ParamUIFlags != 0)
 	}
 
+	/// Turn the UI flag `flag` (`PF_PUI_*`) of the parameter at `index` on or
+	/// off, as `AEGP_SetDynamicStreamFlag` hides or disables a parameter.
+	pub(crate) fn set_param_ui_flag(&mut self, index: usize, flag: crate::sys::PF_ParamUIFlags, on: bool) {
+		if let Some(param) = self.params.get_mut(index) {
+			if on {
+				param.ui_flags |= flag;
+			} else {
+				param.ui_flags &= !flag;
+			}
+		}
+	}
+
 	/// Apply a plugin's `PF_UpdateParamUI` request: copy the UI-only fields from
 	/// `def` into the stored parameter at `index`, leaving its value untouched.
 	///

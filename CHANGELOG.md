@@ -35,6 +35,12 @@ may break the API, and every breaking change is listed below.
 - `PluginInstance::param_button_label` returns the text on a button
   parameter (`PF_ButtonDef`), which plugins often fill in place of the
   parameter's name.
+- `AEGP_SetStreamValue` sets an effect parameter's value, clamped to its valid
+  range (a color keeps its alpha), and `AEGP_SetDynamicStreamFlag` hides and
+  disables parameters (`PF_PUI_INVISIBLE`, `PF_PUI_DISABLED`), which
+  `AEGP_GetDynamicStreamFlags` now reports. Deep Glow's and TextGrad's Reset
+  and Swap buttons work through them, and Deep Glow's
+  `PF_Cmd_UPDATE_PARAMS_UI` no longer fails.
 
 ### Fixed
 

@@ -87,3 +87,39 @@ fn glow_is_centred_and_symmetric() {
 		);
 	}
 }
+
+/// The buttons reset and swap parameters through `AEGP_SetStreamValue`, and
+/// `PF_Cmd_UPDATE_PARAMS_UI` hides and disables them through
+/// `AEGP_SetDynamicStreamFlag`: "Swap Colors" is only on with a two-color tint.
+#[test]
+fn buttons_set_parameters_through_streams() {
+	const GAMMA_CORRECTION: usize = 60;
+	const RESET_GAMMA: usize = 62;
+	const TINT_MODE: usize = 82;
+	const COLOR: usize = 84;
+	const OUTER_COLOR: usize = 85;
+	const SWAP_COLORS: usize = 86;
+	let Some(mut instance) = load() else { return };
+	assert_eq!(instance.param_button_label(RESET_GAMMA), Some("Reset Gamma"));
+
+	instance.set_param(GAMMA_CORRECTION, ParamValue::Float(30.0)).unwrap();
+	instance.user_changed_param(RESET_GAMMA).unwrap();
+	assert_eq!(instance.get_param(GAMMA_CORRECTION), Some(ParamValue::Float(100.0)));
+
+	instance.update_params_ui().unwrap();
+	assert!(instance.param_disabled(SWAP_COLORS), "tint is off");
+	instance.set_param(TINT_MODE, ParamValue::Popup(4)).unwrap();
+	instance.user_changed_param(TINT_MODE).unwrap();
+	// After Effects sends this whenever it redraws the controls; the plugin
+	// does not always ask for it.
+	instance.update_params_ui().unwrap();
+	assert!(
+		!instance.param_disabled(SWAP_COLORS),
+		"a duocolor tint has two colors to swap"
+	);
+
+	let (color, outer) = (instance.get_param(COLOR), instance.get_param(OUTER_COLOR));
+	instance.user_changed_param(SWAP_COLORS).unwrap();
+	assert_eq!(instance.get_param(COLOR), outer);
+	assert_eq!(instance.get_param(OUTER_COLOR), color);
+}

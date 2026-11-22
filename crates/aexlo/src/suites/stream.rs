@@ -7,8 +7,9 @@
 //! for a parameter, that parameter's index (the same index space as
 //! `PF_ParamDef`s, 0 being the input layer). aexlo has no timeline, so
 //! a stream's value is the parameter's current value at every time and it never
-//! has keyframes or expressions. Mask streams, names that need the AEGP Memory
-//! Suite and every write are refused with `A_Err_GENERIC`.
+//! has keyframes or expressions. `AEGP_SetStreamValue` writes a parameter's
+//! value, as a plugin's Reset button does. Mask streams, names that need the
+//! AEGP Memory Suite and every other write are refused with `A_Err_GENERIC`.
 //!
 //! The same handle also names a node in the layer's dynamic-stream tree
 //! ([`super::dynamic_stream`]). A parameter node is what the calls above read.
@@ -641,15 +642,124 @@ macro_rules! dispose_stream_value {
 dispose_stream_value!(dispose_stream_value_v1, AEGP_StreamValue);
 dispose_stream_value!(dispose_stream_value_v2, AEGP_StreamValue2);
 
+/// The parameter value `value` sets on the parameter `def`, or `None` when
+/// the two do not fit together. Numbers are clamped to the parameter's valid
+/// range and colors to `0..=1`, as After Effects does. A color keeps the
+/// parameter's alpha: color parameters have no alpha control, and plugins
+/// such as Deep Glow write a zero there.
+fn param_value_of(def: &PF_ParamDef, value: StreamValue) -> Option<crate::ParamValue> {
+	use crate::ParamValue as P;
+	let channel = |c: f64| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
+	// SAFETY: every union read is selected by `param_type`.
+	unsafe {
+		Some(match (def.param_type, value) {
+			(t, StreamValue::OneD(v)) if t == PF_Param_SLIDER as PF_ParamType => {
+				P::Slider((v.round() as i32).clamp(def.u.sd.valid_min, def.u.sd.valid_max))
+			}
+			(t, StreamValue::OneD(v)) if t == PF_Param_FIX_SLIDER as PF_ParamType => P::Fixed((v as f32).clamp(
+				utils::fixed16_to_f32(def.u.fd.valid_min),
+				utils::fixed16_to_f32(def.u.fd.valid_max),
+			)),
+			(t, StreamValue::OneD(v)) if t == PF_Param_FLOAT_SLIDER as PF_ParamType => {
+				P::Float(v.clamp(def.u.fs_d.valid_min as f64, def.u.fs_d.valid_max as f64))
+			}
+			(t, StreamValue::OneD(v)) if t == PF_Param_ANGLE as PF_ParamType => P::Angle(v as f32),
+			(t, StreamValue::OneD(v)) if t == PF_Param_CHECKBOX as PF_ParamType => P::Checkbox(v != 0.0),
+			(t, StreamValue::OneD(v)) if t == PF_Param_POPUP as PF_ParamType => {
+				P::Popup((v.round() as i32).clamp(1, def.u.pd.num_choices.max(1) as i32))
+			}
+			(t, StreamValue::TwoD { x, y, .. }) if t == PF_Param_POINT as PF_ParamType => P::Point {
+				x: x as f32,
+				y: y as f32,
+			},
+			(t, StreamValue::ThreeD { x, y, z, .. }) if t == PF_Param_POINT_3D as PF_ParamType => {
+				P::Point3D { x, y, z }
+			}
+			(t, StreamValue::Color { red, green, blue, .. }) if t == PF_Param_COLOR as PF_ParamType => P::Color {
+				red: channel(red),
+				green: channel(green),
+				blue: channel(blue),
+				alpha: def.u.cd.value.alpha,
+			},
+			_ => return None,
+		})
+	}
+}
+
+/// Set the parameter behind `stream` to `value`.
+fn write_stream_value(stream: Stream, value: StreamValue) -> A_Err {
+	let Some(param) = with_param(stream.effect_ref, stream.index, |def| param_value_of(def, value)) else {
+		return PF_Err_BAD_CALLBACK_PARAM;
+	};
+	let Some(param) = param else {
+		return unsupported("AEGP_SetStreamValue (a layer, arbitrary-data or valueless stream)");
+	};
+	let Some(mut instance) = crate::PluginInstance::get_instance_ptr(stream.effect_ref) else {
+		return PF_Err_BAD_CALLBACK_PARAM;
+	};
+	// SAFETY: effect_ref is the live instance that is running the plugin call,
+	// and `set_param` writes the value in place, as the plugin's own
+	// `PF_ParamDef`s see it.
+	match unsafe { instance.as_mut() }.set_param(stream.index, param) {
+		Ok(()) => PF_Err_NONE,
+		Err(err) => {
+			log::warn!("AEGP_StreamSuite/AEGP_SetStreamValue: {err}");
+			PF_Err_BAD_CALLBACK_PARAM
+		}
+	}
+}
+
+/// Set an effect parameter's value. The union member read is the one the
+/// stream's type names, as in After Effects.
 macro_rules! set_stream_value {
 	($name:ident, $value_ty:ty) => {
 		unsafe extern "C" fn $name(
 			_aegp_plugin_id: AEGP_PluginID,
-			_streamH: AEGP_StreamRefH,
-			_valueP: *mut $value_ty,
+			streamH: AEGP_StreamRefH,
+			valueP: *mut $value_ty,
 		) -> A_Err {
-			diag!("AEGP_StreamSuite/AEGP_SetStreamValue");
-			unsupported("AEGP_SetStreamValue")
+			crate::core::ffi::guard("set_stream_value", || {
+				diag!("AEGP_StreamSuite/AEGP_SetStreamValue", "streamH" => format!("{:#x}", streamH as usize));
+
+				let Some(stream) = (unsafe { stream_of(streamH) }) else {
+					return PF_Err_BAD_CALLBACK_PARAM;
+				};
+				let Some(value) = (unsafe { valueP.as_ref() }) else {
+					return PF_Err_BAD_CALLBACK_PARAM;
+				};
+				if stream.node != Node::Param {
+					return unsupported("AEGP_SetStreamValue (not an effect parameter)");
+				}
+				let Some(current) = (unsafe { stream_value(streamH) }) else {
+					return PF_Err_BAD_CALLBACK_PARAM;
+				};
+				let val = &value.val;
+				// SAFETY: the member read is the one the stream's type selects.
+				let incoming = unsafe {
+					match current {
+						StreamValue::OneD(_) => StreamValue::OneD(val.one_d),
+						StreamValue::TwoD { spatial, .. } => StreamValue::TwoD {
+							x: val.two_d.x,
+							y: val.two_d.y,
+							spatial,
+						},
+						StreamValue::ThreeD { spatial, .. } => StreamValue::ThreeD {
+							x: val.three_d.x,
+							y: val.three_d.y,
+							z: val.three_d.z,
+							spatial,
+						},
+						StreamValue::Color { .. } => StreamValue::Color {
+							alpha: val.color.alphaF,
+							red: val.color.redF,
+							green: val.color.greenF,
+							blue: val.color.blueF,
+						},
+						_ => return unsupported("AEGP_SetStreamValue (a layer, arbitrary-data or valueless stream)"),
+					}
+				};
+				write_stream_value(stream, incoming)
+			})
 		}
 	};
 }
@@ -907,6 +1017,52 @@ mod tests {
 			assert_eq!((v1.two_d.x, v1.two_d.y), (3.0, 4.0));
 			assert_eq!((v2.two_d.x, v2.two_d.y), (3.0, 4.0));
 		}
+	}
+
+	#[test]
+	fn written_values_fit_the_parameter() {
+		let mut slider: PF_ParamDef = unsafe { std::mem::zeroed() };
+		slider.param_type = PF_Param_FLOAT_SLIDER as PF_ParamType;
+		slider.u.fs_d.valid_min = 0.0;
+		slider.u.fs_d.valid_max = 4.0;
+		assert_eq!(
+			param_value_of(&slider, StreamValue::OneD(9.0)),
+			Some(crate::ParamValue::Float(4.0))
+		);
+		let point = StreamValue::TwoD {
+			x: 1.0,
+			y: 2.0,
+			spatial: true,
+		};
+		assert_eq!(param_value_of(&slider, point), None);
+
+		let mut popup: PF_ParamDef = unsafe { std::mem::zeroed() };
+		popup.param_type = PF_Param_POPUP as PF_ParamType;
+		popup.u.pd.num_choices = 3;
+		assert_eq!(
+			param_value_of(&popup, StreamValue::OneD(7.0)),
+			Some(crate::ParamValue::Popup(3))
+		);
+
+		// A color keeps its alpha, which has no control of its own.
+		let mut color: PF_ParamDef = unsafe { std::mem::zeroed() };
+		color.param_type = PF_Param_COLOR as PF_ParamType;
+		color.u.cd.value.alpha = 255;
+		let written = StreamValue::Color {
+			alpha: 0.0,
+			red: 1.0,
+			green: 0.5,
+			blue: 2.0,
+		};
+		assert_eq!(
+			param_value_of(&color, written),
+			Some(crate::ParamValue::Color {
+				red: 255,
+				green: 128,
+				blue: 255,
+				alpha: 255,
+			})
+		);
 	}
 
 	#[test]

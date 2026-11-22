@@ -78,6 +78,8 @@ macro_rules! typed_consts {
 typed_consts! {
 	AEGP_DynStreamFlags {
 		AEGP_DynStreamFlag_ACTIVE_EYEBALL,
+		AEGP_DynStreamFlag_DISABLED,
+		AEGP_DynStreamFlag_HIDDEN,
 	}
 	AEGP_EffectFlags {
 		AEGP_EffectFlags_ACTIVE,
