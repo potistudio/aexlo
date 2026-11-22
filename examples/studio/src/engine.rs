@@ -20,7 +20,7 @@ use tiny_skia::{FilterQuality, Pixmap, PixmapPaint};
 
 use crate::model::{BlendMode, Effect, Id, Layer, LayerKind, PValue, Project};
 use crate::plugins;
-use crate::raster::{Fonts, Image, ImageCache, mask_coverage, render_shapes, render_text, text_outlines};
+use crate::raster::{Fonts, Image, ImageCache, mask_coverage, render_shapes, render_text};
 
 /// One plugin parameter, as declared at `PF_Cmd_PARAMS_SETUP`.
 #[derive(Debug, Clone)]
@@ -773,14 +773,11 @@ impl Worker {
 		links: Vec<(usize, Option<Image>)>,
 		ctx: &Frame,
 	) -> Result<Image, String> {
-		// A text layer's effects see real text, not only its pixels.
-		let text = match &layer.kind {
-			LayerKind::Text(text) => Some(aexlo::TextLayer::from_outlines(
-				text.text.clone(),
-				text_outlines(text, ctx.frame, &mut self.fonts),
-			)),
-			_ => None,
-		};
+		// Effects see the layers, text and shapes as such, not only pixels.
+		let project = crate::bridge::project(&ctx.project, layer, &effect.layers, ctx.frame, &mut self.fonts)
+			.inspect_err(|e| log::warn!("{}: no project for its effects: {e}", layer.name))
+			.ok();
+		let clock = crate::bridge::Clock::of(layer, &ctx.project);
 		let slot = self.slots.get_mut(&effect.id).ok_or("not loaded")?;
 		let info = slot.info.clone();
 		let fx = slot.instance.as_mut().map_err(|e| format!("failed to load: {e}"))?;
@@ -789,6 +786,7 @@ impl Worker {
 
 		fx.set_input_layer(to_layer(input)?);
 		fx.set_render_size(w, h);
+		fx.set_project(project);
 		fx.set_time(aexlo::Time::frame(ctx.frame - layer.start, ctx.project.comp.fps.max(1)));
 		if slot.size != (w, h) {
 			// Resizing the input re-resolves point defaults behind our back.
@@ -801,19 +799,27 @@ impl Worker {
 			let Some(default) = info.default_value(desc.index, (w, h)) else {
 				continue;
 			};
-			let value = effect.params.get(&desc.index).map_or(default, |a| a.at(ctx.frame));
-			if slot.applied.get(&desc.index) == Some(&value) {
+			let anim = effect.params.get(&desc.index);
+			let value = anim.map_or(default, |a| a.at(ctx.frame));
+			// The keyframes go along, so checkouts at other times are right.
+			let track = anim.and_then(|a| clock.param(a));
+			let unchanged = slot.applied.get(&desc.index) == Some(&value);
+			if unchanged && fx.param_track(desc.index) == track.as_ref() {
 				continue;
 			}
-			if let Err(e) = fx.set_param(desc.index, (&value).into()) {
-				log::warn!("{}: set_param({}) failed: {e}", slot.plugin, desc.index);
+			let set = match track {
+				Some(track) if fx.param_track(desc.index) == Some(&track) => Ok(()),
+				Some(track) => fx.set_param_track(desc.index, track),
+				None => fx.set_param(desc.index, (&value).into()),
+			};
+			if let Err(e) = set {
+				log::warn!("{}: setting parameter {} failed: {e}", slot.plugin, desc.index);
 			}
 			slot.applied.insert(desc.index, value);
 			changed = true;
 		}
 
 		fx.set_mask_paths(layer.masks.iter().map(mask_path).collect());
-		fx.set_text_layer(text);
 
 		let mut linked = BTreeSet::new();
 		for (index, image) in links {

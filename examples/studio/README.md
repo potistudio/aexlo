@@ -71,7 +71,7 @@ Use `--release`: debug builds composite several times slower.
 `engine.rs` runs on its own thread and owns every `PluginInstance`; the UI
 sends it snapshots of the project and only the newest pending one renders.
 Per layer: source → masks → effects (each one `set_input_layer`,
-`set_time`, parameters, `set_mask_paths`, `set_text_layer`,
+`set_project`, `set_time`, parameter tracks, `set_mask_paths`,
 `set_layer_param`, `render_frame`) → transform and blend onto the comp with tiny-skia. Layer
 sources whose contents and masks don't change are cached across frames.
 

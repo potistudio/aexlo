@@ -8,6 +8,7 @@
 //! Usage: `cargo run -p studio --release [-- project.json]`
 
 mod app;
+mod bridge;
 mod demo;
 mod engine;
 mod inspector;
