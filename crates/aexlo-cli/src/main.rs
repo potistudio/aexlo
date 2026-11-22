@@ -23,7 +23,7 @@ use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
 /// Run After Effects plugins without After Effects.
 #[derive(Parser)]
-#[command(name = "aexlo", version, after_help = PLUGIN_ARG, arg_required_else_help = true)]
+#[command(name = "aexlo", bin_name = "aexlo", version, after_help = PLUGIN_ARG, arg_required_else_help = true)]
 struct Cli {
 	#[command(subcommand)]
 	command: Command,

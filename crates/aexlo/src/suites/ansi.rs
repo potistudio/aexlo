@@ -378,7 +378,7 @@ mod tests {
 		let s = CString::new("abcdef").unwrap();
 		assert_eq!(
 			sprintf!(
-				"%.3s|%5.2f|%ld|%04x|%c",
+				"%.3s|%5.2f|%lld|%04x|%c",
 				s.as_ptr(),
 				2.5f64,
 				1234567890123i64,
