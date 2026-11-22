@@ -258,6 +258,9 @@ pub(crate) struct SmartRenderData {
 
 	/// Bits per channel of CPU renders: the depth of the instance's worlds.
 	cpu_bitdepth: i16,
+	/// Framework used when the current pre-render data was produced. The
+	/// render configuration can change before that data is disposed.
+	pre_render_was_gpu: bool,
 }
 
 #[cfg(test)]
@@ -357,6 +360,40 @@ mod tests {
 		state.pre_output.pre_render_data = std::ptr::dangling_mut::<u8>().cast();
 		state.dispose_pre_render_data();
 	}
+
+	#[test]
+	fn pre_render_cleanup_tracks_the_frame_not_the_current_configuration() {
+		use std::sync::atomic::AtomicUsize;
+		static DELETES: AtomicUsize = AtomicUsize::new(0);
+		unsafe extern "C" fn delete(_: *mut std::ffi::c_void) {
+			DELETES.fetch_add(1, Ordering::SeqCst);
+		}
+		let mut state = SmartRenderData::new();
+		let data = std::ptr::dangling_mut::<u8>().cast();
+		state.begin_pre_render();
+		state.pre_output.pre_render_data = data;
+		state.pre_output.delete_pre_render_data_func = Some(delete);
+		state.configure_gpu(null(), 0, crate::sys::PF_GPU_Framework_CUDA);
+		state.begin_pre_render();
+		assert_eq!(DELETES.load(Ordering::SeqCst), 1);
+		state.pre_output.pre_render_data = data;
+		state.pre_output.delete_pre_render_data_func = Some(delete);
+		state.configure_cpu();
+		state.dispose_pre_render_data();
+		assert_eq!(DELETES.load(Ordering::SeqCst), 1);
+	}
+
+	#[test]
+	fn gpu_pre_render_releases_owned_handle_without_delete_callback() {
+		let mut state = SmartRenderData::new();
+		state.configure_gpu(null(), 0, crate::sys::PF_GPU_Framework_CUDA);
+		state.begin_pre_render();
+		let handle = unsafe { crate::suites::handle::host_new_handle_impl(108) };
+		assert!(!handle.is_null());
+		state.pre_output.pre_render_data = handle.cast();
+		state.dispose_pre_render_data();
+		assert!(!crate::suites::handle::is_owned_handle(handle as usize));
+	}
 }
 
 impl SmartRenderData {
@@ -414,6 +451,7 @@ impl SmartRenderData {
 				checkout_output: Some(checkout_output_sys),
 			}),
 			cpu_bitdepth: 8,
+			pre_render_was_gpu: false,
 		}
 	}
 
@@ -481,6 +519,7 @@ impl SmartRenderData {
 	pub fn begin_pre_render(&mut self) {
 		self.dispose_pre_render_data();
 		*self.pre_output = empty_pre_render_output();
+		self.pre_render_was_gpu = self.is_gpu();
 	}
 
 	/// Release the plugin's pre-render data through the delete callback it
@@ -489,14 +528,14 @@ impl SmartRenderData {
 		let data = std::mem::replace(&mut self.pre_output.pre_render_data, null_mut());
 		let delete = self.pre_output.delete_pre_render_data_func.take();
 		self.input.pre_render_data = null_mut();
-		// A GPU frame's callback is not invoked. Universe Glow frees that
+		// A GPU frame's delete callback is not invoked. Universe Glow frees that
 		// block itself when the device finishes, and the host's later call is
 		// a double-free: `RtlFreeHeap` inside the plugin, reached from here,
 		// aborts the process (`0xC0000374`). The heap is intact when the call
 		// is skipped. CPU frames stay synchronous and the plugin does not
-		// free the block, so the callback still runs. One host allocation per
-		// GPU frame is leaked.
-		if self.is_gpu() {
+		// free the block, so the callback still runs. GPU frames with a delete
+		// callback may leak until their ownership contract is understood.
+		if self.pre_render_was_gpu && delete.is_some() {
 			return;
 		}
 		if let (false, Some(delete)) = (data.is_null(), delete) {
