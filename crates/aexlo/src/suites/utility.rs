@@ -380,13 +380,29 @@ unsafe impl Sync for AEGPUtilitySuiteCompatV11 {}
 // (Required for `LazyLock<AEGPUtilitySuiteCompatV11>` to be `Sync`.)
 unsafe impl Send for AEGPUtilitySuiteCompatV11 {}
 
-/// Process-wide `AEGP Utility Suite` (compat v11) instance.
+/// `AEGP Utility Suite` through version 5 (wire versions 1 to 12).
 ///
-/// Unlike the other suites this one cannot live in the `const` [`SUITE_CONTAINER`]
-/// (crate::suites::SUITE_CONTAINER): its `slots` are `*const c_void`, and casting a
-/// function pointer to a raw pointer is not permitted in a `const` initializer.
-/// A [`LazyLock`] performs that cast once, on first acquire.
-pub static AEGP_UTILITY_SUITE: LazyLock<AEGPUtilitySuiteCompatV11> = LazyLock::new(build_aegp_utility_suite_compat_v11);
+/// `AEGP_RegisterWithAEGP` is slot 8 and `AEGP_GetMainHWND` is slot 9.
+static AEGP_UTILITY_SUITE_5: LazyLock<AEGPUtilitySuiteCompatV11> = LazyLock::new(build_aegp_utility_suite_v5);
+
+/// `AEGP Utility Suite` version 6 and later (wire version 13 onwards).
+///
+/// `AEGP_ReportInfoUnicode` is inserted at slot 1, so registration moves to
+/// slot 9 and the main window to slot 10.
+static AEGP_UTILITY_SUITE_6: LazyLock<AEGPUtilitySuiteCompatV11> = LazyLock::new(build_aegp_utility_suite_v6);
+
+/// The utility suite whose layout matches `version`.
+///
+/// Wire version 13 (`AEGP_UtilitySuite6`) is the first one with
+/// `AEGP_ReportInfoUnicode`. Earlier versions share the version 5 layout.
+pub(crate) fn aegp_utility_suite(version: i32) -> *const c_void {
+	let suite = if version >= after_effects_sys::kAEGPUtilitySuiteVersion6 as i32 {
+		&*AEGP_UTILITY_SUITE_6
+	} else {
+		&*AEGP_UTILITY_SUITE_5
+	};
+	suite as *const AEGPUtilitySuiteCompatV11 as *const c_void
+}
 
 unsafe extern "C" fn aegp_noop_ok_stub() -> A_Err {
 	PF_Err_NONE as A_Err
@@ -456,22 +472,92 @@ unsafe extern "C" fn aegp_execute_script_stub(
 	PF_Err_NONE as A_Err
 }
 
-/// Builds the offset-compatible `AEGP Utility Suite` table for newer suite versions.
+/// `AEGP_GetMainHWND`: write the host window into the caller's `HWND*`.
 ///
-/// The target plugin requests v11 and calls at least offsets `+0x38` and `+0xd8`.
-/// We keep all slots non-null to avoid indirect-call crashes from unimplemented entries.
-///
-/// Backs the [`AEGP_UTILITY_SUITE`] `LazyLock`; run once, on first acquire.
-fn build_aegp_utility_suite_compat_v11() -> AEGPUtilitySuiteCompatV11 {
+/// The SDK types the out-parameter as `void *`. Callers pass the address of
+/// an `HWND`, and an editor owned by a hidden window never appears.
+unsafe extern "C" fn aegp_get_main_hwnd(main_hwnd: *mut c_void) -> A_Err {
+	if main_hwnd.is_null() {
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	}
+	#[cfg(windows)]
+	let hwnd = crate::host::utility::host_window();
+	#[cfg(not(windows))]
+	let hwnd = std::ptr::null_mut();
+	unsafe { *(main_hwnd as *mut *mut c_void) = hwnd };
+	PF_Err_NONE as A_Err
+}
+
+fn utility_suite(
+	register_at: usize,
+	hwnd_at: usize,
+	scripting_at: usize,
+	execute_at: usize,
+) -> AEGPUtilitySuiteCompatV11 {
 	let noop = aegp_noop_ok_stub as *const () as *const c_void;
 	let mut suite = AEGPUtilitySuiteCompatV11 { slots: [noop; 48] };
-
-	// +0x38 -> RegisterWithAEGP
-	suite.slots[7] = aegp_register_with_aegp_stub as *const () as *const c_void;
-	// +0xd0 -> IsScriptingAvailable (best effort)
-	suite.slots[26] = aegp_is_scripting_available_stub as *const () as *const c_void;
-	// +0xd8 -> ExecuteScript
-	suite.slots[27] = aegp_execute_script_stub as *const () as *const c_void;
-
+	suite.slots[register_at] = aegp_register_with_aegp_stub as *const () as *const c_void;
+	suite.slots[hwnd_at] = aegp_get_main_hwnd as *const () as *const c_void;
+	suite.slots[scripting_at] = aegp_is_scripting_available_stub as *const () as *const c_void;
+	suite.slots[execute_at] = aegp_execute_script_stub as *const () as *const c_void;
 	suite
+}
+
+/// Version 5 layout: registration at `+0x40`, main window at `+0x48`,
+/// scripting at `+0xd0` and `+0xd8`.
+fn build_aegp_utility_suite_v5() -> AEGPUtilitySuiteCompatV11 {
+	utility_suite(8, 9, 26, 27)
+}
+
+/// Version 6 layout: one slot later, after `AEGP_ReportInfoUnicode`.
+fn build_aegp_utility_suite_v6() -> AEGPUtilitySuiteCompatV11 {
+	utility_suite(9, 10, 27, 28)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn utility_suite_6_registers_a_plugin_and_returns_the_main_window() {
+		let owner = crate::suites::register::new_owner();
+		let _scope = crate::suites::register::enter_owner(owner);
+		let suite = unsafe {
+			&*(aegp_utility_suite(after_effects_sys::kAEGPUtilitySuiteVersion6 as i32)
+				as *const after_effects_sys::AEGP_UtilitySuite6)
+		};
+		let mut id = 0;
+		let err =
+			unsafe { suite.AEGP_RegisterWithAEGP.unwrap()(std::ptr::null_mut(), c"Venustas".as_ptr().cast(), &mut id) };
+		assert_eq!(err, PF_Err_NONE as A_Err);
+		assert_ne!(id, 0);
+
+		#[cfg(windows)]
+		{
+			let sentinel = 0x1234 as *mut c_void;
+			crate::host::utility::set_main_window(sentinel);
+			let mut hwnd = std::ptr::null_mut();
+			let err = unsafe { suite.AEGP_GetMainHWND.unwrap()((&mut hwnd) as *mut *mut c_void as *mut c_void) };
+			crate::host::utility::set_main_window(std::ptr::null_mut());
+			assert_eq!(err, PF_Err_NONE as A_Err);
+			assert_eq!(hwnd, sentinel);
+		}
+	}
+
+	#[test]
+	fn utility_suite_5_keeps_registration_one_slot_earlier() {
+		let v5 = unsafe {
+			&*(aegp_utility_suite(after_effects_sys::kAEGPUtilitySuiteVersion5 as i32)
+				as *const after_effects_sys::AEGP_UtilitySuite5)
+		};
+		let v6 = unsafe {
+			&*(aegp_utility_suite(after_effects_sys::kAEGPUtilitySuiteVersion6 as i32)
+				as *const after_effects_sys::AEGP_UtilitySuite6)
+		};
+		let register = aegp_register_with_aegp_stub as *const ();
+		assert_eq!(v5.AEGP_RegisterWithAEGP.unwrap() as *const (), register);
+		assert_eq!(v6.AEGP_RegisterWithAEGP.unwrap() as *const (), register);
+		assert_ne!(v5.AEGP_EndUndoGroup.unwrap() as *const (), register);
+		assert_ne!(v6.AEGP_StartUndoGroup.unwrap() as *const (), register);
+	}
 }

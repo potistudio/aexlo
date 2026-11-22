@@ -15,6 +15,7 @@ env_logger = "0.11.11"
 epaint_default_fonts = "0.35.0"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 log = "0.4.33"
+raw-window-handle = "0.6.2"
 rfd = "0.17.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"

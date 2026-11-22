@@ -4376,6 +4376,7 @@ dependencies = [
  "epaint_default_fonts",
  "image",
  "log",
+ "raw-window-handle",
  "rfd",
  "serde",
  "serde_json",

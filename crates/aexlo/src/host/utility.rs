@@ -450,7 +450,7 @@ pub(crate) fn set_main_window(hwnd: *mut c_void) {
 /// Top-level window used as `PF_PlatData_MAIN_WND`. Created on the calling
 /// thread, which is also the thread that later dispatches its messages.
 #[cfg(windows)]
-fn host_window() -> *mut c_void {
+pub(crate) fn host_window() -> *mut c_void {
 	let chosen = MAIN_WINDOW.load(Ordering::Relaxed);
 	if chosen != 0 {
 		return chosen as *mut c_void;

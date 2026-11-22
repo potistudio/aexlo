@@ -44,6 +44,31 @@ fn main() -> eframe::Result<()> {
 	eframe::run_native(
 		"aexlo-studio",
 		options,
-		Box::new(move |cc| Ok(Box::new(app::Studio::new(&cc.egui_ctx, project, file)))),
+		Box::new(move |cc| {
+			// Plugins parent editors on this window. Set it before any effect
+			// loads: an editor owned by a hidden window stays invisible.
+			publish_main_window(cc);
+			Ok(Box::new(app::Studio::new(&cc.egui_ctx, project, file)))
+		}),
 	)
+}
+
+/// Hand the studio's HWND to the host as `PF_PlatData_MAIN_WND` and
+/// `AEGP_GetMainHWND`.
+fn publish_main_window(handle: &impl raw_window_handle::HasWindowHandle) {
+	#[cfg(windows)]
+	{
+		use raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
+		let Ok(window) = handle.window_handle() else {
+			return;
+		};
+		let RawWindowHandle::Win32(win) = window.as_raw() else {
+			return;
+		};
+		aexlo::set_main_window(win.hwnd.get() as *mut std::ffi::c_void);
+	}
+	#[cfg(not(windows))]
+	{
+		let _ = handle;
+	}
 }

@@ -130,6 +130,75 @@ pub enum Event {
 	ExportFinished(Result<String, String>),
 }
 
+/// Block until the UI sends a request, and keep dispatching window messages
+/// on this thread in the meantime.
+///
+/// An effect's editor is created on the thread that handles the button. That
+/// window only paints and receives input while this thread runs a message
+/// loop, which `recv` on its own does not.
+fn wait_request(requests: &Receiver<Request>) -> Option<Request> {
+	#[cfg(windows)]
+	{
+		loop {
+			pump_window_messages();
+			match requests.recv_timeout(Duration::from_millis(16)) {
+				Ok(request) => return Some(request),
+				Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+				Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return None,
+			}
+		}
+	}
+	#[cfg(not(windows))]
+	requests.recv().ok()
+}
+
+#[cfg(windows)]
+fn pump_window_messages() {
+	while peek_message() {}
+}
+
+#[cfg(windows)]
+fn peek_message() -> bool {
+	#[repr(C)]
+	struct Msg {
+		hwnd: *mut std::ffi::c_void,
+		message: u32,
+		_pad: u32,
+		wparam: usize,
+		lparam: isize,
+		time: u32,
+		_pad2: u32,
+		x: i32,
+		y: i32,
+	}
+	#[link(name = "user32")]
+	unsafe extern "system" {
+		fn PeekMessageW(msg: *mut Msg, hwnd: *mut std::ffi::c_void, min: u32, max: u32, remove: u32) -> i32;
+		fn TranslateMessage(msg: *const Msg) -> i32;
+		fn DispatchMessageW(msg: *const Msg) -> isize;
+	}
+	let mut msg = Msg {
+		hwnd: std::ptr::null_mut(),
+		message: 0,
+		_pad: 0,
+		wparam: 0,
+		lparam: 0,
+		time: 0,
+		_pad2: 0,
+		x: 0,
+		y: 0,
+	};
+	// PM_REMOVE. A null HWND drains every message queued for this thread.
+	if unsafe { PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, 1) } == 0 {
+		return false;
+	}
+	unsafe {
+		TranslateMessage(&msg);
+		DispatchMessageW(&msg);
+	}
+	true
+}
+
 /// The UI's handle on the engine thread.
 pub struct Engine {
 	tx: Sender<Request>,
@@ -309,7 +378,7 @@ struct Worker {
 
 impl Worker {
 	fn run(mut self, requests: Receiver<Request>) {
-		while let Ok(first) = requests.recv() {
+		while let Some(first) = wait_request(&requests) {
 			let mut queue = vec![first];
 			queue.extend(requests.try_iter());
 			// Only the newest render matters; everything else runs in order.

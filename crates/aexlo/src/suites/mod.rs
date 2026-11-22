@@ -12,8 +12,8 @@
 //! acquiring one just hands back a pointer into it and releasing it is a
 //! no-op; nothing is allocated or freed. The sole exception is the AEGP Utility
 //! compat suite, whose type-erased pointer slots can't be built in a `const`
-//! context - it lives in its own [`LazyLock`](utility::AEGP_UTILITY_SUITE)
-//! instead, but is otherwise the same shared-static model.
+//! context - it lives in its own `LazyLock`s (see [`utility`]) instead, but is
+//! otherwise the same shared-static model.
 
 mod adv_app;
 mod adv_item;
@@ -64,6 +64,7 @@ pub mod world;
 use crate::core::diagnostics::DiagnosticBuilder;
 use after_effects_sys::*;
 static COMP_SUITE_4: AEGP_CompSuite4 = comp::create_comp_suite_4();
+static COMP_SUITE_11: AEGP_CompSuite11 = comp::create_comp_suite_11();
 static AEGP_WORLD_1: AEGP_WorldSuite1 = aegp_world::suite_1();
 static AEGP_WORLD_2: AEGP_WorldSuite2 = aegp_world::suite_2();
 static AEGP_WORLD_3: AEGP_WorldSuite3 = aegp_world::suite_3();
@@ -76,6 +77,7 @@ static AEGP_DYNAMIC_STREAM_2: AEGP_DynamicStreamSuite2 = dynamic_stream::suite_2
 static AEGP_DYNAMIC_STREAM_3: AEGP_DynamicStreamSuite3 = dynamic_stream::suite_3();
 static AEGP_DYNAMIC_STREAM_4: AEGP_DynamicStreamSuite4 = dynamic_stream::suite_4();
 static AEGP_ITEM_8: AEGP_ItemSuite8 = aegp_item::suite_8();
+static AEGP_ITEM_9: AEGP_ItemSuite9 = aegp_item::suite_9();
 static AEGP_LAYER_RENDER_OPTIONS_2: AEGP_LayerRenderOptionsSuite2 = aegp_render::layer_render_options_suite_2();
 static AEGP_RENDER_OPTIONS_4: AEGP_RenderOptionsSuite4 = aegp_render::render_options_suite_4();
 static AEGP_RENDER_5: AEGP_RenderSuite5 = aegp_render::render_suite_5();
@@ -426,6 +428,10 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			unsafe { *suite = &AEGP_ITEM_8 as *const _ as *const c_void };
 			PF_Err_NONE as PF_Err
 		}
+		("AEGP Item Suite", v) if v == kAEGPItemSuiteVersion9 as i32 => {
+			unsafe { *suite = &AEGP_ITEM_9 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
 		("AEGP Layer Render Options Suite", v) if v == kAEGPLayerRenderOptionsSuiteVersion2 as i32 => {
 			unsafe { *suite = &AEGP_LAYER_RENDER_OPTIONS_2 as *const _ as *const c_void };
 			PF_Err_NONE as PF_Err
@@ -447,6 +453,12 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion10 as i32 => {
 			dispatch_static!(suite, suite_name, version, comp)
+		}
+		// Suite 11 appends `AEGP_ReorderCompSelection`. Suite 12 has the same
+		// layout, so both wire versions share that table.
+		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion11 as i32 || v == kAEGPCompSuiteVersion12 as i32 => {
+			unsafe { *suite = &COMP_SUITE_11 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
 		}
 		// Layer Suite v6 switches names to UTF-16 handles; later versions append.
 		// Wire version 8 is `AEGP_LayerSuite3`. It is not a prefix of suite 5:
@@ -501,9 +513,9 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			PF_Err_NONE as PF_Err
 		}
 		("AEGP Utility Suite", 1..=18) => {
-			// Lives in its own LazyLock rather than SUITE_CONTAINER (see AEGP_UTILITY_SUITE).
+			// Two layouts: version 6 inserts `AEGP_ReportInfoUnicode` at slot 1.
 			// SAFETY: `suite` was null-checked at the top of this function.
-			unsafe { *suite = &*utility::AEGP_UTILITY_SUITE as *const _ as *const c_void };
+			unsafe { *suite = utility::aegp_utility_suite(version) };
 			log::debug!("Acquired {} v{}", suite_name, version);
 			PF_Err_NONE as PF_Err
 		}
@@ -609,12 +621,17 @@ mod tests {
 			("AEGP Layer Suite", 15),
 			("AEGP Comp Suite", 9),
 			("AEGP Comp Suite", 21),
+			("AEGP Comp Suite", 25),
+			("AEGP Comp Suite", 26),
 			("AEGP Light Suite", 1),
 			("PF Color Settings Suite", 3),
 			("PF Color Settings Suite", 6),
 			("AEGP Memory Suite", 1),
 			("AEGP Item Suite", 10),
 			("AEGP Item Suite", 13),
+			("AEGP Item Suite", 14),
+			("AEGP Utility Suite", 11),
+			("AEGP Utility Suite", 13),
 			("AEGP Layer Render Options Suite", 2),
 			("AEGP Render Options Suite", 4),
 			("AEGP Render Suite", 8),

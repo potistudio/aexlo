@@ -1,7 +1,8 @@
-//! `AEGP Item Suite`, wire versions 10 (`AEGP_ItemSuite6`) and 13
-//! (`AEGP_ItemSuite8`). The two are not the same layout: version 10 names an
-//! item with a fixed `char` buffer, while version 13 takes a plugin id and
-//! returns a UTF-16 handle.
+//! `AEGP Item Suite`, wire versions 10 (`AEGP_ItemSuite6`), 13
+//! (`AEGP_ItemSuite8`) and 14 (`AEGP_ItemSuite9`). Version 10 names an item
+//! with a fixed `char` buffer, while version 13 takes a plugin id and returns
+//! a UTF-16 handle. Version 14 drops the comment-length call and reads the
+//! comment as a UTF-16 handle.
 //!
 //! aexlo's project has one item, and it is the comp (the same pointer as the
 //! layer and the comp; see [`layer`](super::layer)). Reads report that comp.
@@ -321,6 +322,23 @@ unsafe extern "C" fn set_item_label(_itemH: AEGP_ItemH, _label: AEGP_LabelID) ->
 	refuse("AEGP_SetItemLabel")
 }
 
+unsafe extern "C" fn get_item_comment_utf16(itemH: AEGP_ItemH, commentPH: *mut AEGP_MemHandle) -> A_Err {
+	diag!("AEGP_ItemSuite9/AEGP_GetItemComment");
+	let Some(out) = (unsafe { commentPH.as_mut() }) else {
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	};
+	if !known(itemH) {
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	}
+	*out = handle_from_bytes(0u16.to_le_bytes().to_vec());
+	PF_Err_NONE as A_Err
+}
+
+unsafe extern "C" fn set_item_comment_utf16(_itemH: AEGP_ItemH, _commentZ: *const A_UTF16Char) -> A_Err {
+	diag!("AEGP_ItemSuite9/AEGP_SetItemComment");
+	refuse("AEGP_SetItemComment")
+}
+
 unsafe extern "C" fn get_item_mru_view(itemH: AEGP_ItemH, mru_viewP: *mut AEGP_ItemViewP) -> A_Err {
 	diag!("AEGP_ItemSuite8/AEGP_GetItemMRUView");
 	let Some(out) = (unsafe { mru_viewP.as_mut() }) else {
@@ -390,6 +408,39 @@ pub const fn suite_8() -> AEGP_ItemSuite8 {
 		AEGP_GetItemCommentLength: Some(get_item_comment_length),
 		AEGP_GetItemComment: Some(get_item_comment),
 		AEGP_SetItemComment: Some(set_item_comment),
+		AEGP_GetItemLabel: Some(get_item_label),
+		AEGP_SetItemLabel: Some(set_item_label),
+		AEGP_GetItemMRUView: Some(get_item_mru_view),
+	}
+}
+
+/// Wire version 14. Same as suite 8 until the comment calls, which no longer
+/// take a byte length.
+pub const fn suite_9() -> AEGP_ItemSuite9 {
+	AEGP_ItemSuite9 {
+		AEGP_GetFirstProjItem: Some(get_first_proj_item),
+		AEGP_GetNextProjItem: Some(get_next_proj_item),
+		AEGP_GetActiveItem: Some(get_active_item),
+		AEGP_IsItemSelected: Some(is_item_selected),
+		AEGP_SelectItem: Some(select_item),
+		AEGP_GetItemType: Some(get_item_type),
+		AEGP_GetTypeName: Some(get_type_name),
+		AEGP_GetItemName: Some(get_item_name),
+		AEGP_SetItemName: Some(set_item_name),
+		AEGP_GetItemID: Some(get_item_id),
+		AEGP_GetItemFlags: Some(get_item_flags),
+		AEGP_SetItemUseProxy: Some(set_item_use_proxy),
+		AEGP_GetItemParentFolder: Some(get_item_parent_folder),
+		AEGP_SetItemParentFolder: Some(set_item_parent_folder),
+		AEGP_GetItemDuration: Some(get_item_duration),
+		AEGP_GetItemCurrentTime: Some(get_item_current_time),
+		AEGP_GetItemDimensions: Some(get_item_dimensions),
+		AEGP_GetItemPixelAspectRatio: Some(get_item_pixel_aspect_ratio),
+		AEGP_DeleteItem: Some(delete_item),
+		AEGP_CreateNewFolder: Some(create_new_folder),
+		AEGP_SetItemCurrentTime: Some(set_item_current_time),
+		AEGP_GetItemComment: Some(get_item_comment_utf16),
+		AEGP_SetItemComment: Some(set_item_comment_utf16),
 		AEGP_GetItemLabel: Some(get_item_label),
 		AEGP_SetItemLabel: Some(set_item_label),
 		AEGP_GetItemMRUView: Some(get_item_mru_view),
