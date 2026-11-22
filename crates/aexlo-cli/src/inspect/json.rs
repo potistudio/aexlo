@@ -5,18 +5,23 @@
 //!
 //! - `loaded`: the plugin is loaded and takes commands.
 //! - `command`: one command ran (`ok`, `elapsed_us`, `message` or `error`,
-//!   and what it caused: `step` is the `#seq` `focus` takes, `commands` the
-//!   `PF_Cmd_*` it issued with their errors, plus its suite calls and
-//!   allocations).
-//! - `focus`: the diagnosis of a trace entry, in `sections` of `items`;
-//!   `tone` is `good`, `warn` or `bad` where the analysis judges a value.
+//!   and what it caused: `step` is the entry number `focus #<step>` takes,
+//!   `commands` the `PF_Cmd_*` it issued with their errors, plus its suite
+//!   calls and allocations).
+//! - `focus`: the diagnosis of a trace entry, in `sections` of `items`
+//!   (`tone` is `good`, `warn` or `bad` where the analysis judges a value),
+//!   and the entries `around` it.
+//!
+//! Each fact is said once, and a field that would be `null` or its default
+//! is left out: an entry has `repeat` only when calls were folded into it,
+//! `error` only when there was one.
 //! - `report`: the analysis (`report`, and once more at the end).
 //! - `error`: the plugin could not be loaded.
 
 use aexlo::Strict;
 use serde_json::{Value, json};
 
-use super::diagnose::{Diagnosis, Tone};
+use super::diagnose::{self, Diagnosis, Tone};
 use super::engine::Snapshot;
 use super::recorder::{CallDetail, Entry, Kind, Recording, err_name};
 use super::{MemoryDump, role};
@@ -48,13 +53,18 @@ fn flags(bits: u32, debug: String) -> Value {
 	json!({ "bits": bits, "names": names })
 }
 
+/// `{args, result?}`.
 fn detail(detail: &CallDetail) -> Value {
 	let args: Vec<Value> = detail
 		.args
 		.iter()
 		.map(|(name, value)| json!({ "name": name, "value": value }))
 		.collect();
-	json!({ "args": args, "result": detail.result })
+	let mut out = json!({ "args": args });
+	if let Some(result) = &detail.result {
+		out["result"] = json!(result);
+	}
+	out
 }
 
 /// One trace entry.
@@ -63,18 +73,15 @@ pub fn entry(e: &Entry) -> Value {
 		"seq": e.seq,
 		"at_us": micros(e.at),
 		"depth": e.depth,
-		"repeat": e.repeat,
 		"text": e.describe(),
 	});
+	if e.repeat > 1 {
+		out["repeat"] = json!(e.repeat);
+	}
 	let fields = match &e.kind {
 		Kind::Step(text) => json!({ "type": "step", "line": text }),
 		Kind::Begin(name) => json!({ "type": "begin", "command": format!("PF_Cmd_{name}") }),
-		Kind::End { name, duration, error } => json!({
-			"type": "end",
-			"command": format!("PF_Cmd_{name}"),
-			"elapsed_us": micros(*duration),
-			"error": error.map(err_json),
-		}),
+		Kind::End { name, duration, error } => ended(name, *duration, *error, json!({ "type": "end" })),
 		Kind::Call {
 			suite,
 			function,
@@ -83,7 +90,9 @@ pub fn entry(e: &Entry) -> Value {
 		} => {
 			let mut call = json!({ "type": "call", "suite": suite, "function": function });
 			merge(&mut call, detail(first));
-			call["last"] = last.as_deref().map_or(Value::Null, detail);
+			if let Some(last) = last {
+				call["last"] = detail(last);
+			}
 			call
 		}
 		Kind::Alloc {
@@ -103,6 +112,16 @@ pub fn entry(e: &Entry) -> Value {
 	out
 }
 
+/// A `PF_Cmd_*` that ended: `{command, elapsed_us, error?}` added to `into`.
+fn ended(name: &str, duration: std::time::Duration, error: Option<i32>, mut into: Value) -> Value {
+	into["command"] = json!(format!("PF_Cmd_{name}"));
+	into["elapsed_us"] = json!(micros(duration));
+	if let Some(code) = error {
+		into["error"] = err_json(code);
+	}
+	into
+}
+
 fn merge(into: &mut Value, from: Value) {
 	if let (Value::Object(into), Value::Object(from)) = (into, from) {
 		into.extend(from);
@@ -114,17 +133,15 @@ fn merge(into: &mut Value, from: Value) {
 /// allocations.
 pub fn caused(rec: &Recording, seq: Option<u64>) -> Value {
 	let Some(start) = seq.and_then(|seq| rec.trace.iter().position(|e| e.seq == seq)) else {
-		return json!({ "step": null, "commands": [], "suite_calls": 0, "allocations": 0, "frees": 0 });
+		return json!({ "commands": [], "suite_calls": 0, "allocations": 0, "frees": 0 });
 	};
 	let (mut commands, mut calls, mut allocs, mut frees) = (Vec::new(), 0u64, 0u64, 0u64);
 	for e in rec.trace.range(start + 1..) {
 		match &e.kind {
 			Kind::Step(_) => break,
-			Kind::End { name, duration, error } if e.depth == 0 => commands.push(json!({
-				"command": format!("PF_Cmd_{name}"),
-				"elapsed_us": micros(*duration),
-				"error": error.map(err_json),
-			})),
+			Kind::End { name, duration, error } if e.depth == 0 => {
+				commands.push(ended(name, *duration, *error, json!({})));
+			}
 			Kind::Call { .. } => calls += u64::from(e.repeat),
 			Kind::Alloc { allocated: true, .. } => allocs += 1,
 			Kind::Alloc { .. } => frees += 1,
@@ -132,7 +149,7 @@ pub fn caused(rec: &Recording, seq: Option<u64>) -> Value {
 		}
 	}
 	json!({
-		"step": format!("#{}", rec.trace[start].seq),
+		"step": rec.trace[start].seq,
 		"commands": commands,
 		"suite_calls": calls,
 		"allocations": allocs,
@@ -140,48 +157,89 @@ pub fn caused(rec: &Recording, seq: Option<u64>) -> Value {
 	})
 }
 
-fn tone(tone: Tone) -> &'static str {
+/// The verdict a tone gives, if any: `good`, `warn` or `bad`.
+fn verdict(tone: Tone) -> Option<&'static str> {
 	match tone {
-		Tone::Heading | Tone::Key | Tone::Plain => "plain",
-		Tone::Good => "good",
-		Tone::Warn => "warn",
-		Tone::Bad => "bad",
-		Tone::Dim => "dim",
+		Tone::Good => Some("good"),
+		Tone::Warn => Some("warn"),
+		Tone::Bad => Some("bad"),
+		Tone::Heading | Tone::Key | Tone::Plain | Tone::Dim => None,
 	}
 }
 
-/// A diagnosis as `{title, sections: [{heading, items: [...]}]}`. An item is
-/// `{key, value, tone, note?}` for a labelled line, `{text, tone}` otherwise.
+/// `focus`'s fields for the trace entry at `index`: the `entry`, its
+/// `diagnosis` and the entries `around` it.
+pub fn focus(rec: &Recording, index: usize, snapshot: Option<&Snapshot>) -> Value {
+	let mut entry = entry(&rec.trace[index]);
+	// The diagnosis lists the arguments and result, with a verdict on each.
+	if let Value::Object(fields) = &mut entry {
+		for key in ["args", "result", "last"] {
+			fields.remove(key);
+		}
+	}
+	let around: Vec<Value> = diagnose::neighbours(rec, index)
+		.map(|i| {
+			let e = &rec.trace[i];
+			json!({ "seq": e.seq, "depth": e.depth, "text": diagnose::neighbour_text(e) })
+		})
+		.collect();
+	json!({
+		"entry": entry,
+		"diagnosis": diagnosis(&diagnose::diagnose(rec, index, snapshot)),
+		"around": around,
+	})
+}
+
+/// A diagnosis as `{sections: [{heading?, items: [...]}]}`. An item is
+/// `{key, value, tone?, note?}` for a labelled line, `{text, tone?}`
+/// otherwise. What the `entry` and `around` fields beside it say is left
+/// out.
 pub fn diagnosis(d: &Diagnosis) -> Value {
-	let mut sections = vec![json!({ "heading": null, "items": [] })];
+	let mut sections = vec![json!({ "items": [] })];
+	let mut skipping = false;
 	for line in &d.lines {
 		match line.as_slice() {
 			[] => {}
-			[(Tone::Heading, heading)] => sections.push(json!({ "heading": heading, "items": [] })),
+			[(Tone::Heading, heading)] => {
+				skipping = heading == diagnose::AROUND;
+				if !skipping {
+					sections.push(json!({ "heading": heading, "items": [] }));
+				}
+			}
+			_ if skipping => {}
 			[(Tone::Key, key), (t, value), rest @ ..] => {
-				let mut item = json!({ "key": key.trim(), "value": value, "tone": tone(*t) });
+				let key = key.trim();
+				// Where the entry is in the trace: `entry` has it.
+				if sections.len() == 1 && key == "entry" {
+					continue;
+				}
+				let key = key.strip_prefix("→ ").unwrap_or(key);
+				let mut item = json!({ "key": key, "value": value });
+				let mut t = *t;
 				// `  ← note`, in the note's tone.
-				if let [_, (t, note)] = rest {
+				if let [_, (note_tone, note)] = rest {
 					item["note"] = json!(note);
-					item["tone"] = json!(tone(*t));
+					t = *note_tone;
+				}
+				if let Some(v) = verdict(t) {
+					item["tone"] = json!(v);
 				}
 				push_item(&mut sections, item);
 			}
 			spans => {
 				let text: String = spans.iter().map(|(_, s)| s.as_str()).collect();
-				let t = spans
-					.iter()
-					.map(|(t, _)| *t)
-					.find(|t| *t != Tone::Key)
-					.unwrap_or(Tone::Plain);
-				push_item(&mut sections, json!({ "text": text.trim(), "tone": tone(t) }));
+				let mut item = json!({ "text": text.trim() });
+				if let Some(v) = spans.iter().find_map(|(t, _)| verdict(*t)) {
+					item["tone"] = json!(v);
+				}
+				push_item(&mut sections, item);
 			}
 		}
 	}
 	if sections[0]["items"].as_array().is_some_and(Vec::is_empty) {
 		sections.remove(0);
 	}
-	json!({ "title": d.title, "sections": sections })
+	json!({ "sections": sections })
 }
 
 fn push_item(sections: &mut [Value], item: Value) {
@@ -278,7 +336,6 @@ pub fn report(
 		"smart_render": s.smart,
 		"gpu": s.gpu,
 		"custom_ui": s.custom_ui,
-		"options_button": s.options_button,
 		// `PixelFormat(ARGB128)` -> `ARGB128`
 		"pixel_formats": s.pixel_formats.iter().map(|f| {
 			f.strip_prefix("PixelFormat(").and_then(|f| f.strip_suffix(')')).unwrap_or(f)
@@ -286,6 +343,9 @@ pub fn report(
 		"out_flags": flags(s.out_flags.bits(), format!("{:?}", s.out_flags)),
 		"out_flags2": flags(s.out_flags2.bits(), format!("{:?}", s.out_flags2)),
 	});
+	if let Some(label) = &s.options_button {
+		out["plugin"]["options_button"] = json!(label);
+	}
 	out["state"] = json!({
 		"global_data": st.global_data.map(hex),
 		"sequence_data": st.sequence_data.map(hex),
@@ -295,11 +355,13 @@ pub fn report(
 		"last_out_flags": flags(st.last_out_flags.bits(), format!("{:?}", st.last_out_flags)),
 		"last_out_flags2": flags(st.last_out_flags2.bits(), format!("{:?}", st.last_out_flags2)),
 		"last_message": st.last_message,
-		"output_mean": s.mean,
-		"unwritten_pixels": s.unwritten,
+		"output_mean": s.mean.map(|c| (f64::from(c) * 1e4).round() / 1e4),
 		"parallel_iterate": s.parallel_iterate,
 		"strict": strict(s.strict),
 	});
+	if let Some(unwritten) = s.unwritten {
+		out["state"]["unwritten_pixels"] = json!(unwritten);
+	}
 	out["params"] = s
 		.params
 		.iter()
@@ -323,14 +385,19 @@ pub fn report(
 				.and_then(|m| m.iter().find(|(addr, _)| *addr == a.address))
 				.and_then(|(_, bytes)| bytes.as_ref())
 				.map(|b| b.iter().map(|x| format!("{x:02x}")).collect::<String>());
-			json!({
+			let mut out = json!({
 				"kind": format!("{:?}", a.kind),
 				"address": hex(a.address),
 				"bytes": a.bytes,
 				"allocated_in": format!("PF_Cmd_{}", a.allocated_in),
-				"role": role(a.address, st),
-				"head": head,
-			})
+			});
+			if let Some(role) = role(a.address, st) {
+				out["role"] = json!(role);
+			}
+			if let Some(head) = head {
+				out["head"] = json!(head);
+			}
+			out
 		})
 		.collect();
 	out["findings"] = json!(s.findings);

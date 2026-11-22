@@ -165,7 +165,9 @@ fn json_format_prints_one_event_per_line() {
 			.any(|c| c["command"] == "PF_Cmd_SMART_RENDER"),
 		"{smart:#}"
 	);
-	assert!(smart["step"].as_str().unwrap().starts_with('#'), "{smart:#}");
+	// The step's entry number, and no `error` on a command that had none.
+	assert!(smart["step"].is_u64(), "{smart:#}");
+	assert!(smart["commands"][0].get("error").is_none(), "{smart:#}");
 	let failed = commands[3];
 	assert_eq!(failed["ok"], false);
 	assert_eq!(failed["commands"][0]["error"]["name"], "PF_Err_INTERNAL_STRUCT_DAMAGED");
@@ -174,8 +176,24 @@ fn json_format_prints_one_event_per_line() {
 	let focus = focus.first().expect("a focus event");
 	assert_eq!(focus["entry"]["type"], "call");
 	assert_eq!(focus["entry"]["function"], "host_new_handle");
-	assert_eq!(focus["entry"]["args"][0]["name"], "size");
 	let sections = focus["diagnosis"]["sections"].as_array().unwrap();
+	// The arguments are said once, in the diagnosis, with their verdicts.
+	assert!(focus["entry"].get("args").is_none(), "{focus:#}");
+	let arguments = sections
+		.iter()
+		.find(|s| s["heading"] == "arguments")
+		.expect("the call's arguments");
+	assert_eq!(arguments["items"][0]["key"], "size", "{arguments:#}");
+	// Where it is in the trace: `around`, not a section.
+	assert!(sections.iter().all(|s| s["heading"] != "around it"), "{focus:#}");
+	assert!(
+		focus["around"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.any(|e| e["seq"] == focus["entry"]["seq"]),
+		"{focus:#}"
+	);
 	let moved = sections
 		.iter()
 		.find(|s| s["heading"] == "memory it moved")

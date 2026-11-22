@@ -427,17 +427,20 @@ impl Batch {
 				diagnose::diagnose(&rec, index, snapshot.as_ref()).to_text()
 			),
 			(None, None) => println!("» {line}  ✗ nothing in the trace matches '{query}'"),
-			(Some(out), Some(index)) => emit(
-				out,
-				&serde_json::json!({
+			(Some(out), Some(index)) => {
+				let mut event = serde_json::json!({
 					"event": "focus",
 					"line": line,
 					"query": query,
 					"ok": true,
-					"entry": json::entry(&rec.trace[index]),
-					"diagnosis": json::diagnosis(&diagnose::diagnose(&rec, index, snapshot.as_ref())),
-				}),
-			),
+				});
+				if let (Some(event), serde_json::Value::Object(fields)) =
+					(event.as_object_mut(), json::focus(&rec, index, snapshot.as_ref()))
+				{
+					event.extend(fields);
+				}
+				emit(out, &event);
+			}
 			(Some(out), None) => emit(
 				out,
 				&serde_json::json!({

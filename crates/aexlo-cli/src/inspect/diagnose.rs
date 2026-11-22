@@ -691,23 +691,38 @@ fn where_it_ran(d: &mut Diagnosis, rec: &Recording, index: usize) {
 /// How much of a neighbouring line is shown.
 const NEIGHBOUR_WIDTH: usize = 96;
 
+/// The heading of the section every diagnosis ends with.
+pub const AROUND: &str = "around it";
+
+/// The entries either side of `index` that [`AROUND`] shows.
+pub fn neighbours(rec: &Recording, index: usize) -> std::ops::Range<usize> {
+	index.saturating_sub(3)..(index + 4).min(rec.trace.len())
+}
+
+/// A neighbouring entry's text, cut to [`NEIGHBOUR_WIDTH`].
+pub fn neighbour_text(e: &Entry) -> String {
+	let mut text = e.describe();
+	if let Some((cut, _)) = text.char_indices().nth(NEIGHBOUR_WIDTH) {
+		text.truncate(cut);
+		text.push('…');
+	}
+	text
+}
+
 /// A few entries either side of `index`.
 fn neighbourhood(d: &mut Diagnosis, rec: &Recording, index: usize) {
-	d.heading("around it");
-	let start = index.saturating_sub(3);
-	let end = (index + 4).min(rec.trace.len());
-	for (i, e) in rec.trace.iter().enumerate().take(end).skip(start) {
+	d.heading(AROUND);
+	for i in neighbours(rec, index) {
+		let e = &rec.trace[i];
 		let (marker, tone) = if i == index {
 			("▶", Tone::Plain)
 		} else {
 			(" ", Tone::Dim)
 		};
-		let mut text = e.describe();
-		if let Some((cut, _)) = text.char_indices().nth(NEIGHBOUR_WIDTH) {
-			text.truncate(cut);
-			text.push('…');
-		}
-		d.note(tone, format!("{marker} #{:<6} {}{text}", e.seq, "│ ".repeat(e.depth)));
+		d.note(
+			tone,
+			format!("{marker} #{:<6} {}{}", e.seq, "│ ".repeat(e.depth), neighbour_text(e)),
+		);
 	}
 }
 

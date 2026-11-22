@@ -254,7 +254,15 @@ report                              (at the end)
 If the plugin cannot be found or loaded, `error` is the only line on stdout.
 
 Durations are in microseconds (`*_us`). Addresses are hex strings (`"0x1238…"`),
-the form that `focus` accepts.
+the form that `focus` accepts. Entry numbers (`seq`, `step`) are numbers;
+`focus #<n>` takes them.
+
+Each fact appears once, and a field with nothing to say is left out rather
+than set to `null`: an error only where there was one, `repeat` only on a
+folded entry, `role` only on `global_data` or `sequence_data`. Read optional
+fields with a default (`.get("error")` in Python, `.error // empty` in jq).
+`null` appears only where it is the value, as for a handle the plugin left
+unset.
 
 ### `loaded`
 
@@ -280,8 +288,8 @@ One command ran. Every `command` event has `line` (the command as sent) and
 | `message` | string | `ok` | What it printed (`rendered 16x8 (Smart)`, `#1 = 7`, the ABOUT text, ...) |
 | `elapsed_us` | number | `ok` | How long it took |
 | `error` | string | not `ok` | Why it failed |
-| `step` | string \| null | Ran | The entry number of this step, such as `"#10"`. Pass it to `focus` to see what the step caused. It is `null` for `clear`, which is not recorded as a step. |
-| `commands` | array | Ran | The `PF_Cmd_*` the step sent, outermost only. Each is `{command, elapsed_us, error}`, where `error` is an [error object](#error-object) or `null`. |
+| `step` | number | Ran, except `clear` | The entry number of this step, such as `10`. `focus #10` shows what the step caused. `clear` is not recorded as a step and has none. |
+| `commands` | array | Ran | The `PF_Cmd_*` the step sent, outermost only. Each is `{command, elapsed_us, error?}`, where `error` is an [error object](#error-object), present when the command returned one. |
 | `suite_calls` | number | Ran | Suite calls made during the step |
 | `allocations`, `frees` | number | Ran | Handles and worlds allocated and freed during the step |
 | `skipped` | string | `mem`, `find` | Why it did nothing (`"only meaningful in the TUI"`). `ok` is `true`. |
@@ -297,7 +305,7 @@ the legacy path. Check `commands[].error` too.
 ```json
 {"event":"command","line":"render legacy","ok":false,
  "error":"Legacy render failed: Plugin rejected Render with error code: 512",
- "step":"#29",
+ "step":29,
  "commands":[{"command":"PF_Cmd_RENDER","elapsed_us":10,
               "error":{"code":512,"name":"PF_Err_INTERNAL_STRUCT_DAMAGED"}}],
  "suite_calls":0,"allocations":0,"frees":0}
@@ -327,8 +335,9 @@ with nothing after it is a parse error.
 | ----- | ---- | - |
 | `line`, `query` | string | The command, and the text or `#seq` after `focus` |
 | `ok` | bool | `false` when nothing matches. The event then has `error` instead of `entry` and `diagnosis`, and it counts as a failed command. |
-| `entry` | object | The [entry](#entry-object) that matched |
-| `diagnosis` | object | `{title, sections}`; see [diagnosis](#diagnosis-object) |
+| `entry` | object | The [entry](#entry-object) that matched. A call's `args`, `result` and `last` are left out: the diagnosis lists them, each with its verdict. |
+| `diagnosis` | object | `{sections}`; see [diagnosis](#diagnosis-object) |
+| `around` | array | The entries either side of it, the matched one included: `{seq, depth, text}`, with `text` cut to 96 characters |
 
 What the diagnosis covers depends on the entry:
 
@@ -344,20 +353,20 @@ What the diagnosis covers depends on the entry:
   named it.
 - **Step:** the commands it caused, its suite calls, allocations and errors.
 
-Every diagnosis ends with an `around it` section showing a few neighbouring
-entries.
-
 ```json
 {"event":"focus","line":"focus host_new_handle","query":"host_new_handle","ok":true,
- "entry":{"seq":23,"type":"call","suite":"PF_HandleSuite1","function":"host_new_handle",
-          "args":[{"name":"size","value":"64"}],"result":null, ...},
- "diagnosis":{"title":"PF_HandleSuite1::host_new_handle","sections":[
-   {"heading":null,"items":[{"key":"inside","value":"PF_Cmd_SMART_RENDER  (+70 µs)","tone":"plain"}, ...]},
-   {"heading":"arguments","items":[{"key":"size","value":"64","tone":"plain"}]},
+ "entry":{"seq":23,"at_us":70345,"depth":1,"type":"call","suite":"PF_HandleSuite1",
+          "function":"host_new_handle","text":"PF_HandleSuite1::host_new_handle(size=64)"},
+ "diagnosis":{"sections":[
+   {"items":[{"key":"inside","value":"PF_Cmd_SMART_RENDER  (+70 µs)"},
+             {"key":"after","value":"» render smart"}]},
+   {"heading":"arguments","items":[{"key":"size","value":"64"}]},
    {"heading":"memory it moved","items":[
-     {"text":"#24 + alloc Handle 0x123805590 (64 B)","tone":"plain"},
+     {"text":"#24 + alloc Handle 0x123805590 (64 B)"},
      {"text":"never freed: still held","tone":"warn"}]},
-   ...]}}
+   ...]},
+ "around":[{"seq":20,"depth":0,"text":"▶ PF_Cmd_SMART_RENDER"}, ...,
+           {"seq":23,"depth":1,"text":"PF_HandleSuite1::host_new_handle(size=64)"}, ...]}
 ```
 
 ### `report`
@@ -378,10 +387,10 @@ and `findings` includes what strict mode judged then. `plugin`, `state`,
 | `commands` | array | Totals per `PF_Cmd_*`, slowest total first: `{command, count, errors, max_us, total_us}` |
 | `suite_calls` | array | Totals per suite function, most called first: `{suite, function, count, commands}`. `commands` lists the `PF_Cmd_*` it was called from. |
 | `errors` | array | Every `PF_Cmd_*` that returned an error: `{seq, command, error}` |
-| `plugin` | object | `path`; `smart_render`, `gpu`, `custom_ui` (bools); `options_button` (its label, or `null`); `pixel_formats` (see below); `out_flags`, `out_flags2` ([flags](#flags-object)) |
+| `plugin` | object | `path`; `smart_render`, `gpu`, `custom_ui` (bools); `options_button` (its label, when the plugin set one); `pixel_formats` (see below); `out_flags`, `out_flags2` ([flags](#flags-object)) |
 | `state` | object | See below |
 | `params` | array | One per parameter; see below |
-| `memory` | array | Live handles and worlds: `{kind, address, bytes, allocated_in, role, head}`. `kind` is `Handle` or `World`. `role` is `global_data`, `sequence_data` or `null`. `head` is the first 64 bytes as hex, or all of them for a smaller allocation, and `null` when they could not be read. |
+| `memory` | array | Live handles and worlds: `{kind, address, bytes, allocated_in, role?, head?}`. `kind` is `Handle` or `World`. `role` is `global_data` or `sequence_data`, on the allocation that is one. `head` is the first 64 bytes as hex, or all of them for a smaller allocation, and missing when they could not be read. |
 | `findings` | array of string | Strict-mode findings, oldest first; see [below](#findings-and-when-leaks-show-up) |
 
 Each entry of `params` is `{index, name, kind, value, detail, hidden, disabled}`:
@@ -405,8 +414,8 @@ that aexlo does not name appears as hex (`0x61726762`).
 | `time` | `{value, step, scale}` of the next command |
 | `input`, `output` | `{width, height, bpc}` |
 | `last_out_flags`, `last_out_flags2`, `last_message` | What the last command left in `PF_OutData` |
-| `output_mean` | The mean of each straight (unpremultiplied) RGBA channel over the output, 0..1. Non-finite values, such as the NaN that `strict poison` writes at 32 bpc, count as 0. |
-| `unwritten_pixels` | Under `strict poison`: output pixels the last render left unwritten. Otherwise `null`. |
+| `output_mean` | The mean of each straight (unpremultiplied) RGBA channel over the output, 0..1, to 4 decimals. Non-finite values, such as the NaN that `strict poison` writes at 32 bpc, count as 0. |
+| `unwritten_pixels` | Under `strict poison` only: output pixels the last render left unwritten |
 | `parallel_iterate` | Whether iterate callbacks run on several threads (`serial off`) |
 | `strict` | `{poison, guard, alloc, checkout}` |
 
@@ -422,8 +431,8 @@ once its point has passed:
 | Handle leak | `alloc` | At `GLOBAL_SETDOWN`: in the final report, or after a `reload` | `leak: Handle 0x… (<n> B) from <command> still held after GLOBAL_SETDOWN` |
 | Checkout violation | `checkout` | At the bad checkout or checkin, or when a command ends with a layer parameter still checked out | `checkout: …` |
 
-Before then, `memory` already shows what is held. An entry whose `role` is
-`null` and whose `allocated_in` is a render command has outlived that render.
+Before then, `memory` already shows what is held. An entry without a `role`
+whose `allocated_in` is a render command has outlived that render.
 The final report under `strict alloc` tells you whether it was ever freed.
 
 ### `help`
@@ -452,7 +461,7 @@ One line of the trace. Every entry has:
 | `seq` | Its number; `focus #seq` names it |
 | `at_us` | When it happened, from the start of the recording |
 | `depth` | Nesting. 0 is a step or a top-level command, 1 is what that command calls, and so on. |
-| `repeat` | How many calls were folded into this entry (see below); 1 for most entries |
+| `repeat` | How many calls were folded into this entry (see below). Only on a folded entry; missing means 1. |
 | `text` | The line as the TUI and text output show it; `focus` searches it |
 | `type` | One of the types below, which add fields |
 
@@ -460,8 +469,8 @@ One line of the trace. Every entry has:
 | ------ | ----------------- | ------------ |
 | `step` | `» render smart` | `line`: the command you sent |
 | `begin` | `▶ PF_Cmd_SMART_RENDER` | `command` |
-| `end` | `◀ PF_Cmd_RENDER  PF_Err_INTERNAL_STRUCT_DAMAGED (512)  (10 µs)` | `command`, `elapsed_us`, `error` (error object or `null`) |
-| `call` | `PF_HandleSuite1::host_new_handle(size=64)` | `suite`, `function`, `args` (`[{name, value}]`), `result` (string or `null`), `last` (see below) |
+| `end` | `◀ PF_Cmd_RENDER  PF_Err_INTERNAL_STRUCT_DAMAGED (512)  (10 µs)` | `command`, `elapsed_us`, `error` (error object, when it returned one) |
+| `call` | `PF_HandleSuite1::host_new_handle(size=64)` | `suite`, `function`, `args` (`[{name, value}]`), `result` (string, when the function has one), `last` (see below) |
 | `alloc`, `free` | `+ alloc Handle 0x… (64 B)`, `- free  Handle 0x… (64 B)` | `kind` (`Handle` or `World`), `address`, `bytes` |
 | `checkout` | `⇄ CheckoutLayerPixels #0` | `kind`, `id` (the checkout index) |
 
@@ -475,7 +484,7 @@ A checkout's `kind` is one of these:
 are folded into one entry, whatever their arguments, so per-pixel callbacks
 cannot flood the trace. `repeat` counts the calls, and `text` ends with
 `  ×<repeat>`. `args` and `result` are the first call's. `last` is the last
-call's `{args, result}` when it differs from the first, and `null` otherwise.
+call's `{args, result?}`, present only when it differs from the first.
 The calls in between are counted, but their arguments are not kept.
 
 Arguments are recorded only at `--level args` (the default). At `calls`,
@@ -483,27 +492,29 @@ Arguments are recorded only at `--level args` (the default). At `calls`,
 
 ### Diagnosis object
 
-`{"title": "...", "sections": [{"heading": "...", "items": [...]}]}`.
+`{"sections": [{"heading": "...", "items": [...]}]}`. The entry's own name
+and place in the trace are not repeated here: `entry` and `around` beside it
+have them.
 
-When the diagnosis starts with where the entry ran (`entry`, `inside`,
-`after`), that first section's `heading` is `null`. A step's diagnosis has no
-such section and starts with `what it caused`.
+When the diagnosis starts with where the entry ran (`inside`, `after`), that
+first section has no `heading`. A step's diagnosis has no such section and
+starts with `what it caused`.
 
 Each item takes one of two shapes:
 
-- `{"key", "value", "tone", "note"?}`: a labelled value. `tone` is the
-  verdict on the value, and `note`, when present, gives its reason, such as
+- `{"key", "value", "tone"?, "note"?}`: a labelled value. `note`, when
+  present, gives the reason for the verdict, such as
   `"live Handle, 64 B, allocated at #24 in PF_Cmd_RENDER"` or
-  `"null pointer"`.
-- `{"text", "tone"}`: a free line.
+  `"null pointer"`. A call's result has the key `result`.
+- `{"text", "tone"?}`: a free line.
+
+`tone` is there only where the analysis judges something:
 
 | `tone` | Meaning |
 | ------ | ------- |
 | `bad` | A bug: use after free, a world leaked from a render, an error code |
 | `warn` | Suspicious: a null pointer, memory never freed, a value not allocated yet |
 | `good` | Checked and fine: an argument naming live memory, `PF_Err_NONE`, memory that was freed |
-| `plain` | Information |
-| `dim` | Context, such as neighbouring entries |
 
 A program that only wants the problems can collect the items whose `tone` is
 `bad` or `warn`.
@@ -579,10 +590,10 @@ if hello["event"] == "error":
     raise SystemExit(hello["error"])
 
 r = send("render")
-failed = [c for c in r.get("commands", []) if c["error"]]
+failed = [c for c in r.get("commands", []) if "error" in c]
 if not r["ok"] or failed:
     # Diagnose the step: which PF_Cmd_* it caused and where it failed.
-    print(send(f"focus {r['step']}")["diagnosis"])
+    print(send(f"focus #{r['step']}")["diagnosis"])
     # Diagnose the failing command itself.
     print(send("focus ◀ PF_Cmd_RENDER")["diagnosis"])
 
@@ -601,7 +612,7 @@ line per command.
 1. Send `render` (or the command that misbehaves) and read its `command`
    event.
 2. If `ok` is `false`, or any `commands[].error` is set, send `focus` with
-   its `step`, then `focus ◀ PF_Cmd_<NAME>` for the failing command.
+   `#` and its `step` (`focus #29`), then `focus ◀ PF_Cmd_<NAME>` for the failing command.
 3. Collect the `bad` and `warn` items from each diagnosis. When an item names
    an address, `focus + alloc Handle 0x…` (or `World`) diagnoses that
    allocation: its lifetime and the calls that named it.
