@@ -36,7 +36,10 @@ Use `--release`: debug builds composite several times slower.
   `PF_UpdateParamUI` hiding/disabling. Buttons send
   `PF_Cmd_USER_CHANGED_PARAM`, and so does finishing an edit of a
   parameter the plugin flags `PF_ParamFlag_SUPERVISE` (on release, not
-  on every step of a drag). Layer parameters pick any layer in the comp,
+  on every step of a drag). Custom controls (`PF_PUI_CONTROL`), such as
+  Falloff's curve editors or TextGrad's preset list, are drawn by the
+  plugin in place (`PF_Event_DRAW`) and take the mouse (`PF_Event_DO_CLICK`,
+  then `PF_Event_DRAG` until mouse-up). Layer parameters pick any layer in the comp,
   rendered with its masks and effects, even when hidden; picking the
   effect's own layer gives its source. Point parameters get handles in the
   viewer.

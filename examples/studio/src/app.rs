@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers};
 
-use crate::engine::{Engine, Event, ExportJob, ExportKind, FrameResult, PluginInfo, Request};
+use crate::engine::{Engine, Event, ExportJob, ExportKind, FrameResult, Phase, PluginInfo, Request, Snapshot};
 use crate::model::{Anim, Id, LayerKind, Project, Text, TextAlign};
 use crate::raster::Fonts;
 use crate::{inspector, plugins, sidebar, timeline, viewer};
@@ -103,6 +103,14 @@ pub struct Studio {
 	/// Effect parameters `(effect, index)` the user is editing, told to the
 	/// engine once the edit settles.
 	pub edited: BTreeSet<(Id, usize)>,
+	/// What each custom control `(effect, index)` last drew.
+	pub controls: HashMap<(Id, usize), egui::TextureHandle>,
+	/// The size each custom control was last asked to draw at.
+	control_sizes: HashMap<(Id, usize), (u32, u32)>,
+	/// The custom control the mouse went down on, and where it last was.
+	control_hold: Option<(Id, usize, (i32, i32))>,
+	/// The last `Event::ParamsChanged` applied to `project`.
+	params_seen: u64,
 
 	texture: Option<egui::TextureHandle>,
 	pub shown_frame: Option<i32>,
@@ -159,6 +167,10 @@ impl Studio {
 			viewer_drag: None,
 			timeline_drag: None,
 			edited: BTreeSet::new(),
+			controls: HashMap::new(),
+			control_sizes: HashMap::new(),
+			control_hold: None,
+			params_seen: 0,
 			texture: None,
 			shown_frame: None,
 			sent: None,
@@ -204,16 +216,72 @@ impl Studio {
 	/// The user finished editing parameter `index` of `effect`, or pressed it
 	/// if it is a button. The engine tells the plugin if After Effects would.
 	pub fn user_changed_param(&mut self, effect: Id, index: usize) {
+		let snap = self.snapshot();
+		self.engine.send(Request::Changed { snap, effect, index });
+	}
+
+	/// Show custom control `index` of `effect` at `width` x `height`.
+	pub fn control_size(&mut self, effect: Id, index: usize, width: u32, height: u32) {
+		if self.control_sizes.insert((effect, index), (width, height)) != Some((width, height)) {
+			self.engine.send(Request::ControlSize {
+				effect,
+				index,
+				width,
+				height,
+			});
+		}
+	}
+
+	/// The mouse went down on, or moved over, custom control `index` of
+	/// `effect`, at `(x, y)` in its pixels. Mouse-up is sent once every button
+	/// is released, wherever the pointer is.
+	pub fn control_pointer(&mut self, effect: Id, index: usize, (x, y): (i32, i32), phase: Phase) {
+		match phase {
+			Phase::Down => self.control_hold = Some((effect, index, (x, y))),
+			Phase::Move | Phase::Up => match &mut self.control_hold {
+				Some((e, i, at)) if (*e, *i) == (effect, index) => *at = (x, y),
+				_ => return,
+			},
+		}
+		if phase == Phase::Up {
+			self.control_hold = None;
+		}
+		let snap = self.snapshot();
+		self.engine.send(Request::Pointer {
+			snap,
+			effect,
+			index,
+			x,
+			y,
+			phase,
+		});
+	}
+
+	/// The custom control `(effect, index)` the mouse is held on.
+	pub fn held_control(&self) -> Option<(Id, usize)> {
+		self.control_hold.map(|(e, i, _)| (e, i))
+	}
+
+	/// Finish a custom-control press once every mouse button is up.
+	fn release_control(&mut self, ctx: &egui::Context) {
+		if let Some((effect, index, at)) = self.control_hold
+			&& !ctx.input(|i| i.pointer.any_down())
+		{
+			self.control_pointer(effect, index, at, Phase::Up);
+		}
+	}
+
+	/// The project and frame as of now, for a request that renders them.
+	fn snapshot(&mut self) -> Snapshot {
 		self.generation += 1;
 		let project = Arc::new(self.project.clone());
 		self.sent = Some((project.clone(), self.frame));
-		self.engine.send(Request::Changed {
+		Snapshot {
 			project,
 			frame: self.frame,
 			generation: self.generation,
-			effect,
-			index,
-		});
+			seen: self.params_seen,
+		}
 	}
 
 	// ---- Editing helpers -----------------------------------------------------
@@ -519,6 +587,7 @@ impl Studio {
 		self.export = Some((0, end - start + 1));
 		self.engine.send(Request::Export(ExportJob {
 			project: Arc::new(self.project.clone()),
+			seen: self.params_seen,
 			start,
 			end,
 			kind,
@@ -546,13 +615,36 @@ impl Studio {
 				} => {
 					self.param_flags.insert(effect, (hidden, disabled));
 				}
-				Event::ParamsChanged { effect, frame, values } => {
+				Event::ParamsChanged {
+					seq,
+					effect,
+					frame,
+					values,
+				} => {
+					self.params_seen = seq;
 					if let Some(fx) = self.project.effect_mut(effect) {
 						for (index, value) in values {
 							fx.params
 								.entry(index)
 								.or_insert_with(|| Anim::new(value.clone()))
 								.set(frame, value);
+						}
+					}
+				}
+				Event::Control { effect, index, image } => {
+					let image = egui::ColorImage::from_rgba_unmultiplied(
+						[image.width as usize, image.height as usize],
+						&image.pixels,
+					);
+					match self.controls.get_mut(&(effect, index)) {
+						Some(texture) => texture.set(image, egui::TextureOptions::LINEAR),
+						None => {
+							let texture = ctx.load_texture(
+								format!("control-{effect}-{index}"),
+								image,
+								egui::TextureOptions::LINEAR,
+							);
+							self.controls.insert((effect, index), texture);
 						}
 					}
 				}
@@ -625,14 +717,8 @@ impl Studio {
 			None => true,
 		};
 		if stale {
-			self.generation += 1;
-			let project = Arc::new(self.project.clone());
-			self.sent = Some((project.clone(), self.frame));
-			self.engine.send(Request::Render {
-				project,
-				frame: self.frame,
-				generation: self.generation,
-			});
+			let snap = self.snapshot();
+			self.engine.send(Request::Render(snap));
 		}
 	}
 
@@ -903,6 +989,7 @@ impl eframe::App for Studio {
 			.show(ui, |ui| inspector::show(ui, self));
 		egui::CentralPanel::default().show(ui, |ui| viewer::show(ui, self));
 
+		self.release_control(&ctx);
 		self.settle_edits(&ctx);
 		self.commit(&ctx);
 		self.request_render();
@@ -928,6 +1015,7 @@ impl Studio {
 			ctx.send_viewport_cmd(egui::ViewportCommand::Close);
 		} else if self.shown_frame.is_some()
 			&& self.infos.len() >= self.project.layers.iter().map(|l| l.effects.len()).sum()
+			&& self.control_sizes.keys().all(|k| self.controls.contains_key(k))
 		{
 			if let Ok(index) = std::env::var("AEXLO_STUDIO_SELECT")
 				&& let Some(layer) = index.parse::<usize>().ok().and_then(|i| self.project.layers.get(i))
