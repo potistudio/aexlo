@@ -22,7 +22,8 @@ may break the API, and every breaking change is listed below.
 - `PluginInstance::allocations` lists the handles and worlds the plugin holds
   (`LiveAllocation`) while an observer is installed or allocation tracking is
   on, and `PluginInstance::read_allocation` copies their bytes between
-  commands.
+  commands. Memory the plugin freed on another thread, such as an iterate
+  worker, is neither listed nor read.
 - `PluginInstance::state` returns an `InstanceState`: the `global_data` and
   `sequence_data` handles, the next command's time, and the `PF_OutData` the
   last command left.
@@ -40,8 +41,9 @@ may break the API, and every breaking change is listed below.
   text effects such as TextGrad render. `AexloError::Font` reports a font that
   cannot be read.
 - `Pipl::read` reads a plugin's PiPL resource without loading it: from a
-  Windows binary's `PIPL` resource, a macOS bundle's `.rsrc` files, a
-  Mach-O binary's `__TEXT,__pipl` section or its resource fork. Each
+  Windows binary's `PIPL` resource, a macOS bundle's `.rsrc` files (in their
+  data or resource fork), a Mach-O binary's `__TEXT,__pipl` section or its
+  resource fork; a `.rsrc` it cannot read is passed over for the next. Each
   `PiplProperty` decodes to a `PiplValue`, and `Pipl` has accessors for the
   name, category, match name, entry point, `eVER` (`EffectVersion`) and
   `eGLO` / `eGL2`. `AexloError::InvalidPipl` reports a malformed one.
@@ -67,6 +69,7 @@ may break the API, and every breaking change is listed below.
 
 ### Fixed
 
+- The published crate includes the MIT license text.
 - The text a plugin reports (`PF_Cmd_ABOUT`, a dialog's message, an error)
   comes back whole. Line breaks are `\n` instead of After Effects' `\r`, which
   made each line overwrite the one before in a terminal, and text that is not
