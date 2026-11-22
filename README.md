@@ -261,7 +261,7 @@ See [docs/compat.md](https://github.com/potistudio/aexlo/blob/master/docs/compat
 
 ## Implementation Progress
 
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀ 81% (29/36)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀ 78% (29/37)
 
 > ○ fully implemented / △ only partially implemented / × not implemented
 
@@ -272,7 +272,7 @@ See [docs/compat.md](https://github.com/potistudio/aexlo/blob/master/docs/compat
 | ○ Color            | ○ ColorParam                     | ○ AE Adv Time     | ○ GPU Device      |
 | ○ Color16          | △ Effect Custom UI Overlay Theme |                   | ○ Plugin Helper   |
 | ○ ColorFloat       | △ Effect Custom UI               |                   | ○ Plugin Helper 2 |
-| ○ Fill Matte       | ○ Effect UI                      |                   |                   |
+| ○ Fill Matte       | ○ Effect UI                      |                   | × PF Utility      |
 | ○ Handle           | △ Param Utils                    |                   |                   |
 | ○ Iterate8         | ○ Path Data                      |                   |                   |
 | ○ Iterate16        | △ Path Query                     |                   |                   |
@@ -292,6 +292,8 @@ After Effects 7.0); the per-pixel samplers work.
 △ Param Utils: states follow values and keyframes over the whole timeline,
 not the time range asked about or the pixels of layer parameters.
 △ Path Query: masks are read-only and the same at every time.
+× PF Utility: not to be confused with AEGP Utility. The suite can be acquired,
+but each of its functions is a stub that returns an error.
 △ Channel: layers are plain 2D images and report no auxiliary channels.
 Callbacks that are not implemented return an error rather than a false success.
 Legacy Gaussian-kernel generation uses approximate coefficients that have not been checked against After Effects. Legacy blend and convolution currently accept 8-bit worlds only.

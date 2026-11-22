@@ -228,7 +228,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 
 ## 実装の進捗
 
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀ 81% (29/36)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀ 78% (29/37)
 
 > ○ 実装済み / △ 一部実装 / × 未実装
 
@@ -239,7 +239,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 | ○ Color            | ○ ColorParam                     | ○ AE Adv Time     | ○ GPU Device      |
 | ○ Color16          | △ Effect Custom UI Overlay Theme |                   | ○ Plugin Helper   |
 | ○ ColorFloat       | △ Effect Custom UI               |                   | ○ Plugin Helper 2 |
-| ○ Fill Matte       | ○ Effect UI                      |                   |                   |
+| ○ Fill Matte       | ○ Effect UI                      |                   | × PF Utility      |
 | ○ Handle           | △ Param Utils                    |                   |                   |
 | ○ Iterate8         | ○ Path Data                      |                   |                   |
 | ○ Iterate16        | △ Path Query                     |                   |                   |
@@ -257,6 +257,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 △ Batch Sampling：一括処理用の関数は提供しません（SDK では After Effects 7.0 で廃止）。画素単位のサンプラーは使えます。
 △ Param Utils：状態はタイムライン全体の値とキーフレームに従います。指定された時間範囲への絞り込みと、レイヤーパラメーターの画素の変化は反映しません。
 △ Path Query：マスクは読み取り専用で、どの時刻でも同じです。
+× PF Utility：AEGP Utility とは別のスイートです。取得はできますが、関数はすべてエラーを返すスタブです。
 △ Channel：レイヤーは通常の 2D 画像であり、補助チャンネルはないものとして応答します。
 未実装のコールバックは、成功を装わずエラーを返します。
 旧 Gaussian カーネル生成は近似値を使用し、After Effects との係数比較は未実施です。旧 Blend／Convolve は現在 8 ビット画像に対応します。
