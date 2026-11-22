@@ -276,6 +276,44 @@ fn the_final_report_covers_global_setdown_and_its_leaks() {
 }
 
 #[test]
+fn press_finds_a_button_by_its_label_and_lists_what_changed() {
+	let (ok, all) = inspect_json(
+		"inspect_press",
+		&["--script", "-"],
+		"set Gain 3\npress reset gain\npress Defaults\npress Gain\npress nothing\n",
+	);
+	assert!(!ok, "the bad presses fail the run");
+	let commands: Vec<(bool, String)> = events(&all, "command")
+		.iter()
+		.map(|e| {
+			let text = e["message"].as_str().or(e["error"].as_str()).unwrap_or_default();
+			(e["ok"] == true, text.to_string())
+		})
+		.collect();
+	assert_eq!(commands[1], (true, "pressed #5 \"Reset Gain\"; #2 = 1".to_string()));
+	assert_eq!(
+		commands[2],
+		(true, "pressed #5 \"Reset Gain\"; no values changed".to_string())
+	);
+	assert!(
+		!commands[3].0 && commands[3].1.contains("is a FloatSlider, not a button"),
+		"{commands:?}"
+	);
+	assert!(
+		!commands[4].0 && commands[4].1.contains("no button is named or labelled 'nothing'"),
+		"{commands:?}"
+	);
+
+	let report = events(&all, "report")[0];
+	let button = &report["params"][4];
+	assert_eq!(
+		(button["name"].as_str(), button["kind"].as_str()),
+		(Some("Defaults"), Some("Button"))
+	);
+	assert_eq!(button["detail"], "button \"Reset Gain\"");
+}
+
+#[test]
 fn set_warns_out_of_range_and_names_what_it_cannot_set() {
 	let (ok, all) = inspect_json(
 		"inspect_set",

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use aexlo::{
-	AnyLayer, InstanceState, LiveAllocation, ObserveLevel, OutFlags, OutFlags2, ParamValue, PixelDepthKind,
+	AnyLayer, InstanceState, LiveAllocation, ObserveLevel, OutFlags, OutFlags2, ParamKind, ParamValue, PixelDepthKind,
 	PluginInstance, Strict, TextLayer, TextStyle, Time,
 };
 use anyhow::{Context, Result, bail};
@@ -229,6 +229,29 @@ impl Engine {
 				fx.user_changed_param(index)
 					.context("PF_Cmd_USER_CHANGED_PARAM failed")?;
 				Ok(format!("told the plugin #{index} changed"))
+			}
+			Command::Press(key) => {
+				let fx = self.instance()?;
+				let index = resolve_button(fx, key)?;
+				if fx.param_hidden(index) || fx.param_disabled(index) {
+					let state = if fx.param_hidden(index) { "hidden" } else { "disabled" };
+					bail!("the plugin {state} button #{index}; `changed {index}` sends it anyway");
+				}
+				let before = fx.param_values();
+				fx.user_changed_param(index)
+					.context("PF_Cmd_USER_CHANGED_PARAM failed")?;
+				let changed: Vec<String> = fx
+					.param_values()
+					.into_iter()
+					.filter(|(i, value)| !before.iter().any(|(j, old)| j == i && old == value))
+					.map(|(i, value)| format!("#{i} = {}", describe_value(&value)))
+					.collect();
+				let text = button_text(fx, index);
+				Ok(if changed.is_empty() {
+					format!("pressed #{index} {text}; no values changed")
+				} else {
+					format!("pressed #{index} {text}; {}", changed.join(", "))
+				})
 			}
 			Command::UpdateUi => {
 				self.instance()?
@@ -542,6 +565,52 @@ fn existing(fx: &PluginInstance, index: usize) -> Result<()> {
 		bail!("no parameter #{index} (the plugin has #1..#{last}; #0 is the input layer)");
 	}
 	Ok(())
+}
+
+/// The button `key` names: an index, `#index` or name as for `set`, or else
+/// the text on the button, ignoring case. Plugins often leave a button's name
+/// empty and put what it does on the button.
+fn resolve_button(fx: &PluginInstance, key: &str) -> Result<usize> {
+	let is_button = |i: usize| fx.param_kind(i) == Some(ParamKind::Button);
+	let by_name = crate::resolve_param_key(fx, key);
+	if let Ok(index) = by_name
+		&& is_button(index)
+	{
+		return Ok(index);
+	}
+	let labelled: Vec<usize> = (1..fx.param_count())
+		.filter(|&i| {
+			fx.param_button_label(i)
+				.is_some_and(|label| label.eq_ignore_ascii_case(key.trim()))
+		})
+		.collect();
+	match (labelled.as_slice(), by_name) {
+		(&[index], _) => Ok(index),
+		([], Ok(index)) => {
+			existing(fx, index)?;
+			let kind = fx.param_kind(index).map_or("unknown".into(), |k| format!("{k:?}"));
+			let name = fx.param_name(index).unwrap_or_default();
+			bail!("parameter #{index} '{name}' is a {kind}, not a button")
+		}
+		([], Err(err)) => Err(err.context(format!("no button is named or labelled '{}'", key.trim()))),
+		(several, _) => {
+			let list: Vec<String> = several.iter().map(|i| format!("#{i}")).collect();
+			bail!(
+				"{} buttons say '{}': {}; press one by index",
+				several.len(),
+				key.trim(),
+				list.join(", ")
+			)
+		}
+	}
+}
+
+/// How a message names a button: the text on it, or else its name.
+fn button_text(fx: &PluginInstance, index: usize) -> String {
+	match fx.param_button_label(index) {
+		Some(label) => format!("\"{label}\""),
+		None => format!("'{}'", fx.param_name(index).unwrap_or_default().trim()),
+	}
 }
 
 /// `index` exists and holds a value `set` can change.

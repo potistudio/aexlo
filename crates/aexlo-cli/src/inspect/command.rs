@@ -12,6 +12,8 @@ PLUGIN COMMANDS (each runs on the plugin's thread and is traced)
                             Render a frame through that path  [auto]
   set <param> <value>       Set a parameter (index, #index or name)
   changed <param>           PF_Cmd_USER_CHANGED_PARAM (+ UPDATE_PARAMS_UI if asked)
+  press <button>            Press a button (index, #index, name or the text on
+                            it); prints the values the plugin changed
   updateui                  PF_Cmd_UPDATE_PARAMS_UI
   dialog                    PF_Cmd_DO_DIALOG (the Options button)
   time <frame> [fps]        Move to a frame  [fps: 30]
@@ -59,6 +61,8 @@ pub enum Command {
 	/// `set <words...>`: the engine finds where the name ends.
 	SetWords(String),
 	Changed(String),
+	/// `press <button>`: the key as given.
+	Press(String),
 	UpdateUi,
 	Dialog,
 	Time {
@@ -154,6 +158,10 @@ pub fn parse(line: &str) -> Result<Command> {
 		"changed" => match unquote(rest) {
 			"" => bail!("changed <param>"),
 			key => Command::Changed(key.to_string()),
+		},
+		"press" => match unquote(rest) {
+			"" => bail!("press <button>"),
+			key => Command::Press(key.to_string()),
 		},
 		"updateui" | "update-ui" => none("updateui").map(|_| Command::UpdateUi)?,
 		"dialog" => none("dialog").map(|_| Command::Dialog)?,
@@ -373,6 +381,13 @@ mod tests {
 		assert!(parse("input text").is_err());
 		assert!(parse("render sideways").is_err());
 		assert!(parse("frobnicate").is_err());
+
+		assert_eq!(
+			parse("press \"Reset Color\"").unwrap(),
+			Command::Press("Reset Color".into())
+		);
+		assert_eq!(parse("press #7").unwrap(), Command::Press("#7".into()));
+		assert!(parse("press").is_err());
 
 		let script = parse_script("about; render\n# note\nset 1 2").unwrap();
 		let names: Vec<&str> = script.iter().map(|(line, _)| line.as_str()).collect();

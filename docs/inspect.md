@@ -125,6 +125,7 @@ are recorded under a *step*, which is the command line you sent.
 | `render [auto\|smart\|legacy\|gpu]` | `r` | Render a frame through that path. `auto` picks GPU, then smart, then legacy, falling back when one fails. |
 | `set <param> <value>` | | Set a parameter; see [Setting parameters](#setting-parameters) |
 | `changed <param>` | | `PF_Cmd_USER_CHANGED_PARAM` (and `UPDATE_PARAMS_UI` if the plugin asks for it). `<param>` is the rest of the line, quotes optional. |
+| `press <button>` | | Press a button: `changed` for a button parameter, named by index, `#index`, name, or the text on it (ignoring case). The message lists the values the plugin changed, as in `pressed #88 "Reset Tint"; #84 = 255, 0, 0, 255, #87 = 100`. A button the plugin hid or disabled is refused; `changed` sends it anyway. In the TUI, Enter on a button in the Params tab presses it. |
 | `updateui` | `update-ui` | `PF_Cmd_UPDATE_PARAMS_UI` |
 | `dialog` | | `PF_Cmd_DO_DIALOG` (the Options button); see [Dialogs](#dialogs) |
 | `time <frame> [fps]` | | Move to a frame (fps defaults to 30) |
