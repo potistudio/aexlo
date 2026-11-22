@@ -100,6 +100,11 @@ pub enum AexloError {
 	#[error("No GPU device available for GPU render")]
 	GpuUnavailable,
 
+	/// A font for a [`TextLayer`](crate::TextLayer) could not be found, read or
+	/// parsed.
+	#[error("Font error: {0}")]
+	Font(String),
+
 	/// Setting up GPU buffers or moving pixels to or from the device failed.
 	#[error("GPU error: {0}")]
 	Gpu(String),

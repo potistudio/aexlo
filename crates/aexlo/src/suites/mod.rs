@@ -55,6 +55,7 @@ mod color_param;
 mod color_settings;
 mod comp;
 pub(crate) mod drawbot;
+pub(crate) use drawbot::system_font;
 mod dynamic_stream;
 mod effect;
 mod effect_ui;
@@ -79,6 +80,7 @@ mod point_param;
 pub(crate) mod register;
 pub mod sampling;
 pub(crate) mod stream;
+mod text_layer;
 pub mod transform;
 pub mod utility;
 pub mod world;
@@ -184,6 +186,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	effect4: effect::create_effect_suite_4(),
 	color_settings: color_settings::create_color_settings_suite_2(),
 	light: layer::create_light_suite_1(),
+	text_layer: text_layer::suite_1(),
 	comp: comp::create_comp_suite_10(),
 	layer5: layer::create_layer_suite_5(),
 	layer6: layer::create_layer_suite_6(),
@@ -257,6 +260,7 @@ pub struct SuiteContainer {
 	pub effect4: AEGP_EffectSuite4,
 	pub color_settings: AEGP_ColorSettingsSuite2,
 	pub light: AEGP_LightSuite1,
+	pub text_layer: AEGP_TextLayerSuite1,
 	pub comp: AEGP_CompSuite10,
 	pub layer5: AEGP_LayerSuite5,
 	pub layer6: AEGP_LayerSuite6,
@@ -459,6 +463,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			PF_Err_NONE
 		}
 		("AEGP Light Suite", 1) => dispatch_static!(suite, suite_name, version, light),
+		("AEGP Text Layer Suite", 1) => dispatch_static!(suite, suite_name, version, text_layer),
 		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion4 as i32 => {
 			unsafe {
 				*suite = &COMP_SUITE_4 as *const _ as *const std::ffi::c_void;
@@ -597,6 +602,7 @@ mod tests {
 			("PF Effect Custom UI Overlay Theme Suite", 1),
 			("PF Path Query Suite", 1),
 			("PF Path Data Suite", 1),
+			("AEGP Text Layer Suite", 1),
 			("PF AE Adv App Suite", 1),
 			("PF AE Adv App Suite", 2),
 			("PF AE Adv Item Suite", 1),

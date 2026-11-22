@@ -359,7 +359,8 @@ fn device_rect(transform: Transform, rect: &DRAWBOT_Rect32, bounds_w: i32, bound
 	}
 }
 
-fn system_font() -> Option<&'static FontVec> {
+/// A sans-serif face installed with the operating system, loaded once.
+pub(crate) fn system_font() -> Option<&'static FontVec> {
 	static FONT: OnceLock<Option<FontVec>> = OnceLock::new();
 	FONT.get_or_init(|| {
 		let candidates = [

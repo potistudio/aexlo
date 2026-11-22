@@ -283,6 +283,10 @@ pub struct PluginInstance {
 	/// Masks on the effect's layer, served through the Path Query/Data suites.
 	mask_paths: Vec<crate::MaskPath>,
 
+	/// The text when the effect's layer is a text layer, served through the
+	/// Text Layer Suite.
+	text_layer: Option<crate::TextLayer>,
+
 	/// Layers linked to the plugin's own `PF_Param_LAYER` parameters, by index.
 	linked_layers: HashMap<usize, LinkedLayer>,
 

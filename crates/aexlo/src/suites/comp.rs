@@ -478,6 +478,7 @@ mod tests {
 			current_time: 0,
 			time_step: 1,
 			time_scale: 30,
+			text: false,
 		};
 		let d = t.duration();
 		assert_eq!(d.value as i64 / d.scale as i64, COMP_DURATION_SECONDS as i64);

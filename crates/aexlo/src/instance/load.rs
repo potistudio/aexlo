@@ -385,6 +385,7 @@ impl PluginInstance {
 				custom_controls: HashMap::new(),
 				supported_pixel_formats: Vec::new(),
 				mask_paths: Vec::new(),
+				text_layer: None,
 				linked_layers: HashMap::new(),
 				layer_checkouts: HashMap::new(),
 				parallel_iterate: true,

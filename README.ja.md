@@ -174,7 +174,7 @@ aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
 
 ### AEGP
 
-⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 11% (4/36)
+⣿⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 14% (5/36)
 
 | Project        | Streams           | Pixels                 | その他                 |
 | -------------- | ----------------- | ---------------------- | ---------------------- |
@@ -185,7 +185,7 @@ aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
 | △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
 | △ PF Interface | × Mask Outline    | △ Layer Render Options | × Math                 |
 | × Proj         | × Text Document   | × Composite            | × Compute Cache        |
-| × Footage      | × Text Layer      | × Canvas               | × Hash                 |
+| × Footage      | ○ Text Layer      | × Canvas               | × Hash                 |
 | × Collection   |                   | × Sound Data           | × Render Async Manager |
 | × Marker       |                   |                        |                        |
 

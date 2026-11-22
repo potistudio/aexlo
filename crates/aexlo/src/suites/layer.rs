@@ -5,10 +5,11 @@
 //! aexlo renders a single effect on a single layer, and that layer is the
 //! whole comp: the comp is the input layer's size, the layer starts at comp
 //! time 0 with no stretch (so layer time is comp time), runs for
-//! [`COMP_DURATION_SECONDS`], is a 2D AV layer with an identity transform, and
-//! has no parent, track matte or source item. The comp's frame rate and the
-//! current time are the instance's render context (frame 0 at 30 fps by
-//! default).
+//! [`COMP_DURATION_SECONDS`], is a 2D layer with an identity transform, and
+//! has no parent, track matte or source item. It is an AV layer, or a text
+//! layer once the embedder gives it text (`PluginInstance::set_text_layer`).
+//! The comp's frame rate and the current time are the instance's render
+//! context (frame 0 at 30 fps by default).
 //!
 //! Layer and comp handles are the effect's `PF_ProgPtr` itself: After Effects
 //! never asks plugins to dispose of them, so there is nothing to allocate.
@@ -73,6 +74,9 @@ pub(crate) struct Timeline {
 	pub current_time: A_long,
 	pub time_step: A_long,
 	pub time_scale: A_u_long,
+	/// Whether the layer is a text layer
+	/// ([`PluginInstance::set_text_layer`](crate::PluginInstance::set_text_layer)).
+	pub text: bool,
 }
 
 impl Timeline {
@@ -90,6 +94,7 @@ impl Timeline {
 			current_time,
 			time_step,
 			time_scale,
+			text: instance.text_layer().is_some(),
 		})
 	}
 
@@ -414,7 +419,13 @@ unsafe extern "C" fn get_layer_masked_bounds(
 unsafe extern "C" fn get_layer_object_type(layerH: AEGP_LayerH, object_type: *mut AEGP_ObjectType) -> A_Err {
 	crate::core::ffi::guard("get_layer_object_type", || {
 		diag!("AEGP_LayerSuite/AEGP_GetLayerObjectType", "layerH" => format!("{:#x}", layerH as usize));
-		answer(layerH as _, object_type, |_| AEGP_ObjectType_AV as AEGP_ObjectType)
+		answer(layerH as _, object_type, |t| {
+			(if t.text {
+				AEGP_ObjectType_TEXT
+			} else {
+				AEGP_ObjectType_AV
+			}) as AEGP_ObjectType
+		})
 	})
 }
 
@@ -873,6 +884,7 @@ mod tests {
 			current_time: 0,
 			time_step: 1,
 			time_scale: 30,
+			text: false,
 		}
 	}
 

@@ -103,6 +103,7 @@ mod pipl;
 mod pixel;
 mod strict;
 pub mod sys;
+mod text;
 mod time;
 mod utils;
 
@@ -153,6 +154,10 @@ pub use strict::{
 /// Layer masks served through the Path Query/Data suites
 /// ([`PluginInstance::set_mask_paths`]).
 pub use mask::{MaskMode, MaskPath, MaskVertex};
+
+/// Text on the effect's layer, served through the Text Layer Suite
+/// ([`PluginInstance::set_text_layer`]).
+pub use text::{TextLayer, TextStyle};
 
 /// Injectable host-application services (App, Adv App/Item/Time, Plugin
 /// Helper and Custom UI Overlay Theme suites): UI colors, fonts, language,

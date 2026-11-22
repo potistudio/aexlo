@@ -24,6 +24,14 @@ may break the API, and every breaking change is listed below.
   levels leave them empty and pay nothing for them. The Handle and Iterate
   suites, `AcquireSuite` / `ReleaseSuite` and the utility callbacks are now
   reported as suite calls too.
+- Text layers: `PluginInstance::set_text_layer` puts a `TextLayer` on the
+  effect's layer. `AEGP_GetLayerObjectType` then answers
+  `AEGP_ObjectType_TEXT`, and the new "AEGP Text Layer Suite" v1 hands out its
+  glyph outlines, which the PF Path Data Suite reads with absolute tangents as
+  After Effects gives them. `TextLayer::layout` sets a string in a font
+  (`TextStyle`) and `TextLayer::rasterize` draws it as the input layer, so
+  text effects such as TextGrad render. `AexloError::Font` reports a font that
+  cannot be read.
 
 ### Fixed
 
