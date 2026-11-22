@@ -167,9 +167,12 @@ input = { generate = "solid", color = [0.2, 0.4, 0.8, 1.0] }
 input = { generate = "checker", cell = 32 }
 input = { generate = "dot", at = [x, y], radius = 2 }
 input = { generate = "noise", seed = 7 }
+input = { text = "Title\nline 2", color = [1, 1, 1], font = "fonts/Inter.ttf" }
 ```
 
 `fit = "stretch" | "none"`（既定は `stretch`）。生成入力はバリアントの深度で直接生成し、ファイル入力はその深度に変換します。ジェネレーターの色は深度にかかわらず `[0, 1]` に正規化します。
+
+`text` は `aexlo inspect --text` と同じく、エフェクトのレイヤーをテキストレイヤーにします（[inspect.ja.md](inspect.ja.md#テキストレイヤー)）。文字列は中央揃えの段落として収まる最大の大きさで組まれ、レイヤーのピクセルは透明の上に `color`（既定は白）で描いたテキストになります。`\n` で改行します。`font` は TrueType または OpenType のファイルで、マニフェストからの相対パスです。既定はシステムにインストールされたサンセリフ体です。`text` を取るのは `input` だけで、`layers` には使えません。
 
 ### 4.6 パラメーター
 

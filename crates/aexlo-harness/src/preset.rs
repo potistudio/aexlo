@@ -223,7 +223,8 @@ impl Generator {
 	}
 }
 
-/// Where a layer's pixels come from (§4.5): a file, or a generator.
+/// Where a layer's pixels come from (§4.5): a file, a generator, or text set
+/// on a text layer.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct InputSpec {
@@ -248,6 +249,15 @@ pub struct InputSpec {
 	pub seed: Option<u64>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub fit: Option<Fit>,
+	/// Make the effect's layer a text layer showing this string, as large as
+	/// fits; `\n` breaks lines. Its pixels are the text in `color` (white by
+	/// default) on transparent.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub text: Option<String>,
+	/// `text`: the TrueType or OpenType font file; a sans-serif face
+	/// installed with the system by default.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub font: Option<PathBuf>,
 }
 
 impl InputSpec {
@@ -258,11 +268,19 @@ impl InputSpec {
 		}
 	}
 
-	/// The generator, `gradient` when neither a path nor a generator is given.
+	/// A text layer showing `text`.
+	pub fn text(text: impl Into<String>) -> Self {
+		Self {
+			text: Some(text.into()),
+			..Self::default()
+		}
+	}
+
+	/// The generator, `gradient` when no path, generator or text is given.
 	pub fn generator(&self) -> Option<Generator> {
-		match (&self.path, self.generate) {
-			(Some(_), _) => None,
-			(None, generator) => Some(generator.unwrap_or(Generator::Gradient)),
+		match (&self.path, &self.text, self.generate) {
+			(Some(_), _, _) | (None, Some(_), _) => None,
+			(None, None, generator) => Some(generator.unwrap_or(Generator::Gradient)),
 		}
 	}
 
@@ -272,22 +290,31 @@ impl InputSpec {
 
 	/// Reject contradictory or meaningless keys.
 	pub fn validate(&self) -> Result<()> {
-		if self.path.is_some() && self.generate.is_some() {
-			return Err(Error::invalid("input: give either `path` or `generate`, not both"));
+		let sources = [self.path.is_some(), self.generate.is_some(), self.text.is_some()];
+		if sources.iter().filter(|&&given| given).count() > 1 {
+			return Err(Error::invalid(
+				"input: give one of `path`, `generate` or `text`, not several",
+			));
 		}
 		let generator = self.generator();
-		let allowed = |key: &str, present: bool, generators: &[Generator]| -> Result<()> {
-			if present && !generator.is_some_and(|g| generators.contains(&g)) {
-				let used = generator.map_or("a file input", Generator::name);
+		let text = self.text.is_some();
+		let allowed = |key: &str, present: bool, generators: &[Generator], on_text: bool| -> Result<()> {
+			if present && !generator.is_some_and(|g| generators.contains(&g)) && !(text && on_text) {
+				let used = match (generator, text) {
+					(Some(g), _) => g.name(),
+					(None, true) => "a text input",
+					(None, false) => "a file input",
+				};
 				return Err(Error::invalid(format!("input: `{key}` does not apply to {used}")));
 			}
 			Ok(())
 		};
-		allowed("color", self.color.is_some(), &[Generator::Solid, Generator::Dot])?;
-		allowed("cell", self.cell.is_some(), &[Generator::Checker])?;
-		allowed("at", self.at.is_some(), &[Generator::Dot])?;
-		allowed("radius", self.radius.is_some(), &[Generator::Dot])?;
-		allowed("seed", self.seed.is_some(), &[Generator::Noise])?;
+		allowed("color", self.color.is_some(), &[Generator::Solid, Generator::Dot], true)?;
+		allowed("font", self.font.is_some(), &[], true)?;
+		allowed("cell", self.cell.is_some(), &[Generator::Checker], false)?;
+		allowed("at", self.at.is_some(), &[Generator::Dot], false)?;
+		allowed("radius", self.radius.is_some(), &[Generator::Dot], false)?;
+		allowed("seed", self.seed.is_some(), &[Generator::Noise], false)?;
 		if let Some(color) = &self.color
 			&& !(3..=4).contains(&color.len())
 		{
@@ -301,10 +328,10 @@ impl InputSpec {
 
 	/// Resolve a relative `path` against `dir`.
 	pub fn resolve_paths(&mut self, dir: &Path) {
-		if let Some(path) = &self.path
-			&& path.is_relative()
-		{
-			self.path = Some(dir.join(path));
+		for path in [&mut self.path, &mut self.font].into_iter().flatten() {
+			if path.is_relative() {
+				*path = dir.join(&*path);
+			}
 		}
 	}
 }
@@ -626,6 +653,37 @@ mod tests {
 			.validate()
 			.is_err()
 		);
+	}
+
+	#[test]
+	fn a_text_input_takes_a_color_and_a_font_and_no_other_source() {
+		let mut spec = InputSpec::text("Hi");
+		assert_eq!(spec.generator(), None);
+		spec.color = Some(vec![1.0, 0.0, 0.0]);
+		spec.font = Some("fonts/a.ttf".into());
+		assert!(spec.validate().is_ok());
+		spec.resolve_paths(Path::new("/m"));
+		assert_eq!(spec.font.as_deref(), Some(Path::new("/m/fonts/a.ttf")));
+		for other in [
+			InputSpec {
+				generate: Some(Generator::Solid),
+				..InputSpec::text("Hi")
+			},
+			InputSpec {
+				path: Some("a.png".into()),
+				..InputSpec::text("Hi")
+			},
+			InputSpec {
+				cell: Some(4),
+				..InputSpec::text("Hi")
+			},
+			InputSpec {
+				font: Some("a.ttf".into()),
+				..InputSpec::generated(Generator::Solid)
+			},
+		] {
+			assert!(other.validate().is_err(), "{other:?}");
+		}
 	}
 
 	#[test]

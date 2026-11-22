@@ -1,7 +1,9 @@
-//! Input layers (§4.5): files, fitted to the render size, and generators
-//! produced directly at the variant's depth.
+//! Input layers (§4.5): files, fitted to the render size, generators
+//! produced directly at the variant's depth, and text set on a text layer.
 
-use aexlo::{AnyLayer, PixelDepthKind};
+use std::path::Path;
+
+use aexlo::{AnyLayer, PixelDepthKind, TextLayer, TextStyle};
 
 use crate::error::{Error, Result};
 use crate::frame::load_image;
@@ -32,8 +34,6 @@ pub fn build(spec: &InputSpec, depth: PixelDepthKind, size: Option<(u32, u32)>) 
 	}
 
 	let (w, h) = size.unwrap_or(DEFAULT_SIZE);
-	let generator = spec.generator().unwrap_or(Generator::Gradient);
-	let mut layer = AnyLayer::filled(depth, w, h, [0.0, 0.0, 0.0, 1.0]);
 	let color = |default: [f32; 4]| -> [f32; 4] {
 		match spec.color.as_deref() {
 			Some([r, g, b]) => [*r, *g, *b, 1.0],
@@ -41,6 +41,11 @@ pub fn build(spec: &InputSpec, depth: PixelDepthKind, size: Option<(u32, u32)>) 
 			_ => default,
 		}
 	};
+	if let Some(text) = text_layer(spec, w, h)? {
+		return Ok(text.rasterize(depth, w, h, color([1.0; 4])));
+	}
+	let generator = spec.generator().unwrap_or(Generator::Gradient);
+	let mut layer = AnyLayer::filled(depth, w, h, [0.0, 0.0, 0.0, 1.0]);
 
 	let pixels: Box<dyn Iterator<Item = [f32; 4]>> = match generator {
 		Generator::Gradient => {
@@ -83,6 +88,36 @@ pub fn build(spec: &InputSpec, depth: PixelDepthKind, size: Option<(u32, u32)>) 
 	};
 	layer.set_from_unit_rgba(pixels);
 	Ok(layer)
+}
+
+/// The text layer `spec` puts on a `w` x `h` effect layer: `None` unless it
+/// gives `text`. [`build`] draws the same text as the layer's pixels.
+///
+/// # Errors
+/// [`ErrorKind::Invalid`](crate::ErrorKind::Invalid) when the font cannot be
+/// read, or the system has no sans-serif font to fall back on.
+pub fn text_layer(spec: &InputSpec, w: u32, h: u32) -> Result<Option<TextLayer>> {
+	let Some(text) = &spec.text else { return Ok(None) };
+	fit_text(text, spec.font.as_deref(), w, h)
+		.map(Some)
+		.map_err(|e| Error::invalid(format!("input: {e}")))
+}
+
+/// `text` set as a centred paragraph on a `w` x `h` layer, as large as fits:
+/// 40% of the layer's height, smaller when that would run wider than 90% of
+/// its width. `font` defaults to a sans-serif face installed with the system.
+pub fn fit_text(text: &str, font: Option<&Path>, w: u32, h: u32) -> aexlo::Result<TextLayer> {
+	let mut style = TextStyle::sized(h as f32 * 0.4);
+	style.font = font.map(Path::to_path_buf);
+	let first = TextLayer::layout(text, &style, w, h)?;
+	let scale = first
+		.bounds()
+		.map_or(1.0, |(l, _, r, _)| (w as f64 * 0.9) / (r - l).max(1.0));
+	if scale >= 1.0 {
+		return Ok(first);
+	}
+	style.size *= scale as f32;
+	TextLayer::layout(text, &style, w, h)
 }
 
 fn coords(w: u32, h: u32) -> impl Iterator<Item = (u32, u32)> {
@@ -146,6 +181,26 @@ mod tests {
 		assert_eq!(at(9, 4)[0], 1.0);
 		assert_eq!(at(0, 0)[0], 0.0);
 		assert_eq!(at(0, 0)[3], 1.0);
+	}
+
+	#[test]
+	fn text_is_drawn_on_transparent_as_its_text_layer_lays_it_out() {
+		let spec = InputSpec::text("Hi");
+		let Ok(Some(text)) = text_layer(&spec, 96, 48) else {
+			eprintln!("skipping: no system font to set the text in");
+			return;
+		};
+		assert!(text_layer(&InputSpec::default(), 96, 48).unwrap().is_none());
+		let (l, t, r, b) = text.bounds().unwrap();
+		assert!(l >= 0.0 && t >= 0.0 && r <= 96.0 && b <= 48.0, "{l} {t} {r} {b}");
+
+		let layer = build(&spec, PixelDepthKind::U8, Some((96, 48))).unwrap();
+		let pixels = layer.to_unit_rgba();
+		let at = |x: f64, y: f64| pixels[y as usize * 96 + x as usize];
+		assert_eq!(at(0.0, 0.0), [1.0, 1.0, 1.0, 0.0]);
+		// The middle of the H's left stem, where its outline says it is.
+		let stem = text.outlines()[0].vertices.iter().map(|v| v.x).fold(f64::MAX, f64::min);
+		assert_eq!(at(stem + 1.5, (t + b) / 2.0)[3], 1.0);
 	}
 
 	#[test]

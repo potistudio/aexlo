@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use aexlo::{
 	AnyLayer, InstanceState, LiveAllocation, ObserveLevel, OutFlags, OutFlags2, ParamKind, ParamValue, PixelDepthKind,
-	PluginInstance, Strict, TextLayer, TextStyle, Time,
+	PluginInstance, Strict, TextLayer, Time,
 };
 use anyhow::{Context, Result, bail};
 
@@ -462,7 +462,7 @@ pub fn build_input(
 ) -> Result<(AnyLayer, Option<TextLayer>)> {
 	if let InputSource::Text(text) = source {
 		let (w, h) = current;
-		let text = layout_text(text, font, w, h)?;
+		let text = aexlo_harness::input::fit_text(text, font, w, h).context("setting the text")?;
 		return Ok((text.rasterize(depth, w, h, [1.0; 4]), Some(text)));
 	}
 	let layer = match source {
@@ -487,25 +487,6 @@ pub fn build_input(
 		}
 	};
 	Ok((layer, None))
-}
-
-/// `text` as large as fits: 40% of the layer's height, smaller when that
-/// would run wider than 90% of its width.
-fn layout_text(text: &str, font: Option<&Path>, w: u32, h: u32) -> Result<TextLayer> {
-	let mut style = TextStyle::sized(h as f32 * 0.4);
-	style.font = font.map(Path::to_path_buf);
-	let first = TextLayer::layout(text, &style, w, h).context("setting the text")?;
-	let fits = |layer: &TextLayer| {
-		layer
-			.bounds()
-			.map_or(1.0, |(l, _, r, _)| (w as f64 * 0.9) / (r - l).max(1.0))
-	};
-	let scale = fits(&first);
-	if scale >= 1.0 {
-		return Ok(first);
-	}
-	style.size *= scale as f32;
-	TextLayer::layout(text, &style, w, h).context("setting the text")
 }
 
 pub fn load_png(path: &Path) -> Result<AnyLayer> {

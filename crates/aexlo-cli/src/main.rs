@@ -445,10 +445,16 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 
 	// A preset sets the stage (plugin, input, size, time, params, depth,
 	// render path); the flags below then override it.
-	let variant = match &preset {
+	let mut variant = match &preset {
 		Some(name) => Some(preset_variant(manifest.as_deref(), name)?),
 		None => None,
 	};
+	// `--input` replaces the preset's input, text layer included.
+	if input.is_some()
+		&& let Some(variant) = &mut variant
+	{
+		variant.input = aexlo_harness::InputSpec::default();
+	}
 	// Resolve overrides before setup and decode each input only once.
 	let depth = variant.as_ref().map_or(aexlo::PixelDepthKind::U8, |v| v.depth_kind());
 	let initial = if let Some(path) = &input {
