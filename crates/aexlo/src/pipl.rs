@@ -267,7 +267,8 @@ impl Pipl {
 	/// # Errors
 	/// [`AexloError::PluginNotFound`] if nothing is at `path`, and
 	/// [`AexloError::InvalidPipl`] if a file cannot be read or its PiPL is
-	/// malformed. `Ok(None)` means the plugin has no PiPL to find.
+	/// malformed and no other place has one. `Ok(None)` means the plugin has
+	/// no PiPL to find.
 	pub fn read(path: impl AsRef<Path>) -> Result<Option<Pipl>> {
 		let path = path.as_ref();
 		if !path.exists() {
@@ -292,23 +293,27 @@ impl Pipl {
 		let parent = path.parent().unwrap_or(Path::new("."));
 		let stem = path.file_stem().and_then(|s| s.to_str());
 		let in_contents = parent.ends_with(Path::new("Contents").join("MacOS"));
+		let mut search = Search::default();
 		if in_contents
 			&& let Some(contents) = parent.parent()
-			&& let Some(pipl) = read_rsrc_dir(&contents.join("Resources"), stem, false)?
+			&& let Some(pipl) = read_rsrc_dir(&contents.join("Resources"), stem, false, &mut search)
 		{
 			return Ok(Some(pipl));
 		}
 		let in_bundle = parent.extension().is_some_and(|e| e.eq_ignore_ascii_case("plugin"));
-		if in_bundle && let Some(pipl) = read_rsrc_dir(parent, stem, false)? {
+		if in_bundle && let Some(pipl) = read_rsrc_dir(parent, stem, false, &mut search) {
 			return Ok(Some(pipl));
 		}
-		if let Some(pipl) = read_mach_o(path, &bytes)? {
+		if let Some(pipl) = search.attempt(read_mach_o(path, &bytes)) {
 			return Ok(Some(pipl));
 		}
-		if in_contents || in_bundle {
-			return Ok(None);
+		if !in_contents
+			&& !in_bundle
+			&& let Some(pipl) = read_rsrc_dir(parent, stem, true, &mut search)
+		{
+			return Ok(Some(pipl));
 		}
-		read_rsrc_dir(parent, stem, true)
+		search.finish()
 	}
 
 	/// Where the PiPL was read from: the binary (its PE resource or Mach-O
@@ -408,11 +413,38 @@ fn read_file(path: &Path) -> Result<Vec<u8>> {
 	std::fs::read(path).map_err(|e| invalid(path, e.to_string()))
 }
 
+/// The places a PiPL may be, tried in turn: a malformed one is reported only
+/// when no later place has one.
+#[derive(Default)]
+struct Search {
+	error: Option<AexloError>,
+}
+
+impl Search {
+	/// The PiPL `found` holds; an error is kept for [`Self::finish`].
+	fn attempt(&mut self, found: Result<Option<Pipl>>) -> Option<Pipl> {
+		match found {
+			Ok(pipl) => pipl,
+			Err(err) => {
+				log::debug!("PiPL not read here: {err}");
+				self.error.get_or_insert(err);
+				None
+			}
+		}
+	}
+
+	/// Nothing had a PiPL: the first error, or no PiPL at all.
+	fn finish(self) -> Result<Option<Pipl>> {
+		self.error.map_or(Ok(None), Err)
+	}
+}
+
 /// A `.plugin` bundle: its `.rsrc` files, then its binary's resource fork.
 fn read_bundle(bundle: &Path) -> Result<Option<Pipl>> {
 	let stem = bundle.file_stem().and_then(|s| s.to_str());
+	let mut search = Search::default();
 	for dir in [bundle.join("Contents").join("Resources"), bundle.to_path_buf()] {
-		if let Some(pipl) = read_rsrc_dir(&dir, stem, false)? {
+		if let Some(pipl) = read_rsrc_dir(&dir, stem, false, &mut search) {
 			return Ok(Some(pipl));
 		}
 	}
@@ -428,11 +460,11 @@ fn read_bundle(bundle: &Path) -> Result<Option<Pipl>> {
 		binaries.push(bundle.join(stem));
 	}
 	for binary in binaries.iter().filter(|path| path.is_file()) {
-		if let Some(pipl) = read_mach_o(binary, &read_file(binary)?)? {
+		if let Some(pipl) = search.attempt(read_file(binary).and_then(|bytes| read_mach_o(binary, &bytes))) {
 			return Ok(Some(pipl));
 		}
 	}
-	Ok(None)
+	search.finish()
 }
 
 /// The PiPL a Mach-O binary carries: in its `__TEXT,__pipl` section, else the
@@ -450,10 +482,11 @@ fn read_mach_o(binary: &Path, bytes: &[u8]) -> Result<Option<Pipl>> {
 }
 
 /// The first `.rsrc` in `dir` with a PiPL, preferring the one named `stem`;
-/// with `named_only`, only that one.
-fn read_rsrc_dir(dir: &Path, stem: Option<&str>, named_only: bool) -> Result<Option<Pipl>> {
+/// with `named_only`, only that one. One that cannot be read goes to `search`
+/// and the next is tried.
+fn read_rsrc_dir(dir: &Path, stem: Option<&str>, named_only: bool, search: &mut Search) -> Option<Pipl> {
 	let Ok(entries) = std::fs::read_dir(dir) else {
-		return Ok(None);
+		return None;
 	};
 	let mut files: Vec<PathBuf> = entries
 		.filter_map(|entry| entry.ok().map(|e| e.path()))
@@ -466,32 +499,39 @@ fn read_rsrc_dir(dir: &Path, stem: Option<&str>, named_only: bool) -> Result<Opt
 		if named_only && !named(&file) {
 			continue;
 		}
-		if let Some(pipl) = read_rsrc_file(&file)? {
-			return Ok(Some(pipl));
+		if let Some(pipl) = search.attempt(read_rsrc_file(&file)) {
+			return Some(pipl);
 		}
 	}
-	Ok(None)
+	None
 }
 
+/// The PiPL in a resource file. Classic Mac `.rsrc` files keep their
+/// resources in the resource fork and leave the data fork empty, so an empty
+/// one is read from its fork.
 fn read_rsrc_file(path: &Path) -> Result<Option<Pipl>> {
 	let bytes = read_file(path)?;
-	match rsrc_pipl_resource(&bytes).map_err(|reason| invalid(path, reason))? {
+	if bytes.is_empty() {
+		return read_resource_fork(path);
+	}
+	read_resource_file(path, &bytes)
+}
+
+fn read_resource_file(path: &Path, bytes: &[u8]) -> Result<Option<Pipl>> {
+	match rsrc_pipl_resource(bytes).map_err(|reason| invalid(path, reason))? {
 		Some(resource) => parse(path, resource, true).map(Some),
 		None => Ok(None),
 	}
 }
 
-/// The PiPL in `binary`'s resource fork, where older macOS plugins keep it.
-fn read_resource_fork(binary: &Path) -> Result<Option<Pipl>> {
+/// The PiPL in `file`'s resource fork, where older macOS plugins keep it.
+fn read_resource_fork(file: &Path) -> Result<Option<Pipl>> {
 	if !cfg!(target_os = "macos") {
 		return Ok(None);
 	}
-	let fork = binary.join("..namedfork").join("rsrc");
+	let fork = file.join("..namedfork").join("rsrc");
 	match std::fs::read(&fork) {
-		Ok(bytes) if !bytes.is_empty() => match rsrc_pipl_resource(&bytes).map_err(|reason| invalid(&fork, reason))? {
-			Some(resource) => parse(&fork, resource, true).map(Some),
-			None => Ok(None),
-		},
+		Ok(bytes) if !bytes.is_empty() => read_resource_file(&fork, &bytes),
 		_ => Ok(None),
 	}
 }
@@ -853,6 +893,47 @@ mod tests {
 		std::fs::write(flat.join("libother.dylib"), b"\xcf\xfa\xed\xfe").unwrap();
 		std::fs::write(flat.join("Other.rsrc"), rsrc(&pipl_be(&[("name", pascal("Other"))]))).unwrap();
 		assert_eq!(Pipl::read(flat.join("libother.dylib")).unwrap(), None);
+		let _ = std::fs::remove_dir_all(&dir);
+	}
+
+	#[test]
+	fn a_bundle_skips_a_rsrc_it_cannot_read() {
+		let dir = std::env::temp_dir().join(format!("aexlo-pipl-bad-{}", std::process::id()));
+		let resources = dir.join("Mixed.plugin").join("Contents").join("Resources");
+		std::fs::create_dir_all(&resources).unwrap();
+		// Named after the bundle, so it is tried first.
+		std::fs::write(resources.join("Mixed.rsrc"), b"not a resource file").unwrap();
+		std::fs::write(
+			resources.join("Other.rsrc"),
+			rsrc(&pipl_be(&[("name", pascal("Mixed"))])),
+		)
+		.unwrap();
+		let pipl = Pipl::read(dir.join("Mixed.plugin")).unwrap().unwrap();
+		assert!(pipl.source().ends_with("Other.rsrc"));
+
+		// With nothing else to read, the malformed one is the answer.
+		std::fs::remove_file(resources.join("Other.rsrc")).unwrap();
+		assert!(matches!(
+			Pipl::read(dir.join("Mixed.plugin")),
+			Err(AexloError::InvalidPipl { .. })
+		));
+
+		// An empty data fork: the resources are in the file's resource fork.
+		std::fs::remove_file(resources.join("Mixed.rsrc")).unwrap();
+		let forked = resources.join("Forked.rsrc");
+		std::fs::write(&forked, b"").unwrap();
+		if cfg!(target_os = "macos")
+			&& std::fs::write(
+				forked.join("..namedfork").join("rsrc"),
+				rsrc(&pipl_be(&[("name", pascal("Forked"))])),
+			)
+			.is_ok()
+		{
+			let pipl = Pipl::read(dir.join("Mixed.plugin")).unwrap().unwrap();
+			assert_eq!(pipl.name().as_deref(), Some("Forked"));
+		} else {
+			assert_eq!(Pipl::read(dir.join("Mixed.plugin")).unwrap(), None);
+		}
 		let _ = std::fs::remove_dir_all(&dir);
 	}
 
