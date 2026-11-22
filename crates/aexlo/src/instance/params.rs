@@ -196,8 +196,11 @@ impl PluginInstance {
 	/// Returns `None` if the index is out of bounds or the param type is unknown
 	/// (which includes index 0, the input layer).
 	pub fn get_param(&self, index: usize) -> Option<ParamValue> {
-		let param = self.params.get(index)?;
+		Self::value_of(self.params.get(index)?)
+	}
 
+	/// The value in `param`, for the kinds that have a [`ParamValue`].
+	pub(crate) fn value_of(param: &PF_ParamDef) -> Option<ParamValue> {
 		// SAFETY: the union variant is selected based on `param_type`.
 		unsafe {
 			match param.param_type {

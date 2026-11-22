@@ -79,6 +79,8 @@ mod params;
 mod project_tests;
 mod render;
 #[cfg(test)]
+mod state_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod time_tests;

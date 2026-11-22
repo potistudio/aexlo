@@ -2,8 +2,8 @@
 //!
 //! The keyframe and state queries read the parameter's track
 //! (`PluginInstance::set_param_track`) through the evaluator streams and
-//! checkouts use, so all of them agree on a value at a time. A state follows
-//! parameter values and keyframes, not the pixels of layer parameters.
+//! checkouts use, so all of them agree on a value at a time. What a state
+//! covers is in [`state`](super::param_state).
 //! [`update_param_ui`] lets a plugin refresh a parameter's UI state
 //! (twirl collapse, disabled, name, …) in response to a user edit.
 
@@ -12,7 +12,6 @@ use crate::sys::*;
 
 use crate::PluginInstance;
 use crate::animation::{Interpolation, TimePoint};
-use std::hash::{Hash, Hasher};
 
 /// The instance behind `effect_ref`.
 ///
@@ -67,43 +66,46 @@ unsafe extern "C" fn update_param_ui(
 	})
 }
 
-/// A state is a hash of the parameter's value or keyframes, so it changes when
-/// they do. The time range is not narrowed: a change anywhere counts.
+/// The receipt for what the state covers (see [`state`](super::param_state)).
 unsafe extern "C" fn get_current_state(
 	effect_ref: PF_ProgPtr,
 	param_index: PF_ParamIndex,
-	_startPT0: *const A_Time,
-	_durationPT0: *const A_Time,
+	startPT0: *const A_Time,
+	durationPT0: *const A_Time,
 	stateP: *mut PF_State,
 ) -> PF_Err {
 	crate::core::ffi::guard("get_current_state", || {
-		diag!("PF_ParamUtilsSuite3/PF_GetCurrentState", "param_index" => param_index);
-		if stateP.is_null() {
+		// SAFETY: null, or the plugin's times for this call.
+		let (start, duration) = unsafe { (startPT0.as_ref().copied(), durationPT0.as_ref().copied()) };
+		let told = |time: Option<A_Time>| time.map_or("null".to_string(), |t| format!("{}/{}", t.value, t.scale));
+		diag!("PF_ParamUtilsSuite3/PF_GetCurrentState",
+			"param_index" => param_index,
+			"start" => told(start),
+			"duration" => told(duration),
+		);
+		// SAFETY: null, or the plugin's state to fill in.
+		let Some(out) = (unsafe { stateP.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
-		}
-		// SAFETY: `stateP` is non-null; `PF_State` is a plain byte buffer.
-		unsafe { std::ptr::write_bytes(stateP, 0, 1) };
+		};
+		out.reservedAL = [0; 4];
+		// SAFETY: as for every suite call.
 		let Some(instance) = (unsafe { instance_of(effect_ref) }) else {
-			return PF_Err_NONE;
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		let wanted = match usize::try_from(param_index) {
-			Ok(index) => index..index.saturating_add(1),
-			// The negative indices stand for all of them.
-			Err(_) => 0..instance.param_count(),
-		};
-		let mut hash = std::collections::hash_map::DefaultHasher::new();
-		for index in wanted {
-			index.hash(&mut hash);
-			match instance.param_track(index) {
-				Some(track) => format!("{track:?}").hash(&mut hash),
-				None => format!("{:?}", instance.get_param(index)).hash(&mut hash),
+		match super::param_state::of(instance, param_index, start, duration) {
+			Some(state) => {
+				*out = state;
+				PF_Err_NONE
+			}
+			None => {
+				crate::observe::unsupported(
+					crate::observe::UnsupportedKind::Declined,
+					"PF_ParamUtilsSuite3/PF_GetCurrentState",
+					format!("param index {param_index}"),
+				);
+				PF_Err_BAD_CALLBACK_PARAM
 			}
 		}
-		let hash = hash.finish().to_ne_bytes();
-		let len = hash.len().min(std::mem::size_of::<PF_State>());
-		// SAFETY: at most `size_of::<PF_State>()` bytes into that buffer.
-		unsafe { std::ptr::copy_nonoverlapping(hash.as_ptr(), stateP.cast::<u8>(), len) };
-		PF_Err_NONE
 	})
 }
 
@@ -116,10 +118,11 @@ unsafe extern "C" fn are_states_identical(
 ) -> PF_Err {
 	crate::core::ffi::guard("are_states_identical", || {
 		diag!("PF_ParamUtilsSuite3/PF_AreStatesIdentical");
-		if samePB.is_null() {
+		// No state is no proof that nothing changed.
+		if samePB.is_null() || state1P.is_null() || state2P.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		let same = state1P.is_null() || state2P.is_null() || {
+		let same = {
 			let len = std::mem::size_of::<PF_State>();
 			// SAFETY: both are non-null `PF_State`s, which are plain bytes.
 			unsafe {
@@ -132,7 +135,10 @@ unsafe extern "C" fn are_states_identical(
 	})
 }
 
-/// Two checkouts are identical when the track evaluates to the same value.
+/// "TRUE if a parameter's value is the same at the two passed times"; what is
+/// between them does not count. A value without keyframes, and a layer's or a
+/// mask's, is the same at every time here. The negative indices ask about all
+/// the parameters they stand for.
 unsafe extern "C" fn is_identical_checkout(
 	effect_ref: PF_ProgPtr,
 	param_index: PF_ParamIndex,
@@ -149,17 +155,20 @@ unsafe extern "C" fn is_identical_checkout(
 		if identicalPB.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		let same = (|| {
-			// SAFETY: as for every suite call.
-			let instance = unsafe { instance_of(effect_ref) }?;
-			let track = instance.param_track(usize::try_from(param_index).ok()?)?;
-			let (a, b) = (
-				TimePoint::new(what_time1, time_scale1)?,
-				TimePoint::new(what_time2, time_scale2)?,
-			);
-			Some(track.at(a) == track.at(b))
-		})()
-		.unwrap_or(true);
+		// SAFETY: as for every suite call.
+		let Some(instance) = (unsafe { instance_of(effect_ref) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let Some(indices) = super::param_state::indices(instance, param_index) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		// A time without a scale is now, as it is to a checkout.
+		let time = |value, scale| TimePoint::new(value, scale).unwrap_or_else(|| instance.time().into());
+		let (a, b) = (time(what_time1, time_scale1), time(what_time2, time_scale2));
+		let same = indices
+			.into_iter()
+			.filter_map(|index| instance.param_track(index))
+			.all(|track| track.at(a) == track.at(b));
 		unsafe { *identicalPB = same as PF_Boolean };
 		PF_Err_NONE
 	})

@@ -120,6 +120,16 @@ impl TimePoint {
 		)
 	}
 
+	/// `self + length`, in `self`'s scale where that is exact.
+	pub(crate) fn plus(self, length: Self) -> Self {
+		let (a, b) = (i128::from(self.scale), i128::from(length.scale));
+		Self::from_ratio(
+			i128::from(self.value) * b + i128::from(length.value) * a,
+			a * b,
+			self.scale,
+		)
+	}
+
 	/// How far `self` is from `from` towards `to`, in `0..=1`.
 	fn fraction(self, from: Self, to: Self) -> f64 {
 		let (s, a, b) = (i128::from(self.scale), i128::from(from.scale), i128::from(to.scale));

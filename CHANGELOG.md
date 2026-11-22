@@ -27,6 +27,9 @@ plugin renders or returns.
   parameter, clips `result_rect` to the request and no longer claims that the
   input is solid. `checkout_layer_pixels` refuses an id that was never
   checked out, where it gave the input layer.
+- `PF_AreStatesIdentical` refuses a null state instead of calling it
+  identical, and `PF_GetCurrentState` refuses an index that stands for
+  nothing and an effect it does not know.
 - PF World Transform and the legacy callbacks of the same names refuse worlds
   of two depths in one call, and worlds whose depth cannot be told, and
   report it. `copy` used to move raw bytes between them: AEPixelSorter2's
@@ -113,6 +116,12 @@ plugin renders or returns.
 
 ### Fixed
 
+- `PF_GetCurrentState` changes when what it covers does, so that
+  `PF_AreStatesIdentical` no longer calls a changed input unchanged: a
+  value over the time range asked about, the pixels of the input and of
+  layer parameters, masks, text and shapes on the layer, and the bytes of
+  arbitrary data. The `CHECK_ALL` indices mean what the SDK says.
+  `PF_IsIdenticalCheckout` compares all the parameters those stand for.
 - PF World Transform works at 16 and 32 bpc. `composite_rect`, `blend`,
   `convolve`, `transfer_rect` and `transform_world` refused those worlds,
   which failed every render of Shine at those depths. `copy` and `copy_hq`

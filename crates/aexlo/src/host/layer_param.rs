@@ -46,6 +46,10 @@ impl LinkedLayer {
 		self.layer.layer()
 	}
 
+	pub(crate) fn digest(&self) -> u64 {
+		self.layer.digest()
+	}
+
 	/// The definition to store in the parameter (what `checkout_param` returns).
 	pub(crate) fn param_def(&self) -> PF_LayerDef {
 		*self.cpu_world

@@ -30,6 +30,28 @@ pub(crate) fn is_owned_handle(handle: usize) -> bool {
 		.contains(&handle)
 }
 
+/// What is in `handle`, when it is one of the host's and still live.
+pub(crate) fn owned_bytes(handle: PF_Handle) -> Option<Vec<u8>> {
+	let live = LIVE_HANDLES.lock().unwrap_or_else(|err| err.into_inner());
+	if !live.contains(&(handle as usize)) {
+		return None;
+	}
+	// SAFETY: a live handle points at user data behind a header that holds
+	// its magic and, 8 bytes in, its size; the lock keeps it from being freed.
+	unsafe {
+		let data = *(handle as *const *const u8);
+		if data.is_null() {
+			return None;
+		}
+		let header = data.sub(HANDLE_ALIGNMENT);
+		if *(header as *const u64) != HANDLE_MAGIC {
+			return None;
+		}
+		let size = *(header.add(8) as *const usize);
+		Some(std::slice::from_raw_parts(data, size).to_vec())
+	}
+}
+
 // Handle header layout: [magic: u64][size: usize][pad to 16 bytes][user data...]
 
 /// Allocates anew handle with the given size.

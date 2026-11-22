@@ -242,6 +242,15 @@ impl PluginInstance {
 		self.layer_checkouts.contains_key(&checkout_id)
 	}
 
+	/// A hash of the pixels behind layer parameter `index` (the input layer for
+	/// 0), `None` when nothing is linked.
+	pub(crate) fn layer_digest(&self, index: usize) -> Option<u64> {
+		match index {
+			0 => Some(self.input_layer.digest()),
+			_ => self.linked_layers.get(&index).map(LinkedLayer::digest),
+		}
+	}
+
 	/// Size of the layer behind parameter `index`: the input layer for 0, the
 	/// linked layer otherwise, `None` for an unlinked or non-layer parameter.
 	pub(crate) fn layer_param_size(&self, index: usize) -> Option<(i32, i32)> {
