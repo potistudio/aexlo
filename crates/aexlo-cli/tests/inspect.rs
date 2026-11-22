@@ -48,11 +48,22 @@ fn exec_reports_commands_calls_memory_and_errors() {
 		"== live memory (2)",
 		"64 B from RENDER",
 		"64 B from SMART_RENDER",
-		"    00 00 00 00",
 		"  1  Mode                     Popup        5",
 	] {
 		assert!(out.contains(expected), "missing {expected:?} in:\n{out}");
 	}
+	// Each handle's 64 bytes are dumped. Not their values: `host_new_handle`
+	// does not clear the memory, and on Windows it is not all zero.
+	let dumps = out
+		.lines()
+		.filter(|line| {
+			line.strip_prefix("    ").is_some_and(|bytes| {
+				let bytes: Vec<&str> = bytes.split(' ').collect();
+				bytes.len() == 64 && bytes.iter().all(|b| b.len() == 2 && u8::from_str_radix(b, 16).is_ok())
+			})
+		})
+		.count();
+	assert_eq!(dumps, 2, "a 64-byte dump per live handle in:\n{out}");
 }
 
 #[test]
