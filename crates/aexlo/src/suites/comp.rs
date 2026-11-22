@@ -1,4 +1,4 @@
-//! `AEGP Comp Suite` (wire version 21, `AEGP_CompSuite10`) over aexlo's
+//! `AEGP Comp Suite` (wire versions 9, 19, 21, 25 and 26) over aexlo's
 //! one-layer timeline (see [`layer`](super::layer)).
 //!
 //! The comp is the effect's layer: same handle, the input layer's size, the
@@ -366,6 +366,51 @@ pub(super) const fn create_comp_suite_10() -> AEGP_CompSuite10 {
 		AEGP_GetNewCompMarkerStream: Some(get_new_comp_marker_stream),
 		AEGP_GetCompDisplayDropFrame: Some(get_comp_display_drop_frame),
 		AEGP_SetCompDisplayDropFrame: Some(set_comp_display_drop_frame),
+	}
+}
+
+/// `AEGP_CompSuite9` (wire version 19): suite 10 without the layer-name,
+/// blend-mode and adaptive-sample-limit calls, which it inserts.
+pub(super) const fn create_comp_suite_9() -> AEGP_CompSuite9 {
+	let base = create_comp_suite_10();
+	AEGP_CompSuite9 {
+		AEGP_GetCompFromItem: base.AEGP_GetCompFromItem,
+		AEGP_GetItemFromComp: base.AEGP_GetItemFromComp,
+		AEGP_GetCompDownsampleFactor: base.AEGP_GetCompDownsampleFactor,
+		AEGP_SetCompDownsampleFactor: base.AEGP_SetCompDownsampleFactor,
+		AEGP_GetCompBGColor: base.AEGP_GetCompBGColor,
+		AEGP_SetCompBGColor: base.AEGP_SetCompBGColor,
+		AEGP_GetCompFlags: base.AEGP_GetCompFlags,
+		AEGP_GetCompFramerate: base.AEGP_GetCompFramerate,
+		AEGP_SetCompFrameRate: base.AEGP_SetCompFrameRate,
+		AEGP_GetCompShutterAnglePhase: base.AEGP_GetCompShutterAnglePhase,
+		AEGP_GetCompShutterFrameRange: base.AEGP_GetCompShutterFrameRange,
+		AEGP_GetCompSuggestedMotionBlurSamples: base.AEGP_GetCompSuggestedMotionBlurSamples,
+		AEGP_SetCompSuggestedMotionBlurSamples: base.AEGP_SetCompSuggestedMotionBlurSamples,
+		AEGP_GetCompWorkAreaStart: base.AEGP_GetCompWorkAreaStart,
+		AEGP_GetCompWorkAreaDuration: base.AEGP_GetCompWorkAreaDuration,
+		AEGP_SetCompWorkAreaStartAndDuration: base.AEGP_SetCompWorkAreaStartAndDuration,
+		AEGP_CreateSolidInComp: base.AEGP_CreateSolidInComp,
+		AEGP_CreateCameraInComp: base.AEGP_CreateCameraInComp,
+		AEGP_CreateLightInComp: base.AEGP_CreateLightInComp,
+		AEGP_CreateComp: base.AEGP_CreateComp,
+		AEGP_GetNewCollectionFromCompSelection: base.AEGP_GetNewCollectionFromCompSelection,
+		AEGP_SetSelection: base.AEGP_SetSelection,
+		AEGP_GetCompDisplayStartTime: base.AEGP_GetCompDisplayStartTime,
+		AEGP_SetCompDisplayStartTime: base.AEGP_SetCompDisplayStartTime,
+		AEGP_SetCompDuration: base.AEGP_SetCompDuration,
+		AEGP_CreateNullInComp: base.AEGP_CreateNullInComp,
+		AEGP_SetCompPixelAspectRatio: base.AEGP_SetCompPixelAspectRatio,
+		AEGP_CreateTextLayerInComp: base.AEGP_CreateTextLayerInComp,
+		AEGP_CreateBoxTextLayerInComp: base.AEGP_CreateBoxTextLayerInComp,
+		AEGP_SetCompDimensions: base.AEGP_SetCompDimensions,
+		AEGP_DuplicateComp: base.AEGP_DuplicateComp,
+		AEGP_GetCompFrameDuration: base.AEGP_GetCompFrameDuration,
+		AEGP_GetMostRecentlyUsedComp: base.AEGP_GetMostRecentlyUsedComp,
+		AEGP_CreateVectorLayerInComp: base.AEGP_CreateVectorLayerInComp,
+		AEGP_GetNewCompMarkerStream: base.AEGP_GetNewCompMarkerStream,
+		AEGP_GetCompDisplayDropFrame: base.AEGP_GetCompDisplayDropFrame,
+		AEGP_SetCompDisplayDropFrame: base.AEGP_SetCompDisplayDropFrame,
 	}
 }
 

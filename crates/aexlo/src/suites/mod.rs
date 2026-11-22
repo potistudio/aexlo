@@ -70,6 +70,7 @@ pub mod iterate;
 mod keyframe;
 pub(crate) mod layer;
 pub(crate) use layer::enter_effect;
+mod math;
 pub mod param_utils;
 mod path;
 pub mod persistent_data;
@@ -88,9 +89,11 @@ pub mod world;
 
 use crate::core::diagnostics::diag;
 use crate::sys::*;
+static AEGP_MATH_1: AEGP_MathSuite1 = math::suite_1();
 static COMP_SUITE_4: AEGP_CompSuite4 = comp::create_comp_suite_4();
 static PF_WORLD_1: PF_WorldSuite1 = world::create_world_suite_1();
 static AEGP_LAYER_RENDER_OPTIONS_1: AEGP_LayerRenderOptionsSuite1 = aegp_render::layer_render_options_suite_1();
+static COMP_SUITE_9: AEGP_CompSuite9 = comp::create_comp_suite_9();
 static COMP_SUITE_11: AEGP_CompSuite11 = comp::create_comp_suite_11();
 static AEGP_WORLD_1: AEGP_WorldSuite1 = aegp_world::suite_1();
 static AEGP_WORLD_2: AEGP_WorldSuite2 = aegp_world::suite_2();
@@ -492,10 +495,18 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		("AEGP Light Suite", 1) => dispatch_static!(suite, suite_name, version, light),
 		("AEGP Text Layer Suite", 1) => dispatch_static!(suite, suite_name, version, text_layer),
+		("AEGP Math Suite", 1) => {
+			unsafe { *suite = &AEGP_MATH_1 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion4 as i32 => {
 			unsafe {
 				*suite = &COMP_SUITE_4 as *const _ as *const std::ffi::c_void;
 			}
+			PF_Err_NONE
+		}
+		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion9 as i32 => {
+			unsafe { *suite = &COMP_SUITE_9 as *const _ as *const c_void };
 			PF_Err_NONE
 		}
 		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion10 as i32 => {
@@ -667,6 +678,7 @@ mod tests {
 			("PF Path Query Suite", 1),
 			("PF Path Data Suite", 1),
 			("AEGP Text Layer Suite", 1),
+			("AEGP Math Suite", 1),
 			("PF AE Adv App Suite", 1),
 			("PF AE Adv App Suite", 2),
 			("PF AE Adv Item Suite", 1),
@@ -699,6 +711,7 @@ mod tests {
 			("AEGP Layer Suite", 14),
 			("AEGP Layer Suite", 15),
 			("AEGP Comp Suite", 9),
+			("AEGP Comp Suite", 19),
 			("AEGP Comp Suite", 21),
 			("AEGP Comp Suite", 25),
 			("AEGP Comp Suite", 26),
