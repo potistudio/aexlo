@@ -665,19 +665,49 @@ impl PluginInstance {
 		self.parallel_iterate
 	}
 
-	/// Get the output message from the instance (set during `PF_Cmd_ABOUT` command).
-	///
-	/// The message may contain line breaks and special characters (e.g. \r, \n).
-	/// Invalid UTF-8 sequences are replaced with the Unicode replacement character (�).
+	/// `out_data.return_msg`, the text the plugin reported (its ABOUT text, a
+	/// dialog's message, an error), as [`decode_message`] reads it.
 	fn message(&self) -> String {
 		let bytes = &self.out_data.return_msg;
-
-		// Cramp the buffer at the first null byte (if any) to avoid trailing garbage
-		let cramped_length = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
-
 		// SAFETY: `c_char` and `u8` share size and alignment; only the sign interpretation differs, which is irrelevant when reading raw bytes.
-		let utf8: &[u8] = unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const u8, cramped_length) };
+		let bytes: &[u8] = unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const u8, bytes.len()) };
+		decode_message(bytes)
+	}
+}
 
-		String::from_utf8_lossy(utf8).into_owned()
+/// A message a plugin wrote into `return_msg`, up to its first null byte, with
+/// `\n` line breaks.
+///
+/// After Effects breaks lines with `\r` (the classic Mac line end) or `\r\n`;
+/// a lone `\r` sent to a terminal returns to the start of the line and the next
+/// line overwrites this one. Text that is not UTF-8 is in an 8-bit code page,
+/// where 0xA9 is the copyright sign plugins put in their ABOUT text; it is read
+/// as Latin-1, which agrees with Windows-1252 and Mac Roman on that sign.
+fn decode_message(bytes: &[u8]) -> String {
+	let bytes = &bytes[..bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len())];
+	let text = match std::str::from_utf8(bytes) {
+		Ok(text) => text.to_owned(),
+		Err(_) => bytes.iter().map(|&b| char::from(b)).collect(),
+	};
+	text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+#[cfg(test)]
+mod message_tests {
+	use super::decode_message;
+
+	#[test]
+	fn carriage_returns_break_lines() {
+		assert_eq!(
+			decode_message(b"Name - 1.0\r\rWhat it does.\rCopyright\0junk"),
+			"Name - 1.0\n\nWhat it does.\nCopyright"
+		);
+		assert_eq!(decode_message(b"Name, v1.1\r\nMore"), "Name, v1.1\nMore");
+	}
+
+	#[test]
+	fn an_8_bit_copyright_sign_is_read_as_one() {
+		assert_eq!(decode_message(b"\xa9 2025 Someone\0"), "\u{a9} 2025 Someone");
+		assert_eq!(decode_message("\u{a9} UTF-8\0".as_bytes()), "\u{a9} UTF-8");
 	}
 }
