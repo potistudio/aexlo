@@ -25,12 +25,14 @@ worse, and commits.
 ## 0. Save a baseline
 
 Before touching aexlo, build the CLI and record where every plugin stands.
+Run the CLI you just built, `target/debug/aexlo`, in every step: a bare
+`aexlo` may be an older one installed with `cargo install`.
 
 ```bash
 cargo fmt --all -- --check
 cargo build -p aexlo-cli
 mkdir -p target/compat
-aexlo compat fixtures/plugins/macos --format json \
+target/debug/aexlo compat fixtures/plugins/macos --format json \
   --save-baseline target/compat/base.json > target/compat/before.json
 ```
 
@@ -40,18 +42,19 @@ a new one if it is gone.
 
 ## 1. Pick a gap
 
-`gaps` in the JSON report (and the end of the text report) lists every gap,
-most widespread first. That list is the to-do list. Within it, take them in
-this order:
+`gaps` in the JSON report (and the end of the text report) lists every
+`missing-suite`, `stub` and `declined` gap, most widespread first. `crash`,
+`timeout` and `invalid` are statuses: they are in `summary` and on each
+scenario. Together they are the to-do list. Take them in this order:
 
 | Order | What | Why |
 | ----- | ---- | --- |
 | 1 | `crash`, `timeout` | Something is broken, and the scenarios behind it cannot be measured |
-| 2 | A `missing-suite` on `load` | It makes every scenario of that plugin `partial` |
+| 2 | A `missing-suite` on `load` | Every scenario of that plugin runs without the suite. It is reported once, on `load` |
 | 3 | A `missing-suite` many plugins hit | One implementation moves the most scenarios |
 | 4 | `stub` | The call reports success and does nothing, so pixels are likely wrong |
-| 5 | `declined` | Arguments aexlo serves the call for, but not these. Usually small |
-| — | `invalid` | A gap in `compat`, not in aexlo. Fix `compat`, in its own commit |
+| 5 | `declined` | A call aexlo serves, but not for the arguments given. Usually small |
+| — | `invalid` | A gap in `compat`, not in aexlo. Fix `compat` in its own commit |
 
 Take **one gap per turn**. Two at once make the baseline diff hard to read.
 
@@ -60,17 +63,23 @@ Take **one gap per turn**. Two at once make the baseline diff hard to read.
 Narrow `compat` to the plugin and scenarios that hit the gap:
 
 ```bash
-aexlo compat fixtures/plugins/macos/RainyDay.plugin --only "param:#1" --all
+target/debug/aexlo compat fixtures/plugins/macos/RainyDay.plugin --only "param:#1" --all
 ```
 
 Then drive the plugin with [`aexlo inspect`](inspect.md) to see which calls
 it makes, with which arguments, and what it does with the result:
 
 ```bash
-aexlo inspect fixtures/plugins/macos/RainyDay.plugin --format json --script -
+target/debug/aexlo inspect fixtures/plugins/macos/RainyDay.plugin --format json --script -
 # render / set / changed / updateui to trigger it, focus #<seq> to dig in.
-# For a crash, add --strict --serial and look around last_command.
 ```
+
+A crash takes `inspect` down with it: the crashing command prints no event
+and there is no final report ([inspect.md §6](inspect.md#6-exit-status-and-errors)).
+`compat`'s `last_command` names the `PF_Cmd_*` it crashed in. Turn on
+`--strict --serial`, read the trace up to that command with `report` and
+`focus`, then send it. The TUI names the `PF_Cmd_*` and the suite call that
+crashed.
 
 What to read:
 
@@ -86,8 +95,8 @@ What to read:
 
 | Gap | Where |
 | --- | ----- |
-| `missing-suite` | A new `crates/aexlo/src/suites/<name>.rs`, declared in `suites/mod.rs`, a field on `SuiteContainer` filled in `SUITE_CONTAINER`, and an arm in `rusty_acquire_suite` |
-| `stub` | Replace the `stub_log!` function with the real behavior |
+| `missing-suite` | A new or existing `crates/aexlo/src/suites/<name>.rs` (a new file is declared in `suites/mod.rs`), a field on `SuiteContainer` filled in `SUITE_CONTAINER`, and an arm in `rusty_acquire_suite` |
+| `stub` | Replace the `stub_log!` function, or the `UnsupportedKind::Stub` report, with the real behavior |
 | `declined` | Extend the function to handle the arguments |
 
 - Suites are stateless vtables shared by every instance; keep any state
@@ -117,7 +126,7 @@ cargo fmt --all -- --check
 
 ```bash
 cargo build -p aexlo-cli
-aexlo compat fixtures/plugins/macos --format json \
+target/debug/aexlo compat fixtures/plugins/macos --format json \
   --baseline target/compat/base.json > target/compat/after.json
 echo $?
 ```
@@ -142,7 +151,8 @@ Then save a new baseline (step 0) and pick the next gap.
 
 ## Running the loop
 
-- **Track progress** by keeping the gap list at the end of each turn's report.
+- **Track progress** by keeping each turn's gap list (`gaps` in the JSON
+  report, the end of the text report).
   The counts in `summary` show how far aexlo has come.
 - **In parallel**, use one worktree per gap and pick gaps that do not touch
   the same suite. Cargo re-links the dylibs in `target/` on every build, so two
