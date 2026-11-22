@@ -52,7 +52,8 @@ impl Diagnosis {
 		self.lines.push(vec![(tone, format!("  {}", text.into()))]);
 	}
 
-	/// The diagnosis as plain text, for `--exec`.
+	/// The diagnosis as plain text.
+	#[cfg(test)]
 	pub fn to_text(&self) -> String {
 		let mut out = format!("── {} ──\n", self.title);
 		for line in &self.lines {

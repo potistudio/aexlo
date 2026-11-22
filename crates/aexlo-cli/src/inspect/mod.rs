@@ -17,6 +17,7 @@ mod engine;
 mod json;
 mod recorder;
 mod term;
+mod text;
 mod ui;
 #[cfg(windows)]
 mod win32;
@@ -32,7 +33,7 @@ use ratatui::crossterm::event::{self, Event, KeyEventKind};
 
 use command::{Command, InputSource};
 use engine::{Engine, Setup, Snapshot};
-use recorder::{Kind, Recorder, fmt_duration};
+use recorder::{Kind, Recorder};
 use ui::{Action, App, MEMORY_WINDOW};
 
 /// What `--exec`, `--script` and the TUI prompt take.
@@ -87,6 +88,10 @@ pub struct InspectArgs {
 	/// With --exec/--script, print the whole trace
 	#[arg(long, requires = "script_source")]
 	trace: bool,
+	/// Color the --exec/--script text: auto (when stdout is a terminal,
+	/// unless NO_COLOR is set), always or never
+	#[arg(long, value_enum, value_name = "WHEN", default_value_t)]
+	color: crate::color::ColorWhen,
 }
 
 fn parse_size(raw: &str) -> Result<(u32, u32), String> {
@@ -134,7 +139,9 @@ pub fn run(args: InspectArgs) -> Result<()> {
 		json,
 		format,
 		trace: print_trace,
+		color,
 	} = args;
+	color.apply();
 	let format = if json { Format::Json } else { format.unwrap_or_default() };
 	let input = InputArgs {
 		png: input,
@@ -235,6 +242,9 @@ enum Script {
 
 fn batch(setup: Setup, script: Script, print_trace: bool, format: Format) -> Result<()> {
 	let json = (format == Format::Json).then(term::json_output);
+	let look = text::Look {
+		rich: crate::color::stdout(),
+	};
 	let recorder = Recorder::default();
 	let plugin = setup.path.display().to_string();
 	let engine = match Engine::load(setup, recorder.clone()) {
@@ -253,6 +263,7 @@ fn batch(setup: Setup, script: Script, print_trace: bool, format: Format) -> Res
 		engine,
 		recorder,
 		json,
+		look,
 		print_trace,
 		failed: 0,
 	};
@@ -309,6 +320,7 @@ struct Batch {
 	recorder: Recorder,
 	/// `Some` for `--json`: where the events go.
 	json: Option<Box<dyn Write>>,
+	look: text::Look,
 	print_trace: bool,
 	failed: usize,
 }
@@ -335,7 +347,7 @@ impl Batch {
 						out,
 						&json!({ "event": "command", "line": line, "ok": false, "error": format!("{err:#}") }),
 					),
-					None => println!("» {line}  ✗ {err:#}"),
+					None => print!("{}", self.look.failed(line, &err)),
 				}
 				return true;
 			}
@@ -365,7 +377,7 @@ impl Batch {
 					out,
 					&json!({ "event": "command", "line": line, "ok": true, "skipped": "only meaningful in the TUI" }),
 				),
-				None => println!("» {line}  (skipped: only meaningful in the TUI)"),
+				None => print!("{}", self.look.skipped(line)),
 			},
 		}
 		true
@@ -378,13 +390,8 @@ impl Batch {
 		}
 		let Some(out) = self.json.as_mut() else {
 			match result {
-				Ok((message, elapsed)) => {
-					println!("» {line}  ✓ {}", fmt_duration(elapsed));
-					for text in message.lines() {
-						println!("  {text}");
-					}
-				}
-				Err(err) => println!("» {line}  ✗ {err:#}"),
+				Ok((message, elapsed)) => print!("{}", self.look.done(line, elapsed, &message)),
+				Err(err) => print!("{}", self.look.failed(line, &err)),
 			}
 			return;
 		};
@@ -423,10 +430,15 @@ impl Batch {
 		}
 		match (self.json.as_mut(), found) {
 			(None, Some(index)) => print!(
-				"» {line}\n{}",
-				diagnose::diagnose(&rec, index, snapshot.as_ref()).to_text()
+				"{}",
+				self.look
+					.focus(line, &diagnose::diagnose(&rec, index, snapshot.as_ref()))
 			),
-			(None, None) => println!("» {line}  ✗ nothing in the trace matches '{query}'"),
+			(None, None) => print!(
+				"{}",
+				self.look
+					.failed(line, &anyhow::anyhow!("nothing in the trace matches '{query}'"))
+			),
 			(Some(out), Some(index)) => emit(
 				out,
 				&serde_json::json!({
@@ -497,7 +509,13 @@ impl Batch {
 			}
 			None => print!(
 				"{}",
-				report(&self.recorder, snapshot.as_ref(), memory.as_deref(), self.print_trace)
+				text::report(
+					self.look,
+					&self.recorder,
+					snapshot.as_ref(),
+					memory.as_deref(),
+					self.print_trace
+				)
 			),
 		}
 	}
@@ -517,140 +535,6 @@ fn role(address: usize, state: &aexlo::InstanceState) -> Option<&'static str> {
 
 /// The first bytes of a live allocation, by address.
 type MemoryDump = (usize, Option<Vec<u8>>);
-
-/// The analysis `--exec` prints.
-fn report(
-	recorder: &Recorder,
-	snapshot: Option<&Snapshot>,
-	memory: Option<&[MemoryDump]>,
-	print_trace: bool,
-) -> String {
-	use std::fmt::Write;
-	let rec = recorder.lock();
-	let mut out = String::new();
-
-	if print_trace {
-		let _ = writeln!(out, "\n== trace ({} entries, {} dropped)", rec.trace.len(), rec.dropped);
-		for e in &rec.trace {
-			let _ = writeln!(
-				out,
-				"{:>10.3}ms {}{}",
-				e.at.as_secs_f64() * 1e3,
-				"  ".repeat(e.depth),
-				e.describe()
-			);
-		}
-	}
-
-	let mut commands: Vec<_> = rec.commands.iter().collect();
-	commands.sort_by_key(|(_, s)| std::cmp::Reverse(s.total));
-	let _ = writeln!(out, "\n== commands");
-	let _ = writeln!(
-		out,
-		"{:<32} {:>6} {:>6} {:>10} {:>10}",
-		"command", "count", "errors", "max", "total"
-	);
-	for (name, s) in commands {
-		let _ = writeln!(
-			out,
-			"{:<32} {:>6} {:>6} {:>10} {:>10}",
-			format!("PF_Cmd_{name}"),
-			s.count,
-			s.errors,
-			fmt_duration(s.max),
-			fmt_duration(s.total)
-		);
-	}
-
-	let mut calls: Vec<_> = rec.calls.iter().collect();
-	calls.sort_by(|a, b| b.1.count.cmp(&a.1.count).then(a.0.cmp(b.0)));
-	let _ = writeln!(out, "\n== suite calls ({} functions)", calls.len());
-	for ((suite, function), s) in calls {
-		let _ = writeln!(out, "{:>8}  {suite}::{function}  [{}]", s.count, s.commands.join(" "));
-	}
-
-	let errors: Vec<String> = rec
-		.trace
-		.iter()
-		.filter_map(|e| match &e.kind {
-			Kind::End {
-				name,
-				error: Some(code),
-				..
-			} => Some(format!("PF_Cmd_{name} returned {}", recorder::err_name(*code))),
-			_ => None,
-		})
-		.collect();
-	if !errors.is_empty() {
-		let _ = writeln!(out, "\n== errors");
-		for e in errors {
-			let _ = writeln!(out, "{e}");
-		}
-	}
-	drop(rec);
-
-	let Some(s) = snapshot else {
-		return out;
-	};
-	let st = &s.state;
-	let handle = |h: Option<usize>| h.map_or("null".into(), |h| format!("{h:#x}"));
-	let _ = writeln!(out, "\n== state");
-	let _ = writeln!(out, "out_flags      {:?}", s.out_flags);
-	let _ = writeln!(out, "out_flags2     {:?}", s.out_flags2);
-	let _ = writeln!(out, "global_data    {}", handle(st.global_data));
-	let _ = writeln!(out, "sequence_data  {}", handle(st.sequence_data));
-	let _ = writeln!(
-		out,
-		"time           {} / {} / {}",
-		st.current_time, st.time_step, st.time_scale
-	);
-	let _ = writeln!(
-		out,
-		"input/output   {}x{} → {}x{} @{} bpc",
-		s.input.0,
-		s.input.1,
-		s.output.0,
-		s.output.1,
-		s.output.2.bits()
-	);
-	let _ = writeln!(out, "last out_flags {:?}", st.last_out_flags);
-	let _ = writeln!(
-		out,
-		"output mean    {:.4} {:.4} {:.4} {:.4}",
-		s.mean[0], s.mean[1], s.mean[2], s.mean[3]
-	);
-	if let Some(unwritten) = s.unwritten {
-		let _ = writeln!(out, "unwritten px   {unwritten}");
-	}
-
-	let _ = writeln!(out, "\n== params");
-	for p in &s.params {
-		let _ = writeln!(out, "{:>3}  {:<24} {:<12} {}", p.index, p.name, p.kind, p.value);
-	}
-
-	let _ = writeln!(out, "\n== live memory ({})", s.allocations.len());
-	for a in &s.allocations {
-		let label = role(a.address, st).map_or(String::new(), |role| format!(" ({role})"));
-		let bytes = memory
-			.and_then(|m| m.iter().find(|(addr, _)| *addr == a.address))
-			.and_then(|(_, bytes)| bytes.as_ref())
-			.map(|b| b.iter().map(|x| format!("{x:02x}")).collect::<Vec<_>>().join(" "))
-			.unwrap_or_default();
-		let _ = writeln!(
-			out,
-			"{:?} {:#x} {} B from {}{label}\n    {bytes}",
-			a.kind, a.address, a.bytes, a.allocated_in
-		);
-	}
-
-	if !s.findings.is_empty() {
-		let _ = writeln!(out, "\n== strict findings");
-		for f in &s.findings {
-			let _ = writeln!(out, "{f}");
-		}
-	}
-	out
-}
 
 //==== TUI ==============================================================
 

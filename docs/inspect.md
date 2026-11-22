@@ -99,6 +99,7 @@ and the analysis is printed once more ([`report`](#report)).
 | `--script <file\|->` | Batch from a file, or a session over stdin with `-` | — |
 | `--json` | Batch output as [JSON lines](#4-events) instead of text | text |
 | `--trace` | In batch mode, also print the whole trace in the report | Off |
+| `--color <auto\|always\|never>` | Color the batch text the way the TUI does, with bars for where the time and calls went, a swatch of the output's mean color and live memory as a hex dump with its ASCII. `auto` colors it when stdout is a terminal, unless `NO_COLOR` is set. Without color the text keeps its plain shape. | `auto` |
 | `-h`, `--help` | Print the options and commands | — |
 
 `--json` and `--trace` need `--exec` or `--script`.

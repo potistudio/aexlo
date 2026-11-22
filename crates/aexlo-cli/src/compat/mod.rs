@@ -32,15 +32,6 @@ mod report;
 use progress::Progress;
 use report::Look;
 
-/// `--color`: when the text report is rich.
-#[derive(clap::ValueEnum, Clone, Copy, PartialEq, Eq, Default, Debug)]
-enum ColorWhen {
-	#[default]
-	Auto,
-	Always,
-	Never,
-}
-
 #[derive(clap::Args)]
 pub struct CompatArgs {
 	/// Plugins to drive; a directory means every plugin in it
@@ -64,7 +55,7 @@ pub struct CompatArgs {
 	/// Color the text report, with symbols and bars: auto (on a terminal,
 	/// unless NO_COLOR is set), always or never
 	#[arg(long, value_enum, value_name = "WHEN", default_value_t)]
-	color: ColorWhen,
+	color: crate::color::ColorWhen,
 	/// The old spelling of --json: human or json
 	#[arg(long, value_enum, value_name = "F", hide = true)]
 	format: Option<Format>,
@@ -757,11 +748,7 @@ fn compat(args: CompatArgs) -> Result<ExitCode, Error> {
 	}
 	let previous = baseline.as_deref().map(Baseline::read).transpose()?;
 	// For the report and the progress line alike.
-	match args.color {
-		ColorWhen::Auto => {}
-		ColorWhen::Always => anstream::ColorChoice::Always.write_global(),
-		ColorWhen::Never => anstream::ColorChoice::Never.write_global(),
-	}
+	args.color.apply();
 
 	let reports = run(&paths, only.as_deref(), jobs, timeout)?;
 	let changes = previous.as_ref().map(|b| {
@@ -774,7 +761,7 @@ fn compat(args: CompatArgs) -> Result<ExitCode, Error> {
 	});
 	match format {
 		Format::Human => {
-			let rich = anstream::AutoStream::choice(&std::io::stdout()) != anstream::ColorChoice::Never;
+			let rich = crate::color::stdout();
 			let look = if rich { Look::RICH } else { Look::PLAIN };
 			anstream::print!("{}", report::human(&reports, all, changes.as_ref(), look));
 		}

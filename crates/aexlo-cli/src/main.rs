@@ -8,6 +8,7 @@
 
 mod args;
 mod bench;
+mod color;
 mod compat;
 mod dev;
 mod info;
