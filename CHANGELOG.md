@@ -40,6 +40,10 @@ may break the API, and every breaking change is listed below.
 - `PluginInstance::param_button_label` returns the text on a button
   parameter (`PF_ButtonDef`), which plugins often fill in place of the
   parameter's name.
+- "AEGP Stream Suite" v11 (`AEGP_GetUniqueStreamID`) and "AEGP Keyframe
+  Suite" v5 (keyframe label colours). RXXR applies its Preset popup through
+  them, and ten more fixtures that asked for Stream Suite v11 (the AOD
+  effects, Circle-Repeater, RainyDay) no longer report it missing.
 - The AEGP Utility, Persistent Data and PF Param Utils suites report their
   calls to the observer, so `aexlo inspect` and `aexlo compat` see them.
   `AEGP_ExecuteScript`, and `AEGP_GetPluginPlatformRef` on macOS, report

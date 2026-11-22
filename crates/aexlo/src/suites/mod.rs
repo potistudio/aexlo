@@ -180,7 +180,9 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	stream2: stream::create_stream_suite_2(),
 	stream4: stream::create_stream_suite_4(),
 	stream5: stream::create_stream_suite_5(),
+	stream6: stream::create_stream_suite_6(),
 	keyframe: keyframe::create_keyframe_suite_4(),
+	keyframe5: keyframe::create_keyframe_suite_5(),
 	effect1: effect::create_effect_suite_1(),
 	effect2: effect::create_effect_suite_2(),
 	effect3: effect::create_effect_suite_3(),
@@ -254,7 +256,9 @@ pub struct SuiteContainer {
 	pub stream2: AEGP_StreamSuite2,
 	pub stream4: AEGP_StreamSuite4,
 	pub stream5: AEGP_StreamSuite5,
+	pub stream6: AEGP_StreamSuite6,
 	pub keyframe: AEGP_KeyframeSuite4,
+	pub keyframe5: AEGP_KeyframeSuite5,
 	pub effect1: AEGP_EffectSuite1,
 	pub effect2: AEGP_EffectSuite2,
 	pub effect3: AEGP_EffectSuite3,
@@ -378,8 +382,8 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("AEGP Persistent Data Suite", 3) => {
 			dispatch_static!(suite, suite_name, version, persistent_data)
 		}
-		// Stream Suite wire versions 7, 8, 9 and 10 are AEGP_StreamSuite2, 3, 4
-		// and 5. They differ in their stream value structs and in whether names
+		// Stream Suite wire versions 7, 8, 9, 10 and 11 are AEGP_StreamSuite2, 3,
+		// 4, 5 and 6. They differ in their stream value structs and in whether names
 		// and expression text are `char` or UTF-16.
 		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion2 as i32 => {
 			dispatch_static!(suite, suite_name, version, stream2)
@@ -393,6 +397,9 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion5 as i32 => {
 			dispatch_static!(suite, suite_name, version, stream5)
+		}
+		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion6 as i32 => {
+			dispatch_static!(suite, suite_name, version, stream6)
 		}
 		// Dynamic Stream wire versions 1, 2, 3 and 5 are suites 1, 2, 3 and 4.
 		// `kAEGPDynamicStreamSuiteVersion4` is 5; there is no wire version 4.
@@ -414,6 +421,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			PF_Err_NONE
 		}
 		("AEGP Keyframe Suite", 4) => dispatch_static!(suite, suite_name, version, keyframe),
+		("AEGP Keyframe Suite", 5) => dispatch_static!(suite, suite_name, version, keyframe5),
 		// Effect Suite v1 is v2 without DuplicateEffect. v3 adds the command
 		// argument to EffectCallGeneric; v4 appends the effect-mask calls.
 		("AEGP Effect Suite", 1) => dispatch_static!(suite, suite_name, version, effect1),
@@ -633,11 +641,13 @@ mod tests {
 			("AEGP Stream Suite", 8),
 			("AEGP Stream Suite", 9),
 			("AEGP Stream Suite", 10),
+			("AEGP Stream Suite", 11),
 			("AEGP Dynamic Stream Suite", 1),
 			("AEGP Dynamic Stream Suite", 2),
 			("AEGP Dynamic Stream Suite", 3),
 			("AEGP Dynamic Stream Suite", 5),
 			("AEGP Keyframe Suite", 4),
+			("AEGP Keyframe Suite", 5),
 			("AEGP Effect Suite", 1),
 			("AEGP Effect Suite", 2),
 			("AEGP Effect Suite", 3),

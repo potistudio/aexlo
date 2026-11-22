@@ -1,6 +1,6 @@
 //! `AEGP Stream Suite`, served at wire versions 7 (`AEGP_StreamSuite2`), 8
-//! (`AEGP_StreamSuite3`), 9 (`AEGP_StreamSuite4`) and 10 (`AEGP_StreamSuite5`),
-//! plus the `AEGP_StreamRefH` handles it hands out. Version 8 keeps version 7's
+//! (`AEGP_StreamSuite3`), 9 (`AEGP_StreamSuite4`), 10 (`AEGP_StreamSuite5`) and
+//! 11 (`AEGP_StreamSuite6`), plus the `AEGP_StreamRefH` handles it hands out. Version 8 keeps version 7's
 //! char names and uses version 9's `AEGP_StreamValue2`.
 //!
 //! A stream handle is the effect's `PF_ProgPtr`, a node in the layer tree and,
@@ -18,7 +18,7 @@
 //!
 //! The table versions differ only in their value structs (`AEGP_StreamValue`
 //! vs `AEGP_StreamValue2`, whose unions share the members written here) and,
-//! from v5, a UTF-16 `AEGP_SetExpression`.
+//! from v5, a UTF-16 `AEGP_SetExpression`. v6 appends `AEGP_GetUniqueStreamID`.
 
 use crate::sys::*;
 
@@ -719,24 +719,13 @@ macro_rules! set_stream_value {
 			valueP: *mut $value_ty,
 		) -> A_Err {
 			crate::core::ffi::guard("set_stream_value", || {
-				diag!("AEGP_StreamSuite/AEGP_SetStreamValue", "streamH" => format!("{:#x}", streamH as usize));
-
-				let Some(stream) = (unsafe { stream_of(streamH) }) else {
-					return PF_Err_BAD_CALLBACK_PARAM;
-				};
-				let Some(value) = (unsafe { valueP.as_ref() }) else {
-					return PF_Err_BAD_CALLBACK_PARAM;
-				};
-				if stream.node != Node::Param {
-					return unsupported("AEGP_SetStreamValue (not an effect parameter)");
-				}
-				let Some(current) = (unsafe { stream_value(streamH) }) else {
-					return PF_Err_BAD_CALLBACK_PARAM;
-				};
-				let val = &value.val;
+				let stream = unsafe { stream_of(streamH) };
+				let current = unsafe { stream_value(streamH) };
+				let value = unsafe { valueP.as_ref() };
 				// SAFETY: the member read is the one the stream's type selects.
-				let incoming = unsafe {
-					match current {
+				let incoming = value.zip(current).and_then(|(value, current)| unsafe {
+					let val = &value.val;
+					Some(match current {
 						StreamValue::OneD(_) => StreamValue::OneD(val.one_d),
 						StreamValue::TwoD { spatial, .. } => StreamValue::TwoD {
 							x: val.two_d.x,
@@ -755,8 +744,24 @@ macro_rules! set_stream_value {
 							green: val.color.greenF,
 							blue: val.color.blueF,
 						},
-						_ => return unsupported("AEGP_SetStreamValue (a layer, arbitrary-data or valueless stream)"),
-					}
+						_ => return None,
+					})
+				});
+				diag!("AEGP_StreamSuite/AEGP_SetStreamValue",
+					"streamH" => format!("{:#x}", streamH as usize),
+					"param_index" => stream.map_or_else(|| "-".to_string(), |s| s.index.to_string()),
+					"value" => incoming.map_or_else(|| "-".to_string(), |v| format!("{v:?}")),
+				);
+
+				let (Some(stream), Some(_), Some(current)) = (stream, value, current) else {
+					return PF_Err_BAD_CALLBACK_PARAM;
+				};
+				if stream.node != Node::Param {
+					return unsupported("AEGP_SetStreamValue (not an effect parameter)");
+				}
+				let _ = current;
+				let Some(incoming) = incoming else {
+					return unsupported("AEGP_SetStreamValue (a layer, arbitrary-data or valueless stream)");
 				};
 				write_stream_value(stream, incoming)
 			})
@@ -866,6 +871,40 @@ unsafe extern "C" fn duplicate_stream_ref(
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = new_stream_handle(stream);
+		PF_Err_NONE
+	})
+}
+
+/// Ids handed out by [`get_unique_stream_id`], one per stream: two handles to
+/// the same node of the same effect get the same id.
+static UNIQUE_IDS: std::sync::Mutex<Vec<(usize, Node, usize)>> = std::sync::Mutex::new(Vec::new());
+
+/// The id of `stream`, assigning the next one on first use. Ids start at 1.
+fn unique_stream_id(stream: Stream) -> Option<i32> {
+	let key = (stream.effect_ref as usize, stream.node, stream.index);
+	let mut ids = UNIQUE_IDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+	let position = match ids.iter().position(|k| *k == key) {
+		Some(position) => position,
+		None => {
+			ids.push(key);
+			ids.len() - 1
+		}
+	};
+	i32::try_from(position + 1).ok()
+}
+
+unsafe extern "C" fn get_unique_stream_id(streamH: AEGP_StreamRefH, outID: *mut i32) -> A_Err {
+	crate::core::ffi::guard("get_unique_stream_id", || {
+		let stream = unsafe { stream_of(streamH) };
+		let id = stream.and_then(unique_stream_id);
+		diag!("AEGP_StreamSuite/AEGP_GetUniqueStreamID",
+			"streamH" => format!("{:#x}", streamH as usize);
+			result: format!("{id:?}"),
+		);
+		let (Some(id), Some(out)) = (id, unsafe { outID.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		*out = id;
 		PF_Err_NONE
 	})
 }
@@ -982,9 +1021,76 @@ pub(super) const fn create_stream_suite_5() -> AEGP_StreamSuite5 {
 	}
 }
 
+/// Builds the `AEGP_StreamSuite6` vtable (wire version 11): v5 plus
+/// `AEGP_GetUniqueStreamID`.
+pub(super) const fn create_stream_suite_6() -> AEGP_StreamSuite6 {
+	let v5 = create_stream_suite_5();
+	AEGP_StreamSuite6 {
+		AEGP_IsStreamLegal: v5.AEGP_IsStreamLegal,
+		AEGP_CanVaryOverTime: v5.AEGP_CanVaryOverTime,
+		AEGP_GetValidInterpolations: v5.AEGP_GetValidInterpolations,
+		AEGP_GetNewLayerStream: v5.AEGP_GetNewLayerStream,
+		AEGP_GetEffectNumParamStreams: v5.AEGP_GetEffectNumParamStreams,
+		AEGP_GetNewEffectStreamByIndex: v5.AEGP_GetNewEffectStreamByIndex,
+		AEGP_GetNewMaskStream: v5.AEGP_GetNewMaskStream,
+		AEGP_DisposeStream: v5.AEGP_DisposeStream,
+		AEGP_GetStreamName: v5.AEGP_GetStreamName,
+		AEGP_GetStreamUnitsText: v5.AEGP_GetStreamUnitsText,
+		AEGP_GetStreamProperties: v5.AEGP_GetStreamProperties,
+		AEGP_IsStreamTimevarying: v5.AEGP_IsStreamTimevarying,
+		AEGP_GetStreamType: v5.AEGP_GetStreamType,
+		AEGP_GetNewStreamValue: v5.AEGP_GetNewStreamValue,
+		AEGP_DisposeStreamValue: v5.AEGP_DisposeStreamValue,
+		AEGP_SetStreamValue: v5.AEGP_SetStreamValue,
+		AEGP_GetLayerStreamValue: v5.AEGP_GetLayerStreamValue,
+		AEGP_GetExpressionState: v5.AEGP_GetExpressionState,
+		AEGP_SetExpressionState: v5.AEGP_SetExpressionState,
+		AEGP_GetExpression: v5.AEGP_GetExpression,
+		AEGP_SetExpression: v5.AEGP_SetExpression,
+		AEGP_DuplicateStreamRef: v5.AEGP_DuplicateStreamRef,
+		AEGP_GetUniqueStreamID: Some(get_unique_stream_id),
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn unique_stream_ids_follow_the_stream_not_the_handle() {
+		let effect_ref = 0x5eed as PF_ProgPtr;
+		let a = new_stream_handle(Stream {
+			effect_ref,
+			index: 3,
+			node: Node::Param,
+		});
+		let b = new_stream_handle(Stream {
+			effect_ref,
+			index: 3,
+			node: Node::Param,
+		});
+		let c = new_stream_handle(Stream {
+			effect_ref,
+			index: 4,
+			node: Node::Param,
+		});
+		let id = |h| {
+			let mut out = 0;
+			assert_eq!(unsafe { get_unique_stream_id(h, &mut out) }, PF_Err_NONE);
+			out
+		};
+		assert_eq!(id(a), id(b));
+		assert_ne!(id(a), id(c));
+		assert!(id(a) > 0);
+		assert_ne!(unsafe { get_unique_stream_id(a, std::ptr::null_mut()) }, PF_Err_NONE);
+		assert_ne!(
+			unsafe { get_unique_stream_id(std::ptr::null_mut(), &mut 0) },
+			PF_Err_NONE
+		);
+		for h in [a, b, c] {
+			drop(unsafe { Box::from_raw(h as *mut Stream) });
+		}
+	}
 
 	#[test]
 	fn values_map_to_stream_types() {
