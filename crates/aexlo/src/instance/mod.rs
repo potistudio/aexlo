@@ -185,6 +185,7 @@ pub struct PluginInstance {
 	raw_library: Option<Library>,
 	entry_point: Option<PluginEntryPoint>,
 	entry_point_name: Option<String>,
+	installed_metadata: Option<crate::suites::effect::EffectMetadata>,
 	binary_file_path: PathBuf,
 
 	/// The dynamic library actually `dlopen`ed (resolved from
@@ -605,6 +606,10 @@ impl PluginInstance {
 		}
 
 		NonNull::new(effect_ref as *mut PluginInstance)
+	}
+
+	pub(crate) fn installed_effect_key(&self) -> Option<i32> {
+		crate::suites::effect::key_for_owner(self.aegp_owner)
 	}
 
 	// ---- Getter ------------------------------------------

@@ -184,13 +184,15 @@ aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
 | △ Light        | ○ Persistent Data | △ Render               | × Camera               |
 | △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
 | △ PF Interface | × Mask Outline    | △ Layer Render Options | × Math                 |
-| × Proj         | × Text Document   | × Composite            | △ Compute Cache        |
+| △ Proj         | × Text Document   | × Composite            | △ Compute Cache        |
 | × Footage      | × Text Layer      | × Canvas               | △ Hash                 |
 | × Collection   |                   | × Sound Data           | × Render Async Manager |
 | × Marker       |                   |                        |                        |
 
 △ Layer / Comp / Item / Light / Effect / PF Interface / Stream / Dynamic Stream / Keyframe：コンポジションそのものである固定の 1 レイヤーを返し、キーフレームはありません。
 このレイヤーにはホスト中のエフェクトが 1 つあり、入力画像を表す仮想フッテージアイテムが対応します。
+Effect Suite はロード中のプラグインが申告した識別情報を返し、システムにインストールされた全エフェクトは列挙しません。
+△ Proj：未保存の仮想プロジェクトを 1 つ公開します。編集、保存、ルートフォルダー、時間表示設定は未実装です。
 △ Render / Render Options / Layer Render Options：チェックアウトはエフェクト自身の入力を返します。
 △ Color Settings：作業用スペースは sRGB で、カラーマネジメントはしません。
 △ Register：アイドルフックは記録しますが、呼びません。

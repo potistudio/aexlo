@@ -19,10 +19,54 @@ use crate::sys::{
 	PF_Err_BAD_CALLBACK_PARAM, PF_Err_INVALID_INDEX, PF_Err_NONE, PF_ParamDef, PF_ParamDefUnion, PF_ParamIndex,
 	PF_ParamType, PF_ProgPtr,
 };
+use std::collections::{BTreeMap, HashSet};
 use std::os::raw::c_void;
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::{LazyLock, Mutex};
 
 use crate::PluginInstance;
 use crate::core::diagnostics::diag;
+
+#[derive(Clone, Default, PartialEq, Eq)]
+pub(crate) struct EffectMetadata {
+	pub name: Option<Vec<u8>>,
+	pub match_name: Option<Vec<u8>>,
+	pub category: Option<Vec<u8>>,
+}
+static INSTALLED: LazyLock<Mutex<BTreeMap<AEGP_InstalledEffectKey, (Option<EffectMetadata>, HashSet<u64>)>>> =
+	LazyLock::new(|| Mutex::new(BTreeMap::new()));
+static NEXT_KEY: AtomicI32 = AtomicI32::new(1);
+pub(crate) fn register_metadata(owner: u64, metadata: Option<EffectMetadata>) {
+	let mut entries = INSTALLED.lock().unwrap();
+	if metadata
+		.as_ref()
+		.and_then(|m| m.match_name.as_ref())
+		.is_some_and(|name| !name.is_empty())
+	{
+		if let Some((_, (_, owners))) = entries.iter_mut().find(|(_, (existing, _))| *existing == metadata) {
+			owners.insert(owner);
+			return;
+		}
+	}
+	let key = NEXT_KEY.fetch_add(1, Ordering::Relaxed);
+	if key > 0 {
+		entries.insert(key, (metadata, HashSet::from([owner])));
+	}
+}
+pub(crate) fn key_for_owner(owner: u64) -> Option<AEGP_InstalledEffectKey> {
+	INSTALLED
+		.lock()
+		.unwrap()
+		.iter()
+		.find_map(|(&key, (_, owners))| owners.contains(&owner).then_some(key))
+}
+pub(crate) fn remove_metadata(owner: u64) {
+	let mut entries = INSTALLED.lock().unwrap();
+	entries.retain(|_, (_, owners)| {
+		owners.remove(&owner);
+		!owners.is_empty()
+	});
+}
 
 /// What an `AEGP_EffectRefH` points at.
 struct Effect {
@@ -89,12 +133,29 @@ unsafe extern "C" fn get_layer_effect_by_index(
 }
 
 unsafe extern "C" fn get_installed_key_from_layer_effect(
-	_effect_refH: AEGP_EffectRefH,
-	_installed_effect_keyP: *mut AEGP_InstalledEffectKey,
+	effect_refH: AEGP_EffectRefH,
+	installed_effect_keyP: *mut AEGP_InstalledEffectKey,
 ) -> A_Err {
 	crate::core::ffi::guard("get_installed_key_from_layer_effect", || {
 		diag!("AEGP_EffectSuite2/AEGP_GetInstalledKeyFromLayerEffect");
-		unsupported("AEGP_GetInstalledKeyFromLayerEffect")
+		let Some(out) = (unsafe { installed_effect_keyP.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let Some(effect_ref) = (unsafe { effect_ref_of(effect_refH) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		if super::layer::Timeline::of(effect_ref.cast()).is_none() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		let instance = unsafe { PluginInstance::get_instance_ptr(effect_ref).unwrap().as_ref() };
+		let Some(key) = instance.installed_effect_key() else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		if !INSTALLED.lock().unwrap().contains_key(&key) {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		*out = key;
+		PF_Err_NONE
 	})
 }
 
@@ -227,47 +288,111 @@ unsafe extern "C" fn delete_layer_effect(_effect_refH: AEGP_EffectRefH) -> A_Err
 	})
 }
 
-unsafe extern "C" fn get_num_installed_effects(_num_installed_effectsPL: *mut A_long) -> A_Err {
+unsafe extern "C" fn get_num_installed_effects(num_installed_effectsPL: *mut A_long) -> A_Err {
 	crate::core::ffi::guard("get_num_installed_effects", || {
 		diag!("AEGP_EffectSuite2/AEGP_GetNumInstalledEffects");
-		unsupported("AEGP_GetNumInstalledEffects")
+		let Some(out) = (unsafe { num_installed_effectsPL.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		*out = INSTALLED.lock().unwrap().len() as A_long;
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn get_next_installed_effect(
-	_installed_effect_key: AEGP_InstalledEffectKey,
-	_next_effectPH: *mut AEGP_InstalledEffectKey,
+	installed_effect_key: AEGP_InstalledEffectKey,
+	next_effectPH: *mut AEGP_InstalledEffectKey,
 ) -> A_Err {
 	crate::core::ffi::guard("get_next_installed_effect", || {
 		diag!("AEGP_EffectSuite2/AEGP_GetNextInstalledEffect");
-		unsupported("AEGP_GetNextInstalledEffect")
+		let Some(out) = (unsafe { next_effectPH.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let effects = INSTALLED.lock().unwrap();
+		if installed_effect_key != 0 && !effects.contains_key(&installed_effect_key) {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		*out = effects
+			.range((
+				std::ops::Bound::Excluded(installed_effect_key),
+				std::ops::Bound::Unbounded,
+			))
+			.next()
+			.map_or(0, |(&key, _)| key);
+		PF_Err_NONE
 	})
 }
 
-unsafe extern "C" fn get_effect_name(_installed_effect_key: AEGP_InstalledEffectKey, _nameZ: *mut A_char) -> A_Err {
+unsafe fn copy_metadata(
+	key: AEGP_InstalledEffectKey,
+	out: *mut A_char,
+	capacity: usize,
+	field: impl FnOnce(&EffectMetadata) -> &Option<Vec<u8>>,
+) -> A_Err {
+	if out.is_null() {
+		return PF_Err_BAD_CALLBACK_PARAM;
+	}
+	let effects = INSTALLED.lock().unwrap();
+	let Some((Some(metadata), _)) = effects.get(&key) else {
+		return A_Err_GENERIC;
+	};
+	let Some(bytes) = field(metadata) else {
+		return A_Err_GENERIC;
+	};
+	if bytes.len() >= capacity {
+		return PF_Err_BAD_CALLBACK_PARAM;
+	}
+	unsafe {
+		std::ptr::copy_nonoverlapping(bytes.as_ptr(), out.cast::<u8>(), bytes.len());
+		*out.add(bytes.len()) = 0;
+	}
+	PF_Err_NONE
+}
+unsafe extern "C" fn get_effect_name(installed_effect_key: AEGP_InstalledEffectKey, nameZ: *mut A_char) -> A_Err {
 	crate::core::ffi::guard("get_effect_name", || {
 		diag!("AEGP_EffectSuite2/AEGP_GetEffectName");
-		unsupported("AEGP_GetEffectName")
+		unsafe {
+			copy_metadata(
+				installed_effect_key,
+				nameZ,
+				crate::sys::AEGP_MAX_EFFECT_NAME_SIZE as usize,
+				|m| &m.name,
+			)
+		}
 	})
 }
 
 unsafe extern "C" fn get_effect_match_name(
-	_installed_effect_key: AEGP_InstalledEffectKey,
-	_match_nameZ: *mut A_char,
+	installed_effect_key: AEGP_InstalledEffectKey,
+	match_nameZ: *mut A_char,
 ) -> A_Err {
 	crate::core::ffi::guard("get_effect_match_name", || {
 		diag!("AEGP_EffectSuite2/AEGP_GetEffectMatchName");
-		unsupported("AEGP_GetEffectMatchName")
+		unsafe {
+			copy_metadata(
+				installed_effect_key,
+				match_nameZ,
+				crate::sys::AEGP_MAX_EFFECT_MATCH_NAME_SIZE as usize,
+				|m| &m.match_name,
+			)
+		}
 	})
 }
 
 unsafe extern "C" fn get_effect_category(
-	_installed_effect_key: AEGP_InstalledEffectKey,
-	_categoryZ: *mut A_char,
+	installed_effect_key: AEGP_InstalledEffectKey,
+	categoryZ: *mut A_char,
 ) -> A_Err {
 	crate::core::ffi::guard("get_effect_category", || {
 		diag!("AEGP_EffectSuite2/AEGP_GetEffectCategory");
-		unsupported("AEGP_GetEffectCategory")
+		unsafe {
+			copy_metadata(
+				installed_effect_key,
+				categoryZ,
+				crate::sys::AEGP_MAX_EFFECT_CATEGORY_NAME_SIZE as usize,
+				|m| &m.category,
+			)
+		}
 	})
 }
 
@@ -456,6 +581,37 @@ pub(super) const fn create_effect_suite_4() -> AEGP_EffectSuite4 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn installed_identity_is_shared_and_removed_with_last_owner() {
+		let first = super::super::register::new_owner();
+		let second = super::super::register::new_owner();
+		let metadata = EffectMetadata {
+			name: Some(b"Test effect".to_vec()),
+			match_name: Some(b"aexlo.test.unique.effect".to_vec()),
+			category: Some(b"Test category".to_vec()),
+		};
+		register_metadata(first, Some(metadata.clone()));
+		register_metadata(second, Some(metadata));
+		let key = key_for_owner(first).unwrap();
+		assert_eq!(key_for_owner(second), Some(key));
+		let mut name = [0i8; crate::sys::AEGP_MAX_EFFECT_MATCH_NAME_SIZE as usize];
+		assert_eq!(unsafe { get_effect_match_name(key, name.as_mut_ptr()) }, PF_Err_NONE);
+		assert_eq!(
+			unsafe { std::ffi::CStr::from_ptr(name.as_ptr()) }.to_bytes(),
+			b"aexlo.test.unique.effect"
+		);
+		assert_eq!(
+			unsafe { get_effect_name(key, std::ptr::null_mut()) },
+			PF_Err_BAD_CALLBACK_PARAM
+		);
+		remove_metadata(first);
+		assert_eq!(key_for_owner(second), Some(key));
+		remove_metadata(second);
+		assert_ne!(unsafe { get_effect_match_name(key, name.as_mut_ptr()) }, PF_Err_NONE);
+		super::super::register::remove_owner(first);
+		super::super::register::remove_owner(second);
+	}
 
 	#[test]
 	fn handles_round_trip_and_dispose() {

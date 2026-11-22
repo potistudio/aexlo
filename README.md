@@ -203,13 +203,15 @@ during `PF_Event_DRAW`. The CLI never sends `PF_Cmd_EVENT`; an embedder does.
 | △ Light        | ○ Persistent Data | △ Render               | × Camera               |
 | △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
 | △ PF Interface | × Mask Outline    | △ Layer Render Options | × Math                 |
-| × Proj         | × Text Document   | × Composite            | △ Compute Cache        |
+| △ Proj         | × Text Document   | × Composite            | △ Compute Cache        |
 | × Footage      | × Text Layer      | × Canvas               | △ Hash                 |
 | × Collection   |                   | × Sound Data           | × Render Async Manager |
 | × Marker       |                   |                        |                        |
 
 △ Layer / Comp / Item / Light / Effect / PF Interface / Stream / Dynamic Stream / Keyframe: the project is aexlo's fixed one-layer comp, with no keyframes.
 The layer has one hosted effect and a synthetic footage item representing its input.
+The Effect Suite exposes identities reported by loaded plugins; it does not enumerate the system's installed effects.
+△ Proj: one unsaved synthetic project is exposed; project editing, persistence, root folders and time-display settings are not implemented.
 △ Render / Render Options / Layer Render Options: checkout returns the effect's own input.
 △ Color Settings: the working space is sRGB, with no colour management.
 △ Register: idle hooks are recorded and never called.

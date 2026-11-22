@@ -18,13 +18,14 @@ type PluginDataEntryFn = unsafe extern "C" fn(
 #[derive(Default)]
 struct PluginDataInfo {
 	entry_point_name: Option<String>,
+	metadata: crate::suites::effect::EffectMetadata,
 }
 
 unsafe extern "C" fn receive_plugin_data(
 	in_ptr: crate::sys::PF_PluginDataPtr,
-	_in_name: *const crate::sys::A_u_char,
-	_in_match_name: *const crate::sys::A_u_char,
-	_in_category: *const crate::sys::A_u_char,
+	in_name: *const crate::sys::A_u_char,
+	in_match_name: *const crate::sys::A_u_char,
+	in_category: *const crate::sys::A_u_char,
 	in_entry_point_name: *const crate::sys::A_u_char,
 	_in_kind: crate::sys::A_long,
 	_in_api_version_major: crate::sys::A_long,
@@ -42,6 +43,18 @@ unsafe extern "C" fn receive_plugin_data(
 		// SAFETY: As above, for the entry point name.
 		let name = unsafe { CStr::from_ptr(in_entry_point_name as *const std::os::raw::c_char) };
 		info.entry_point_name = Some(name.to_string_lossy().into_owned());
+		let bytes = |ptr: *const crate::sys::A_u_char| {
+			if ptr.is_null() {
+				None
+			} else {
+				Some(unsafe { CStr::from_ptr(ptr.cast()) }.to_bytes().to_vec())
+			}
+		};
+		info.metadata = crate::suites::effect::EffectMetadata {
+			name: bytes(in_name),
+			match_name: bytes(in_match_name),
+			category: bytes(in_category),
+		};
 
 		PF_Err_NONE
 	})
@@ -315,6 +328,7 @@ impl PluginInstance {
 	/// `PARAMS_SETUP`, then `SEQUENCE_SETUP`. Independent of where the entry point
 	/// came from (`dlopen`ed or handed in directly).
 	pub(super) fn finalize(&mut self) -> Result<()> {
+		crate::suites::effect::register_metadata(self.aegp_owner, self.installed_metadata.clone());
 		self.setup_global()?;
 		self.setup_params()?;
 		self.setup_arbitrary_params();
@@ -343,6 +357,7 @@ impl PluginInstance {
 				raw_library: None,
 				entry_point: None,
 				entry_point_name: None,
+				installed_metadata: None,
 				binary_file_path: path.to_path_buf(),
 				resolved_binary_path: None,
 				utility_callbacks,
@@ -536,7 +551,7 @@ impl PluginInstance {
 	/// Ask the plugin what its real entry point symbol is via the modern
 	/// `PluginDataEntryFunction2` protocol -- the same self-description mechanism
 	/// After Effects itself uses instead of parsing a binary PiPL resource.
-	fn query_declared_entry_point(lib: &Library, pica: &crate::sys::SPBasicSuite) -> Option<String> {
+	fn query_declared_entry_point(lib: &Library, pica: &crate::sys::SPBasicSuite) -> Option<PluginDataInfo> {
 		// SAFETY: The SDK fixes `PluginDataEntryFunction2`'s signature as `PluginDataEntryFn`.
 		let entry_fn = unsafe { lib.symbol::<PluginDataEntryFn>(PLUGIN_DATA_ENTRY_SYMBOL) }.ok()?;
 
@@ -560,7 +575,7 @@ impl PluginInstance {
 			return None;
 		}
 
-		info.entry_point_name
+		Some(info)
 	}
 
 	/// Resolve the plugin's entry point. `PluginDataEntryFunction2` wins, then the
@@ -569,7 +584,7 @@ impl PluginInstance {
 		lib: &Library,
 		pica: &crate::sys::SPBasicSuite,
 		binary: &Path,
-	) -> Result<(PluginEntryPoint, String)> {
+	) -> Result<(PluginEntryPoint, String, Option<crate::suites::effect::EffectMetadata>)> {
 		let declared = Self::query_declared_entry_point(lib, pica);
 		let from_pipl = std::fs::read(binary)
 			.ok()
@@ -578,7 +593,12 @@ impl PluginInstance {
 			log::debug!("PiPL entry point '{name}'.");
 		}
 		let mut names = Vec::new();
-		for name in declared.into_iter().chain(from_pipl) {
+		for name in declared
+			.as_ref()
+			.and_then(|info| info.entry_point_name.clone())
+			.into_iter()
+			.chain(from_pipl)
+		{
 			if !names.iter().any(|existing: &String| existing == &name) {
 				names.push(name);
 			}
@@ -595,7 +615,10 @@ impl PluginInstance {
 			match unsafe { lib.symbol::<PluginEntryPoint>(candidate) } {
 				Ok(symbol) => {
 					log::info!("Resolved entry point '{candidate}'.");
-					return Ok((symbol, candidate.clone()));
+					let metadata = declared
+						.filter(|info| info.entry_point_name.as_deref() == Some(candidate.as_str()))
+						.map(|info| info.metadata);
+					return Ok((symbol, candidate.clone(), metadata));
 				}
 				Err(err) => {
 					log::debug!("Entry point symbol '{}' not resolved: {}", candidate, err);
@@ -669,10 +692,11 @@ impl PluginInstance {
 			path: module_path.clone(),
 			source: Box::new(e),
 		})?;
-		let (entry_point, resolved_name) = Self::resolve_entry_point(&lib, self.pica.as_ref(), &module_path)?;
+		let (entry_point, resolved_name, metadata) = Self::resolve_entry_point(&lib, self.pica.as_ref(), &module_path)?;
 
 		self.entry_point = Some(entry_point);
 		self.entry_point_name = Some(resolved_name.clone());
+		self.installed_metadata = metadata;
 		self.raw_library = Some(lib);
 
 		// Remembered for the get_platform_data callback (plugin path queries).
@@ -820,6 +844,7 @@ impl PluginInstance {
 		// The entry point is missing only when `load` failed to resolve it,
 		// in which case the plugin was never set up.
 		if self.entry_point.is_none() || self.torn_down {
+			crate::suites::effect::remove_metadata(self.aegp_owner);
 			crate::suites::compute_cache::remove_owner(self.aegp_owner);
 			crate::suites::register::remove_owner(self.aegp_owner);
 			return;
@@ -851,6 +876,7 @@ impl PluginInstance {
 			}
 		}
 		crate::suites::compute_cache::remove_owner(self.aegp_owner);
+		crate::suites::effect::remove_metadata(self.aegp_owner);
 		crate::suites::register::remove_owner(self.aegp_owner);
 		if let Ok(mut tracker) = self.tracker.lock() {
 			tracker.torn_down();
@@ -865,6 +891,30 @@ mod lifecycle_tests {
 
 	static COMMANDS: Mutex<Vec<crate::sys::PF_Cmd>> = Mutex::new(Vec::new());
 	static FAIL: Mutex<crate::sys::PF_Cmd> = Mutex::new(-1);
+
+	#[test]
+	fn plugin_registration_copies_identity_bytes() {
+		let mut info = PluginDataInfo::default();
+		let result = unsafe {
+			receive_plugin_data(
+				(&raw mut info).cast(),
+				c"Example".as_ptr().cast(),
+				c"Vendor Example".as_ptr().cast(),
+				c"Category".as_ptr().cast(),
+				c"EffectMain".as_ptr().cast(),
+				0,
+				0,
+				0,
+				0,
+				std::ptr::null(),
+			)
+		};
+		assert_eq!(result, PF_Err_NONE);
+		assert_eq!(info.entry_point_name.as_deref(), Some("EffectMain"));
+		assert_eq!(info.metadata.name.as_deref(), Some(&b"Example"[..]));
+		assert_eq!(info.metadata.match_name.as_deref(), Some(&b"Vendor Example"[..]));
+		assert_eq!(info.metadata.category.as_deref(), Some(&b"Category"[..]));
+	}
 
 	unsafe extern "C" fn entry(
 		cmd: crate::sys::PF_Cmd,

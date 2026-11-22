@@ -57,7 +57,7 @@ mod comp;
 pub(crate) mod compute_cache;
 pub(crate) mod drawbot;
 mod dynamic_stream;
-mod effect;
+pub(crate) mod effect;
 mod effect_ui;
 mod ffi;
 pub mod fill_matte;
@@ -78,6 +78,7 @@ pub mod pixel_data;
 mod pixel_format;
 mod pixel_norm;
 mod point_param;
+mod project;
 pub(crate) mod register;
 pub mod sampling;
 pub(crate) mod stream;
@@ -554,6 +555,10 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			unsafe { *suite = &hash::SUITE as *const _ as *const c_void };
 			PF_Err_NONE
 		}
+		("AEGP Proj Suite", v) if v == kAEGPProjSuiteVersion5 as i32 => {
+			unsafe { *suite = &project::SUITE as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		_ => {
 			log::warn!("Suite '{}' v{} not found.", suite_name, version);
 			PF_Err_OUT_OF_MEMORY
@@ -668,6 +673,7 @@ mod tests {
 			("AEGP Utility Suite", 13),
 			("AEGP Compute Cache", 1),
 			("AEGP Hash Suite", 1),
+			("AEGP Proj Suite", 8),
 			("AEGP Layer Render Options Suite", 1),
 			("AEGP Layer Render Options Suite", 2),
 			("AEGP Render Options Suite", 4),

@@ -556,6 +556,7 @@ mod tests {
 		let mut layer_id = 0;
 		let mut kind = 0;
 		let mut count = 0;
+		let mut installed_key = 0;
 		let mut effect_handle = std::ptr::null_mut();
 		let ok = unsafe {
 			layer.AEGP_GetLayerSourceItem.unwrap()(effect.cast(), &mut source) == 0
@@ -566,6 +567,7 @@ mod tests {
 				&& item.AEGP_GetNextProjItem.unwrap()(std::ptr::null_mut(), comp, &mut next) == 0
 				&& effects.AEGP_GetLayerNumEffects.unwrap()(effect.cast(), &mut count) == 0
 				&& effects.AEGP_GetLayerEffectByIndex.unwrap()(0, effect.cast(), 0, &mut effect_handle) == 0
+				&& effects.AEGP_GetInstalledKeyFromLayerEffect.unwrap()(effect_handle, &mut installed_key) == 0
 				&& effects.AEGP_DisposeEffect.unwrap()(effect_handle) == 0
 		};
 		SOURCE_STALE.store(source as usize, Ordering::SeqCst);
@@ -577,6 +579,7 @@ mod tests {
 				&& layer_id == source_id
 				&& kind == AEGP_ItemType_FOOTAGE as AEGP_ItemType
 				&& count == 1
+				&& installed_key != 0
 				&& Timeline::of(source.cast()).is_none(),
 			Ordering::SeqCst,
 		);
