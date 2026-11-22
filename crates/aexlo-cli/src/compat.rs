@@ -2,7 +2,8 @@
 //! plugin's pixels are right (that is `aexlo test`), but whether aexlo can
 //! load it, render it down every path and depth, feed it different inputs,
 //! sizes and times, and set each of its parameters, and what the plugin asked
-//! for along the way that aexlo does not do.
+//! for along the way that aexlo does not do. Effects that work on text layers
+//! go through all of it a second time on a text layer.
 //!
 //! Every scenario runs in a worker, on a fresh instance, so a plugin that
 //! crashes or hangs costs one scenario. A baseline file records each
@@ -29,11 +30,13 @@ pub const USAGE: &str = "\
     compat <plugin|dir>...   How far aexlo can drive each plugin: load it, render
                        every path and depth, other inputs, sizes and times,
                        and each parameter set to other values, each in a
-                       worker. Reports ok, partial (ran, but asked for
-                       something aexlo does not do), n/a, error, crash or
-                       timeout per scenario, and the missing suites, stubs
-                       and declined calls behind them. A directory means every
-                       plugin in it.
+                       worker. Effects that render a text layer differently
+                       from the same pixels on an AV layer go through it all
+                       again on a text layer (text:*). Reports ok, partial
+                       (ran, but asked for something aexlo does not do), n/a,
+                       error, crash or timeout per scenario, and the missing
+                       suites, stubs and declined calls behind them. A
+                       directory means every plugin in it.
         --only <text>          Only scenarios whose id contains <text>
         --jobs <n>             Workers at once  [default: half the CPUs]
         --timeout <s>          Seconds per scenario  [default: 20]
@@ -52,6 +55,10 @@ const SIZE: [u32; 2] = [128, 96];
 const PER_WORKER: usize = 8;
 /// At most this many popup choices are tried.
 const MAX_CHOICES: usize = 32;
+/// What a text layer shows: two lines, several words, letters and digits.
+const TEXT: &str = "Text layer\n42";
+/// The prefix of scenarios run on a text layer.
+const ON_TEXT: &str = "text:";
 
 //==== Statuses ============================================================
 
@@ -147,9 +154,23 @@ impl PluginReport {
 
 //==== Scenarios ===========================================================
 
-/// The scenario ids and variants for a plugin that declared `info`.
-pub fn scenarios(plugin: &PluginRef, info: &PluginInfo, timeout: f64) -> Vec<(String, Variant)> {
+/// Which layer the effect sits on in a set of scenarios.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum On {
+	/// An AV layer showing a gradient, unless the scenario is about the input.
+	AvLayer,
+	/// A text layer showing [`TEXT`]. Ids start with [`ON_TEXT`] and there
+	/// are no `input:*` scenarios.
+	TextLayer,
+}
+
+/// The scenario ids and variants for a plugin that declared `info`, on `on`.
+pub fn scenarios(plugin: &PluginRef, info: &PluginInfo, timeout: f64, on: On) -> Vec<(String, Variant)> {
 	let label = plugin.label();
+	let prefix = match on {
+		On::AvLayer => "",
+		On::TextLayer => ON_TEXT,
+	};
 	let base = |scenario: &str| {
 		let mut variant = Variant::standalone(&label, plugin.clone());
 		let file_safe = aexlo_harness::preset::file_safe(&format!("{label}.{scenario}"));
@@ -159,7 +180,10 @@ pub fn scenarios(plugin: &PluginRef, info: &PluginInfo, timeout: f64) -> Vec<(St
 			file_safe,
 		};
 		variant.size = Some(SIZE);
-		variant.input = InputSpec::generated(Generator::Gradient);
+		variant.input = match on {
+			On::AvLayer => InputSpec::generated(Generator::Gradient),
+			On::TextLayer => InputSpec::text(TEXT),
+		};
 		variant.checks = Vec::new();
 		variant.strict = Vec::new();
 		variant.golden = None;
@@ -169,6 +193,7 @@ pub fn scenarios(plugin: &PluginRef, info: &PluginInfo, timeout: f64) -> Vec<(St
 	};
 	let mut out: Vec<(String, Variant)> = Vec::new();
 	let mut add = |id: String, edit: &dyn Fn(&mut Variant)| {
+		let id = format!("{prefix}{id}");
 		let mut variant = base(&id);
 		edit(&mut variant);
 		out.push((id, variant));
@@ -192,12 +217,14 @@ pub fn scenarios(plugin: &PluginRef, info: &PluginInfo, timeout: f64) -> Vec<(St
 		color: Some(vec![0.5, 0.5, 0.5, 0.0]),
 		..InputSpec::generated(Generator::Solid)
 	};
-	for (name, input) in [
+	let inputs = [
 		("solid", InputSpec::generated(Generator::Solid)),
 		("transparent", transparent),
 		("checker", InputSpec::generated(Generator::Checker)),
 		("noise", InputSpec::generated(Generator::Noise)),
-	] {
+		("text", InputSpec::text(TEXT)),
+	];
+	for (name, input) in inputs.into_iter().filter(|_| on == On::AvLayer) {
 		add(format!("input:{name}"), &|v| v.input = input.clone());
 	}
 
@@ -373,6 +400,51 @@ fn parallel<T: Sync, R: Send>(items: &[T], jobs: usize, f: impl Fn(&T) -> R + Sy
 		.collect()
 }
 
+/// The scenario that puts the effect on a text layer.
+const TEXT_INPUT: &str = "input:text";
+/// The run that puts [`TEXT_INPUT`]'s pixels on an AV layer. Not reported.
+const PROBE: &str = "probe:text-on-av";
+
+/// Scenarios to run together, with the plugin each belongs to.
+#[derive(Default)]
+struct Batch {
+	ids: Vec<String>,
+	variants: Vec<Variant>,
+	owner: Vec<usize>,
+}
+
+impl Batch {
+	/// Add `list`, the scenarios of plugin `index`, a few per worker.
+	fn add(&mut self, plugin: &PluginRef, index: usize, phase: &str, list: impl Iterator<Item = (String, Variant)>) {
+		for (n, (id, mut variant)) in list.enumerate() {
+			// A few scenarios per worker: isolated enough, without a worker
+			// start for each.
+			variant.preset = format!("{}#{index}.{phase}.{}", plugin.label(), n / PER_WORKER);
+			self.ids.push(id);
+			self.variants.push(variant);
+			self.owner.push(index);
+		}
+	}
+}
+
+/// An input with the pixels of [`TEXT_INPUT`]'s text layer, on an AV layer:
+/// the text written as a PNG in `dir`. `None` when it cannot be (no system
+/// font); then no plugin is run on a text layer.
+fn text_on_av_layer(dir: &Path) -> Option<InputSpec> {
+	let layer = aexlo_harness::input::build(
+		&InputSpec::text(TEXT),
+		aexlo::PixelDepthKind::U8,
+		Some((SIZE[0], SIZE[1])),
+	)
+	.ok()?;
+	let path = dir.join("text.png");
+	aexlo_harness::Frame::new(layer).save(&path).ok()?;
+	Some(InputSpec {
+		path: Some(path),
+		..InputSpec::default()
+	})
+}
+
 /// Run every scenario of every plugin in `paths`.
 pub fn run(paths: &[PathBuf], only: Option<&str>, jobs: usize, timeout: f64) -> Result<Vec<PluginReport>, Error> {
 	let worker = WorkerCommand::current_exe()?;
@@ -404,44 +476,79 @@ pub fn run(paths: &[PathBuf], only: Option<&str>, jobs: usize, timeout: f64) -> 
 		return Err(Error::harness(message.clone()));
 	}
 
-	let mut ids: Vec<String> = Vec::new();
-	let mut variants: Vec<Variant> = Vec::new();
-	let mut owner: Vec<usize> = Vec::new();
-	for (index, (plugin, load)) in plugins.iter().zip(&loads).enumerate() {
-		let Ok((info, _)) = load else { continue };
-		let mut group = 0;
-		for (n, (id, mut variant)) in scenarios(plugin, info, timeout).into_iter().enumerate() {
-			if only.is_some_and(|text| !id.contains(text)) {
-				continue;
-			}
-			// A few scenarios per worker: isolated enough, without a
-			// worker start for each.
-			if n % PER_WORKER == 0 {
-				group += 1;
-			}
-			variant.preset = format!("{}#{index}.{group}", plugin.label());
-			ids.push(id);
-			variants.push(variant);
-			owner.push(index);
-		}
-	}
-
 	let config = RunnerConfig {
 		isolate: Isolate::Preset,
 		jobs,
 		worker,
 		artifacts,
 	};
-	let runs = runner::run_all(variants, &config, |executor, variant| {
-		runner::render_once(executor, variant)
-	});
-	if let Some(run) = runs.iter().find(|r| r.fault == Some(ErrorKind::Harness)) {
-		return Err(Error::harness(format!(
-			"{}: {}",
-			run.variant.id,
-			run.message.as_deref().unwrap_or("harness error")
-		)));
+	let run_batch = |batch: Batch| -> Result<Vec<(usize, String, Run)>, Error> {
+		let runs = runner::run_all(batch.variants, &config, |executor, variant| {
+			runner::render_once(executor, variant)
+		});
+		if let Some(run) = runs.iter().find(|r| r.fault == Some(ErrorKind::Harness)) {
+			return Err(Error::harness(format!(
+				"{}: {}",
+				run.variant.id,
+				run.message.as_deref().unwrap_or("harness error")
+			)));
+		}
+		Ok(batch
+			.owner
+			.into_iter()
+			.zip(batch.ids)
+			.zip(runs)
+			.map(|((owner, id), run)| (owner, id, run))
+			.collect())
+	};
+
+	// The text a text layer shows, on an AV layer: what tells an effect that
+	// works on text layers from one that only sees pixels.
+	let probe_dir = std::env::temp_dir().join(format!("aexlo-compat-{}", std::process::id()));
+	let probe_input = text_on_av_layer(&probe_dir);
+
+	// First every plugin on an AV layer, and the text probe.
+	let mut batch = Batch::default();
+	for (index, (plugin, load)) in plugins.iter().zip(&loads).enumerate() {
+		let Ok((info, _)) = load else { continue };
+		let list = scenarios(plugin, info, timeout, On::AvLayer);
+		let probe = probe_input.as_ref().and_then(|input| {
+			let (_, text) = list.iter().find(|(id, _)| id == TEXT_INPUT)?;
+			let mut variant = text.clone();
+			variant.input = input.clone();
+			Some((PROBE.to_string(), variant))
+		});
+		// The text scenario always runs: the probe is compared with it.
+		let wanted = |id: &str| id == TEXT_INPUT || only.is_none_or(|text| id.contains(text));
+		let list = list.into_iter().filter(|(id, _)| wanted(id)).chain(probe);
+		batch.add(plugin, index, "av", list);
 	}
+	let runs = run_batch(batch);
+	let _ = std::fs::remove_dir_all(&probe_dir);
+	let mut runs = runs?;
+
+	// Then the plugins that render a text layer differently from the same
+	// pixels on an AV layer, on a text layer.
+	let mut batch = Batch::default();
+	for (index, (plugin, load)) in plugins.iter().zip(&loads).enumerate() {
+		let Ok((info, _)) = load else { continue };
+		let frame = |id: &str| {
+			runs.iter()
+				.find(|(owner, i, run)| *owner == index && i == id && run.outcome == Outcome::Pass)
+				.and_then(|(_, _, run)| run.frame.as_ref())
+		};
+		let (Some(text), Some(av)) = (frame(TEXT_INPUT), frame(PROBE)) else {
+			continue;
+		};
+		if text.unit_rgba() == av.unit_rgba() {
+			continue;
+		}
+		let list = scenarios(plugin, info, timeout, On::TextLayer)
+			.into_iter()
+			.filter(|(id, _)| only.is_none_or(|text| id.contains(text)));
+		batch.add(plugin, index, "text", list);
+	}
+	runs.extend(run_batch(batch)?);
 
 	let mut reports: Vec<PluginReport> = plugins
 		.iter()
@@ -456,8 +563,11 @@ pub fn run(paths: &[PathBuf], only: Option<&str>, jobs: usize, timeout: f64) -> 
 			scenarios: Vec::new(),
 		})
 		.collect();
-	for ((id, run), index) in ids.iter().zip(&runs).zip(owner) {
-		let report = &mut reports[index];
+	for (index, id, run) in &runs {
+		if id == PROBE || only.is_some_and(|text| !id.contains(text)) {
+			continue;
+		}
+		let report = &mut reports[*index];
 		let scenario = judge(id, run, &report.load.unsupported);
 		report.scenarios.push(scenario);
 	}
@@ -860,6 +970,32 @@ mod tests {
 			.collect();
 		assert_eq!(popup, [("One".to_string(), Some(1)), ("Two".to_string(), Some(3))]);
 		assert!(param_values(&param("Button")).is_empty());
+	}
+
+	#[test]
+	fn on_a_text_layer_every_scenario_but_the_inputs_runs_on_text() {
+		let plugin = PluginRef {
+			source: PluginSource::Artifact("Fx.plugin".into()),
+			entry: "EffectMain".into(),
+		};
+		let info = PluginInfo {
+			params: vec![param("Checkbox")],
+			..PluginInfo::default()
+		};
+		let av = scenarios(&plugin, &info, 1.0, On::AvLayer);
+		let text = scenarios(&plugin, &info, 1.0, On::TextLayer);
+		let ids = |list: &[(String, Variant)]| list.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
+		assert!(ids(&av).contains(&TEXT_INPUT.to_string()));
+		assert!(
+			text.iter()
+				.all(|(id, v)| id.starts_with(ON_TEXT) && v.input == InputSpec::text(TEXT))
+		);
+		let expected: Vec<String> = ids(&av)
+			.into_iter()
+			.filter(|id| !id.starts_with("input:"))
+			.map(|id| format!("{ON_TEXT}{id}"))
+			.collect();
+		assert_eq!(ids(&text), expected);
 	}
 
 	fn scenario(id: &str, status: Status) -> Scenario {

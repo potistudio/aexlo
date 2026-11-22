@@ -40,6 +40,7 @@ at 24 fps and parallel iteration. Each one changes a single thing:
 | `render:auto@8` | Nothing: one render with every default |
 | `render:<legacy\|smart\|gpu>@<8\|16\|32>` | The render path and the depth, each pair on its own |
 | `input:<solid\|transparent\|checker\|noise>` | The input layer |
+| `input:text` | The effect's layer is a [text layer](inspect.md#text-layers) showing `Text layer` and `42` on two lines |
 | `size:<1x1\|37x23\|1920x1080>` | The input and output size |
 | `time:<90@30\|1@23.976>` | The frame and the frame rate |
 | `iterate:serial` | Iterate callbacks run on one thread |
@@ -49,6 +50,15 @@ at 24 fps and parallel iteration. Each one changes a single thing:
 Parameters take their values from what the plugin declares at load time, so
 a plugin with many parameters gets many scenarios. Buttons, groups, paths,
 custom UI and arbitrary data are not set.
+
+### On a text layer
+
+Some effects only work on a text layer: on any other layer they pass their
+input through, so the scenarios above never reach what they do. `compat`
+also renders `input:text`'s pixels on an AV layer. When the plugin renders
+the two differently, it works on text layers, and every scenario except
+`input:*` runs again on the text layer. Those ids start with `text:`, as in
+`text:param:#18 Gradient Mode=Radial`; `--only text:` keeps only them.
 
 ## 2. Statuses
 
@@ -70,7 +80,7 @@ had. Those are reported once, on `load`.
 | Option | Default | |
 | ------ | ------- | - |
 | `<plugin\|dir>...` | | Plugin artifacts, or directories of them. A broken symlink in a directory is skipped |
-| `--only <text>` | | Only scenarios whose id contains `<text>`. `load` always runs |
+| `--only <text>` | | Only scenarios whose id contains `<text>`. `load` always runs, and so does `input:text` to decide on the `text:` scenarios, but it is only listed if it matches |
 | `--jobs <n>` | half the CPUs | Workers at once |
 | `--timeout <s>` | `20` | Seconds per scenario |
 | `--all` | | List every scenario on its own. Without it, only scenarios that are not `ok` or `n/a` are listed, grouped by how they went |
