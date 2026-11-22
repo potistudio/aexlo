@@ -17,7 +17,7 @@ crashes or hangs costs that one scenario, not the run.
 
 ```bash
 aexlo compat fixtures/plugins/macos                  # every plugin in a directory
-aexlo compat MyGlow.plugin Other.plugin --all        # list every scenario
+aexlo compat MyGlow.plugin Other.plugin --all        # list every plugin and scenario
 aexlo compat fixtures/plugins/macos --save-baseline compat.json
 aexlo compat fixtures/plugins/macos --baseline compat.json   # exit 1 if any got worse
 ```
@@ -83,7 +83,7 @@ had. Those are reported once, on `load`.
 | `--only <text>` | | Only scenarios whose id contains `<text>`. `load` always runs, and so does `input:text` to decide on the `text:` scenarios, but it is only listed if it matches |
 | `--jobs <n>` | half the CPUs | Workers at once |
 | `--timeout <s>` | `20` | Seconds per scenario |
-| `--all` | | List every scenario on its own. Without it, only scenarios that are not `ok` or `n/a` are listed, grouped by how they went |
+| `--all` | | List every plugin and every scenario. Without it, only plugins and scenarios with problems are listed (see [Output](#4-output)) |
 | `--json` | text | The report as one JSON document |
 | `--save-baseline <file>` | | Write each scenario's status |
 | `--baseline <file>` | | Compare with a saved baseline |
@@ -94,23 +94,40 @@ worker that cannot be started exits 3.
 
 ## 4. Output
 
-The text report has one block per plugin, with its counts and the scenarios
-that did not go well. Scenarios that failed the same way are grouped (same
-status, same first line of the message, same gaps) and a few of them are
-named. The report ends with every gap and the plugins that hit it, most
-widespread first. That is the list of what to implement next.
+The text report starts with the totals. Then come the plugins that had
+problems, worst first (crash, timeout, error, partial, invalid), each with
+its counts and its scenarios grouped by how they went: same status, same
+first line of the message, same gaps. A group shows its status, how many
+scenarios are in it, why they went that way, and the first few of them.
+The plugins where every scenario was `ok` or `n/a` share one list. The
+report ends with every gap and the plugins that hit it, most widespread
+first. That is the list of what to implement next.
 
 ```text
-RainyDay  load partial · 20 ok · 93 partial
-    partial  load
-               missing-suite PF Effect Sequence Data Suite v1 (in PARAMS_SETUP)
-    partial  ×93 scenarios
-               missing-suite AEGP Stream Suite v11 (in UPDATE_PARAMS_UI)
-               e.g. param:#1 Preset=Custom, param:#1 Preset=Default, … (+91)
+aexlo compat: 34 plugins, 5323 scenarios: 4919 ok · 1 partial · 103 n/a · 8 error · 292 crash
+
+Falloff  4 ok · 145 crash
+    crash     ×145  worker killed by signal 11 (SIGSEGV) during PF_Cmd_SMART_PRE_RENDER
+                    render:auto@8, render:smart@8, render:smart@16, render:smart@32, … (+141)
+
+AutoFill2  did not load
+    error       ×1  loading AutoFill2.plugin: Plugin not found: AutoFill2.plugin/Contents/MacOS
+                    load
+
+RainyDay  114 ok · 1 partial
+    partial     ×1  missing-suite PF Effect Sequence Data Suite v1 (in PARAMS_SETUP)
+                    load
+
+Everything ok or n/a (25):
+    AOD_ChannelRemap, AOD_ColorAjust, AOD_ColorChange, AOD_ColorComposite, AOD_ColorConvert,
+    …, RXXR, SDK_Noise, TextGrad
 
 Asked for, but not done by aexlo (plugins that asked):
-   10  missing-suite AEGP Stream Suite v11  [AOD_ChannelRemap, …, RainyDay]
+    1  missing-suite PF Effect Sequence Data Suite v1  [RainyDay]
 ```
+
+With `--all`, every plugin gets a block, `ok` and `n/a` scenarios are
+grouped too, and each group names all of its scenarios.
 
 `--json` prints:
 

@@ -16,7 +16,7 @@
 
 ```bash
 aexlo compat fixtures/plugins/macos                  # ディレクトリ内のすべてのプラグイン
-aexlo compat MyGlow.plugin Other.plugin --all        # すべてのシナリオを表示
+aexlo compat MyGlow.plugin Other.plugin --all        # すべてのプラグインとシナリオを表示
 aexlo compat fixtures/plugins/macos --save-baseline compat.json
 aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれば終了コード 1
 ```
@@ -82,7 +82,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 | `--only <text>` | | ID に `<text>` を含むシナリオだけ実行する。`load` は常に実行する。`text:` シナリオを決めるため `input:text` も常に実行するが、一致したときだけ一覧に出す |
 | `--jobs <n>` | CPU 数の半分 | 同時に動かすワーカーの数 |
 | `--timeout <s>` | `20` | シナリオごとの秒数 |
-| `--all` | | すべてのシナリオを1つずつ表示する。指定しない場合は `ok` と `n/a` 以外を、結果ごとにまとめて表示する |
+| `--all` | | すべてのプラグインとシナリオを表示する。指定しない場合は、問題のあったものだけを表示する（[出力](#4-出力)） |
 | `--json` | テキスト | レポートを1つの JSON で出力する |
 | `--save-baseline <file>` | | 各シナリオのステータスを書き出す |
 | `--baseline <file>` | | 保存したベースラインと比べる |
@@ -93,22 +93,39 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 
 ## 4. 出力
 
-テキストのレポートは、プラグインごとに件数と、うまくいかなかったシナリオを表示します。
-同じ失敗の仕方をしたシナリオ（ステータス、メッセージの1行目、不足がすべて同じ）はまとめ、そのうちいくつかの ID を示します。
+テキストのレポートは、最初に合計を表示します。
+続いて、問題のあったプラグインを重い順（crash、timeout、error、partial、invalid）に表示します。
+各プラグインには件数と、結果ごとにまとめたシナリオが付きます。
+ステータス、メッセージの1行目、不足がすべて同じシナリオを1つのグループにまとめます。
+グループには、ステータス、シナリオの数、そうなった理由、先頭のいくつかの ID を表示します。
+すべてのシナリオが `ok` か `n/a` だったプラグインは、1つの一覧にまとめます。
 最後に、すべての不足とそれに当たったプラグインを、多い順に表示します。
 これが次に実装すべきものの一覧になります。
 
 ```text
-RainyDay  load partial · 20 ok · 93 partial
-    partial  load
-               missing-suite PF Effect Sequence Data Suite v1 (in PARAMS_SETUP)
-    partial  ×93 scenarios
-               missing-suite AEGP Stream Suite v11 (in UPDATE_PARAMS_UI)
-               e.g. param:#1 Preset=Custom, param:#1 Preset=Default, … (+91)
+aexlo compat: 34 plugins, 5323 scenarios: 4919 ok · 1 partial · 103 n/a · 8 error · 292 crash
+
+Falloff  4 ok · 145 crash
+    crash     ×145  worker killed by signal 11 (SIGSEGV) during PF_Cmd_SMART_PRE_RENDER
+                    render:auto@8, render:smart@8, render:smart@16, render:smart@32, … (+141)
+
+AutoFill2  did not load
+    error       ×1  loading AutoFill2.plugin: Plugin not found: AutoFill2.plugin/Contents/MacOS
+                    load
+
+RainyDay  114 ok · 1 partial
+    partial     ×1  missing-suite PF Effect Sequence Data Suite v1 (in PARAMS_SETUP)
+                    load
+
+Everything ok or n/a (25):
+    AOD_ChannelRemap, AOD_ColorAjust, AOD_ColorChange, AOD_ColorComposite, AOD_ColorConvert,
+    …, RXXR, SDK_Noise, TextGrad
 
 Asked for, but not done by aexlo (plugins that asked):
-   10  missing-suite AEGP Stream Suite v11  [AOD_ChannelRemap, …, RainyDay]
+    1  missing-suite PF Effect Sequence Data Suite v1  [RainyDay]
 ```
+
+`--all` を付けると、すべてのプラグインを個別に表示し、`ok` と `n/a` のシナリオもまとめて、各グループのシナリオをすべて示します。
 
 `--json` の形式は [英語版](compat.md#4-output) を参照してください。
 各シナリオは `id`、`status`、`message`、`unsupported` を持ちます。

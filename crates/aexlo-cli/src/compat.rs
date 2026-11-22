@@ -40,8 +40,7 @@ pub struct CompatArgs {
 	/// Seconds per scenario
 	#[arg(long, value_name = "S", default_value_t = 20.0)]
 	timeout: f64,
-	/// List every scenario on its own, not only the ones that were not ok,
-	/// grouped by how they went
+	/// List every plugin and every scenario, not only the ones with problems
 	#[arg(long)]
 	all: bool,
 	/// Print the report as one JSON document
@@ -708,105 +707,181 @@ fn signature(scenario: &Scenario) -> (Status, String, Vec<String>) {
 	let gaps = scenario
 		.unsupported
 		.iter()
-		.map(|g| format!("{} (in {})", g.label(), g.command))
+		.map(|g| match g.count {
+			0 | 1 => format!("{} (in {})", g.label(), g.command),
+			n => format!("{} (in {} ×{n})", g.label(), g.command),
+		})
 		.collect();
 	(scenario.status, message, gaps)
 }
 
-/// The scenarios worth listing, grouped by [`signature`] in first-seen
-/// order; every scenario alone with `all`.
+/// How much a status needs looking at, for ordering the report: ok and n/a
+/// not at all.
+fn severity(status: Status) -> u8 {
+	match status {
+		Status::Ok | Status::NotApplicable => 0,
+		Status::Invalid => 1,
+		Status::Partial => 2,
+		Status::Error => 3,
+		Status::Timeout => 4,
+		Status::Crash => 5,
+	}
+}
+
+/// The worst severity among a plugin's scenarios; 0 when all went well.
+fn worst(report: &PluginReport) -> u8 {
+	report.all().map(|s| severity(s.status)).max().unwrap_or(0)
+}
+
+/// A plugin's scenarios grouped by [`signature`], worst first, larger groups
+/// before smaller. Without `all`, ok and n/a scenarios are left out.
 fn groups(report: &PluginReport, all: bool) -> Vec<Vec<&Scenario>> {
 	let mut groups: Vec<Vec<&Scenario>> = Vec::new();
 	for scenario in report.all() {
-		if !all && matches!(scenario.status, Status::Ok | Status::NotApplicable) {
+		if !all && severity(scenario.status) == 0 {
 			continue;
 		}
 		let key = signature(scenario);
-		match groups.iter_mut().find(|g| !all && signature(g[0]) == key) {
+		match groups.iter_mut().find(|g| signature(g[0]) == key) {
 			Some(group) => group.push(scenario),
 			None => groups.push(vec![scenario]),
 		}
 	}
+	// Stable, so equal groups keep the order the scenarios ran in.
+	groups.sort_by_key(|g| (std::cmp::Reverse(severity(g[0].status)), std::cmp::Reverse(g.len())));
 	groups
 }
 
-/// At most this many ids are named for a group of scenarios.
+/// At most this many ids are named for a group of scenarios, without `--all`.
 const NAMED: usize = 4;
 
-fn print_group(group: &[&Scenario]) {
-	let first = group[0];
-	let (status, message, gaps) = signature(first);
-	if let [only] = group {
-		let mut line = format!("    {:<8} {}", status.name(), only.id);
-		if !message.is_empty() {
-			line.push_str(&format!(" - {message}"));
+/// Lines of the text report are wrapped at this width.
+const WIDTH: usize = 100;
+
+/// `items` joined with `, `, wrapped at [`WIDTH`], each line after `indent`.
+fn wrap(items: &[String], indent: &str) -> Vec<String> {
+	let mut lines = Vec::new();
+	let mut line = String::new();
+	for (i, item) in items.iter().enumerate() {
+		let piece = if i + 1 < items.len() {
+			format!("{item},")
+		} else {
+			item.clone()
+		};
+		let width = |text: &str| text.chars().count();
+		if !line.is_empty() && width(indent) + width(&line) + 1 + width(&piece) > WIDTH {
+			lines.push(format!("{indent}{line}"));
+			line.clear();
 		}
-		println!("{line}");
-		for gap in &only.unsupported {
-			let times = if gap.count > 1 {
-				format!(" ×{}", gap.count)
-			} else {
-				String::new()
-			};
-			println!("               {} (in {}{times})", gap.label(), gap.command);
+		if !line.is_empty() {
+			line.push(' ');
 		}
-		return;
+		line.push_str(&piece);
 	}
-	println!(
-		"    {:<8} ×{} scenarios{}",
-		status.name(),
-		group.len(),
-		match message.is_empty() {
-			true => String::new(),
-			false => format!(" - {message}"),
-		}
-	);
-	for gap in gaps {
-		println!("               {gap}");
+	if !line.is_empty() {
+		lines.push(format!("{indent}{line}"));
 	}
-	let mut ids: Vec<&str> = group.iter().take(NAMED).map(|s| s.id.as_str()).collect();
-	let more = group.len().saturating_sub(NAMED);
-	let rest = if more > 0 {
-		format!(", … (+{more})")
-	} else {
-		String::new()
-	};
-	ids.dedup();
-	println!("               e.g. {}{rest}", ids.join(", "));
+	lines
 }
 
-fn print_human(reports: &[PluginReport], all: bool, changes: Option<&(Vec<Change>, Vec<Change>)>) {
-	let total = counts(reports.iter().flat_map(PluginReport::all));
-	println!(
-		"aexlo compat: {} plugin(s), {} scenario(s): {}",
-		reports.len(),
-		total.values().sum::<usize>(),
-		counts_text(&total)
-	);
-	for report in reports {
-		println!();
-		println!(
-			"{}  load {} · {}",
-			report.plugin,
-			report.load.status.name(),
-			counts_text(&counts(report.scenarios.iter()))
-		);
-		for group in groups(report, all) {
-			print_group(&group);
+/// Where the reasons and ids of a group start.
+const BODY: &str = "                    ";
+
+/// A group: its status, how many scenarios, why (the message, then what it
+/// asked for), and which scenarios.
+///
+/// ```text
+///     crash      ×35  worker killed by signal 6 (SIGABRT) during PF_Cmd_SMART_RENDER
+///                     render:auto@8, render:smart@8, render:smart@32, input:solid, … (+31)
+/// ```
+fn write_group(out: &mut Vec<String>, group: &[&Scenario], all: bool) {
+	let (status, message, gaps) = signature(group[0]);
+	let mut reasons: Vec<String> = Vec::new();
+	if !message.is_empty() {
+		reasons.push(message);
+	}
+	reasons.extend(gaps);
+	let head = format!("    {:<8} {:>5}  ", status.name(), format!("×{}", group.len()));
+	let mut ids: Vec<String> = group.iter().map(|s| s.id.clone()).collect();
+	if !all && ids.len() > NAMED {
+		let more = ids.len() - NAMED;
+		ids.truncate(NAMED);
+		ids.push(format!("… (+{more})"));
+	}
+	let mut ids = wrap(&ids, BODY);
+	match reasons.split_first() {
+		Some((first, rest)) => {
+			out.push(format!("{head}{first}"));
+			out.extend(rest.iter().map(|r| format!("{BODY}{r}")));
+		}
+		// Nothing to say why (an ok group with --all): the ids go first.
+		None => {
+			let first = ids.remove(0);
+			out.push(format!("{head}{}", first.trim_start()));
 		}
 	}
+	out.extend(ids);
+}
+
+/// The text report.
+///
+/// A summary, then each plugin that had problems, worst first, with its
+/// scenarios grouped by how they went; then the plugins where everything
+/// went well, on one wrapped list; then every gap, most widespread first;
+/// then what changed since the baseline. `all` lists every plugin and every
+/// scenario.
+fn human(reports: &[PluginReport], all: bool, changes: Option<&(Vec<Change>, Vec<Change>)>) -> String {
+	let mut out: Vec<String> = Vec::new();
+	let total = counts(reports.iter().flat_map(PluginReport::all));
+	let plural = |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+	out.push(format!(
+		"aexlo compat: {}, {}: {}",
+		plural(reports.len(), "plugin", "plugins"),
+		plural(total.values().sum::<usize>(), "scenario", "scenarios"),
+		counts_text(&total)
+	));
+
+	let mut order: Vec<&PluginReport> = reports.iter().collect();
+	order.sort_by_key(|r| std::cmp::Reverse(worst(r)));
+	let (listed, clean): (Vec<&PluginReport>, Vec<&PluginReport>) =
+		order.into_iter().partition(|r| all || worst(r) > 0);
+	for report in listed {
+		out.push(String::new());
+		let loaded = matches!(report.load.status, Status::Ok | Status::Partial);
+		out.push(match loaded {
+			true => format!("{}  {}", report.plugin, counts_text(&counts(report.all()))),
+			false => format!("{}  did not load", report.plugin),
+		});
+		for group in groups(report, all) {
+			write_group(&mut out, &group, all);
+		}
+	}
+	if !clean.is_empty() {
+		out.push(String::new());
+		out.push(format!("Everything ok or n/a ({}):", clean.len()));
+		let names: Vec<String> = clean.iter().map(|r| r.plugin.clone()).collect();
+		out.extend(wrap(&names, "    "));
+	}
+
 	let gaps = gaps(reports);
 	if !gaps.is_empty() {
-		println!();
-		println!("Asked for, but not done by aexlo (plugins that asked):");
+		out.push(String::new());
+		out.push("Asked for, but not done by aexlo (plugins that asked):".into());
 		for (label, plugins) in gaps {
-			println!("  {:>3}  {label}  [{}]", plugins.len(), plugins.join(", "));
+			let line = format!("  {:>3}  {label}  [{}]", plugins.len(), plugins.join(", "));
+			if line.chars().count() <= WIDTH {
+				out.push(line);
+			} else {
+				out.push(format!("  {:>3}  {label}", plugins.len()));
+				out.extend(wrap(&plugins, "         "));
+			}
 		}
 	}
+
 	if let Some((worse, better)) = changes {
-		println!();
+		out.push(String::new());
 		if worse.is_empty() && better.is_empty() {
-			println!("Same as the baseline.");
+			out.push("Same as the baseline.".into());
 		}
 		for (title, list) in [
 			("Worse than the baseline:", worse),
@@ -815,12 +890,21 @@ fn print_human(reports: &[PluginReport], all: bool, changes: Option<&(Vec<Change
 			if list.is_empty() {
 				continue;
 			}
-			println!("{title}");
+			out.push(title.into());
 			for c in list {
-				println!("  {}  {}: {} -> {}", c.plugin, c.id, c.was.name(), c.now.name());
+				out.push(format!(
+					"  {}  {}: {} -> {}",
+					c.plugin,
+					c.id,
+					c.was.name(),
+					c.now.name()
+				));
 			}
 		}
 	}
+	let mut text = out.join("\n");
+	text.push('\n');
+	text
 }
 
 fn print_json(reports: &[PluginReport], changes: Option<&(Vec<Change>, Vec<Change>)>) {
@@ -903,7 +987,7 @@ fn compat(args: CompatArgs) -> Result<ExitCode, Error> {
 	let reports = run(&paths, only.as_deref(), jobs, timeout)?;
 	let changes = previous.as_ref().map(|b| compare(b, &reports));
 	match format {
-		Format::Human => print_human(&reports, all, changes.as_ref()),
+		Format::Human => print!("{}", human(&reports, all, changes.as_ref())),
 		Format::Json => print_json(&reports, changes.as_ref()),
 	}
 	if let Some(path) = save {
@@ -997,6 +1081,72 @@ mod tests {
 			info: None,
 			scenarios: statuses.iter().map(|(id, s)| scenario(id, *s)).collect(),
 		}
+	}
+
+	#[test]
+	fn the_text_report_lists_problems_worst_first_and_folds_the_rest() {
+		let crash = |id: &str| Scenario {
+			message: Some("worker killed by signal 11 (SIGSEGV) during PF_Cmd_RENDER".into()),
+			..scenario(id, Status::Crash)
+		};
+		let mut erring = report(&[("render:auto@8", Status::Error)]);
+		erring.plugin = "Erring".into();
+		erring.scenarios[0].message = Some("Plugin rejected Render with error code: 516".into());
+		let mut crashing = report(&[]);
+		crashing.plugin = "Crashing".into();
+		crashing.scenarios = (0..6).map(|i| crash(&format!("size:{i}"))).collect();
+		let mut clean = report(&[("render:auto@8", Status::Ok), ("render:gpu@8", Status::NotApplicable)]);
+		clean.plugin = "Clean".into();
+		let mut unloaded = report(&[]);
+		unloaded.plugin = "Unloaded".into();
+		unloaded.load = Scenario {
+			message: Some("Plugin not found: Unloaded.plugin".into()),
+			..scenario("load", Status::Error)
+		};
+
+		let text = human(&[clean, erring, crashing, unloaded], false, None);
+		let expected = "\
+aexlo compat: 4 plugins, 13 scenarios: 4 ok · 1 n/a · 2 error · 6 crash
+
+Crashing  1 ok · 6 crash
+    crash       ×6  worker killed by signal 11 (SIGSEGV) during PF_Cmd_RENDER
+                    size:0, size:1, size:2, size:3, … (+2)
+
+Erring  1 ok · 1 error
+    error       ×1  Plugin rejected Render with error code: 516
+                    render:auto@8
+
+Unloaded  did not load
+    error       ×1  Plugin not found: Unloaded.plugin
+                    load
+
+Everything ok or n/a (1):
+    Clean
+";
+		assert_eq!(text, expected);
+	}
+
+	#[test]
+	fn all_lists_every_plugin_and_scenario() {
+		let ids: Vec<(String, Status)> = (0..6).map(|i| (format!("size:{i}"), Status::Ok)).collect();
+		let ids: Vec<(&str, Status)> = ids.iter().map(|(id, s)| (id.as_str(), *s)).collect();
+		let text = human(&[report(&ids)], true, None);
+		assert!(
+			text.contains("Fx  7 ok\n    ok          ×7  load, size:0, size:1, size:2, size:3, size:4, size:5\n"),
+			"{text}"
+		);
+		assert!(!text.contains("Everything ok"), "{text}");
+	}
+
+	#[test]
+	fn wrap_keeps_lines_within_the_width() {
+		let items: Vec<String> = (0..40).map(|i| format!("Plugin{i}")).collect();
+		let lines = wrap(&items, "    ");
+		assert!(
+			lines.len() > 1 && lines.iter().all(|l| l.chars().count() <= WIDTH),
+			"{lines:?}"
+		);
+		assert_eq!(lines.join(" ").matches("Plugin").count(), 40);
 	}
 
 	#[test]
