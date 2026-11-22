@@ -530,19 +530,16 @@ pub mod __private {
 		name: &str,
 		body: impl FnOnce(&mut PluginInstance),
 	) -> Result {
-		use aexlo_harness::preview::{PreviewMode, ensure_live_viewer, open_in_viewer, preview_mode, preview_path};
+		use aexlo_harness::preview::{open_in_viewer, preview_path, preview_requested};
 		// SAFETY: the address is the crate's own `extern "C"` entry point.
 		let mut fx = unsafe { aexlo::Host::get().from_entry_raw(entry) }?;
 		body(&mut fx);
 		let path = preview_path(crate_dir, module_path, name);
 		aexlo_harness::preview::save_preview(&fx, &path)?;
 		eprintln!("aexlo_test::preview: wrote {}", path.display());
-		// AEXLO_PREVIEW: unset = save only, `live` = keep an `aexlo view`
-		// window updated (pair with a re-runner like `bacon`), else open once.
-		match preview_mode() {
-			PreviewMode::Off => {}
-			PreviewMode::Once => open_in_viewer(&path)?,
-			PreviewMode::Live => ensure_live_viewer(&path)?,
+		// `aexlo dev` shows the PNG live; AEXLO_PREVIEW opens it once.
+		if preview_requested() {
+			open_in_viewer(&path)?;
 		}
 		Ok(())
 	}

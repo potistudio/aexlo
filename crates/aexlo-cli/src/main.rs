@@ -17,7 +17,6 @@ mod preview;
 mod render;
 mod session;
 mod toolkit;
-mod view;
 mod viewer;
 mod watch;
 mod web;
@@ -93,10 +92,11 @@ enum Command {
 	/// After Effects goldens are listed apart from regressions.
 	#[command(after_help = toolkit::EXIT_CODES)]
 	Check(toolkit::CheckArgs),
-	/// Rerun a #[aexlo_test::preview] test on save, with a live viewer.
+	/// Rerun a #[aexlo_test::preview] test on save, with a live window.
 	///
-	/// A built-in `bacon` replacement. Like `cargo build`, it works on the
-	/// crate in the current directory unless -p names another.
+	/// A built-in `bacon` replacement: the window shows the frame the preview
+	/// test wrote last. Like `cargo build`, it works on the crate in the
+	/// current directory unless -p names another.
 	Dev(dev::DevArgs),
 	/// Preview a built plugin in the browser, with live controls.
 	///
@@ -104,11 +104,6 @@ enum Command {
 	/// controls. No compiler in the loop: this is the `preview` to `dev`'s
 	/// watch loop.
 	Preview(preview::PreviewArgs),
-	/// Show a PNG in a window, reloading it when it changes.
-	///
-	/// A `dev`-driven #[aexlo_test::preview] opens one by itself; pair it
-	/// with your own re-runner otherwise.
-	View(view::ViewArgs),
 	/// What `test`, `bench` and `compat` spawn to run a plugin in.
 	#[command(hide = true)]
 	Worker,
@@ -139,7 +134,6 @@ fn main() -> ExitCode {
 		Command::Check(args) => toolkit::cmd_check(args),
 		Command::Dev(args) => report(dev::cmd(args)),
 		Command::Preview(args) => report(preview::cmd(args)),
-		Command::View(args) => report(view::cmd(args)),
 		Command::Worker => toolkit::cmd_worker(),
 	}
 }

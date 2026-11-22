@@ -85,7 +85,7 @@ knows about manifests.
 
 `aexlo` exposes **mechanisms** (events, allocation policy, depth I/O); the
 harness implements **policy** (what counts as a failure, tolerances, files).
-`crates/aexlo/src/preview.rs` (viewer lock, PNG writing, `AEXLO_PREVIEW`)
+`crates/aexlo/src/preview.rs` (PNG writing, `AEXLO_PREVIEW`)
 violates this and moves to `aexlo_harness::preview` (§13).
 
 ## 4. Manifest: `aexlo.toml`

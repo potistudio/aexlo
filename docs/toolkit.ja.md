@@ -72,7 +72,7 @@ aexlo は、すでに実際の After Effects プラグインを AE の外で実�
 ### 3.2 コアとの境界の原則
 
 `aexlo` は**仕組み**（イベント、割り当て方針、深度別 I/O）を公開し、ハーネスは**運用上の方針**（失敗の判定、許容誤差、ファイル）を実装します。
-`crates/aexlo/src/preview.rs`（ビューアーのロック、PNG 書き込み、`AEXLO_PREVIEW`）はこの原則に反するため、`aexlo_harness::preview` へ移動します（§13）。
+`crates/aexlo/src/preview.rs`（PNG 書き込み、`AEXLO_PREVIEW`）はこの原則に反するため、`aexlo_harness::preview` へ移動します（§13）。
 
 ## 4. マニフェスト：`aexlo.toml`
 

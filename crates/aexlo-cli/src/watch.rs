@@ -19,15 +19,16 @@ use notify::{RecursiveMode, Watcher};
 /// Debounce window so a burst of editor save events triggers one rebuild.
 pub(crate) const DEBOUNCE: Duration = Duration::from_millis(150);
 
-pub fn run(manifest: &Path) -> Result<()> {
-	let crate_dir = manifest.parent().context("manifest path has no parent directory")?;
-	let src_dir = crate_dir.join("src");
+/// The size a preview window opens at.
+pub(crate) const WINDOW_SIZE: (usize, usize) = (1280, 720);
 
-	let (init_w, init_h) = (1280usize, 720usize);
-	let mut window = Window::new(
-		"aexlo dev --bin - building…",
-		init_w,
-		init_h,
+/// The live preview window `dev` and `dev --bin` show frames in.
+pub(crate) fn open_window(title: &str) -> Result<Window> {
+	let (w, h) = WINDOW_SIZE;
+	Window::new(
+		title,
+		w,
+		h,
 		// Float above the editor so the live preview stays visible while you work.
 		WindowOptions {
 			resize: true,
@@ -36,7 +37,15 @@ pub fn run(manifest: &Path) -> Result<()> {
 			..Default::default()
 		},
 	)
-	.map_err(|e| anyhow!("opening preview window: {e}"))?;
+	.map_err(|e| anyhow!("opening preview window: {e}"))
+}
+
+pub fn run(manifest: &Path) -> Result<()> {
+	let crate_dir = manifest.parent().context("manifest path has no parent directory")?;
+	let src_dir = crate_dir.join("src");
+
+	let mut window = open_window("aexlo dev --bin - building…")?;
+	let (init_w, init_h) = WINDOW_SIZE;
 
 	// File watcher: forward raw events over a channel; the main loop debounces them.
 	let (tx, rx) = mpsc::channel();
@@ -209,7 +218,7 @@ pub(crate) fn is_relevant(path: &Path) -> bool {
 }
 
 /// Pack RGBA8 into minifb's `0x00RRGGBB` buffer (alpha ignored).
-fn rgba_to_argb(rgba: &[u8]) -> Vec<u32> {
+pub(crate) fn rgba_to_argb(rgba: &[u8]) -> Vec<u32> {
 	rgba.as_chunks::<4>()
 		.0
 		.iter()
