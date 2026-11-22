@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use aexlo::{
 	AnyLayer, InstanceState, LiveAllocation, ObserveLevel, OutFlags, OutFlags2, ParamValue, PixelDepthKind,
-	PluginInstance, Strict, Time,
+	PluginInstance, Strict, TextLayer, TextStyle, Time,
 };
 use anyhow::{Context, Result, bail};
 
@@ -26,6 +26,10 @@ pub struct Setup {
 	pub manifest: Option<PathBuf>,
 	/// The input layer; its depth is the project depth.
 	pub input: AnyLayer,
+	/// The text when the layer is a text layer (`input text`).
+	pub text: Option<TextLayer>,
+	/// The font `input text` sets text in; `None` is a system sans-serif.
+	pub font: Option<PathBuf>,
 	pub size: Option<(u32, u32)>,
 	pub level: ObserveLevel,
 	pub strict: Strict,
@@ -164,6 +168,7 @@ impl Engine {
 			.load()
 			.with_context(|| format!("loading plugin {}", setup.path.display()))?;
 		instance.set_parallel_iterate(!setup.serial);
+		instance.set_text_layer(setup.text.clone());
 		Ok(instance)
 	}
 
@@ -252,11 +257,18 @@ impl Engine {
 				let fx = self.instance()?;
 				let depth = fx.input_depth();
 				let (w, h) = fx.input_size();
-				let layer = build_input(source, depth, (w, h))?;
+				let (layer, text) = build_input(source, depth, (w, h), self.setup.font.as_deref())?;
 				let (w, h) = (layer.width(), layer.height());
+				let fx = self.instance()?;
 				set_input(fx, layer.clone());
+				fx.set_text_layer(text.clone());
+				let kind = match &text {
+					Some(text) => format!(" text layer, {} outline(s)", text.outlines().len()),
+					None => String::new(),
+				};
 				self.setup.input = layer;
-				Ok(format!("input = {w}x{h} {}-bit", depth.bits()))
+				self.setup.text = text;
+				Ok(format!("input = {w}x{h} {}-bit{kind}", depth.bits()))
 			}
 			Command::Depth(kind) => {
 				if !self.instance()?.supports_depth(*kind) {
@@ -418,8 +430,20 @@ fn set_input(fx: &mut PluginInstance, layer: AnyLayer) {
 	}
 }
 
-pub fn build_input(source: &InputSource, depth: PixelDepthKind, current: (u32, u32)) -> Result<AnyLayer> {
-	Ok(match source {
+/// The input layer `source` describes, and its text when it is a text layer.
+pub fn build_input(
+	source: &InputSource,
+	depth: PixelDepthKind,
+	current: (u32, u32),
+	font: Option<&Path>,
+) -> Result<(AnyLayer, Option<TextLayer>)> {
+	if let InputSource::Text(text) = source {
+		let (w, h) = current;
+		let text = layout_text(text, font, w, h)?;
+		return Ok((text.rasterize(depth, w, h, [1.0; 4]), Some(text)));
+	}
+	let layer = match source {
+		InputSource::Text(_) => unreachable!("handled above"),
 		InputSource::Png(path) => load_png(path)?.convert(depth),
 		InputSource::Fill(rgba, size) => {
 			let (w, h) = size.unwrap_or(current);
@@ -438,7 +462,27 @@ pub fn build_input(source: &InputSource, depth: PixelDepthKind, current: (u32, u
 			layer.set_from_unit_rgba(values);
 			layer
 		}
-	})
+	};
+	Ok((layer, None))
+}
+
+/// `text` as large as fits: 40% of the layer's height, smaller when that
+/// would run wider than 90% of its width.
+fn layout_text(text: &str, font: Option<&Path>, w: u32, h: u32) -> Result<TextLayer> {
+	let mut style = TextStyle::sized(h as f32 * 0.4);
+	style.font = font.map(Path::to_path_buf);
+	let first = TextLayer::layout(text, &style, w, h).context("setting the text")?;
+	let fits = |layer: &TextLayer| {
+		layer
+			.bounds()
+			.map_or(1.0, |(l, _, r, _)| (w as f64 * 0.9) / (r - l).max(1.0))
+	};
+	let scale = fits(&first);
+	if scale >= 1.0 {
+		return Ok(first);
+	}
+	style.size *= scale as f32;
+	TextLayer::layout(text, &style, w, h).context("setting the text")
 }
 
 pub fn load_png(path: &Path) -> Result<AnyLayer> {

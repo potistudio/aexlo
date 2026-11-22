@@ -18,6 +18,9 @@ PLUGIN COMMANDS (each runs on the plugin's thread and is traced)
   size <w> <h>              Output size of later renders
   input <png> | input <black|white|gradient> [w h]
                             Replace the input layer (keeps its depth)
+  input text <string>       Make the layer a text layer showing <string>
+                            (\n breaks lines): the plugin gets its glyph
+                            outlines and the text, white, as its input
   depth <8|16|32>           Convert the input (project) depth
   reload                    Tear the plugin down and load it again (a crate
                             given as <plugin> is rebuilt first)
@@ -84,6 +87,8 @@ pub enum InputSource {
 	Png(PathBuf),
 	Fill([f32; 4], Option<(u32, u32)>),
 	Gradient(Option<(u32, u32)>),
+	/// A text layer showing this string.
+	Text(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,6 +177,10 @@ pub fn parse(line: &str) -> Result<Command> {
 			_ => bail!("size <w> <h>"),
 		},
 		"input" => match args.first().copied() {
+			Some("text") => match rest.strip_prefix("text").map(unquote) {
+				Some(text) if !text.is_empty() => Command::Input(InputSource::Text(text.replace("\\n", "\n"))),
+				_ => bail!("input text <string>"),
+			},
 			Some(kind @ ("black" | "white" | "gradient")) => {
 				let size = match &args[1..] {
 					[w, h] => Some((dimension(w)?, dimension(h)?)),
@@ -186,7 +195,7 @@ pub fn parse(line: &str) -> Result<Command> {
 			}
 			// Everything else is a path, spaces and all.
 			Some(_) => Command::Input(InputSource::Png(PathBuf::from(unquote(rest)))),
-			None => bail!("input <png> | input <black|white|gradient> [w h]"),
+			None => bail!("input <png> | input <black|white|gradient> [w h] | input text <string>"),
 		},
 		"depth" => Command::Depth(match args.as_slice() {
 			["8"] => PixelDepthKind::U8,
@@ -353,6 +362,15 @@ mod tests {
 			parse("input black 4 2").unwrap(),
 			Command::Input(InputSource::Fill([0.0, 0.0, 0.0, 1.0], Some((4, 2))))
 		);
+		assert_eq!(
+			parse("input text \"Hello world\"").unwrap(),
+			Command::Input(InputSource::Text("Hello world".into()))
+		);
+		assert_eq!(
+			parse("input text two\\nlines").unwrap(),
+			Command::Input(InputSource::Text("two\nlines".into()))
+		);
+		assert!(parse("input text").is_err());
 		assert!(parse("render sideways").is_err());
 		assert!(parse("frobnicate").is_err());
 

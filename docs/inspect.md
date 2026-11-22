@@ -88,6 +88,8 @@ and the analysis is printed once more ([`report`](#report)).
 | Option | Meaning | Default |
 | ------ | ------- | ------- |
 | `-i`, `--input <png>` | The input layer | A gradient |
+| `--text <string>` | Make the layer a text layer showing `<string>`, as [`input text`](#3-commands) does. Not with `--input`. | Not a text layer |
+| `--font <file>` | The TrueType or OpenType font `--text` and `input text` set text in | A sans-serif face installed with the system (Arial on macOS and Windows) |
 | `--size <W>x<H>` | Size of the default input and of the output | 640x360, or the size of `--input` |
 | `--depth <8\|16\|32>` | Project depth (bits per channel) | 8 |
 | `--level <args\|calls\|commands>` | What is recorded; see below | `args` |
@@ -129,6 +131,7 @@ are recorded under a *step*, which is the command line you sent.
 | `size <w> <h>` | | Output size of later renders (1 to 16384) |
 | `input <png>` | | Replace the input layer with a PNG, converted to the current depth. The rest of the line is the path; quotes are optional. |
 | `input <black\|white\|gradient> [w h]` | | Replace the input layer with a generated one, at the given size or the current one |
+| `input text <string>` | | Make the effect's layer a text layer showing `<string>` at the current size; `\n` breaks lines, quotes are optional. See [Text layers](#text-layers). |
 | `depth <8\|16\|32>` | | Convert the input (project) depth. Fails if the plugin does not declare that depth. |
 | `reload` | | Tear the plugin down and load it again. A crate is rebuilt first. |
 | `level <commands\|calls\|args>` | `cmd`, `call`, `arguments` | Change what is recorded |
@@ -197,12 +200,34 @@ let a user enter such a value.
 | The trace, the command and suite-call totals, `errors` | Forgotten; entry numbers start again from `#1` | Kept; the teardown and the new setup are added to them |
 | The `failed` count | Kept | Kept |
 | The plugin, its memory and its parameter values | Untouched | Unloaded and loaded again. Parameter values are carried over where the parameter still exists with the same type. |
-| `size`, `input`, `depth`, `level`, `strict`, `serial` | Untouched | Carried over |
+| `size`, `input` (and its text), `depth`, `level`, `strict`, `serial` | Untouched | Carried over |
 
 The output size is the input's size unless `--size` or `size` sets it.
 Replacing the input later with `input <png>` keeps the output size, so the
 two can differ. The plugin then renders an output of one size from an input
 of another, the way it would for an effect that grows its layer.
+
+### Text layers
+
+Some effects only work on a text layer: they ask `AEGP_GetLayerObjectType`
+and read the glyph outlines through the AEGP Text Layer Suite. On any other
+layer they usually pass their input through. `input text <string>` (or
+`--text`) makes the effect's layer a text layer:
+
+- `AEGP_GetLayerObjectType` answers `AEGP_ObjectType_TEXT`.
+- `AEGP_GetNewTextOutlines` hands out one closed outline per glyph contour,
+  in reading order, in layer pixels. The PF Path Data Suite reads them with
+  their tangents as absolute points, as After Effects gives text outlines.
+- The input layer is the text, white on transparent, as After Effects
+  renders a text layer before its effects.
+
+The text is set as a centred paragraph, centred on the layer, as large as fits
+(40% of the layer's height at most). Any other `input` makes the layer an AV
+layer again.
+
+```bash
+aexlo inspect TextGrad --text "TextGrad" --exec "render; save text.png"
+```
 
 ### Dialogs
 
