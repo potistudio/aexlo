@@ -25,7 +25,8 @@ Use `--release`: debug builds composite several times slower.
   Japanese font), and adjustment layers whose effects process everything
   below them. Each has a transform, opacity, blend mode, and in/out points.
   Effects on a text layer see it as one (`AEGP_ObjectType_TEXT`) and can read
-  its glyph outlines, so text effects such as TextGrad work.
+  its glyph outlines, so text effects such as TextGrad work. On a shape
+  layer they read the items' paths (not strokes), as Extrude does.
 - **Masks**: drawn with the pen or shape tools on any layer, with Add,
   Subtract, Intersect, Lighten, Darken, Difference and None modes, inversion,
   opacity and feather. They cut the layer before its effects run, as in AE,
@@ -42,7 +43,10 @@ Use `--release`: debug builds composite several times slower.
 - **Time**: every property and effect parameter has a stopwatch. Keyframes
   are Linear, Easy Ease or Hold, can be dragged in the timeline, and
   right-clicked to change. Effects see layer time (`frame - start`), so
-  sliding a layer slides its effects' clocks and keyframes with it.
+  sliding a layer slides its effects' clocks and keyframes with it. They
+  get the keyframes too (Easy Ease as one linear key per frame), so a
+  checkout at another time sees the value Studio shows. Source text is the
+  current frame's.
 - **Viewer**: zoom (scroll or pinch), pan (Alt-drag or middle-drag), select
   and move layers, scale from corners, rotate from the knob, edit mask and
   path points and tangents (hold Alt mid-drag to move one tangent alone),

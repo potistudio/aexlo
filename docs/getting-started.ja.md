@@ -6,7 +6,7 @@ aexlo は、既存の After Effects プラグインを読み込み、After Effec
 
 ## 1. プラグインを読み込む
 
-- rustup を使って Rust と Cargo をインストールしてください。使用するツールチェーンはリポジトリの `rust-toolchain.toml` で指定されています（現在は 1.99.0）。
+- rustup を使って Rust と Cargo をインストールしてください。使用するツールチェーンはリポジトリの `rust-toolchain.toml` で指定されています（現在は 1.100.0）。
 - 使用するプラットフォーム向けにビルドされたプラグインを用意してください。主な対象は macOS ARM64 と Windows x64 です。Linux はサポートしていません。
 - 同梱のサンプルを実行する際に After Effects は必要ありません。Adobe のホストとの動作比較には After Effects が必要です。
 

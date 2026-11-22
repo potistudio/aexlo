@@ -33,7 +33,16 @@ However, all of these plugins are designed to run exclusively within After Effec
 
 ## Capabilities
 
-- Load and render After Effects plugins outside of After Effects.
+- Load and render After Effects plugins outside of After Effects, through
+  their GPU, smart and legacy paths, in 8, 16 and 32 bits per channel.
+- Put an effect on a text or shape layer, so effects that work from glyph
+  and path data (Discotext, Extrude) can read it, and give it masks.
+- Describe the project around an effect: comp, layers, transforms and
+  layer time.
+- Keyframe parameters, with one value at any instant whichever API the
+  plugin asks.
+- Observe the commands and suite calls, and what a plugin asked for that
+  aexlo does not do.
 - Selectively override or re-implement SDK commands, suites, and callbacks
   to fit your specific workflow.
 
@@ -41,13 +50,15 @@ However, all of these plugins are designed to run exclusively within After Effec
 
 > [!WARNING]
 > This project is **currently under heavy development**.
+> Rendering without an error is not a promise of the same pixels: much of the
+> host has not been compared with After Effects.
 > The latest progress of this project can be seen on the [master branch](https://github.com/potistudio/aexlo/tree/master).
 
 ## Quick Start
 
 ### Requirements
 
-- Rust toolchain specified by `rust-toolchain.toml` (currently 1.99.0)
+- Rust toolchain specified by `rust-toolchain.toml` (currently 1.100.0)
 
 - Windows x64 or macOS arm64
 
@@ -79,6 +90,70 @@ fn main() -> aexlo::Result<()> {
 
 A plugin is native code that runs inside your process; see the crate docs on
 [docs.rs](https://docs.rs/aexlo) for the trust, process and threading model.
+
+### Layers, paths and keyframes
+
+> [!NOTE]
+> These APIs are newer than 0.2.0; see
+> [Unreleased](https://github.com/potistudio/aexlo/blob/master/CHANGELOG.md).
+
+Without a project, an effect is alone on a layer that fills its comp.
+`set_text_layer` makes that a text layer and `set_mask_paths` gives it masks.
+`set_project` describes a whole comp instead, which is how an effect gets the
+paths of a shape layer:
+
+```rust,no_run
+use aexlo::{
+    Comp, Depth8, Host, Keyframe, Layer, LayerContent, MaskPath, MaskVertex, ParamValue, PixelDepthKind, Project,
+    ProjectLayer, ShapeFill, ShapeGroup, ShapeItem, ShapePath, Time, TimePoint, Track,
+};
+
+fn main() -> aexlo::Result<()> {
+    let comp = Comp::new("Comp 1", 640, 360, TimePoint::whole_seconds(10));
+    let triangle = MaskPath {
+        vertices: vec![
+            MaskVertex::corner(260.0, 60.0),
+            MaskVertex::corner(370.0, 250.0),
+            MaskVertex::corner(150.0, 250.0),
+        ],
+        closed: true,
+        ..Default::default()
+    };
+    let group = ShapeGroup::new(
+        "Triangle",
+        vec![
+            ShapeItem::Path(ShapePath::new("Path 1", triangle)),
+            ShapeItem::Fill(ShapeFill::new([1.0; 4])),
+        ],
+    );
+    let content = LayerContent::Shape(vec![ShapeItem::Group(group)]);
+    let layer = ProjectLayer::new(1, "Shape Layer 1", content, &comp);
+    // The pixels are the host's to give, as After Effects would draw them.
+    let input = layer
+        .rasterize(PixelDepthKind::U8, TimePoint::ZERO, [1.0; 4])
+        .expect("a shape layer");
+
+    let mut fx = Host::get().loader("Extrude.aex").input(input).load()?;
+    fx.set_project(Some(Project::new(comp, vec![layer], 1)?));
+
+    // Extrude's "Extrusion Length Back".
+    let length = Track::keyed(vec![
+        Keyframe::linear(TimePoint::frame(0, 30), ParamValue::Float(0.0)),
+        Keyframe::linear(TimePoint::frame(30, 30), ParamValue::Float(200.0)),
+    ])
+    .expect("two different times");
+    fx.set_param_track(27, length)?;
+
+    fx.set_time(Time::frame(15, 30)); // 100
+    fx.render_frame()?;
+    let output: Layer<Depth8> = fx.read_output()?;
+    Ok(())
+}
+```
+
+The project is read-only to plugins, and with one `set_time` is the time of
+the effect's layer: comp time is `start + time * stretch`. Keyframes are
+linear or held. [AEGP](#aegp) lists the other limits.
 
 ### Build from the repository
 
@@ -134,6 +209,14 @@ aexlo inspect build/MyGlow.plugin            # TUI; `:help` lists the commands
 aexlo inspect MyGlow --exec "render; set Radius 50; render smart"
 ```
 
+`input text`, `input shape`, `mask` and `key` give the effect a text layer, a
+shape layer, masks and keyframes to work on:
+
+```bash
+aexlo inspect Extrude --exec "input shape ring; render smart; save ring.png"
+aexlo inspect Discotext --exec "input text HELLO; render smart; save text.png"
+```
+
 It traces every command and the host suite functions the plugin calls back,
 totals them per function, and shows the parameters, the `PF_InData` /
 `PF_OutData` state, the handles and worlds the plugin holds as a hex dump
@@ -178,21 +261,21 @@ See [docs/compat.md](https://github.com/potistudio/aexlo/blob/master/docs/compat
 
 ## Implementation Progress
 
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 89% (32/36)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀ 81% (29/36)
 
 > ○ fully implemented / △ only partially implemented / × not implemented
 
 | CB Suites          | Effect Suites                    | Adv Effect Suites | Others            |
 | ------------------ | -------------------------------- | ----------------- | ----------------- |
 | ○ ANSI             | ○ AE App                         | ○ AE Adv App      | ○ Cache On Load   |
-| ○ Batch Sampling   | ○ AngleParam                     | ○ AE Adv Item     | △ Channel         |
+| △ Batch Sampling   | ○ AngleParam                     | ○ AE Adv Item     | △ Channel         |
 | ○ Color            | ○ ColorParam                     | ○ AE Adv Time     | ○ GPU Device      |
 | ○ Color16          | △ Effect Custom UI Overlay Theme |                   | ○ Plugin Helper   |
 | ○ ColorFloat       | △ Effect Custom UI               |                   | ○ Plugin Helper 2 |
 | ○ Fill Matte       | ○ Effect UI                      |                   |                   |
-| ○ Handle           | ○ Param Utils                    |                   |                   |
+| ○ Handle           | △ Param Utils                    |                   |                   |
 | ○ Iterate8         | ○ Path Data                      |                   |                   |
-| ○ Iterate16        | ○ Path Query                     |                   |                   |
+| ○ Iterate16        | △ Path Query                     |                   |                   |
 | ○ IterateFloat     | ○ PointParam                     |                   |                   |
 | ○ Pixel Data       | × Effect Sequence Data           |                   |                   |
 | ○ Pixel Format     |                                  |                   |                   |
@@ -204,12 +287,20 @@ See [docs/compat.md](https://github.com/potistudio/aexlo/blob/master/docs/compat
 
 △ Effect Custom UI / Overlay Theme: theme values are served, and Drawbot draws
 during `PF_Event_DRAW`. The CLI never sends `PF_Cmd_EVENT`; an embedder does.
+△ Batch Sampling: no batch functions are provided (the SDK withdrew them in
+After Effects 7.0); the per-pixel samplers work.
+△ Param Utils: states follow values and keyframes over the whole timeline,
+not the time range asked about or the pixels of layer parameters.
+△ Path Query: masks are read-only and the same at every time.
 △ Channel: layers are plain 2D images and report no auxiliary channels.
+Callbacks that are not implemented return an error rather than a false success.
 Legacy Gaussian-kernel generation uses approximate coefficients that have not been checked against After Effects. Legacy blend and convolution currently accept 8-bit worlds only.
 
 ### AEGP
 
 ⣿⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 14% (5/36)
+
+5 fully and 21 partially implemented, 10 not implemented.
 
 | Project        | Streams           | Pixels                 | Other                  |
 | -------------- | ----------------- | ---------------------- | ---------------------- |
@@ -224,13 +315,13 @@ Legacy Gaussian-kernel generation uses approximate coefficients that have not be
 | × Collection   |                   | × Sound Data           | × Render Async Manager |
 | × Marker       |                   |                        |                        |
 
-△ Layer / Comp / Item / Light / Effect / PF Interface / Stream / Dynamic Stream / Keyframe: read-only, from the project the embedder gives with `set_project`, or else a comp of the effect's one layer.
-Keyframes are linear or held: there are no bezier eases, spatial tangents or expressions, and layer pixels do not follow the time a checkout asks for.
-△ Mask Outline / Text Document: shape paths and source strings are read; nothing is written, and layer masks are not streams (read them through Path Query).
-Shape layers have paths, groups, fills and Merge Paths as streams, without strokes or parametric shapes.
+△ Layer / Comp / Item / Light / Effect / PF Interface: read-only, from the project given with `set_project`, or else one comp with the effect's layer and a synthetic footage item for its input.
+The Effect Suite knows one effect, the hosted one, and the identities reported by loaded plugins; it does not enumerate the system's installed effects.
+△ Stream / Dynamic Stream: transforms, effect parameters, source text and shape contents (paths, groups, fills and Merge Paths) at the time asked for.
+Strokes, parametric shapes, layer masks and expressions are not streams. A plugin can hide or disable parameters, and set those without keyframes other than layers and arbitrary data; other writes are refused.
+△ Keyframe: reads only, linear or held; no bezier eases or spatial tangents. A layer checked out at another time has the current pixels.
+△ Mask Outline / Text Document: shape paths and source strings are read; nothing is written. Layer masks are read through Path Query.
 △ Math: the angle convention of `AEGP_MatrixDecompose4` has not been checked against After Effects.
-The layer has one hosted effect and a synthetic footage item representing its input.
-The Effect Suite exposes identities reported by loaded plugins; it does not enumerate the system's installed effects.
 △ Proj: one unsaved synthetic project is exposed; project editing, persistence, root folders and time-display settings are not implemented.
 △ Render / Render Options / Layer Render Options: checkout returns the effect's own input.
 △ Color Settings: the working space is sRGB, with no colour management.

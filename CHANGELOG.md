@@ -7,6 +7,29 @@ may break the API, and every breaking change is listed below.
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+No public item was removed, but these can break a build or change what a
+plugin renders or returns.
+
+- Rust 1.100.0 is the minimum supported version, up from 1.99.0.
+- `PF_PathVertexInfo` gives a mask's tangents as points in layer space, as
+  the SDK guide describes them, not as offsets from the vertex. `MaskPath`
+  still takes offsets. Every effect that reads mask paths sees different
+  tangents, so its reference frames may need updating: Extrude, which pulled
+  masks towards the origin, now follows them.
+- Host callbacks aexlo does not implement return `PF_Err_INVALID_CALLBACK`
+  where they returned `PF_Err_NONE` without doing the work: the stubbed
+  utility callbacks, layer audio, unknown `get_platform_data` selectors and
+  `AEGP_ExecuteScript`. A plugin that relied on the false success can now
+  fail.
+- `checkout_layer` in a pre-render refuses an index that is not a layer
+  parameter, clips `result_rect` to the request and no longer claims that the
+  input is solid. `checkout_layer_pixels` refuses an id that was never
+  checked out, where it gave the input layer.
+- The legacy blend and convolve callbacks, and those of PF World Transform,
+  refuse 16- and 32-bit worlds instead of treating them as 8-bit.
+
 ### Added
 
 - `Observer::unsupported` hears about what the plugin asked for and aexlo
@@ -53,20 +76,33 @@ may break the API, and every breaking change is listed below.
   with ids, names, spans, stretch, parents and transforms. The Layer, Comp,
   Item, PF Interface, Stream and Dynamic Stream suites answer from it, and the
   handle of a layer that left is refused. Without a project the effect is
-  still alone on a layer that fills its comp.
+  still alone on a layer that fills its comp. `ProjectLayer::rasterize`
+  draws a text or shape layer as an input, `Project::link_layer_param` says
+  which layer a layer parameter shows, and `AexloError::InvalidProject`
+  reports a project that does not hold together.
 - Shape layers' paths and text layers' source text are streams: "AEGP Mask
-  Outline Suite" (2, 3, 5) and "AEGP Text Document Suite" v1 read them, and
-  `AEGP_GetLayerStreamValue` reads the transform. Extrude draws shape layers
-  and Discotext text layers through them.
+  Outline Suite" v2, v3 and v5 and "AEGP Text Document Suite" v1 read them,
+  and `AEGP_GetLayerStreamValue` reads the transform. Extrude draws shape
+  layers and Discotext text layers through them.
 - Time: `TimePoint` is exact, and `Track`s of `Keyframe`s interpolate linearly
   or hold. `PluginInstance::set_param_track` keyframes a parameter; the
   `params` array, `PF_CHECKOUT_PARAM`, streams, the Keyframe Suite and PF Param
   Utils all read that track, at the time each is asked about. With a project,
   `set_time` is the effect layer's time.
-- "AEGP Comp Suite" v19, "AEGP Math Suite" v1 and "AEGP Stream Suite" v4.
-- `aexlo inspect` takes `input shape`, `mask` and `key`.
+- Suites and versions: "AEGP Comp Suite" v19, v25 and v26, "AEGP Item Suite"
+  v14, "AEGP Layer Render Options Suite" v1, "AEGP Stream Suite" v4, "PF World
+  Suite" v1, and the new "AEGP Proj Suite" v8 (read-only), "AEGP Math Suite"
+  v1, "AEGP Compute Cache" v1 and "AEGP Hash Suite" v1. The angle convention
+  of `AEGP_MatrixDecompose4` and the hash values have not been checked
+  against After Effects.
+- The input layer is a footage item and the hosted effect an effect on its
+  layer: the Layer, Item and Effect suites report both, and the Effect Suite
+  gives the identities the loaded plugins declare.
+- The legacy utility callbacks blend, convolve (8-bit), generate Gaussian
+  kernels (approximate coefficients) and resolve `get_callback_addr`.
+- Smart pre-renders have a `GuidMixInPtr`. No frames are cached by GUID.
 - `AEGP_SetStreamValue` sets an effect parameter's value, clamped to its valid
-  range (a color keeps its alpha), and `AEGP_SetDynamicStreamFlag` hides and
+  range (a colour keeps its alpha), and `AEGP_SetDynamicStreamFlag` hides and
   disables parameters (`PF_PUI_INVISIBLE`, `PF_PUI_DISABLED`), which
   `AEGP_GetDynamicStreamFlags` now reports. Deep Glow's and TextGrad's Reset
   and Swap buttons work through them, and Deep Glow's
@@ -74,10 +110,6 @@ may break the API, and every breaking change is listed below.
 
 ### Fixed
 
-- `PF_PathVertexInfo` gives a mask's tangents as points in layer space, as
-  the SDK guide describes them and as it already did for text outlines, not
-  as offsets from the vertex. `MaskPath` still takes offsets. Extrude pulled
-  masks towards the origin.
 - "AEGP Utility Suite" serves each version at its own layout: v3–7
   (`AEGP_UtilitySuite1`–`3`), v10–11 (`4`–`5`) and v13 (`6`). One table
   served every version from 1 to 18, so a v11 plugin calling
@@ -99,16 +131,23 @@ may break the API, and every breaking change is listed below.
 - `AEGP_DisposeColorProfile` refuses a pointer it did not hand out instead of
   freeing it. A plugin that bailed out of a failed call disposed an
   uninitialised profile, which aborted the process.
-
-### Fixed
-
 - `PF_CHECKOUT_PARAM` answers the two indices past a plugin's declared
   parameters with empty parameters. Red Giant Universe effects probe them,
   and corrupted the heap on smart renders when they failed.
-- `PF_InData::total_time` is the synthetic layer's duration instead of 0,
-  which made effects that divide by it render with NaNs or crash.
+- `PF_InData::total_time` is the layer's duration (the project's, or 30
+  seconds without one) instead of 0, which made effects that divide by it
+  render with NaNs or crash.
 - The pre-render delete callback now runs for GPU frames too, so their
   pre-render data no longer leaks.
+- Teardown sends `PF_Cmd_SEQUENCE_SETDOWN` and `PF_Cmd_GLOBAL_SETDOWN` only
+  after the matching setup succeeded.
+- `PF_DisposeWorld` frees the allocation the host made, whatever the plugin
+  wrote into the world since, and refuses pixels it did not allocate.
+  Disposing a handle the host did not make is ignored instead of freed.
+- New handles are zeroed.
+- Pre-render data that is a host handle without a delete callback is freed
+  instead of leaked.
+- `PF_KernelFlag_USE_CHAR` kernels are read as unsigned bytes.
 
 ## [0.2.0] - 2026-11-18
 
