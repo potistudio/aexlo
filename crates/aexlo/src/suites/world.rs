@@ -45,6 +45,8 @@ use crate::core::diagnostics::diag;
 /// `data` pointer (stable however the plugin copies the `PF_EffectWorld`), so
 /// `PF_GetPixelFormat` can report what the world was created as.
 static WORLD_FORMATS: LazyLock<Mutex<HashMap<usize, u32>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Owns unguarded allocations; never reconstruct a Vec from plugin-modifiable fields.
+static BUFFERS: LazyLock<Mutex<HashMap<usize, Vec<u8>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Worlds allocated with guard bands (strict mode), keyed by `data`.
 static GUARDED: LazyLock<Mutex<HashMap<usize, crate::strict::Guarded>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -94,15 +96,11 @@ pub(super) fn alloc_world(width: A_long, height: A_long, bytes_per_pixel: i32, f
 		(data, rowbytes)
 	});
 
-	// `data` must point at the pixel bytes themselves. Leaking a `Box<Vec<u8>>`
-	// and handing back its address instead points the plugin at the 24-byte
-	// `Vec` header, so any write past the first few pixels corrupts the heap.
-	// Take the buffer's own data pointer and leak the allocation; it is
-	// reclaimed in `free_world` from the world's own dimensions.
+	// Keep ownership and allocation metadata outside the plugin-writable world.
 	let (data, rowbytes) = guarded.unwrap_or_else(|| {
-		let mut buffer = vec![0u8; row_data * height as usize];
+		let mut buffer = vec![0u8; (row_data * height as usize).max(1)];
 		let data = buffer.as_mut_ptr();
-		std::mem::forget(buffer);
+		BUFFERS.lock().unwrap().insert(data as usize, buffer);
 		(data, width * bytes_per_pixel)
 	});
 	if let Ok(mut formats) = WORLD_FORMATS.lock() {
@@ -145,35 +143,38 @@ pub(super) fn alloc_world(width: A_long, height: A_long, bytes_per_pixel: i32, f
 /// Reclaim the pixel buffer of a world made by [`alloc_world`] and null its `data`.
 ///
 /// # Safety
-/// `world.data` must be null or come from [`alloc_world`] with the world's
-/// current `rowbytes` and `height`, and not have been freed already.
-pub(super) unsafe fn free_world(world: &mut PF_EffectWorld) {
+/// `world` must be a valid writable world structure.
+pub(super) unsafe fn free_world(world: &mut PF_EffectWorld) -> bool {
 	if world.data.is_null() {
-		return;
+		return true;
 	}
-	if let Ok(mut formats) = WORLD_FORMATS.lock() {
-		formats.remove(&(world.data as usize));
-	}
-	crate::strict::disposed(crate::AllocationKind::World, world.data as usize);
 	let guarded = GUARDED
 		.lock()
 		.ok()
 		.and_then(|mut all| all.remove(&(world.data as usize)));
 	if let Some(guarded) = guarded {
+		if let Ok(mut formats) = WORLD_FORMATS.lock() {
+			formats.remove(&(world.data as usize));
+		}
+		crate::strict::disposed(crate::AllocationKind::World, world.data as usize);
 		let broken = guarded.verify();
 		if !broken.is_empty() {
 			crate::strict::guards_broken(&format!("PF_NewWorld {}x{}", world.width, world.height), broken);
 		}
 		world.data = null_mut();
-		return;
+		return true;
 	}
-	// Its byte length is exactly `rowbytes * height`, matching the
-	// `vec![0u8; ..]` forgotten in `alloc_world`.
-	let size = world.rowbytes.max(0) as usize * world.height.max(0) as usize;
-	if size > 0 {
-		drop(unsafe { Vec::from_raw_parts(world.data as *mut u8, size, size) });
+	let buffer = BUFFERS.lock().unwrap().remove(&(world.data as usize));
+	let Some(buffer) = buffer else {
+		return false;
+	};
+	if let Ok(mut formats) = WORLD_FORMATS.lock() {
+		formats.remove(&(world.data as usize));
 	}
+	crate::strict::disposed(crate::AllocationKind::World, world.data as usize);
+	drop(buffer);
 	world.data = null_mut();
+	true
 }
 
 pub(crate) unsafe extern "C" fn dispose_world_sys(_effect_ref: PF_ProgPtr, worldP: *mut PF_EffectWorld) -> PF_Err {
@@ -183,7 +184,17 @@ pub(crate) unsafe extern "C" fn dispose_world_sys(_effect_ref: PF_ProgPtr, world
 			return PF_Err_NONE;
 		}
 
-		unsafe { free_world(&mut *worldP) };
+		if !unsafe { free_world(&mut *worldP) } {
+			let world = unsafe { &*worldP };
+			log::warn!(
+				"dispose_world: unowned data {:p} ({}x{}, rowbytes {})",
+				world.data,
+				world.width,
+				world.height,
+				world.rowbytes
+			);
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
 
 		diag!("PF_WorldSuite2/PF_DisposeWorld",
 			"effect_ref" => format!("{:#x}", _effect_ref as usize),
@@ -363,6 +374,24 @@ pub const fn create_world_suite() -> PF_WorldSuite2 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn disposal_uses_owned_allocation_and_rejects_foreign_data() {
+		let mut world = alloc_world(2, 2, 4, PF_PixelFormat_ARGB32 as u32);
+		let original = world.data;
+		world.rowbytes = 1_000_000;
+		world.height = 10_000;
+		assert_eq!(
+			unsafe { dispose_world_sys(std::ptr::null_mut(), &mut world) },
+			PF_Err_NONE
+		);
+		assert!(world.data.is_null());
+		world.data = original;
+		assert_eq!(
+			unsafe { dispose_world_sys(std::ptr::null_mut(), &mut world) },
+			PF_Err_BAD_CALLBACK_PARAM
+		);
+	}
 
 	#[test]
 	fn legacy_new_world_allocates_and_dispose_frees_it() {
