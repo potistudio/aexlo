@@ -18,6 +18,8 @@ mod json;
 mod recorder;
 mod term;
 mod ui;
+#[cfg(windows)]
+mod win32;
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -681,7 +683,7 @@ fn serve(setup: Setup, recorder: Recorder, requests: mpsc::Receiver<Request>, re
 		bytes: engine.read(address, base, MEMORY_WINDOW),
 		fresh,
 	};
-	for request in requests {
+	while let Some(request) = next_request(&requests) {
 		match request {
 			Request::Run(line, command) => {
 				let result = engine
@@ -702,6 +704,22 @@ fn serve(setup: Setup, recorder: Recorder, requests: mpsc::Receiver<Request>, re
 			Request::Quit => break,
 		}
 	}
+}
+
+/// The next request, or `None` once the UI hangs up. On Windows the
+/// plugin's windows (an Options dialog `dialog` opened) live on this thread,
+/// so their messages are dispatched while it waits.
+fn next_request(requests: &mpsc::Receiver<Request>) -> Option<Request> {
+	#[cfg(windows)]
+	loop {
+		match requests.recv_timeout(Duration::from_millis(16)) {
+			Ok(request) => return Some(request),
+			Err(mpsc::RecvTimeoutError::Timeout) => win32::pump_messages(),
+			Err(mpsc::RecvTimeoutError::Disconnected) => return None,
+		}
+	}
+	#[cfg(not(windows))]
+	requests.recv().ok()
 }
 
 fn tui(setup: Setup) -> Result<()> {

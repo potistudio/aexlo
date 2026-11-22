@@ -235,9 +235,9 @@ aexlo inspect TextGrad --text "TextGrad" --exec "render; save text.png"
 `dialog` sends `PF_Cmd_DO_DIALOG`, and many plugins answer by opening a
 native window. In batch mode or over a pipe there may be no event loop or
 window server for that window. The plugin may then block, or crash and take
-the process with it (`DeepGlow2` does). Send `dialog` from the TUI instead, or
-use `aexlo dialog <plugin>`, which keeps the process alive while the window is
-open.
+the process with it (`DeepGlow2` does). Send `dialog` from the TUI instead:
+the plugin's thread keeps running there, and on Windows it dispatches the
+window's messages while it waits for the next command.
 
 ## 4. Events
 

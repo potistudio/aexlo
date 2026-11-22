@@ -222,7 +222,7 @@ aexlo inspect TextGrad --text "TextGrad" --exec "render; save text.png"
 `dialog` は `PF_Cmd_DO_DIALOG` を送ります。多くのプラグインはこれに応えてネイティブのウィンドウを開きます。
 バッチやパイプ越しの実行では、そのためのイベントループやウィンドウサーバーがない場合があります。
 するとプラグインが止まったままになるか、クラッシュしてプロセスごと終了します（`DeepGlow2` がそうです）。
-`dialog` は TUI から送るか、ウィンドウが開いている間プロセスを維持する `aexlo dialog <plugin>` を使ってください。
+`dialog` は TUI から送ってください。TUI ではプラグインのスレッドが動き続け、Windows では次のコマンドを待つ間ウィンドウのメッセージを処理します。
 
 ## 4. イベント
 

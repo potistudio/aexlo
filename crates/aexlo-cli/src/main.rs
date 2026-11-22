@@ -45,11 +45,6 @@ enum Command {
 	/// Render a frame and write it to a PNG or EXR.
 	#[command(after_help = PLUGIN_ARG)]
 	Render(render::RenderArgs),
-	/// Send PF_Cmd_DO_DIALOG (the effect's Options button).
-	///
-	/// Prints the plugin's flags and parameters first, and keeps the process
-	/// alive while a plugin window is visible.
-	Dialog(info::PluginArgs),
 	/// Drive the plugin from a prompt and trace what it does.
 	///
 	/// A TUI shows the commands and suite calls it makes (trace and totals),
@@ -113,7 +108,7 @@ enum Command {
 const PLUGIN_ARG: &str = "\
 <PLUGIN> is a path to the plugin (.plugin, .aex, .dll), or a bare name the \
 platform's extension is added to (SDK_Noise -> SDK_Noise.plugin). about, \
-params, render, dialog, inspect and bench also take a crate directory (with \
+params, render, inspect and bench also take a crate directory (with \
 a Cargo.toml) and build its cdylib first.";
 
 fn main() -> ExitCode {
@@ -125,7 +120,6 @@ fn main() -> ExitCode {
 		Command::About(args) => report(info::about(args)),
 		Command::Params(args) => report(info::params(args)),
 		Command::Render(args) => report(render::run(args)),
-		Command::Dialog(args) => report(info::dialog(args)),
 		Command::Inspect(args) => report(inspect::run(args)),
 		Command::Bench(args) => bench::cmd(args),
 		Command::Compat(args) => compat::cmd(args),

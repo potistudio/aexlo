@@ -1,11 +1,11 @@
-//! `about`, `params` and `dialog`: ask a plugin about itself.
+//! `about` and `params`: ask a plugin about itself.
 
 use aexlo::{ParamValue, PluginInstance};
 use anyhow::{Context, Result};
 
 use crate::args::load;
 
-/// The one argument `about`, `params` and `dialog` take.
+/// The one argument `about` and `params` take.
 #[derive(clap::Args)]
 pub struct PluginArgs {
 	/// The plugin, or a crate directory to build
@@ -24,23 +24,6 @@ pub fn about(args: PluginArgs) -> Result<()> {
 pub fn params(args: PluginArgs) -> Result<()> {
 	let instance = load(&args.plugin)?;
 	print_params(&instance);
-	Ok(())
-}
-
-pub fn dialog(args: PluginArgs) -> Result<()> {
-	let mut instance = load(&args.plugin)?;
-	println!(
-		"out_flags={:#x} out_flags2={:#x} options_button={}",
-		instance.out_flags(),
-		instance.out_flags2(),
-		instance.options_button_name().unwrap_or("(unset)")
-	);
-	print_params(&instance);
-	let message = instance.do_dialog().context("plugin rejected PF_Cmd_DO_DIALOG")?;
-	if !message.trim().is_empty() {
-		println!("{}", message.trim());
-	}
-	pump_plugin_windows();
 	Ok(())
 }
 
@@ -65,84 +48,6 @@ fn print_params(instance: &PluginInstance) {
 			param_name(instance, index)
 		);
 	}
-}
-
-/// Dispatch this thread's window messages while the plugin still has a window
-/// on screen. A modal Options dialog returns from `PF_Cmd_DO_DIALOG` itself.
-#[cfg(windows)]
-fn pump_plugin_windows() {
-	use std::time::Duration;
-
-	while process_has_visible_window() {
-		while peek_message() {}
-		std::thread::sleep(Duration::from_millis(16));
-	}
-}
-
-#[cfg(not(windows))]
-fn pump_plugin_windows() {}
-
-#[cfg(windows)]
-fn peek_message() -> bool {
-	#[repr(C)]
-	struct Msg {
-		hwnd: *mut std::ffi::c_void,
-		message: u32,
-		_pad: u32,
-		wparam: usize,
-		lparam: isize,
-		time: u32,
-		_pad2: u32,
-		x: i32,
-		y: i32,
-		lprivate: u32,
-		_pad3: u32,
-	}
-	#[link(name = "user32")]
-	unsafe extern "system" {
-		fn PeekMessageW(msg: *mut Msg, hwnd: *mut std::ffi::c_void, min: u32, max: u32, remove: u32) -> i32;
-		fn TranslateMessage(msg: *const Msg) -> i32;
-		fn DispatchMessageW(msg: *const Msg) -> isize;
-	}
-	let mut msg = std::mem::MaybeUninit::<Msg>::uninit();
-	let pending = unsafe { PeekMessageW(msg.as_mut_ptr(), std::ptr::null_mut(), 0, 0, 1) } != 0;
-	if pending {
-		let msg = unsafe { msg.assume_init() };
-		unsafe {
-			TranslateMessage(&msg);
-			DispatchMessageW(&msg);
-		}
-	}
-	pending
-}
-
-#[cfg(windows)]
-fn process_has_visible_window() -> bool {
-	#[link(name = "user32")]
-	unsafe extern "system" {
-		fn EnumWindows(cb: unsafe extern "system" fn(*mut std::ffi::c_void, isize) -> i32, lparam: isize) -> i32;
-		fn IsWindowVisible(hwnd: *mut std::ffi::c_void) -> i32;
-		fn GetWindowThreadProcessId(hwnd: *mut std::ffi::c_void, process: *mut u32) -> u32;
-	}
-	#[link(name = "kernel32")]
-	unsafe extern "system" {
-		fn GetCurrentProcessId() -> u32;
-	}
-	unsafe extern "system" fn visit(hwnd: *mut std::ffi::c_void, lparam: isize) -> i32 {
-		let mut pid = 0u32;
-		// SAFETY: `EnumWindows` passes a live top-level `hwnd`, and `pid` is a valid out-pointer.
-		let ours = unsafe { GetWindowThreadProcessId(hwnd, &mut pid) != 0 && pid == GetCurrentProcessId() };
-		// SAFETY: `hwnd` is the live window `EnumWindows` is visiting.
-		if ours && unsafe { IsWindowVisible(hwnd) } != 0 {
-			// SAFETY: `lparam` is the `&mut found` that `process_has_visible_window` passed to `EnumWindows`, alive for the whole enumeration.
-			unsafe { *(lparam as *mut bool) = true };
-			return 0;
-		}
-		1
-	}
-	let mut found = false;
-	unsafe { EnumWindows(visit, &mut found as *mut bool as isize) };
-	found
 }
 
 /// The plugin-declared name for a parameter, falling back to a positional label.
