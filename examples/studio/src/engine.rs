@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use aexlo::{Depth8, ParamKind, PluginInstance};
@@ -163,6 +164,23 @@ fn pump_window_messages() {
 	while peek_message() {}
 }
 
+/// Answer what other threads have sent to this thread's windows, and leave
+/// its queue to the event loop.
+#[cfg(windows)]
+fn answer_sent_messages() {
+	#[repr(C)]
+	struct Msg([u64; 6]);
+	#[link(name = "user32")]
+	unsafe extern "system" {
+		#[link_name = "PeekMessageW"]
+		fn peek(msg: *mut Msg, hwnd: *mut std::ffi::c_void, min: u32, max: u32, remove: u32) -> i32;
+	}
+	let mut msg = Msg([0; 6]);
+	// SAFETY: `Msg` has the size and alignment of a `MSG`. PM_NOREMOVE still
+	// dispatches sent messages, which are never queued.
+	unsafe { peek(&mut msg, std::ptr::null_mut(), 0, 0, 0) };
+}
+
 #[cfg(windows)]
 fn peek_message() -> bool {
 	#[repr(C)]
@@ -207,7 +225,10 @@ fn peek_message() -> bool {
 
 /// The UI's handle on the engine thread.
 pub struct Engine {
-	tx: Sender<Request>,
+	/// `None` once shut down.
+	tx: Option<Sender<Request>>,
+	thread: Option<JoinHandle<()>>,
+	closing: Arc<AtomicBool>,
 	pub events: Receiver<Event>,
 	pub cancel_export: Arc<AtomicBool>,
 }
@@ -219,7 +240,9 @@ impl Engine {
 		let (events_tx, events) = channel();
 		let cancel_export = Arc::new(AtomicBool::new(false));
 		let cancel = cancel_export.clone();
-		std::thread::Builder::new()
+		let closing = Arc::new(AtomicBool::new(false));
+		let worker_closing = closing.clone();
+		let thread = std::thread::Builder::new()
 			.name("aexlo-render".into())
 			.spawn(move || {
 				Worker {
@@ -232,12 +255,15 @@ impl Engine {
 						repaint: Box::new(repaint),
 					},
 					cancel,
+					closing: worker_closing,
 				}
 				.run(requests)
 			})
 			.expect("spawn render thread");
 		Self {
-			tx,
+			tx: Some(tx),
+			thread: Some(thread),
+			closing,
 			events,
 			cancel_export,
 		}
@@ -247,9 +273,44 @@ impl Engine {
 		if let Request::Export(_) = request {
 			self.cancel_export.store(false, Ordering::Relaxed);
 		}
-		let _ = self.tx.send(request);
+		if let Some(tx) = &self.tx {
+			let _ = tx.send(request);
+		}
+	}
+
+	/// Stop the render thread and wait until it has torn every plugin down.
+	///
+	/// Call it on the main window's thread, while that window exists: plugins
+	/// parent their windows to it and send it messages as they close, so this
+	/// keeps answering those. A plugin that does not return (a modal dialog, a
+	/// stuck render) is given up on after [`SHUTDOWN_TIMEOUT`].
+	pub fn shutdown(&mut self) {
+		let Some(thread) = self.thread.take() else { return };
+		self.closing.store(true, Ordering::Relaxed);
+		self.cancel_export.store(true, Ordering::Relaxed);
+		// Wakes the thread if it is waiting for a request.
+		self.tx = None;
+		let deadline = Instant::now() + SHUTDOWN_TIMEOUT;
+		while !thread.is_finished() {
+			if Instant::now() >= deadline {
+				log::warn!("a plugin is still busy after {SHUTDOWN_TIMEOUT:?}; closing without tearing it down");
+				return;
+			}
+			#[cfg(windows)]
+			answer_sent_messages();
+			std::thread::sleep(Duration::from_millis(10));
+		}
 	}
 }
+
+impl Drop for Engine {
+	fn drop(&mut self) {
+		self.shutdown();
+	}
+}
+
+/// How long closing waits for the render thread.
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 
 struct Notify {
 	tx: Sender<Event>,
@@ -368,6 +429,8 @@ struct Worker {
 	fonts: Fonts,
 	notify: Notify,
 	cancel: Arc<AtomicBool>,
+	/// The window is closing: start nothing more.
+	closing: Arc<AtomicBool>,
 }
 
 impl Worker {
@@ -378,6 +441,9 @@ impl Worker {
 			// Only the newest render matters; everything else runs in order.
 			let newest = queue.iter().rposition(|r| matches!(r, Request::Render { .. }));
 			for (i, request) in queue.into_iter().enumerate() {
+				if self.closing.load(Ordering::Relaxed) {
+					return;
+				}
 				match request {
 					Request::Render { .. } if Some(i) != newest => {}
 					Request::Render {
@@ -416,6 +482,10 @@ impl Worker {
 		let mut live = HashSet::new();
 		for effect in project.layers.iter().flat_map(|l| &l.effects) {
 			live.insert(effect.id);
+			// Loading can take seconds per plugin.
+			if self.closing.load(Ordering::Relaxed) {
+				continue;
+			}
 			if self.slots.get(&effect.id).is_some_and(|s| s.plugin == effect.plugin) {
 				continue;
 			}
@@ -604,6 +674,9 @@ impl Worker {
 
 	fn apply_effects(&mut self, layer: &Layer, mut image: Image, ctx: &mut Frame) -> Image {
 		for effect in layer.effects.iter().filter(|e| e.enabled) {
+			if self.closing.load(Ordering::Relaxed) {
+				break;
+			}
 			// Render linked layers first: they may run other effects.
 			let links: Vec<(usize, Option<Image>)> = effect
 				.layers
@@ -774,6 +847,10 @@ impl Worker {
 					return Err("export cancelled".to_string());
 				}
 				let image = self.render(&job.project, frame, 0).image;
+				// A frame cut short by closing must not be saved.
+				if self.closing.load(Ordering::Relaxed) {
+					return Err("export cancelled".to_string());
+				}
 				let path = match &job.kind {
 					ExportKind::Png(path) => path.clone(),
 					_ => dir.join(format!("frame_{n:05}.png")),
@@ -892,6 +969,7 @@ mod tests {
 				repaint: Box::new(|| {}),
 			},
 			cancel: Arc::new(AtomicBool::new(false)),
+			closing: Arc::new(AtomicBool::new(false)),
 		}
 	}
 
@@ -1163,6 +1241,7 @@ mod profile {
 				repaint: Box::new(|| {}),
 			},
 			cancel: Arc::new(AtomicBool::new(false)),
+			closing: Arc::new(AtomicBool::new(false)),
 		}
 	}
 }

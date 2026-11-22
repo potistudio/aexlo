@@ -865,12 +865,19 @@ impl Studio {
 
 impl Drop for Studio {
 	fn drop(&mut self) {
+		// A panic gets here without `on_exit`.
+		self.engine.shutdown();
 		// SAFETY: A null handle clears the window before eframe destroys it.
 		unsafe { aexlo::set_main_window(std::ptr::null_mut()) };
 	}
 }
 
 impl eframe::App for Studio {
+	// The last point at which the window the plugins were given still exists.
+	fn on_exit(&mut self) {
+		self.engine.shutdown();
+	}
+
 	fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
 		self.handle_events(&ctx);

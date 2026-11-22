@@ -73,6 +73,11 @@ Per layer: source → masks → effects (each one `set_input_layer`,
 `render_frame`) → transform and blend onto the comp with tiny-skia. Layer
 sources whose contents and masks don't change are cached across frames.
 
+Closing the window stops the render thread and waits for it to tear its
+plugins down (up to 10 seconds, in case one is stuck or shows a dialog). On
+Windows the process then ends without running the DLL detach of plugins
+that stay loaded, which can hang or crash, as with the `aexlo` command.
+
 For scripted checks, `AEXLO_STUDIO_SCREENSHOT=out.png` saves the window once
 the first frame is shown and quits; `AEXLO_STUDIO_SELECT=<n>` selects the
 n-th layer (0 = top) first.

@@ -13,6 +13,7 @@ mod engine;
 mod inspector;
 mod model;
 mod plugins;
+mod process;
 mod raster;
 mod sidebar;
 mod timeline;
@@ -23,14 +24,31 @@ use std::path::PathBuf;
 
 use eframe::egui;
 
-fn main() -> eframe::Result<()> {
+fn main() {
+	// A panic has been printed by its hook; it must still not leave through
+	// the plugins' detach (see `process`).
+	let code = match std::panic::catch_unwind(run) {
+		Ok(Ok(())) => 0,
+		Ok(Err(e)) => {
+			eprintln!("studio: {e}");
+			1
+		}
+		Err(_) => PANICKED,
+	};
+	process::exit(code);
+}
+
+/// The status Rust itself exits with after a panic in `main`.
+const PANICKED: u8 = 101;
+
+fn run() -> eframe::Result<()> {
 	env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
 
 	let file = std::env::args().nth(1).map(PathBuf::from);
 	let project = match &file {
 		Some(path) => app::load_project(path).unwrap_or_else(|e| {
 			eprintln!("{e}");
-			std::process::exit(1);
+			process::exit(1);
 		}),
 		None => demo::project(),
 	};
