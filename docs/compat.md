@@ -82,7 +82,8 @@ Coverage is the share of the scenarios that apply that went `ok`:
 say nothing about aexlo. `partial` counts against it: the plugin ran, but
 aexlo did not do everything it asked. The report gives it for the whole run
 and for each plugin, rounded down, so `100.0%` means every scenario was
-`ok`.
+`ok`. The plugins that reach it are listed in
+[compatible-plugins.md](compatible-plugins.md).
 
 ## 3. Options
 

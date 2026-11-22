@@ -185,6 +185,8 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # exit 1 if any got
 ```
 
 See [docs/compat.md](https://github.com/potistudio/aexlo/blob/master/docs/compat.md).
+The plugins that pass every scenario are listed in
+[docs/compatible-plugins.md](https://github.com/potistudio/aexlo/blob/master/docs/compatible-plugins.md).
 
 ## Implementation Progress
 

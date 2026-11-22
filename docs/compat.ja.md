@@ -80,6 +80,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 `n/a` と `invalid` は aexlo について何も示さないので除きます。
 `partial` は対応していないものとして数えます。プラグインは動いたものの、aexlo が求められたことをすべてはしていないためです。
 レポートでは全体とプラグインごとに、切り捨てで表示します。`100.0%` は全シナリオが `ok` だったときだけです。
+そこに届いているプラグインは[互換プラグイン](compatible-plugins.ja.md)に一覧があります。
 
 ## 3. オプション
 

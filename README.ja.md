@@ -163,6 +163,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 ```
 
 詳しくは [docs/compat.ja.md](docs/compat.ja.md) を参照してください。
+全シナリオを通るプラグインは[互換プラグイン](docs/compatible-plugins.ja.md)に一覧があります。
 
 ## 実装の進捗
 
