@@ -108,6 +108,8 @@ fn parent_of(stream: Stream) -> Option<Stream> {
 		Node::Anchor | Node::Position | Node::Scale | Node::Rotation | Node::Opacity => (Node::Transform, 0),
 		Node::Effect => (Node::Effects, 1),
 		Node::Param => (Node::Effect, 0),
+		// aexlo's mask parade lists no masks, so a mask's streams hang off it.
+		Node::MaskOutline | Node::MaskOpacity | Node::MaskFeather | Node::MaskExpansion => (Node::Masks, 2),
 	};
 	Some(Stream {
 		effect_ref: stream.effect_ref,
@@ -120,7 +122,18 @@ fn depth(node: Node) -> A_long {
 	match node {
 		Node::Layer => 0,
 		Node::Transform | Node::Effects | Node::Masks => 1,
-		Node::Anchor | Node::Position | Node::Scale | Node::Rotation | Node::Opacity | Node::Effect => 2,
+		// No mask atom sits between a mask's streams and the parade (see
+		// `parent_of`), so they are one level below it.
+		Node::Anchor
+		| Node::Position
+		| Node::Scale
+		| Node::Rotation
+		| Node::Opacity
+		| Node::Effect
+		| Node::MaskOutline
+		| Node::MaskOpacity
+		| Node::MaskFeather
+		| Node::MaskExpansion => 2,
 		Node::Param => 3,
 	}
 }
@@ -149,6 +162,10 @@ fn name_bytes(stream: Stream) -> Vec<u8> {
 		Node::Opacity => b"ADBE Opacity",
 		Node::Effects => b"ADBE Effect Parade",
 		Node::Masks => b"ADBE Mask Parade",
+		Node::MaskOutline => b"ADBE Mask Shape",
+		Node::MaskOpacity => b"ADBE Mask Opacity",
+		Node::MaskFeather => b"ADBE Mask Feather",
+		Node::MaskExpansion => b"ADBE Mask Offset",
 		Node::Effect => {
 			let from_param = param_name(stream.effect_ref, 0);
 			if from_param.is_empty() {
@@ -794,6 +811,39 @@ mod tests {
 			index: 0,
 			node: Node::Layer,
 		})
+	}
+
+	#[test]
+	fn each_depth_is_the_number_of_parents_above() {
+		for node in [
+			Node::Layer,
+			Node::Transform,
+			Node::Anchor,
+			Node::Position,
+			Node::Scale,
+			Node::Rotation,
+			Node::Opacity,
+			Node::Effects,
+			Node::Effect,
+			Node::Masks,
+			Node::Param,
+			Node::MaskOutline,
+			Node::MaskOpacity,
+			Node::MaskFeather,
+			Node::MaskExpansion,
+		] {
+			let mut stream = Stream {
+				effect_ref: std::ptr::null_mut(),
+				index: 0,
+				node,
+			};
+			let mut parents = 0;
+			while let Some(parent) = parent_of(stream) {
+				stream = parent;
+				parents += 1;
+			}
+			assert_eq!(depth(node), parents, "{node:?}");
+		}
 	}
 
 	#[test]

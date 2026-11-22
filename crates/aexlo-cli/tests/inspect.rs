@@ -48,11 +48,22 @@ fn exec_reports_commands_calls_memory_and_errors() {
 		"== live memory (2)",
 		"64 B from RENDER",
 		"64 B from SMART_RENDER",
-		"    00 00 00 00",
 		"  1  Mode                     Popup        5",
 	] {
 		assert!(out.contains(expected), "missing {expected:?} in:\n{out}");
 	}
+	// Each handle's 64 bytes are dumped. Not their values: `host_new_handle`
+	// does not clear the memory, and on Windows it is not all zero.
+	let dumps = out
+		.lines()
+		.filter(|line| {
+			line.strip_prefix("    ").is_some_and(|bytes| {
+				let bytes: Vec<&str> = bytes.split(' ').collect();
+				bytes.len() == 64 && bytes.iter().all(|b| b.len() == 2 && u8::from_str_radix(b, 16).is_ok())
+			})
+		})
+		.count();
+	assert_eq!(dumps, 2, "a 64-byte dump per live handle in:\n{out}");
 }
 
 #[test]
@@ -99,7 +110,7 @@ fn focus_diagnoses_a_call_and_a_failed_command() {
 	assert!(!ok, "{out}");
 }
 
-/// `aexlo inspect <plugin> --format json <args>`, with `stdin` piped in:
+/// `aexlo inspect <plugin> --json <args>`, with `stdin` piped in:
 /// the exit status and one JSON value per stdout line.
 fn inspect_json(scratch: &str, args: &[&str], stdin: &str) -> (bool, Vec<serde_json::Value>) {
 	use std::io::Write;
@@ -109,7 +120,7 @@ fn inspect_json(scratch: &str, args: &[&str], stdin: &str) -> (bool, Vec<serde_j
 		.current_dir(&dir)
 		.arg("inspect")
 		.arg(&plugin)
-		.args(["--format", "json"])
+		.args(["--json"])
 		.args(args)
 		.stdin(std::process::Stdio::piped())
 		.stdout(std::process::Stdio::piped())
@@ -165,7 +176,9 @@ fn json_format_prints_one_event_per_line() {
 			.any(|c| c["command"] == "PF_Cmd_SMART_RENDER"),
 		"{smart:#}"
 	);
-	assert!(smart["step"].as_str().unwrap().starts_with('#'), "{smart:#}");
+	// The step's entry number, and no `error` on a command that had none.
+	assert!(smart["step"].is_u64(), "{smart:#}");
+	assert!(smart["commands"][0].get("error").is_none(), "{smart:#}");
 	let failed = commands[3];
 	assert_eq!(failed["ok"], false);
 	assert_eq!(failed["commands"][0]["error"]["name"], "PF_Err_INTERNAL_STRUCT_DAMAGED");
@@ -174,8 +187,24 @@ fn json_format_prints_one_event_per_line() {
 	let focus = focus.first().expect("a focus event");
 	assert_eq!(focus["entry"]["type"], "call");
 	assert_eq!(focus["entry"]["function"], "host_new_handle");
-	assert_eq!(focus["entry"]["args"][0]["name"], "size");
 	let sections = focus["diagnosis"]["sections"].as_array().unwrap();
+	// The arguments are said once, in the diagnosis, with their verdicts.
+	assert!(focus["entry"].get("args").is_none(), "{focus:#}");
+	let arguments = sections
+		.iter()
+		.find(|s| s["heading"] == "arguments")
+		.expect("the call's arguments");
+	assert_eq!(arguments["items"][0]["key"], "size", "{arguments:#}");
+	// Where it is in the trace: `around`, not a section.
+	assert!(sections.iter().all(|s| s["heading"] != "around it"), "{focus:#}");
+	assert!(
+		focus["around"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.any(|e| e["seq"] == focus["entry"]["seq"]),
+		"{focus:#}"
+	);
 	let moved = sections
 		.iter()
 		.find(|s| s["heading"] == "memory it moved")
@@ -223,6 +252,7 @@ fn script_from_stdin_streams_and_keeps_going_past_a_bad_line() {
 #[test]
 fn json_format_reports_a_missing_plugin_as_an_event() {
 	let dir = common::scratch("inspect_json_missing");
+	// `--format json`, the old spelling of `--json`, still works.
 	let out = common::aexlo(
 		&[
 			"inspect",
@@ -339,9 +369,11 @@ fn help_and_conflicting_scripts() {
 	let out = common::aexlo(&["inspect", "--help"], &dir);
 	assert!(out.status.success());
 	let text = String::from_utf8_lossy(&out.stdout);
-	assert!(text.contains("--format") && text.contains("PLUGIN COMMANDS"), "{text}");
+	assert!(text.contains("--json") && text.contains("PLUGIN COMMANDS"), "{text}");
+	assert!(!text.contains("--format"), "the old spelling stays hidden: {text}");
 
 	let out = common::aexlo(&["inspect", "x", "--exec", "about", "--script", "-"], &dir);
 	assert!(!out.status.success());
-	assert!(String::from_utf8_lossy(&out.stderr).contains("either --exec or --script"));
+	assert_eq!(out.status.code(), Some(2));
+	assert!(String::from_utf8_lossy(&out.stderr).contains("cannot be used with"));
 }

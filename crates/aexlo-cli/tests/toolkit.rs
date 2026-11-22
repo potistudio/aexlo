@@ -467,7 +467,7 @@ bench = false
 		)
 	};
 	let bench = |path: &std::path::Path, extra: &[&str]| {
-		let mut args = vec!["bench", "--format", "json", "--manifest", path.to_str().unwrap()];
+		let mut args = vec!["bench", "--json", "--manifest", path.to_str().unwrap()];
 		args.extend_from_slice(extra);
 		let out = aexlo(&args, &dir);
 		// Errors before any run (exit 2, 3) print no report.
@@ -581,7 +581,7 @@ golden = false
 	);
 	assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
 	// Timing noise on a sub-millisecond render is not what this tests.
-	let (_, out) = check(&["clean", "--format", "json", "--threshold", "1000%"]);
+	let (_, out) = check(&["clean", "--json", "--threshold", "1000%"]);
 	let report: serde_json::Value = serde_json::from_str(&out).unwrap();
 	let ids: Vec<&str> = report["runs"]
 		.as_array()

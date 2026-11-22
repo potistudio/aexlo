@@ -18,10 +18,22 @@ struct TextOutlines {
 	paths: Vec<MaskPath>,
 }
 
-/// # Safety
-/// `outlinesH` must be null or a handle from `AEGP_GetNewTextOutlines` that
-/// has not been disposed.
-unsafe fn outlines<'a>(outlinesH: AEGP_TextOutlinesH) -> Option<&'a TextOutlines> {
+/// The outline lists handed out and not yet disposed, by address. A plugin
+/// that bails out of a failed call may pass an uninitialised handle.
+static LIVE: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
+
+fn live() -> std::sync::MutexGuard<'static, Vec<usize>> {
+	LIVE.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The list behind `outlinesH`, or `None` unless `AEGP_GetNewTextOutlines`
+/// handed it out and it has not been disposed.
+fn outlines<'a>(outlinesH: AEGP_TextOutlinesH) -> Option<&'a TextOutlines> {
+	if !live().contains(&(outlinesH as usize)) {
+		return None;
+	}
+	// SAFETY: a live handle is a `Box<TextOutlines>` this module leaked, freed
+	// only by `dispose_text_outlines`.
 	unsafe { (outlinesH as *const TextOutlines).as_ref() }
 }
 
@@ -55,6 +67,7 @@ unsafe extern "C" fn get_new_text_outlines(
 		});
 		super::path::register_absolute(&boxed.paths);
 		*out = Box::into_raw(boxed) as AEGP_TextOutlinesH;
+		live().push(*out as usize);
 		PF_Err_NONE
 	})
 }
@@ -64,10 +77,18 @@ unsafe extern "C" fn dispose_text_outlines(outlinesH: AEGP_TextOutlinesH) -> A_E
 		diag!("AEGP_TextLayerSuite1/AEGP_DisposeTextOutlines",
 			"outlinesH" => format!("{:#x}", outlinesH as usize),
 		);
-		if outlinesH.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM;
+		{
+			let mut live = live();
+			let Some(at) = live.iter().position(|&h| h == outlinesH as usize) else {
+				log::warn!(
+					"AEGP_TextLayerSuite1/AEGP_DisposeTextOutlines: {outlinesH:?} was not handed out, or was disposed"
+				);
+				return PF_Err_BAD_CALLBACK_PARAM;
+			};
+			live.swap_remove(at);
 		}
-		// SAFETY: non-null handles only come from `get_new_text_outlines`.
+		// SAFETY: it was live, so it is a `Box<TextOutlines>` from
+		// `get_new_text_outlines`, and it is no longer listed.
 		let list = unsafe { Box::from_raw(outlinesH as *mut TextOutlines) };
 		super::path::unregister_absolute(&list.paths);
 		drop(list);
@@ -80,7 +101,7 @@ unsafe extern "C" fn get_num_text_outlines(outlinesH: AEGP_TextOutlinesH, num_ou
 		diag!("AEGP_TextLayerSuite1/AEGP_GetNumTextOutlines",
 			"outlinesH" => format!("{:#x}", outlinesH as usize),
 		);
-		let (Some(list), Some(out)) = (unsafe { outlines(outlinesH) }, unsafe { num_outlinesPL.as_mut() }) else {
+		let (Some(list), Some(out)) = (outlines(outlinesH), unsafe { num_outlinesPL.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = list.paths.len() as A_long;
@@ -98,7 +119,7 @@ unsafe extern "C" fn get_indexed_text_outline(
 			"outlinesH" => format!("{:#x}", outlinesH as usize),
 			"path_indexL" => path_indexL,
 		);
-		let (Some(list), Some(out)) = (unsafe { outlines(outlinesH) }, unsafe { pathPP.as_mut() }) else {
+		let (Some(list), Some(out)) = (outlines(outlinesH), unsafe { pathPP.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let Some(path) = usize::try_from(path_indexL).ok().and_then(|i| list.paths.get(i)) else {
@@ -139,6 +160,7 @@ mod tests {
 		let handle = Box::into_raw(Box::new(TextOutlines {
 			paths: vec![square.clone(), square],
 		})) as AEGP_TextOutlinesH;
+		live().push(handle as usize);
 		let suite = suite_1();
 		unsafe {
 			let mut count = 0;
@@ -158,6 +180,37 @@ mod tests {
 			assert!(path.is_null());
 
 			assert_eq!(suite.AEGP_DisposeTextOutlines.unwrap()(handle), PF_Err_NONE);
+			// Disposed: no longer read or freed.
+			assert_eq!(
+				suite.AEGP_GetNumTextOutlines.unwrap()(handle, &mut count),
+				PF_Err_BAD_CALLBACK_PARAM
+			);
+			assert_eq!(
+				suite.AEGP_DisposeTextOutlines.unwrap()(handle),
+				PF_Err_BAD_CALLBACK_PARAM
+			);
+		}
+	}
+
+	#[test]
+	fn a_handle_that_was_never_handed_out_is_refused() {
+		// What an uninitialised `AEGP_TextOutlinesH` local might hold.
+		let garbage = 0xdead_beef_usize as AEGP_TextOutlinesH;
+		let suite = suite_1();
+		unsafe {
+			assert_eq!(
+				suite.AEGP_DisposeTextOutlines.unwrap()(garbage),
+				PF_Err_BAD_CALLBACK_PARAM
+			);
+			assert_eq!(
+				suite.AEGP_DisposeTextOutlines.unwrap()(std::ptr::null_mut()),
+				PF_Err_BAD_CALLBACK_PARAM
+			);
+			let mut count = 0;
+			assert_eq!(
+				suite.AEGP_GetNumTextOutlines.unwrap()(garbage, &mut count),
+				PF_Err_BAD_CALLBACK_PARAM
+			);
 		}
 	}
 

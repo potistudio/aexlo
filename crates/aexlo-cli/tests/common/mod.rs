@@ -60,9 +60,9 @@ pub fn aexlo(args: &[&str], cwd: &Path) -> Output {
 		.expect("spawning aexlo")
 }
 
-/// `aexlo test --format json` over `manifest`: the exit code and the report.
+/// `aexlo test --json` over `manifest`: the exit code and the report.
 pub fn test_json(manifest: &Path, extra: &[&str]) -> (i32, serde_json::Value) {
-	let mut args = vec!["test", "--format", "json", "--manifest", manifest.to_str().unwrap()];
+	let mut args = vec!["test", "--json", "--manifest", manifest.to_str().unwrap()];
 	args.extend_from_slice(extra);
 	let out = aexlo(&args, manifest.parent().unwrap());
 	let stdout = String::from_utf8_lossy(&out.stdout);

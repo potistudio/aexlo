@@ -139,7 +139,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "aexlo"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ab_glyph",
  "after-effects-sys",
@@ -160,7 +160,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo-bench"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aexlo",
  "aexlo-harness",
@@ -170,13 +170,16 @@ dependencies = [
 
 [[package]]
 name = "aexlo-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aexlo",
  "aexlo-bench",
  "aexlo-harness",
+ "anstream",
+ "anstyle",
  "anyhow",
  "cargo_metadata",
+ "clap",
  "env_logger",
  "image",
  "libc",
@@ -185,14 +188,12 @@ dependencies = [
  "ratatui",
  "serde",
  "serde_json",
- "tiny_http",
  "toml 1.1.6+spec-1.1.0",
- "toml_edit 0.25.15+spec-1.1.0",
 ]
 
 [[package]]
 name = "aexlo-harness"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aexlo",
  "image",
@@ -205,7 +206,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo-macros"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -214,7 +215,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo-probe"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "after-effects",
  "pipl",
@@ -223,7 +224,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo-test"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aexlo",
  "aexlo-harness",
@@ -233,7 +234,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo_demo_hello_world"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aexlo",
  "aexlo-test",
@@ -243,7 +244,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo_demo_noise"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aexlo",
  "aexlo-test",
@@ -253,7 +254,7 @@ dependencies = [
 
 [[package]]
 name = "aexlo_misbehave"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "after-effects-sys",
 ]
@@ -389,9 +390,9 @@ dependencies = [
 
 [[package]]
 name = "anstyle"
-version = "1.0.13"
+version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5192cca8006f1fd4f7237516f40fa183bb07f8fbdfedaa0036de5ea9b0b45e78"
+checksum = "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000"
 
 [[package]]
 name = "anstyle-parse"
@@ -483,12 +484,6 @@ name = "as-raw-xcb-connection"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "175571dd1d178ced59193a6fc02dde1b972eb0bc56c892cde9beeceac5bf0f6b"
-
-[[package]]
-name = "ascii"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
 
 [[package]]
 name = "ash"
@@ -1020,12 +1015,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "chunked_transfer"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e4de3bc4ea267985becf712dc6d9eed8b04c953b3fcfb339ebc87acd9804901"
-
-[[package]]
 name = "ciborium"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1065,28 +1054,44 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.49"
+version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4512b90fa68d3a9932cea5184017c5d200f5921df706d45e853537dea51508f"
+checksum = "aa8876b300ab35ba921adea3dfd70157a46249b33f95c9084ae5709785478946"
 dependencies = [
  "clap_builder",
+ "clap_derive",
 ]
 
 [[package]]
 name = "clap_builder"
-version = "4.5.49"
+version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0025e98baa12e766c67ba13ff4695a887a1eba19569aad00a472546795bd6730"
+checksum = "ec0797fb7aeb1406c84efac526901f7ec3ead2124f946b494e72879d4b54704d"
 dependencies = [
+ "anstream",
  "anstyle",
  "clap_lex",
+ "strsim",
+ "terminal_size",
+]
+
+[[package]]
+name = "clap_derive"
+version = "4.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9c751b79415d4e559e3d1fcf128e09e720eb673a06d26cf6f392d37d75b66e0"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
 ]
 
 [[package]]
 name = "clap_lex"
-version = "0.7.6"
+version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
+checksum = "e0921b3876b3a1df8a1c9f912e7f94342458022c2e84288015893d83c4d62a79"
 
 [[package]]
 name = "clipboard-win"
@@ -2467,12 +2472,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
-name = "httpdate"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
-
-[[package]]
 name = "iana-time-zone"
 version = "0.1.64"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2692,7 +2691,7 @@ dependencies = [
 
 [[package]]
 name = "interactive"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aexlo",
  "eframe",
@@ -3159,7 +3158,7 @@ dependencies = [
 
 [[package]]
 name = "minimal"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aexlo",
 ]
@@ -4147,7 +4146,7 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
 name = "playground"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aexlo",
  "aexlo-harness",
@@ -4287,7 +4286,7 @@ version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "219cb19e96be00ab2e37d6e299658a0cfa83e52429179969b0f0121b4ac46983"
 dependencies = [
- "toml_edit 0.23.7",
+ "toml_edit",
 ]
 
 [[package]]
@@ -4747,7 +4746,7 @@ dependencies = [
 
 [[package]]
 name = "sdk_noise"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aexlo",
  "criterion",
@@ -5077,7 +5076,7 @@ dependencies = [
 
 [[package]]
 name = "studio"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ab_glyph",
  "aexlo",
@@ -5172,6 +5171,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "terminal_size"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
+dependencies = [
+ "rustix 1.1.2",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "terminfo"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5236,7 +5245,7 @@ dependencies = [
 
 [[package]]
 name = "test_e2e"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aexlo",
  "image",
@@ -5343,18 +5352,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tiny_http"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "389915df6413a2e74fb181895f933386023c71110878cd0825588928e64cdc82"
-dependencies = [
- "ascii",
- "chunked_transfer",
- "httpdate",
- "log",
-]
-
-[[package]]
 name = "tinystr"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5426,19 +5423,6 @@ dependencies = [
  "toml_datetime 0.7.3",
  "toml_parser",
  "winnow 0.7.13",
-]
-
-[[package]]
-name = "toml_edit"
-version = "0.25.15+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1340ea94a5856333492c9064b02c778b191dd2c853778d9609debdcdfea3a614"
-dependencies = [
- "indexmap",
- "toml_datetime 1.1.1+spec-1.1.0",
- "toml_parser",
- "toml_writer",
- "winnow 1.0.4",
 ]
 
 [[package]]
@@ -6679,9 +6663,6 @@ name = "winnow"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
-dependencies = [
- "memchr",
-]
 
 [[package]]
 name = "winres"

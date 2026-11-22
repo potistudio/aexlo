@@ -7,6 +7,8 @@ may break the API, and every breaking change is listed below.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-23
+
 ### Added
 
 - `Observer::unsupported` hears about what the plugin asked for and aexlo
@@ -20,7 +22,8 @@ may break the API, and every breaking change is listed below.
 - `PluginInstance::allocations` lists the handles and worlds the plugin holds
   (`LiveAllocation`) while an observer is installed or allocation tracking is
   on, and `PluginInstance::read_allocation` copies their bytes between
-  commands.
+  commands. Memory the plugin freed on another thread, such as an iterate
+  worker, is neither listed nor read.
 - `PluginInstance::state` returns an `InstanceState`: the `global_data` and
   `sequence_data` handles, the next command's time, and the `PF_OutData` the
   last command left.
@@ -37,6 +40,16 @@ may break the API, and every breaking change is listed below.
   (`TextStyle`) and `TextLayer::rasterize` draws it as the input layer, so
   text effects such as TextGrad render. `AexloError::Font` reports a font that
   cannot be read.
+- `Pipl::read` reads a plugin's PiPL resource without loading it: from a
+  Windows binary's `PIPL` resource, a macOS bundle's `.rsrc` files (in their
+  data or resource fork), a Mach-O binary's `__TEXT,__pipl` section or its
+  resource fork; a `.rsrc` or `__pipl` section it cannot read is passed over
+  for the next place. Each
+  `PiplProperty` decodes to a `PiplValue`, and `Pipl` has accessors for the
+  name, category, match name, entry point, `eVER` (`EffectVersion`) and
+  `eGLO` / `eGL2`. `AexloError::InvalidPipl` reports a malformed one.
+- `PluginInstance::version` returns the `my_version` the plugin reported at
+  `PF_Cmd_GLOBAL_SETUP`, to compare with `Pipl::effect_version`.
 - `PluginInstance::param_button_label` returns the text on a button
   parameter (`PF_ButtonDef`), which plugins often fill in place of the
   parameter's name.
@@ -48,6 +61,12 @@ may break the API, and every breaking change is listed below.
   calls to the observer, so `aexlo inspect` and `aexlo compat` see them.
   `AEGP_ExecuteScript`, and `AEGP_GetPluginPlatformRef` on macOS, report
   themselves as stubs.
+- "AEGP Layer Mask Suite" v6 and v7 and "AEGP Mask Outline Suite" v3 and v5
+  read the masks `PluginInstance::set_mask_paths` puts on the layer, and
+  `AEGP_GetNewMaskStream` gives a mask's outline, opacity, feather and
+  expansion streams. Changing a mask is declined. BitonicPixelSorter, which
+  reads its Path through them once it is registered with AEGP, renders with
+  masks on the layer.
 - `AEGP_SetStreamValue` sets an effect parameter's value, clamped to its valid
   range (a color keeps its alpha), and `AEGP_SetDynamicStreamFlag` hides and
   disables parameters (`PF_PUI_INVISIBLE`, `PF_PUI_DISABLED`), which
@@ -57,6 +76,17 @@ may break the API, and every breaking change is listed below.
 
 ### Fixed
 
+- The published crate includes the MIT license text.
+- The text a plugin reports (`PF_Cmd_ABOUT`, a dialog's message, an error)
+  comes back whole. Line breaks are `\n` instead of After Effects' `\r`, which
+  made each line overwrite the one before in a terminal, and text that is not
+  UTF-8 is read as Latin-1, so a `©` stays one. The ANSI suite's `sprintf`
+  formats with the C library's `vsnprintf` (at most 256 bytes) instead of
+  knowing only `%d` and `%s`: a format that was not UTF-8 (Deep Glow 2,
+  TextGrad, Displacer Pro) wrote nothing, and `%.120s` (Cosmic) was printed
+  as is.
+- On macOS the loader now finds the entry point the PiPL names, as it
+  already did on Windows, before trying the usual symbol names.
 - "AEGP Utility Suite" serves each version at its own layout: v3–7
   (`AEGP_UtilitySuite1`–`3`), v10–11 (`4`–`5`) and v13 (`6`). One table
   served every version from 1 to 18, so a v11 plugin calling
@@ -148,6 +178,7 @@ and legacy paths. See the README for which SDK suites are implemented.
   `PF_Err_INTERNAL_STRUCT_DAMAGED`. An access violation crashes the process
   as on macOS instead of being reported as a failed command.
 
-[Unreleased]: https://github.com/potistudio/aexlo/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/potistudio/aexlo/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/potistudio/aexlo/releases/tag/v0.3.0
 [0.2.0]: https://github.com/potistudio/aexlo/releases/tag/v0.2.0
 [0.1.0]: https://github.com/potistudio/aexlo/releases/tag/v0.1.0

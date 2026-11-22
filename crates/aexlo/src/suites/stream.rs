@@ -8,8 +8,13 @@
 //! `PF_ParamDef`s, 0 being the input layer). aexlo has no timeline, so
 //! a stream's value is the parameter's current value at every time and it never
 //! has keyframes or expressions. `AEGP_SetStreamValue` writes a parameter's
-//! value, as a plugin's Reset button does. Mask streams, names that need the
-//! AEGP Memory Suite and every other write are refused with `A_Err_GENERIC`.
+//! value, as a plugin's Reset button does. Names that need the AEGP Memory
+//! Suite and every other write are refused with `A_Err_GENERIC`.
+//!
+//! `AEGP_GetNewMaskStream` gives the streams of a mask from the "AEGP Layer
+//! Mask Suite" ([`super::layer_mask`]): its outline, whose value is an
+//! `AEGP_MaskOutlineValH` the stream value owns, and an opacity of 100%, no
+//! feather and no expansion.
 //!
 //! The same handle also names a node in the layer's dynamic-stream tree
 //! ([`super::dynamic_stream`]). A parameter node is what the calls above read.
@@ -55,6 +60,14 @@ pub(crate) enum Node {
 	Masks,
 	/// A parameter of the hosted effect. `index` is the parameter index.
 	Param,
+	/// `ADBE Mask Shape` of the mask at `index` on the layer.
+	MaskOutline,
+	/// `ADBE Mask Opacity` of the mask at `index`.
+	MaskOpacity,
+	/// `ADBE Mask Feather` of the mask at `index`.
+	MaskFeather,
+	/// `ADBE Mask Offset` (expansion) of the mask at `index`.
+	MaskExpansion,
 }
 
 /// What an `AEGP_StreamRefH` points at.
@@ -115,6 +128,12 @@ pub(crate) enum StreamValue {
 	/// An arbitrary-data parameter. The handle is the parameter's own value,
 	/// not a copy, so disposing the stream value must not free it.
 	Arb(PF_ArbitraryH),
+	/// The outline of the mask at `index` on the layer of `effect_ref`. A
+	/// stream value gets a copy of it, freed with the value.
+	Mask {
+		effect_ref: PF_ProgPtr,
+		index: usize,
+	},
 }
 
 impl StreamValue {
@@ -175,6 +194,7 @@ impl StreamValue {
 			Self::Color { .. } => AEGP_StreamType_COLOR,
 			Self::LayerId => AEGP_StreamType_LAYER_ID,
 			Self::Arb(_) => AEGP_StreamType_ARB,
+			Self::Mask { .. } => AEGP_StreamType_MASK,
 		}) as AEGP_StreamType
 	}
 
@@ -182,7 +202,7 @@ impl StreamValue {
 	pub(crate) fn dimensionality(self) -> A_short {
 		match self {
 			Self::NoData => 0,
-			Self::OneD(_) | Self::LayerId | Self::Arb(_) => 1,
+			Self::OneD(_) | Self::LayerId | Self::Arb(_) | Self::Mask { .. } => 1,
 			Self::TwoD { .. } => 2,
 			Self::ThreeD { .. } => 3,
 			Self::Color { .. } => 4,
@@ -227,6 +247,9 @@ macro_rules! write_val {
 			// a `PF_Handle` (`*mut *mut c_void`). The bit pattern is what the
 			// plugin casts back.
 			StreamValue::Arb(handle) => out.arbH = handle.cast(),
+			StreamValue::Mask { effect_ref, index } => {
+				out.mask = crate::suites::layer_mask::new_outline(effect_ref, index);
+			}
 		}
 	}};
 }
@@ -259,6 +282,22 @@ pub(crate) unsafe fn stream_value(streamH: AEGP_StreamRefH) -> Option<StreamValu
 		}),
 		Node::Rotation => Some(StreamValue::OneD(0.0)),
 		Node::Opacity => Some(StreamValue::OneD(100.0)),
+		Node::MaskOutline | Node::MaskOpacity | Node::MaskFeather | Node::MaskExpansion
+			if !super::layer_mask::has_mask(stream.effect_ref, stream.index) =>
+		{
+			None
+		}
+		Node::MaskOutline => Some(StreamValue::Mask {
+			effect_ref: stream.effect_ref,
+			index: stream.index,
+		}),
+		Node::MaskOpacity => Some(StreamValue::OneD(100.0)),
+		Node::MaskFeather => Some(StreamValue::TwoD {
+			x: 0.0,
+			y: 0.0,
+			spatial: false,
+		}),
+		Node::MaskExpansion => Some(StreamValue::OneD(0.0)),
 		_ => Some(StreamValue::NoData),
 	}
 }
@@ -384,13 +423,36 @@ unsafe extern "C" fn get_new_effect_stream_by_index(
 
 unsafe extern "C" fn get_new_mask_stream(
 	_aegp_plugin_id: AEGP_PluginID,
-	_mask_refH: AEGP_MaskRefH,
-	_which_stream: AEGP_MaskStream,
-	_mask_streamPH: *mut AEGP_StreamRefH,
+	mask_refH: AEGP_MaskRefH,
+	which_stream: AEGP_MaskStream,
+	mask_streamPH: *mut AEGP_StreamRefH,
 ) -> A_Err {
 	crate::core::ffi::guard("get_new_mask_stream", || {
-		diag!("AEGP_StreamSuite/AEGP_GetNewMaskStream");
-		unsupported("AEGP_GetNewMaskStream")
+		diag!("AEGP_StreamSuite/AEGP_GetNewMaskStream",
+			"mask_refH" => format!("{:#x}", mask_refH as usize),
+			"which_stream" => which_stream,
+		);
+
+		let Some(out) = (unsafe { mask_streamPH.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		*out = std::ptr::null_mut();
+		let Some(mask) = super::layer_mask::mask_ref(mask_refH) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let node = match which_stream {
+			s if s == AEGP_MaskStream_OUTLINE => Node::MaskOutline,
+			s if s == AEGP_MaskStream_OPACITY => Node::MaskOpacity,
+			s if s == AEGP_MaskStream_FEATHER => Node::MaskFeather,
+			s if s == AEGP_MaskStream_EXPANSION => Node::MaskExpansion,
+			_ => return PF_Err_BAD_CALLBACK_PARAM,
+		};
+		*out = new_stream_handle(Stream {
+			effect_ref: mask.effect_ref,
+			index: mask.index,
+			node,
+		});
+		PF_Err_NONE
 	})
 }
 
@@ -624,15 +686,23 @@ macro_rules! get_new_stream_value {
 get_new_stream_value!(get_new_stream_value_v1, AEGP_StreamValue);
 get_new_stream_value!(get_new_stream_value_v2, AEGP_StreamValue2);
 
-/// Stream values never own memory here. An arbitrary handle is the parameter's
-/// own value, so disposing the stream value must not free it.
+/// Only a mask outline is owned by its stream value. An arbitrary handle is
+/// the parameter's own value, so disposing the stream value must not free it.
 macro_rules! dispose_stream_value {
 	($name:ident, $value_ty:ty) => {
 		unsafe extern "C" fn $name(valueP: *mut $value_ty) -> A_Err {
 			diag!("AEGP_StreamSuite/AEGP_DisposeStreamValue", "valueP" => format!("{:#x}", valueP as usize));
 
-			if valueP.is_null() {
+			let Some(value) = (unsafe { valueP.as_mut() }) else {
 				return PF_Err_BAD_CALLBACK_PARAM;
+			};
+			// The value's stream may be disposed already, so its type is not
+			// asked. Read as a pointer, any other member's bits are not an
+			// outline aexlo handed out, and are left alone.
+			// SAFETY: every member of the value union is plain old data.
+			let outline = unsafe { value.val.mask };
+			if super::layer_mask::dispose_outline(outline) {
+				value.val.mask = std::ptr::null_mut();
 			}
 			PF_Err_NONE
 		}
@@ -641,6 +711,20 @@ macro_rules! dispose_stream_value {
 
 dispose_stream_value!(dispose_stream_value_v1, AEGP_StreamValue);
 dispose_stream_value!(dispose_stream_value_v2, AEGP_StreamValue2);
+
+/// `value` clamped between `a` and `b`, whichever is the larger. A plugin
+/// declares the range, so it may be inverted or have a NaN end, where `clamp`
+/// would panic; a NaN end does not bound.
+fn within<T: PartialOrd + Copy>(value: T, a: T, b: T) -> T {
+	let (lo, hi) = if b < a { (b, a) } else { (a, b) };
+	if value < lo {
+		lo
+	} else if value > hi {
+		hi
+	} else {
+		value
+	}
+}
 
 /// The parameter value `value` sets on the parameter `def`, or `None` when
 /// the two do not fit together. Numbers are clamped to the parameter's valid
@@ -654,14 +738,15 @@ fn param_value_of(def: &PF_ParamDef, value: StreamValue) -> Option<crate::ParamV
 	unsafe {
 		Some(match (def.param_type, value) {
 			(t, StreamValue::OneD(v)) if t == PF_Param_SLIDER as PF_ParamType => {
-				P::Slider((v.round() as i32).clamp(def.u.sd.valid_min, def.u.sd.valid_max))
+				P::Slider(within(v.round() as i32, def.u.sd.valid_min, def.u.sd.valid_max))
 			}
-			(t, StreamValue::OneD(v)) if t == PF_Param_FIX_SLIDER as PF_ParamType => P::Fixed((v as f32).clamp(
+			(t, StreamValue::OneD(v)) if t == PF_Param_FIX_SLIDER as PF_ParamType => P::Fixed(within(
+				v as f32,
 				utils::fixed16_to_f32(def.u.fd.valid_min),
 				utils::fixed16_to_f32(def.u.fd.valid_max),
 			)),
 			(t, StreamValue::OneD(v)) if t == PF_Param_FLOAT_SLIDER as PF_ParamType => {
-				P::Float(v.clamp(def.u.fs_d.valid_min as f64, def.u.fs_d.valid_max as f64))
+				P::Float(within(v, def.u.fs_d.valid_min as f64, def.u.fs_d.valid_max as f64))
 			}
 			(t, StreamValue::OneD(v)) if t == PF_Param_ANGLE as PF_ParamType => P::Angle(v as f32),
 			(t, StreamValue::OneD(v)) if t == PF_Param_CHECKBOX as PF_ParamType => P::Checkbox(v != 0.0),
@@ -1055,6 +1140,32 @@ pub(super) const fn create_stream_suite_6() -> AEGP_StreamSuite6 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn disposing_a_mask_value_frees_its_outline_only() {
+		let outline = crate::suites::layer_mask::outline_of(crate::MaskPath::default());
+		let mut value: AEGP_StreamValue2 = unsafe { std::mem::zeroed() };
+		value.val.mask = outline;
+		assert_eq!(unsafe { dispose_stream_value_v2(&mut value) }, PF_Err_NONE);
+		assert!(unsafe { value.val.mask }.is_null());
+		assert!(!crate::suites::layer_mask::dispose_outline(outline), "already freed");
+
+		// A number's bits are not taken for an outline.
+		let mut value: AEGP_StreamValue2 = unsafe { std::mem::zeroed() };
+		value.val.one_d = 42.0;
+		assert_eq!(unsafe { dispose_stream_value_v2(&mut value) }, PF_Err_NONE);
+		assert_eq!(unsafe { value.val.one_d }, 42.0);
+	}
+
+	#[test]
+	fn values_are_clamped_by_ranges_a_plugin_may_declare_badly() {
+		assert_eq!(within(150, 0, 100), 100);
+		assert_eq!(within(150, 100, 0), 100, "inverted");
+		assert_eq!(within(-5, 100, 0), 0, "inverted");
+		assert_eq!(within(2.0, f64::NAN, 1.0), 1.0, "a NaN end does not bound");
+		assert_eq!(within(-2.0, f64::NAN, 1.0), -2.0);
+		assert_eq!(within(0.5_f32, 0.0, 1.0), 0.5);
+	}
 
 	#[test]
 	fn unique_stream_ids_follow_the_stream_not_the_handle() {

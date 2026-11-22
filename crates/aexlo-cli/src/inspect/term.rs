@@ -100,7 +100,7 @@ impl Drop for Session {
 	}
 }
 
-/// Where `--format json` writes, with the plugin's stdout moved out of it.
+/// Where `--json` writes, with the plugin's stdout moved out of it.
 ///
 /// On Unix the returned writer is the original stdout, and descriptor 1 is
 /// pointed at stderr, so whatever the plugin (or anything else) prints

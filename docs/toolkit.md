@@ -23,7 +23,7 @@ Today the pieces exist but do not share an input format:
 ### Goals
 
 - A plugin author (Rust **or** C++) can write a manifest, then run
-  `aexlo test`, `aexlo bench`, `aexlo dev`/`preview` and `aexlo check`
+  `aexlo test`, `aexlo bench`, `aexlo render` and `aexlo check`
   against the same presets.
 - A crashing plugin fails one preset, never the whole run.
 - Host-side instrumentation (strict mode) reports bugs AE would hide:
@@ -57,7 +57,7 @@ Today the pieces exist but do not share an input format:
                     aexlo.toml (presets)
           ┌──────────────┬──────────────┬──────────────┐
           ▼              ▼              ▼              ▼
-     aexlo test     aexlo bench    aexlo dev/preview  aexlo check
+     aexlo test     aexlo bench    aexlo render   aexlo check
           └──────────────┴──────┬───────┴──────────────┘
                                 ▼
                          aexlo-harness
@@ -75,7 +75,7 @@ Today the pieces exist but do not share an input format:
 | `aexlo-harness` | `preset` (manifest model, `inherits`, matrix expansion, application), `run` (in-process and worker), `frame`, `check`, `golden`, `bench` timing loop. | new |
 | `aexlo-test`    | The single dev-dependency for Rust plugin crates: re-exports the macros plus `Frame` assertions. | new |
 | `aexlo-bench`   | criterion benches; becomes a thin layer over `aexlo_harness::bench`.                        | existing |
-| `aexlo-cli`     | `aexlo` binary: `test`, `bench`, `dev`, `preview`, `check`, `presets`, `worker`, plus the existing `render`/`about`/`params`/`view`. | existing |
+| `aexlo-cli`     | `aexlo` binary: `test`, `bench`, `check`, `presets`, `compat`, `inspect`, `worker`, plus the existing `render`/`info`/`dev`. | existing |
 
 Dependency direction is strictly downward: `cli → harness → aexlo`,
 `aexlo-test → harness`, `aexlo-bench → harness`. Nothing below `harness`
@@ -85,7 +85,7 @@ knows about manifests.
 
 `aexlo` exposes **mechanisms** (events, allocation policy, depth I/O); the
 harness implements **policy** (what counts as a failure, tolerances, files).
-`crates/aexlo/src/preview.rs` (viewer lock, PNG writing, `AEXLO_PREVIEW`)
+`crates/aexlo/src/preview.rs` (PNG writing, `AEXLO_PREVIEW`)
 violates this and moves to `aexlo_harness::preview` (§13).
 
 ## 4. Manifest: `aexlo.toml`
@@ -347,7 +347,7 @@ impl PluginInstance {
 | Mode         | How                                           | For                                                           | Trade-off |
 | ------------ | --------------------------------------------- | ------------------------------------------------------------- | --------- |
 | `in-process` | `Host::from_entry_raw(entry)`                 | Rust plugins: `#[aexlo_test::test]`, `aexlo dev`                   | Debugger and `dbg!` work; a crash kills the process. |
-| `worker`     | `aexlo worker` subprocess, plugin `dlopen`ed   | Any plugin: `aexlo test/check/bench/preview` default          | Crash isolation; no in-process breakpoints. |
+| `worker`     | `aexlo worker` subprocess, plugin `dlopen`ed   | Any plugin: `aexlo test/check/bench/compat` default          | Crash isolation; no in-process breakpoints. |
 
 The CLI defaults to `worker`. `--isolate preset` (default) reuses one worker
 for all variants of a preset; `--isolate variant` spawns one per variant;
@@ -517,20 +517,17 @@ They synthesize an implicit preset, so both front-ends share one timing loop
 
 ## 11. Preview
 
-`aexlo dev` (source watch) and `aexlo preview` (artifact watch) share the
-browser viewer in `crates/aexlo-cli/src/viewer.rs`. It gains:
+A preset is looked at with `aexlo render --preset <name>`, which renders the
+variant exactly as `test` would and writes it to a PNG or EXR. While writing
+a Rust plugin, `aexlo dev` reruns its `#[aexlo_test::preview]` tests on every
+save and shows the frame they write in a window; `aexlo dev --bin` rebuilds
+the cdylib and renders it there instead. Tweaking parameters by eye, with
+time, layers and masks around the effect, is `examples/studio`'s job.
 
-- a **preset picker**: renders the selected variant exactly as `test` would;
-- parameter controls (existing), initialized from the preset;
-- a **compare** mode against the golden: wipe, side-by-side, diff heatmap;
-  plus depth-vs-depth and render-path-vs-render-path;
-- a time scrubber driving `time.frame`;
-- the last render's phase timings and strict report;
-- **"Save as preset"**: appends the current state to `aexlo.toml` with
-  `toml_edit`, preserving formatting, so a bad frame found by eye becomes a
-  regression test in one click.
-
-`studio` gains "Export layer effect as preset" in a later milestone.
+The browser viewer M6 added (`aexlo preview` and `aexlo dev --bin --web`:
+preset picker, compare modes, time scrubber, "Save as preset") was removed:
+studio does the interactive part better, and `test` judges what the compare
+modes showed.
 
 ## 12. CLI
 
@@ -539,8 +536,7 @@ aexlo presets   [filter]                 List expanded variants
 aexlo test      [filter] [--bless] [--fuzz n] [--seed s]
 aexlo bench     [filter] [--save-baseline n | --baseline n --threshold p]
 aexlo check     [filter]                 test + strict + baseline (if configured), for CI
-aexlo dev       [--preset name] ...      existing flags kept
-aexlo preview   <plugin> [--preset name] ...
+aexlo dev       [filter] [-p package] [--bin]
 aexlo render    <plugin> [--preset name] ...   existing flags override the preset
 aexlo worker                              hidden; §6.2
 ```
@@ -550,7 +546,7 @@ aexlo worker                              hidden; §6.2
 
 Common flags: `--manifest <path>`, `--depth 8,16`, `--render smart` (narrow
 the matrix), `--isolate preset|variant|none`, `--jobs <n>` (parallel workers
-for test/check; bench is always 1), `--strict`, `--format human|json`,
+for test/check; bench is always 1), `--strict`, `--json`,
 `--junit <path>`.
 
 `filter` matches variant display ids by substring, or glob when it contains
@@ -619,7 +615,7 @@ on Windows x64 where a fixture exists.
 | M3 | Test: goldens, `--bless`, `finite`/`coverage`/`deterministic`; JSON and JUnit output; `aexlo-test` with `#[aexlo_test::test]`. | `examples/plugins/noise` has a manifest and an `#[aexlo_test::test]`; changing its hash constant fails both with diff artifacts. |
 | M4 | Strict: guard bands, allocation and checkout tracking; `bounds`/`allocations`/`checkouts`/`flags`; `iterate-parallel`, `depth-consistency`; fuzzing. | A test plugin that writes one row past its world fails `bounds`; one that leaks a handle fails `allocations`. |
 | M5 | Bench on presets: phase breakdown, baselines, regression exit code. `aexlo-bench` migrated. | Artificially slowing a fixture's render beyond the threshold makes `aexlo bench --baseline` exit 1. |
-| M6 | Viewer: preset picker, compare modes, time scrubber, "Save as preset". | A saved preset round-trips: the viewer shows it, then `aexlo test` runs it. |
+| M6 | Viewer: preset picker, compare modes, time scrubber, "Save as preset". Later removed (§11). | A saved preset round-trips: the viewer shows it, then `aexlo test` runs it. |
 | M7 | `aexlo check`, CI template (GitHub Actions, macOS + Windows), AE-sourced goldens. | The template runs green on this repo's fixtures. |
 
 ## 16. Open questions
@@ -662,9 +658,6 @@ Decisions made while building M1–M7, where the draft above left room:
   when `.aexlo/baselines/main.json` exists.
 - **`aexlo bench`** without a manifest still accepts plugin paths (the
   flag-driven front-end); a first argument that names a plugin selects it.
-- **The viewer** loads presets with `--preset`/`--manifest`; `--no-open`
-  skips the browser. "Save as preset" writes `inherits`, the swept and edited
-  params and the time.
 - **The test plugin** `tests/misbehave` crashes, hangs, errors, overruns,
   leaks, leaves pixels unwritten or randomizes on request; the acceptance
   tests of every milestone drive it through the real `aexlo` binary

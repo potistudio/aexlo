@@ -16,9 +16,9 @@ members = [
 default-members = ["crates/aexlo"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
-rust-version = "1.100.0"
+rust-version = "1.99.0"
 authors = ["potistudio <potistudio@proton.me>"]
 license = "MIT"
 repository = "https://github.com/potistudio/aexlo"

@@ -43,7 +43,7 @@ After Effects 自体がプラグインに提供するインターフェースで
 
 ### 必要な環境
 
-- `rust-toolchain.toml` で指定された Rust ツールチェーン（現在は 1.99.0）
+- Rust 1.99.0 以上
 - Windows x64 または macOS arm64
 
 > [!NOTE]
@@ -111,12 +111,22 @@ aexlo test --bless                 # 参照画像を保存。以降は `aexlo te
 aexlo test --strict                # ガード領域、リーク、チェックアウトの追跡も実施
 aexlo test --fuzz 100              # パラメーターをランダム化し、失敗ケースをプリセットとして出力
 aexlo bench --save-baseline main   # 以降は aexlo bench --baseline main で比較
-aexlo preview build/MyGlow.plugin --preset dot_glow
+aexlo render --preset dot_glow -o dot_glow.png
 aexlo check                        # CI で実行するコマンド（.github/workflows/aexlo-check.yml）
 ```
 
+`aexlo help` でコマンドの一覧を、`aexlo help <command>`（または
+`aexlo <command> --help`）でそのオプションを表示します。
+
 各バリアントはワーカープロセスで実行されるため、プラグインがクラッシュしても、その実行だけが失敗します。
 Rust プラグインでは `aexlo-test` を開発用依存関係に追加すると、フレームのアサーションを伴うプロセス内の `#[aexlo_test::test]` を利用できます。
+
+レンダリングせずにプラグインの宣言内容を見るには `info` を使います。
+
+```bash
+aexlo info MyGlow             # PiPL、ABOUT テキスト、フラグ、パラメーター
+aexlo info MyGlow --pipl      # PiPL だけを、プラグインを読み込まずに表示
+```
 
 プラグインの動作を調べるには、ターミナル UI のプロンプトからコマンドを実行します。
 
@@ -130,14 +140,14 @@ aexlo inspect MyGlow --exec "render; set Radius 50; render smart"
 トレースの行にフォーカスすると（Enter または `:focus <text|#seq>`）、その行を診断します。呼び出しなら引数と戻り値、実行中のコマンド、確保した・引数で渡されたメモリとそれがまだ保持されているか、失敗したコマンドならエラーとその直前の呼び出しを表示します。
 `--exec` は同じ分析をテキストで出力します。クレートのディレクトリを渡した場合、`:reload` で再ビルドし、パラメーターの値を引き継ぎます。
 
-エージェントやスクリプトから使う場合は、`--format json` で1行に1つの JSON オブジェクトを出力します。
+エージェントやスクリプトから使う場合は、`--json` で1行に1つの JSON オブジェクトを出力します。
 まず `loaded`、コマンドごとに `command`（結果、発行した `PF_Cmd_*` とそのエラー、`focus` に渡せる `#seq`）、`focus` は診断をセクションに分けて、最後に `report` を出力します。
 プラグイン自身の出力は stderr に回るため、stdout はそのままパースできます。
 `--script -` は stdin からコマンドを読み、1つ答えてから次を読むので、読み込んだプラグインをパイプ越しに操作できます。`report` でその時点の分析を出力し、`clear` でそれまでのトレースを消し、`quit` で終了します。
 
 ```bash
-aexlo inspect MyGlow --format json --exec "render; focus checkout"
-aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
+aexlo inspect MyGlow --json --exec "render; focus checkout"
+aexlo inspect MyGlow --json --script -    # stdin に1行1コマンド
 ```
 
 オプション、コマンド、JSON のフィールドはすべて [docs/inspect.ja.md](docs/inspect.ja.md) で説明しています。
@@ -194,14 +204,15 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 | △ Comp         | △ Dynamic Stream  | ○ Memory               | △ Register             |
 | △ Item         | △ Keyframe        | ○ Iterate              | △ Utility              |
 | △ Light        | ○ Persistent Data | △ Render               | × Camera               |
-| △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
-| △ PF Interface | × Mask Outline    | △ Layer Render Options | × Math                 |
+| △ Effect       | △ Mask            | △ Render Options       | × QueryXform           |
+| △ PF Interface | △ Mask Outline    | △ Layer Render Options | × Math                 |
 | × Proj         | × Text Document   | × Composite            | × Compute Cache        |
 | × Footage      | ○ Text Layer      | × Canvas               | × Hash                 |
 | × Collection   |                   | × Sound Data           | × Render Async Manager |
 | × Marker       |                   |                        |                        |
 
 △ Layer / Comp / Item / Light / Effect / PF Interface / Stream / Dynamic Stream / Keyframe：コンポジションそのものである固定の 1 レイヤーを返し、キーフレームはありません。
+△ Mask / Mask Outline：埋め込み側が `set_mask_paths` でレイヤーに付けたマスクを読み取ります。マスクは変更できません。
 △ Render / Render Options / Layer Render Options：チェックアウトはエフェクト自身の入力を返します。
 △ Color Settings：作業用スペースは sRGB で、カラーマネジメントはしません。
 △ Register：アイドルフックは記録しますが、呼びません。

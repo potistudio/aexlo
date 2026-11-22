@@ -18,15 +18,20 @@ path = "src/main.rs"
 [dependencies]
 aexlo = { workspace = true }
 anyhow = { workspace = true }
+# Every command's flags and help.
+clap = { version = "4.6.7", features = ["derive", "wrap_help"] }
 
 # The preset-driven toolkit (`presets`, `test`, `bench`, `check`, `worker`).
 aexlo-harness = { workspace = true }
 env_logger = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-# The viewer's "Save as preset" edits aexlo.toml, keeping its formatting.
+# `aexlo compat` reads and writes its scenarios' presets.
 toml = { workspace = true }
-toml_edit = "0.25.15"
+# `aexlo compat`'s colored report and progress bar (already in the tree
+# through clap): styles, and a stdout that drops them off a terminal.
+anstream = "1.0.0"
+anstyle = "1.0.14"
 
 # `aexlo bench`: the timing loop, plugin/resolution resolution, and reporting are
 # shared with `cargo bench -p aexlo-bench` so both front-ends measure identically.
@@ -38,9 +43,6 @@ image = { workspace = true, features = ["png"] }
 cargo_metadata = "0.23.1"
 minifb = "0.28.0"
 notify = "8.2.0"
-
-# `aexlo dev --bin --web`: serve the live preview over a tiny local HTTP server.
-tiny_http = "0.12.0"
 
 # `aexlo inspect`: the terminal UI (crossterm comes re-exported).
 ratatui = "0.30.2"

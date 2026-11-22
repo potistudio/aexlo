@@ -47,7 +47,7 @@ However, all of these plugins are designed to run exclusively within After Effec
 
 ### Requirements
 
-- Rust toolchain specified by `rust-toolchain.toml` (currently 1.99.0)
+- Rust 1.99.0 or later
 
 - Windows x64 or macOS arm64
 
@@ -119,13 +119,23 @@ aexlo test --bless                 # write goldens; later `aexlo test` compares
 aexlo test --strict                # + guard bands, leak and checkout tracking
 aexlo test --fuzz 100              # random parameters, failures as presets
 aexlo bench --save-baseline main   # later: aexlo bench --baseline main
-aexlo preview build/MyGlow.plugin --preset dot_glow
+aexlo render --preset dot_glow -o dot_glow.png
 aexlo check                        # what CI runs (.github/workflows/aexlo-check.yml)
 ```
+
+`aexlo help` lists every command, and `aexlo help <command>` (or
+`aexlo <command> --help`) shows its options.
 
 Every variant runs in a worker process, so a crashing plugin fails one run,
 not the suite. Rust plugins add `aexlo-test` as a dev-dependency for
 in-process `#[aexlo_test::test]`s with frame assertions.
+
+To see what a plugin declares without rendering it:
+
+```bash
+aexlo info MyGlow             # PiPL, ABOUT text, flags and parameters
+aexlo info MyGlow --pipl      # the PiPL alone, without loading the plugin
+```
 
 To see what a plugin does, drive it from a prompt in a terminal UI:
 
@@ -144,7 +154,7 @@ names and whether that is still held, or, for a failed command, its error
 and the last call before it. `--exec` prints the same analysis as text. Given a crate directory, `:reload` rebuilds
 it and keeps the parameter values.
 
-For agents and scripts, `--format json` prints one JSON object per line
+For agents and scripts, `--json` prints one JSON object per line
 instead: `loaded`, then a `command` per command (its result, the `PF_Cmd_*`
 it issued with their errors, and the `#seq` that `focus` takes), a `focus`
 with the diagnosis in sections, and a final `report`. The plugin's own output
@@ -154,8 +164,8 @@ can be driven over a pipe; `report` prints the analysis on demand, `clear`
 forgets the trace so far and `quit` ends the session.
 
 ```bash
-aexlo inspect MyGlow --format json --exec "render; focus checkout"
-aexlo inspect MyGlow --format json --script -    # one command per line on stdin
+aexlo inspect MyGlow --json --exec "render; focus checkout"
+aexlo inspect MyGlow --json --script -    # one command per line on stdin
 ```
 
 Every option, command and JSON field is described in
@@ -216,14 +226,15 @@ during `PF_Event_DRAW`. The CLI never sends `PF_Cmd_EVENT`; an embedder does.
 | △ Comp         | △ Dynamic Stream  | ○ Memory               | △ Register             |
 | △ Item         | △ Keyframe        | ○ Iterate              | △ Utility              |
 | △ Light        | ○ Persistent Data | △ Render               | × Camera               |
-| △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
-| △ PF Interface | × Mask Outline    | △ Layer Render Options | × Math                 |
+| △ Effect       | △ Mask            | △ Render Options       | × QueryXform           |
+| △ PF Interface | △ Mask Outline    | △ Layer Render Options | × Math                 |
 | × Proj         | × Text Document   | × Composite            | × Compute Cache        |
 | × Footage      | ○ Text Layer      | × Canvas               | × Hash                 |
 | × Collection   |                   | × Sound Data           | × Render Async Manager |
 | × Marker       |                   |                        |                        |
 
 △ Layer / Comp / Item / Light / Effect / PF Interface / Stream / Dynamic Stream / Keyframe: the project is aexlo's fixed one-layer comp, with no keyframes.
+△ Mask / Mask Outline: read the masks an embedder puts on the layer with `set_mask_paths`; they cannot be changed.
 △ Render / Render Options / Layer Render Options: checkout returns the effect's own input.
 △ Color Settings: the working space is sRGB, with no colour management.
 △ Register: idle hooks are recorded and never called.

@@ -26,28 +26,55 @@ use toml::Value;
 
 use crate::toolkit::{self, Format};
 
-pub const USAGE: &str = "\
-    compat <plugin|dir>...   How far aexlo can drive each plugin: load it, render
-                       every path and depth, other inputs, sizes and times,
-                       and each parameter set to other values, each in a
-                       worker. Effects that render a text layer differently
-                       from the same pixels on an AV layer go through it all
-                       again on a text layer (text:*). Reports ok, partial
-                       (ran, but asked for something aexlo does not do), n/a,
-                       error, crash or timeout per scenario, and the missing
-                       suites, stubs and declined calls behind them. A
-                       directory means every plugin in it.
-        --only <text>          Only scenarios whose id contains <text>
-        --jobs <n>             Workers at once  [default: half the CPUs]
-        --timeout <s>          Seconds per scenario  [default: 20]
-        --all                  List every scenario on its own, not only
-                               the ones that were not ok, grouped by how
-                               they went
-        --format json          Print the report as JSON
-        --save-baseline <file> Write each scenario's status to <file>
-        --baseline <file>      Compare with <file>; exit 1 when a scenario
-                               got worse
-";
+mod progress;
+mod report;
+
+use progress::Progress;
+use report::Look;
+
+/// `--color`: when the text report is rich.
+#[derive(clap::ValueEnum, Clone, Copy, PartialEq, Eq, Default, Debug)]
+enum ColorWhen {
+	#[default]
+	Auto,
+	Always,
+	Never,
+}
+
+#[derive(clap::Args)]
+pub struct CompatArgs {
+	/// Plugins to drive; a directory means every plugin in it
+	#[arg(value_name = "PLUGIN|DIR", required = true)]
+	paths: Vec<String>,
+	/// Only scenarios whose id contains <TEXT>
+	#[arg(long, value_name = "TEXT")]
+	only: Option<String>,
+	/// Workers at once [default: half the CPUs]
+	#[arg(long, value_name = "N")]
+	jobs: Option<usize>,
+	/// Seconds per scenario
+	#[arg(long, value_name = "S", default_value_t = 20.0)]
+	timeout: f64,
+	/// List every plugin and every scenario, not only the ones with problems
+	#[arg(long)]
+	all: bool,
+	/// Print the report as one JSON document
+	#[arg(long)]
+	json: bool,
+	/// Color the text report, with symbols and bars: auto (on a terminal,
+	/// unless NO_COLOR is set), always or never
+	#[arg(long, value_enum, value_name = "WHEN", default_value_t)]
+	color: ColorWhen,
+	/// The old spelling of --json: human or json
+	#[arg(long, value_enum, value_name = "F", hide = true)]
+	format: Option<Format>,
+	/// Write each scenario's status to <FILE>
+	#[arg(long, value_name = "FILE")]
+	save_baseline: Option<PathBuf>,
+	/// Compare with <FILE>; exit 1 when a scenario got worse
+	#[arg(long, value_name = "FILE")]
+	baseline: Option<PathBuf>,
+}
 
 /// The render size of every scenario that is not about size.
 const SIZE: [u32; 2] = [128, 96];
@@ -460,11 +487,16 @@ pub fn run(paths: &[PathBuf], only: Option<&str>, jobs: usize, timeout: f64) -> 
 		})
 		.collect();
 
+	let progress = Progress::new();
+
 	// Load each plugin once, for what it declares.
+	progress.phase("loading", plugins.len());
 	let loads: Vec<Loaded> = parallel(&plugins, jobs, |plugin| {
-		let mut client = WorkerClient::new(worker.clone(), artifacts.clone())
-			.map_err(|e| Box::new(RunFailure::Harness { message: e.message }))?;
-		client.load(plugin).map_err(Box::new)
+		let loaded = WorkerClient::new(worker.clone(), artifacts.clone())
+			.map_err(|e| Box::new(RunFailure::Harness { message: e.message }))
+			.and_then(|mut client| client.load(plugin).map_err(Box::new));
+		progress.tick();
+		loaded
 	});
 	// A worker that cannot start is aexlo's problem, not the plugin's.
 	if let Some(message) = loads
@@ -482,9 +514,12 @@ pub fn run(paths: &[PathBuf], only: Option<&str>, jobs: usize, timeout: f64) -> 
 		worker,
 		artifacts,
 	};
-	let run_batch = |batch: Batch| -> Result<Vec<(usize, String, Run)>, Error> {
+	let run_batch = |batch: Batch, phase: &str| -> Result<Vec<(usize, String, Run)>, Error> {
+		progress.phase(phase, batch.variants.len());
 		let runs = runner::run_all(batch.variants, &config, |executor, variant| {
-			runner::render_once(executor, variant)
+			let run = runner::render_once(executor, variant);
+			progress.tick();
+			run
 		});
 		if let Some(run) = runs.iter().find(|r| r.fault == Some(ErrorKind::Harness)) {
 			return Err(Error::harness(format!(
@@ -523,7 +558,7 @@ pub fn run(paths: &[PathBuf], only: Option<&str>, jobs: usize, timeout: f64) -> 
 		let list = list.into_iter().filter(|(id, _)| wanted(id)).chain(probe);
 		batch.add(plugin, index, "av", list);
 	}
-	let runs = run_batch(batch);
+	let runs = run_batch(batch, "AV layer");
 	let _ = std::fs::remove_dir_all(&probe_dir);
 	let mut runs = runs?;
 
@@ -548,7 +583,10 @@ pub fn run(paths: &[PathBuf], only: Option<&str>, jobs: usize, timeout: f64) -> 
 			.filter(|(id, _)| only.is_none_or(|text| id.contains(text)));
 		batch.add(plugin, index, "text", list);
 	}
-	runs.extend(run_batch(batch)?);
+	if !batch.variants.is_empty() {
+		runs.extend(run_batch(batch, "text layer")?);
+	}
+	progress.finish();
 
 	let mut reports: Vec<PluginReport> = plugins
 		.iter()
@@ -643,194 +681,22 @@ pub fn compare(baseline: &Baseline, reports: &[PluginReport]) -> (Vec<Change>, V
 	(worse, better)
 }
 
-//==== Output ==============================================================
-
-fn counts<'a>(scenarios: impl Iterator<Item = &'a Scenario>) -> BTreeMap<Status, usize> {
-	let mut counts = BTreeMap::new();
-	for scenario in scenarios {
-		*counts.entry(scenario.status).or_insert(0) += 1;
-	}
-	counts
-}
-
-fn counts_text(counts: &BTreeMap<Status, usize>) -> String {
-	Status::ALL
-		.iter()
-		.filter_map(|s| counts.get(s).map(|n| format!("{n} {}", s.name())))
-		.collect::<Vec<_>>()
-		.join(" · ")
-}
-
-/// Every gap, with the plugins that hit it, most widespread first.
-fn gaps(reports: &[PluginReport]) -> Vec<(String, Vec<String>)> {
-	let mut by_label: BTreeMap<String, Vec<String>> = BTreeMap::new();
+/// Coverage in `baseline` and now, over the scenarios both have, so that a
+/// run with `--only` or new plugins compares like with like.
+pub fn coverage_change(baseline: &Baseline, reports: &[PluginReport]) -> Option<(f64, f64)> {
+	let (mut was, mut now) = (Vec::new(), Vec::new());
 	for report in reports {
-		for scenario in report.all() {
-			for gap in &scenario.unsupported {
-				// Where it was asked is detail; what is missing is the gap.
-				let key = match gap.detail.is_empty() {
-					true => format!("{} {}", gap.kind, gap.name),
-					false => format!("{} {} {}", gap.kind, gap.name, gap.detail),
-				};
-				let plugins = by_label.entry(key).or_default();
-				if !plugins.contains(&report.plugin) {
-					plugins.push(report.plugin.clone());
-				}
-			}
-		}
-	}
-	let mut gaps: Vec<_> = by_label.into_iter().collect();
-	gaps.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(&b.0)));
-	gaps
-}
-
-/// What makes two scenarios fail the same way: their status, the first line
-/// of their message, and what they asked for.
-fn signature(scenario: &Scenario) -> (Status, String, Vec<String>) {
-	let message = match scenario.status {
-		Status::Ok => String::new(),
-		_ => scenario
-			.message
-			.as_deref()
-			.and_then(|m| m.lines().next())
-			.unwrap_or_default()
-			.to_string(),
-	};
-	let gaps = scenario
-		.unsupported
-		.iter()
-		.map(|g| format!("{} (in {})", g.label(), g.command))
-		.collect();
-	(scenario.status, message, gaps)
-}
-
-/// The scenarios worth listing, grouped by [`signature`] in first-seen
-/// order; every scenario alone with `all`.
-fn groups(report: &PluginReport, all: bool) -> Vec<Vec<&Scenario>> {
-	let mut groups: Vec<Vec<&Scenario>> = Vec::new();
-	for scenario in report.all() {
-		if !all && matches!(scenario.status, Status::Ok | Status::NotApplicable) {
+		let Some(old) = baseline.plugins.get(&report.plugin) else {
 			continue;
-		}
-		let key = signature(scenario);
-		match groups.iter_mut().find(|g| !all && signature(g[0]) == key) {
-			Some(group) => group.push(scenario),
-			None => groups.push(vec![scenario]),
-		}
-	}
-	groups
-}
-
-/// At most this many ids are named for a group of scenarios.
-const NAMED: usize = 4;
-
-fn print_group(group: &[&Scenario]) {
-	let first = group[0];
-	let (status, message, gaps) = signature(first);
-	if let [only] = group {
-		let mut line = format!("    {:<8} {}", status.name(), only.id);
-		if !message.is_empty() {
-			line.push_str(&format!(" - {message}"));
-		}
-		println!("{line}");
-		for gap in &only.unsupported {
-			let times = if gap.count > 1 {
-				format!(" ×{}", gap.count)
-			} else {
-				String::new()
-			};
-			println!("               {} (in {}{times})", gap.label(), gap.command);
-		}
-		return;
-	}
-	println!(
-		"    {:<8} ×{} scenarios{}",
-		status.name(),
-		group.len(),
-		match message.is_empty() {
-			true => String::new(),
-			false => format!(" - {message}"),
-		}
-	);
-	for gap in gaps {
-		println!("               {gap}");
-	}
-	let mut ids: Vec<&str> = group.iter().take(NAMED).map(|s| s.id.as_str()).collect();
-	let more = group.len().saturating_sub(NAMED);
-	let rest = if more > 0 {
-		format!(", … (+{more})")
-	} else {
-		String::new()
-	};
-	ids.dedup();
-	println!("               e.g. {}{rest}", ids.join(", "));
-}
-
-fn print_human(reports: &[PluginReport], all: bool, changes: Option<&(Vec<Change>, Vec<Change>)>) {
-	let total = counts(reports.iter().flat_map(PluginReport::all));
-	println!(
-		"aexlo compat: {} plugin(s), {} scenario(s): {}",
-		reports.len(),
-		total.values().sum::<usize>(),
-		counts_text(&total)
-	);
-	for report in reports {
-		println!();
-		println!(
-			"{}  load {} · {}",
-			report.plugin,
-			report.load.status.name(),
-			counts_text(&counts(report.scenarios.iter()))
-		);
-		for group in groups(report, all) {
-			print_group(&group);
-		}
-	}
-	let gaps = gaps(reports);
-	if !gaps.is_empty() {
-		println!();
-		println!("Asked for, but not done by aexlo (plugins that asked):");
-		for (label, plugins) in gaps {
-			println!("  {:>3}  {label}  [{}]", plugins.len(), plugins.join(", "));
-		}
-	}
-	if let Some((worse, better)) = changes {
-		println!();
-		if worse.is_empty() && better.is_empty() {
-			println!("Same as the baseline.");
-		}
-		for (title, list) in [
-			("Worse than the baseline:", worse),
-			("Better than the baseline:", better),
-		] {
-			if list.is_empty() {
-				continue;
-			}
-			println!("{title}");
-			for c in list {
-				println!("  {}  {}: {} -> {}", c.plugin, c.id, c.was.name(), c.now.name());
+		};
+		for scenario in report.all() {
+			if let Some(status) = old.get(&scenario.id) {
+				was.push(*status);
+				now.push(scenario.status);
 			}
 		}
 	}
-}
-
-fn print_json(reports: &[PluginReport], changes: Option<&(Vec<Change>, Vec<Change>)>) {
-	let total = counts(reports.iter().flat_map(PluginReport::all));
-	let summary: BTreeMap<&str, usize> = total.iter().map(|(s, n)| (s.name(), *n)).collect();
-	let gaps: Vec<serde_json::Value> = gaps(reports)
-		.into_iter()
-		.map(|(gap, plugins)| serde_json::json!({ "gap": gap, "plugins": plugins }))
-		.collect();
-	let mut value = serde_json::json!({
-		"summary": summary,
-		"plugins": reports,
-		"gaps": gaps,
-	});
-	if let Some((worse, better)) = changes {
-		value["worse"] = serde_json::json!(worse);
-		value["better"] = serde_json::json!(better);
-	}
-	println!("{}", serde_json::to_string_pretty(&value).unwrap_or_default());
+	Some((report::coverage(&was)?, report::coverage(&now)?))
 }
 
 //==== Command =============================================================
@@ -867,70 +733,59 @@ fn expand(arg: &str) -> Result<Vec<PathBuf>, Error> {
 	Err(Error::invalid(format!("no plugin at {arg}")))
 }
 
-pub fn cmd_compat(args: impl Iterator<Item = String>) -> ExitCode {
+pub fn cmd(args: CompatArgs) -> ExitCode {
 	match compat(args) {
 		Ok(code) => code,
 		Err(err) => toolkit::fail(&err),
 	}
 }
 
-fn compat(args: impl Iterator<Item = String>) -> Result<ExitCode, Error> {
+fn compat(args: CompatArgs) -> Result<ExitCode, Error> {
 	let mut paths = Vec::new();
-	let mut only = None;
-	let mut jobs = std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).max(1));
-	let mut timeout = 20.0;
-	let mut all = false;
-	let mut format = Format::Human;
-	let mut save = None;
-	let mut baseline = None;
-	let mut args = args.peekable();
-	let value = |args: &mut std::iter::Peekable<_>, flag: &str| -> Result<String, Error> {
-		Iterator::next(args).ok_or_else(|| Error::invalid(format!("option '{flag}' needs a value")))
-	};
-	while let Some(arg) = args.next() {
-		match arg.as_str() {
-			"--only" => only = Some(value(&mut args, &arg)?),
-			"--jobs" => {
-				jobs = value(&mut args, &arg)?
-					.parse()
-					.map_err(|_| Error::invalid("--jobs takes a number"))?
-			}
-			"--timeout" => {
-				timeout = value(&mut args, &arg)?
-					.parse()
-					.map_err(|_| Error::invalid("--timeout takes seconds"))?
-			}
-			"--all" => all = true,
-			"--format" => {
-				format = match value(&mut args, &arg)?.as_str() {
-					"json" => Format::Json,
-					"human" | "text" => Format::Human,
-					other => return Err(Error::invalid(format!("unknown --format '{other}'"))),
-				}
-			}
-			"--save-baseline" => save = Some(PathBuf::from(value(&mut args, &arg)?)),
-			"--baseline" => baseline = Some(PathBuf::from(value(&mut args, &arg)?)),
-			flag if flag.starts_with('-') => return Err(Error::invalid(format!("unknown option '{flag}'"))),
-			plugin => paths.extend(expand(plugin)?),
-		}
+	for plugin in &args.paths {
+		paths.extend(expand(plugin)?);
 	}
+	let only = args.only;
+	let jobs = args
+		.jobs
+		.unwrap_or_else(|| std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).max(1)));
+	let (timeout, all) = (args.timeout, args.all);
+	let format = Format::from_flags(args.json, args.format);
+	let (save, baseline) = (args.save_baseline, args.baseline);
 	if paths.is_empty() {
 		return Err(Error::invalid("name at least one plugin or directory of plugins"));
 	}
 	let previous = baseline.as_deref().map(Baseline::read).transpose()?;
+	// For the report and the progress line alike.
+	match args.color {
+		ColorWhen::Auto => {}
+		ColorWhen::Always => anstream::ColorChoice::Always.write_global(),
+		ColorWhen::Never => anstream::ColorChoice::Never.write_global(),
+	}
 
 	let reports = run(&paths, only.as_deref(), jobs, timeout)?;
-	let changes = previous.as_ref().map(|b| compare(b, &reports));
+	let changes = previous.as_ref().map(|b| {
+		let (worse, better) = compare(b, &reports);
+		report::Changes {
+			worse,
+			better,
+			coverage: coverage_change(b, &reports),
+		}
+	});
 	match format {
-		Format::Human => print_human(&reports, all, changes.as_ref()),
-		Format::Json => print_json(&reports, changes.as_ref()),
+		Format::Human => {
+			let rich = anstream::AutoStream::choice(&std::io::stdout()) != anstream::ColorChoice::Never;
+			let look = if rich { Look::RICH } else { Look::PLAIN };
+			anstream::print!("{}", report::human(&reports, all, changes.as_ref(), look));
+		}
+		Format::Json => println!("{}", report::json(&reports, changes.as_ref())),
 	}
 	if let Some(path) = save {
 		Baseline::of(&reports).write(&path)?;
 		eprintln!("aexlo compat: wrote {}", path.display());
 	}
 	Ok(match changes {
-		Some((worse, _)) if !worse.is_empty() => ExitCode::from(1),
+		Some(changes) if !changes.worse.is_empty() => ExitCode::from(1),
 		_ => ExitCode::SUCCESS,
 	})
 }
@@ -998,7 +853,7 @@ mod tests {
 		assert_eq!(ids(&text), expected);
 	}
 
-	fn scenario(id: &str, status: Status) -> Scenario {
+	pub(super) fn scenario(id: &str, status: Status) -> Scenario {
 		Scenario {
 			id: id.into(),
 			status,
@@ -1008,7 +863,7 @@ mod tests {
 		}
 	}
 
-	fn report(statuses: &[(&str, Status)]) -> PluginReport {
+	pub(super) fn report(statuses: &[(&str, Status)]) -> PluginReport {
 		PluginReport {
 			plugin: "Fx".into(),
 			path: PathBuf::from("Fx.plugin"),
@@ -1039,6 +894,17 @@ mod tests {
 		let ids = |list: &[Change]| list.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
 		assert_eq!(ids(&worse), ["a"]);
 		assert_eq!(ids(&better), ["b"]);
+	}
+
+	#[test]
+	fn coverage_change_compares_the_scenarios_both_runs_have() {
+		let baseline = Baseline::of(&[report(&[("a", Status::Ok), ("b", Status::Crash), ("c", Status::Ok)])]);
+		// `c` is not in this run and `d` not in the baseline: neither counts.
+		let now = report(&[("a", Status::Ok), ("b", Status::Ok), ("d", Status::Crash)]);
+		assert_eq!(coverage_change(&baseline, &[now]), Some((2.0 / 3.0, 1.0)));
+		let mut other = report(&[]);
+		other.plugin = "Other".into();
+		assert_eq!(coverage_change(&baseline, &[other]), None);
 	}
 
 	#[test]
