@@ -658,7 +658,7 @@ pub(crate) unsafe extern "C" fn composite_rect_sys(
 /// Cross-fades `src1`/`src2` into `dst` at a constant `ratio` (16.16 fixed,
 /// 0.0..1.0), including the alpha channel. Operates over the overlap of all
 /// three worlds' dimensions.
-unsafe extern "C" fn blend_sys(
+pub(crate) unsafe extern "C" fn blend_sys(
 	_effect_ref: PF_ProgPtr,
 	src1: *const PF_EffectWorld,
 	src2: *const PF_EffectWorld,
@@ -672,6 +672,9 @@ unsafe extern "C" fn blend_sys(
 		let s1 = unsafe { &*src1 };
 		let s2 = unsafe { &*src2 };
 		let d = unsafe { &*dst };
+		if !is_8bpc(s1) || !is_8bpc(s2) || !is_8bpc(d) {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
 		if s1.data.is_null() || s2.data.is_null() || d.data.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
@@ -781,7 +784,7 @@ fn convolve_value_alpha_weighted(
 /// `src` and `dst` must be different buffers (a sliding-window filter can't
 /// safely run in place, and parallelising by row assumes disjoint reads).
 #[allow(non_upper_case_globals)]
-unsafe extern "C" fn convolve_sys(
+pub(crate) unsafe extern "C" fn convolve_sys(
 	_effect_ref: PF_ProgPtr,
 	src: *mut PF_EffectWorld,
 	area: *const PF_Rect,
@@ -803,6 +806,9 @@ unsafe extern "C" fn convolve_sys(
 		}
 		let s = unsafe { &*src };
 		let d = unsafe { &*dst };
+		if !is_8bpc(s) || !is_8bpc(d) {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
 		if s.data.is_null() || d.data.is_null() || kernel_size <= 0 {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
