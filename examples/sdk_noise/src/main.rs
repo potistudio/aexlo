@@ -7,7 +7,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let args: Vec<_> = std::env::args_os().skip(1).collect();
 	if args.first().is_some_and(|arg| arg == "--help" || arg == "-h") {
 		println!(
-			"Usage: cargo run -p sdk_noise -- [plugin path] [input.png] [output.png]\nDefaults: bundled SDK_Noise, repository input.png, target/sdk-noise.png."
+			"Usage: cargo run -p sdk_noise -- [plugin path] [input.png] [output.png]\nDefaults: bundled SDK_Noise, fixtures/input.png, target/sdk-noise.png."
 		);
 		return Ok(());
 	}
@@ -21,7 +21,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 		"fixtures/plugins/macos/SDK_Noise.plugin"
 	};
 	let plugin = args.first().map(PathBuf::from).unwrap_or_else(|| root.join(fixture));
-	let input = args.get(1).map(PathBuf::from).unwrap_or_else(|| root.join("input.png"));
+	let input = args
+		.get(1)
+		.map(PathBuf::from)
+		.unwrap_or_else(|| root.join("fixtures/input.png"));
 	let output = args
 		.get(2)
 		.map(PathBuf::from)
@@ -29,20 +32,20 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	// 1. Load a compiled plugin through the host.
 	println!("Loading {}", plugin.display());
-	let mut instance = Host::get().try_load(&plugin)?;
+	let mut instance = Host::get().load(&plugin)?;
 	println!("{}", instance.about()?);
 
 	// 2. Use the actual image dimensions when constructing the input layer.
 	let image = image::open(&input)?.to_rgba8();
 	let (width, height) = image.dimensions();
 	instance.set_render_size(width, height);
-	instance.set_input_layer(Layer::<Depth8>::from_raw(image.into_raw(), width, height)?);
+	instance.set_input_layer(Layer::<Depth8>::from_rgba8(image.into_raw(), width, height)?);
 
 	// 3. Select the appropriate render path and copy the result to RGBA bytes.
 	instance.render_frame()?;
 	let (width, height) = instance.output_size();
 	let mut pixels = vec![0; width as usize * height as usize * 4];
-	instance.write_rendered_pixels(&mut pixels)?;
+	instance.write_output_rgba8(&mut pixels)?;
 
 	// 4. Save a PNG. Errors propagate to the terminal instead of panicking.
 	if let Some(parent) = output.parent().filter(|path| !path.as_os_str().is_empty()) {

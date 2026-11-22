@@ -246,9 +246,11 @@ pub enum PValue {
 	Path(u32),
 }
 
-impl From<ParamValue> for PValue {
-	fn from(value: ParamValue) -> Self {
-		match value {
+impl PValue {
+	/// The studio value for `value`, or `None` for a kind studio can't edit
+	/// (`ParamValue` is `#[non_exhaustive]`).
+	pub fn from_param(value: ParamValue) -> Option<Self> {
+		Some(match value {
 			ParamValue::Float(v) => PValue::Float(v),
 			ParamValue::Fixed(v) => PValue::Fixed(v),
 			ParamValue::Slider(v) => PValue::Slider(v),
@@ -264,7 +266,8 @@ impl From<ParamValue> for PValue {
 				alpha,
 			} => PValue::Color([red, green, blue, alpha]),
 			ParamValue::Path(id) => PValue::Path(id),
-		}
+			_ => return None,
+		})
 	}
 }
 

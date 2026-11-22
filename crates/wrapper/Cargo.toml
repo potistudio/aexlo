@@ -1,8 +1,0 @@
-[package]
-name = "wrapper"
-edition = "2024"
-rust-version = { workspace = true }
-
-[dependencies]
-after-effects-sys = "0.4.0"
-rand = "0.10.2"

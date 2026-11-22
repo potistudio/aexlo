@@ -65,7 +65,9 @@ fn publish_main_window(handle: &impl raw_window_handle::HasWindowHandle) {
 		let RawWindowHandle::Win32(win) = window.as_raw() else {
 			return;
 		};
-		aexlo::set_main_window(win.hwnd.get() as *mut std::ffi::c_void);
+		// SAFETY: eframe owns this window for the lifetime of Studio, which clears
+		// the handle before the window is destroyed.
+		unsafe { aexlo::set_main_window(win.hwnd.get() as *mut std::ffi::c_void) };
 	}
 	#[cfg(not(windows))]
 	{

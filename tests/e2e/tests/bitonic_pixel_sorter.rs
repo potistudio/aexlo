@@ -8,7 +8,7 @@
 //! Each test skips when the fixture isn't present locally; GPU comparisons
 //! skip when the machine has no GPU device.
 
-use aexlo::{AexloError, Depth8, Layer, MaskPath, MaskVertex, ParamValue, PluginInstance};
+use aexlo::{AexloError, Depth8, Layer, MaskPath, MaskVertex, ParamValue, PluginInstance, RenderPath};
 
 const MODE: usize = 2;
 const THRESHOLD_MIN: usize = 4;
@@ -23,7 +23,7 @@ fn load() -> Option<PluginInstance> {
 		eprintln!("skipping: fixture 'BitonicPixelSorter' not present locally");
 		return None;
 	};
-	Some(aexlo::Host::get().try_load(&path).expect("failed to load plugin"))
+	Some(aexlo::Host::get().load(&path).expect("failed to load plugin"))
 }
 
 fn sample_input() -> Layer<Depth8> {
@@ -31,34 +31,33 @@ fn sample_input() -> Layer<Depth8> {
 		.expect("failed to open workspace input.png")
 		.to_rgba8();
 	let (width, height) = img.dimensions();
-	Layer::<Depth8>::from_raw(img.into_raw(), width, height).unwrap()
+	Layer::<Depth8>::from_rgba8(img.into_raw(), width, height).unwrap()
 }
 
 fn rgba(layer: &Layer<Depth8>) -> Vec<u8> {
 	let mut out = vec![0u8; (layer.width() * layer.height() * 4) as usize];
-	layer.write_rgba_bytes(&mut out).unwrap();
+	layer.write_rgba8(&mut out).unwrap();
 	out
 }
 
 fn output(instance: &PluginInstance) -> Vec<u8> {
 	let (w, h) = instance.output_size();
 	let mut out = vec![0u8; (w * h * 4) as usize];
-	instance.write_rendered_pixels(&mut out).unwrap();
+	instance.write_output_rgba8(&mut out).unwrap();
 	out
 }
 
 fn render_cpu(instance: &mut PluginInstance) -> Vec<u8> {
-	instance.render_pre().expect("SMART_PRE_RENDER failed");
-	instance.render_smart().expect("SMART_RENDER failed");
+	instance.render_with(RenderPath::Smart).expect("smart render failed");
 	output(instance)
 }
 
 /// `None` when the machine has no GPU device.
 fn render_gpu(instance: &mut PluginInstance) -> Option<Vec<u8>> {
-	match instance.render_gpu() {
+	match instance.render_with(RenderPath::Gpu) {
 		Ok(()) => Some(output(instance)),
-		Err(AexloError::Unexpected(msg)) if msg.contains("No GPU device available") => {
-			eprintln!("skipping GPU comparison: {msg}");
+		Err(AexloError::GpuUnavailable) => {
+			eprintln!("skipping GPU comparison: no GPU device available");
 			None
 		}
 		Err(err) => panic!("GPU render failed: {err:?}"),
@@ -242,7 +241,7 @@ fn trigger_source_layer_selects_the_sorted_band() {
 			gradient.extend_from_slice(&[v, v, v, 255]);
 		}
 	}
-	let trigger = Layer::<Depth8>::from_raw(gradient, w, h).unwrap();
+	let trigger = Layer::<Depth8>::from_rgba8(gradient, w, h).unwrap();
 	instance.set_layer_param(TRIGGER_SOURCE, Some(trigger)).unwrap();
 	assert!(instance.layer_param(TRIGGER_SOURCE).is_some());
 	let cpu_out = render_cpu(&mut instance);
@@ -305,7 +304,7 @@ fn gpu_declined_frame_renders_on_the_cpu() {
 	}
 	let make = || -> Option<PluginInstance> {
 		let mut instance = load()?;
-		instance.set_input_layer(Layer::<Depth8>::from_raw(pixels.clone(), w, h).unwrap());
+		instance.set_input_layer(Layer::<Depth8>::from_rgba8(pixels.clone(), w, h).unwrap());
 		instance.set_render_size(w, h);
 		instance.set_param(THRESHOLD_MIN, ParamValue::Float(0.0)).unwrap();
 		instance.set_param(THRESHOLD_MAX, ParamValue::Float(100.0)).unwrap();
@@ -317,9 +316,8 @@ fn gpu_declined_frame_renders_on_the_cpu() {
 
 	let mut auto = make().unwrap();
 	if auto.supports_gpu() {
-		match auto.render_gpu() {
-			Err(AexloError::GpuRenderDeclined) => {}
-			Err(AexloError::Unexpected(msg)) if msg.contains("No GPU device available") => {}
+		match auto.render_with(RenderPath::Gpu) {
+			Err(AexloError::GpuRenderDeclined | AexloError::GpuUnavailable) => {}
 			other => panic!("expected the plugin to decline the GPU render, got {other:?}"),
 		}
 	}

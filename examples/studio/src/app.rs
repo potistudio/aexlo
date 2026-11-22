@@ -858,6 +858,13 @@ impl Studio {
 	}
 }
 
+impl Drop for Studio {
+	fn drop(&mut self) {
+		// SAFETY: A null handle clears the window before eframe destroys it.
+		unsafe { aexlo::set_main_window(std::ptr::null_mut()) };
+	}
+}
+
 impl eframe::App for Studio {
 	fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();

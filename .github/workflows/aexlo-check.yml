@@ -3,7 +3,7 @@
 #
 #   jobs:
 #     aexlo:
-#       uses: potistudio/aexlo-rs/.github/workflows/aexlo-check.yml@master
+#       uses: potistudio/aexlo/.github/workflows/aexlo-check.yml@master
 #       with:
 #         manifest: aexlo.toml
 #
@@ -31,7 +31,7 @@ on:
       aexlo-git:
         description: Where to install the CLI from.
         type: string
-        default: https://github.com/potistudio/aexlo-rs
+        default: https://github.com/potistudio/aexlo
       aexlo-rev:
         description: Branch, tag or commit of aexlo-git.
         type: string
@@ -40,6 +40,10 @@ on:
         description: Runners to check on, as a JSON list.
         type: string
         default: '["macos-latest", "windows-latest"]'
+      name:
+        description: Added to the artifact names, to tell calls apart when a workflow calls this one more than once.
+        type: string
+        default: ""
 
 jobs:
   check:
@@ -59,7 +63,7 @@ jobs:
       - name: Install aexlo (from this checkout)
         if: inputs.aexlo-path != ''
         shell: bash
-        run: cargo install --locked --path "${{ inputs.aexlo-path }}/crates/cli"
+        run: cargo install --locked --path "${{ inputs.aexlo-path }}/crates/aexlo-cli"
 
       - name: Install aexlo
         if: inputs.aexlo-path == ''
@@ -77,7 +81,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: aexlo-junit-${{ matrix.os }}-${{ strategy.job-index }}
+          name: aexlo-junit-${{ inputs.name && format('{0}-', inputs.name) || '' }}${{ matrix.os }}-${{ strategy.job-index }}
           path: aexlo-junit.xml
           if-no-files-found: ignore
 
@@ -91,6 +95,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: aexlo-artifacts-${{ matrix.os }}-${{ strategy.job-index }}
+          name: aexlo-artifacts-${{ inputs.name && format('{0}-', inputs.name) || '' }}${{ matrix.os }}-${{ strategy.job-index }}
           path: ${{ steps.artifacts.outputs.dir }}
           if-no-files-found: ignore

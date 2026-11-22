@@ -6,7 +6,7 @@
 //!
 //! [`PluginInstance::set_strict`]: crate::PluginInstance::set_strict
 
-use wrapper::{AnyLayer, Layer, PixelDepth};
+use crate::pixel::{AnyLayer, Layer, PixelDepth};
 
 /// Which strict-mode instrumentation an instance runs. All off by default,
 /// in which case the host's allocation paths and costs are unchanged.
@@ -121,6 +121,7 @@ pub fn unwritten_pixels(layer: &AnyLayer) -> usize {
 
 /// A guard band around a host world was overwritten.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GuardViolation {
 	/// What the world was (`"PF_NewWorld 64x48"`, `"output"`, ...).
 	pub world: String,
@@ -132,9 +133,13 @@ pub struct GuardViolation {
 
 /// A handle or world still alive when its scope ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Leak {
+	/// What leaked.
 	pub kind: crate::AllocationKind,
+	/// The allocation's address, as the plugin saw it.
 	pub address: usize,
+	/// The allocation's size in bytes.
 	pub bytes: usize,
 	/// The command during which it was allocated.
 	pub allocated_in: &'static str,
@@ -144,7 +149,9 @@ pub struct Leak {
 
 /// A smart-render checkout rule broken.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CheckoutViolation {
+	/// Which rule was broken, and by which command.
 	pub message: String,
 }
 
@@ -152,13 +159,18 @@ pub struct CheckoutViolation {
 ///
 /// [`PluginInstance::strict_report`]: crate::PluginInstance::strict_report
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct StrictReport {
+	/// Writes outside a world's pixels ([`Strict::guard_bands`]).
 	pub guard_violations: Vec<GuardViolation>,
+	/// Allocations not released in time ([`Strict::track_allocations`]).
 	pub leaks: Vec<Leak>,
+	/// Smart-render checkout rules broken ([`Strict::track_checkouts`]).
 	pub checkout_violations: Vec<CheckoutViolation>,
 }
 
 impl StrictReport {
+	/// Whether strict mode found nothing.
 	pub fn is_empty(&self) -> bool {
 		self.guard_violations.is_empty() && self.leaks.is_empty() && self.checkout_violations.is_empty()
 	}
@@ -383,8 +395,45 @@ impl Tracker {
 		self.report.leaks.extend(leaks);
 	}
 
+	/// Whether allocations are kept in [`Self::live`]: for leak tracking, and
+	/// for an observer's [`PluginInstance::allocations`].
+	///
+	/// [`PluginInstance::allocations`]: crate::PluginInstance::allocations
+	fn keeps_live(&self) -> bool {
+		self.strict.track_allocations || self.observer.is_some()
+	}
+
+	/// Forget every allocation when nothing keeps them any more: disposals
+	/// are no longer seen, so the entries would go stale.
+	pub(crate) fn settle(&mut self) {
+		if !self.keeps_live() {
+			self.live.clear();
+		}
+	}
+
+	/// The allocations the plugin holds, by address.
+	pub(crate) fn live(&self) -> Vec<crate::LiveAllocation> {
+		let mut live: Vec<crate::LiveAllocation> = self
+			.live
+			.iter()
+			.map(|(&address, l)| crate::LiveAllocation {
+				kind: l.kind,
+				address,
+				bytes: l.bytes,
+				allocated_in: l.command,
+			})
+			.collect();
+		live.sort_by_key(|l| l.address);
+		live
+	}
+
+	/// The kind and size of the live allocation at `address`.
+	pub(crate) fn find_live(&self, address: usize) -> Option<(crate::AllocationKind, usize)> {
+		self.live.get(&address).map(|l| (l.kind, l.bytes))
+	}
+
 	fn allocated(&mut self, kind: crate::AllocationKind, address: usize, bytes: usize) {
-		if self.strict.track_allocations {
+		if self.keeps_live() {
 			self.live.insert(
 				address,
 				Live {
@@ -540,7 +589,7 @@ pub(crate) fn guards_broken(world: &str, bands: Vec<(&'static str, usize)>) {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use wrapper::PixelDepthKind;
+	use crate::pixel::PixelDepthKind;
 
 	#[test]
 	fn poison_is_found_at_every_depth_and_only_where_left() {
@@ -551,13 +600,13 @@ mod tests {
 			fn write<D: PixelDepth>(layer: &mut AnyLayer) {
 				let layer = layer.get_mut::<D>().unwrap();
 				for pixel in layer.iter_mut().take(3) {
-					*pixel = wrapper::Pixel::from_unit([0.2, 0.4, 0.6, 1.0]);
+					*pixel = crate::pixel::Pixel::from_unit([0.2, 0.4, 0.6, 1.0]);
 				}
 			}
 			match kind {
-				PixelDepthKind::U8 => write::<wrapper::Depth8>(&mut layer),
-				PixelDepthKind::U16 => write::<wrapper::Depth16>(&mut layer),
-				PixelDepthKind::F32 => write::<wrapper::Depth32>(&mut layer),
+				PixelDepthKind::U8 => write::<crate::pixel::Depth8>(&mut layer),
+				PixelDepthKind::U16 => write::<crate::pixel::Depth16>(&mut layer),
+				PixelDepthKind::F32 => write::<crate::pixel::Depth32>(&mut layer),
 			}
 			assert_eq!(unwritten_pixels(&layer), 5, "{kind}");
 		}

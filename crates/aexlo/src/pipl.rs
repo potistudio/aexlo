@@ -9,7 +9,7 @@
 pub(crate) fn entry_point_name(binary: &[u8]) -> Option<String> {
 	let key = platform_entry_key()?;
 	let resource = pe_pipl_resource(binary)?;
-	entry_point_in_pipl(&resource, key)
+	entry_point_in_pipl(resource, key)
 }
 
 fn platform_entry_key() -> Option<&'static str> {
@@ -183,7 +183,7 @@ fn resource_name(binary: &[u8], sections: &[Section], root_rva: u32, offset: u32
 	let at = rva_to_offset(sections, root_rva.checked_add(offset)?)?;
 	let len = u16::from_le_bytes(binary.get(at..at + 2)?.try_into().ok()?) as usize;
 	let raw = binary.get(at + 2..at + 2 + len * 2)?;
-	let units: Vec<u16> = raw.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+	let units: Vec<u16> = raw.as_chunks::<2>().0.iter().map(|&c| u16::from_le_bytes(c)).collect();
 	Some(String::from_utf16_lossy(&units).to_ascii_uppercase())
 }
 

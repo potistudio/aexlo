@@ -2,7 +2,7 @@
 //! layer" popup), set through
 //! [`PluginInstance::set_layer_param`](crate::PluginInstance::set_layer_param).
 
-use after_effects_sys::{A_long, PF_LayerDef, PF_LayerDefault_MYSELF};
+use crate::sys::{A_long, PF_LayerDef, PF_LayerDefault_MYSELF};
 
 use crate::gpu::GPU_BYTES_PER_PIXEL;
 use crate::host::host_layer::HostLayer;
@@ -25,7 +25,7 @@ pub(crate) struct LinkedLayer {
 }
 
 impl LinkedLayer {
-	pub(crate) fn new(layer: wrapper::AnyLayer, unlinked: PF_LayerDef) -> Self {
+	pub(crate) fn new(layer: crate::pixel::AnyLayer, unlinked: PF_LayerDef) -> Self {
 		let mut layer = HostLayer::new(layer);
 		let mut cpu_world = layer.as_sys();
 		// `PF_LayerDefault_NONE` marks an unlinked layer parameter, which plugins
@@ -42,7 +42,7 @@ impl LinkedLayer {
 		}
 	}
 
-	pub(crate) fn layer(&self) -> &wrapper::AnyLayer {
+	pub(crate) fn layer(&self) -> &crate::pixel::AnyLayer {
 		self.layer.layer()
 	}
 

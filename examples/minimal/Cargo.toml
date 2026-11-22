@@ -5,9 +5,10 @@ edition = { workspace = true }
 rust-version = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
+publish = false
 
 [features]
 diagnostics = ["aexlo/diagnostics"]
 
 [dependencies]
-aexlo = { path = "../../crates/aexlo" }
+aexlo = { workspace = true }

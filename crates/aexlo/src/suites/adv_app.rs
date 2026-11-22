@@ -6,7 +6,7 @@
 use super::ffi::read_c_str;
 use crate::core::diagnostics::diag;
 use crate::host::app::{AppPixel8, InfoLine, with_app_host_ffi as with_host};
-use after_effects_sys::{A_char, PF_AdvAppSuite1, PF_AdvAppSuite2, PF_Err, PF_Err_NONE, PF_Pixel};
+use crate::sys::{A_char, PF_AdvAppSuite1, PF_AdvAppSuite2, PF_Err, PF_Err_NONE, PF_Pixel};
 
 /// Build an [`InfoLine`] from optional left/right-justified C strings.
 ///
@@ -25,7 +25,7 @@ macro_rules! host_action {
 			diag!($diag);
 			with_host(|host| {
 				host.$method();
-				PF_Err_NONE as PF_Err
+				PF_Err_NONE
 			})
 		}
 	};
@@ -55,29 +55,33 @@ host_action!(
 );
 
 unsafe extern "C" fn info_draw_text3(line1Z0: *const A_char, line2Z0: *const A_char, line3Z0: *const A_char) -> PF_Err {
-	diag!("PF_AdvAppSuite/PF_InfoDrawText3",
-		"line1Z0" => format!("{:#x}", line1Z0 as usize),
-		"line2Z0" => format!("{:#x}", line2Z0 as usize),
-		"line3Z0" => format!("{:#x}", line3Z0 as usize),
-	);
+	crate::core::ffi::guard("info_draw_text3", || {
+		diag!("PF_AdvAppSuite/PF_InfoDrawText3",
+			"line1Z0" => format!("{:#x}", line1Z0 as usize),
+			"line2Z0" => format!("{:#x}", line2Z0 as usize),
+			"line3Z0" => format!("{:#x}", line3Z0 as usize),
+		);
 
-	with_host(|host| {
-		let null = std::ptr::null();
-		let lines = unsafe {
-			[
-				info_line(line1Z0, null),
-				info_line(line2Z0, null),
-				info_line(line3Z0, null),
-			]
-		};
-		host.info_draw_text(&lines);
-		PF_Err_NONE as PF_Err
+		with_host(|host| {
+			let null = std::ptr::null();
+			let lines = unsafe {
+				[
+					info_line(line1Z0, null),
+					info_line(line2Z0, null),
+					info_line(line3Z0, null),
+				]
+			};
+			host.info_draw_text(&lines);
+			PF_Err_NONE
+		})
 	})
 }
 
 /// Same as `PF_InfoDrawText3(line1, line2, NULL)`, per the SDK.
 unsafe extern "C" fn info_draw_text(line1Z0: *const A_char, line2Z0: *const A_char) -> PF_Err {
-	unsafe { info_draw_text3(line1Z0, line2Z0, std::ptr::null()) }
+	crate::core::ffi::guard("info_draw_text", || unsafe {
+		info_draw_text3(line1Z0, line2Z0, std::ptr::null())
+	})
 }
 
 unsafe extern "C" fn info_draw_text3_plus(
@@ -87,51 +91,57 @@ unsafe extern "C" fn info_draw_text3_plus(
 	line3_jrZ0: *const A_char,
 	line3_jlZ0: *const A_char,
 ) -> PF_Err {
-	diag!("PF_AdvAppSuite/PF_InfoDrawText3Plus",
-		"line1Z0" => format!("{:#x}", line1Z0 as usize),
-		"line2_jrZ0" => format!("{:#x}", line2_jrZ0 as usize),
-		"line2_jlZ0" => format!("{:#x}", line2_jlZ0 as usize),
-		"line3_jrZ0" => format!("{:#x}", line3_jrZ0 as usize),
-		"line3_jlZ0" => format!("{:#x}", line3_jlZ0 as usize),
-	);
+	crate::core::ffi::guard("info_draw_text3_plus", || {
+		diag!("PF_AdvAppSuite/PF_InfoDrawText3Plus",
+			"line1Z0" => format!("{:#x}", line1Z0 as usize),
+			"line2_jrZ0" => format!("{:#x}", line2_jrZ0 as usize),
+			"line2_jlZ0" => format!("{:#x}", line2_jlZ0 as usize),
+			"line3_jrZ0" => format!("{:#x}", line3_jrZ0 as usize),
+			"line3_jlZ0" => format!("{:#x}", line3_jlZ0 as usize),
+		);
 
-	with_host(|host| {
-		let lines = unsafe {
-			[
-				info_line(line1Z0, std::ptr::null()),
-				info_line(line2_jlZ0, line2_jrZ0),
-				info_line(line3_jlZ0, line3_jrZ0),
-			]
-		};
-		host.info_draw_text(&lines);
-		PF_Err_NONE as PF_Err
+		with_host(|host| {
+			let lines = unsafe {
+				[
+					info_line(line1Z0, std::ptr::null()),
+					info_line(line2_jlZ0, line2_jrZ0),
+					info_line(line3_jlZ0, line3_jrZ0),
+				]
+			};
+			host.info_draw_text(&lines);
+			PF_Err_NONE
+		})
 	})
 }
 
 unsafe extern "C" fn info_draw_color(color: PF_Pixel) -> PF_Err {
-	diag!("PF_AdvAppSuite/PF_InfoDrawColor",
-		"color" => format!("{:?}", (color.alpha, color.red, color.green, color.blue)),
-	);
+	crate::core::ffi::guard("info_draw_color", || {
+		diag!("PF_AdvAppSuite/PF_InfoDrawColor",
+			"color" => format!("{:?}", (color.alpha, color.red, color.green, color.blue)),
+		);
 
-	with_host(|host| {
-		host.info_draw_color(AppPixel8 {
-			alpha: color.alpha,
-			red: color.red,
-			green: color.green,
-			blue: color.blue,
-		});
-		PF_Err_NONE as PF_Err
+		with_host(|host| {
+			host.info_draw_color(AppPixel8 {
+				alpha: color.alpha,
+				red: color.red,
+				green: color.green,
+				blue: color.blue,
+			});
+			PF_Err_NONE
+		})
 	})
 }
 
 unsafe extern "C" fn append_info_text(appendZ0: *const A_char) -> PF_Err {
-	diag!("PF_AdvAppSuite/PF_AppendInfoText",
-		"appendZ0" => format!("{:#x}", appendZ0 as usize),
-	);
+	crate::core::ffi::guard("append_info_text", || {
+		diag!("PF_AdvAppSuite/PF_AppendInfoText",
+			"appendZ0" => format!("{:#x}", appendZ0 as usize),
+		);
 
-	with_host(|host| {
-		host.append_info_text(&unsafe { read_c_str(appendZ0) }.unwrap_or_default());
-		PF_Err_NONE as PF_Err
+		with_host(|host| {
+			host.append_info_text(&unsafe { read_c_str(appendZ0) }.unwrap_or_default());
+			PF_Err_NONE
+		})
 	})
 }
 

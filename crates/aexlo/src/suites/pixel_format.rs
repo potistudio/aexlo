@@ -13,7 +13,7 @@
 use super::world::{alloc_world, dispose_world_sys, world_pixel_format};
 use crate::PluginInstance;
 use crate::core::diagnostics::diag;
-use after_effects_sys::*;
+use crate::sys::*;
 use std::os::raw::c_void;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -115,31 +115,38 @@ unsafe fn write_color(format: PrPixelFormat, [a, r, g, b]: [f32; 4], out: *mut c
 /// Run `f` on the instance behind `effect_ref`.
 fn with_instance(effect_ref: PF_ProgPtr, f: impl FnOnce(&mut PluginInstance)) -> PF_Err {
 	let Some(mut instance) = PluginInstance::get_instance_ptr(effect_ref) else {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	};
 	// SAFETY: effect_ref is the instance currently being called into; nothing
 	// else touches its supported-format list during the callback.
 	f(unsafe { instance.as_mut() });
-	PF_Err_NONE as PF_Err
+	PF_Err_NONE
 }
 
 unsafe extern "C" fn add_supported_pixel_format(effect_ref: PF_ProgPtr, pixelFormat: PrPixelFormat) -> PF_Err {
-	diag!("PF_PixelFormatSuite/AddSupportedPixelFormat",
-		"effect_ref" => format!("{:#x}", effect_ref as usize),
-		"pixelFormat" => format!("{:#x}", pixelFormat),
-	);
-	with_instance(effect_ref, |i| i.add_supported_pixel_format(pixelFormat as u32))
+	crate::core::ffi::guard("add_supported_pixel_format", || {
+		diag!("PF_PixelFormatSuite/AddSupportedPixelFormat",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+			"pixelFormat" => format!("{:#x}", pixelFormat),
+		);
+		let format = crate::sys::fourcc(pixelFormat);
+		with_instance(effect_ref, |i| i.add_supported_pixel_format(format))
+	})
 }
 
 unsafe extern "C" fn add_supported_pixel_format_2(effect_ref: PF_ProgPtr, pixel_format: PF_PixelFormat) -> PF_Err {
-	unsafe { add_supported_pixel_format(effect_ref, pixel_format as PrPixelFormat) }
+	crate::core::ffi::guard("add_supported_pixel_format_2", || unsafe {
+		add_supported_pixel_format(effect_ref, pixel_format as PrPixelFormat)
+	})
 }
 
 unsafe extern "C" fn clear_supported_pixel_formats(effect_ref: PF_ProgPtr) -> PF_Err {
-	diag!("PF_PixelFormatSuite/ClearSupportedPixelFormats",
-		"effect_ref" => format!("{:#x}", effect_ref as usize),
-	);
-	with_instance(effect_ref, PluginInstance::clear_supported_pixel_formats)
+	crate::core::ffi::guard("clear_supported_pixel_formats", || {
+		diag!("PF_PixelFormatSuite/ClearSupportedPixelFormats",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+		);
+		with_instance(effect_ref, PluginInstance::clear_supported_pixel_formats)
+	})
 }
 
 unsafe extern "C" fn new_world_of_pixel_format(
@@ -150,39 +157,44 @@ unsafe extern "C" fn new_world_of_pixel_format(
 	pixelFormat: PrPixelFormat,
 	world: *mut PF_EffectWorld,
 ) -> PF_Err {
-	diag!("PF_PixelFormatSuite/NewWorldOfPixelFormat",
-		"effect_ref" => format!("{:#x}", effect_ref as usize),
-		"width" => width,
-		"height" => height,
-		"flags" => flags,
-		"pixelFormat" => format!("{:#x}", pixelFormat),
-		"world" => format!("{:#x}", world as usize),
-	);
-	let _ = (effect_ref, flags); // Worlds are always allocated cleared.
+	crate::core::ffi::guard("new_world_of_pixel_format", || {
+		diag!("PF_PixelFormatSuite/NewWorldOfPixelFormat",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+			"width" => width,
+			"height" => height,
+			"flags" => flags,
+			"pixelFormat" => format!("{:#x}", pixelFormat),
+			"world" => format!("{:#x}", world as usize),
+		);
+		let _ = (effect_ref, flags); // Worlds are always allocated cleared.
 
-	if world.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	let Some((_, depth)) = layout_of(pixelFormat) else {
-		log::warn!("NewWorldOfPixelFormat: unsupported pixel format {pixelFormat:#x}");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	};
-	let clamp = |v: A_u_long| v.min(A_long::MAX as A_u_long) as A_long;
-	unsafe { *world = alloc_world(clamp(width), clamp(height), 4 * depth.bytes(), pixelFormat as u32) };
-	PF_Err_NONE as PF_Err
+		if world.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		let Some((_, depth)) = layout_of(pixelFormat) else {
+			log::warn!("NewWorldOfPixelFormat: unsupported pixel format {pixelFormat:#x}");
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let clamp = |v: A_u_long| v.min(A_long::MAX as A_u_long) as A_long;
+		let format = crate::sys::fourcc(pixelFormat);
+		unsafe { *world = alloc_world(clamp(width), clamp(height), 4 * depth.bytes(), format) };
+		PF_Err_NONE
+	})
 }
 
 unsafe extern "C" fn get_pixel_format(inWorld: *mut PF_EffectWorld, pixelFormat: *mut PrPixelFormat) -> PF_Err {
-	diag!("PF_PixelFormatSuite/GetPixelFormat",
-		"inWorld" => format!("{:#x}", inWorld as usize),
-		"pixelFormat" => format!("{:#x}", pixelFormat as usize),
-	);
+	crate::core::ffi::guard("get_pixel_format", || {
+		diag!("PF_PixelFormatSuite/GetPixelFormat",
+			"inWorld" => format!("{:#x}", inWorld as usize),
+			"pixelFormat" => format!("{:#x}", pixelFormat as usize),
+		);
 
-	if inWorld.is_null() || pixelFormat.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	unsafe { *pixelFormat = world_pixel_format(inWorld) as PrPixelFormat };
-	PF_Err_NONE as PF_Err
+		if inWorld.is_null() || pixelFormat.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		unsafe { *pixelFormat = world_pixel_format(inWorld) as PrPixelFormat };
+		PF_Err_NONE
+	})
 }
 
 unsafe extern "C" fn convert_color_to_pixel_formatted_data(
@@ -193,24 +205,30 @@ unsafe extern "C" fn convert_color_to_pixel_formatted_data(
 	blue: f32,
 	pixelData: *mut c_void,
 ) -> PF_Err {
-	diag!("PF_PixelFormatSuite/ConvertColorToPixelFormattedData",
-		"pixelFormat" => format!("{:#x}", pixelFormat),
-		"argb" => format!("{:?}", (alpha, red, green, blue)),
-		"pixelData" => format!("{:#x}", pixelData as usize),
-	);
+	crate::core::ffi::guard("convert_color_to_pixel_formatted_data", || {
+		diag!("PF_PixelFormatSuite/ConvertColorToPixelFormattedData",
+			"pixelFormat" => format!("{:#x}", pixelFormat),
+			"argb" => format!("{:?}", (alpha, red, green, blue)),
+			"pixelData" => format!("{:#x}", pixelData as usize),
+		);
 
-	if pixelData.is_null() || !unsafe { write_color(pixelFormat, [alpha, red, green, blue], pixelData) } {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-	PF_Err_NONE as PF_Err
+		if pixelData.is_null() || !unsafe { write_color(pixelFormat, [alpha, red, green, blue], pixelData) } {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		PF_Err_NONE
+	})
 }
 
 unsafe extern "C" fn get_black_for_pixel_format(pixelFormat: PrPixelFormat, pixelData: *mut c_void) -> PF_Err {
-	unsafe { convert_color_to_pixel_formatted_data(pixelFormat, 1.0, 0.0, 0.0, 0.0, pixelData) }
+	crate::core::ffi::guard("get_black_for_pixel_format", || unsafe {
+		convert_color_to_pixel_formatted_data(pixelFormat, 1.0, 0.0, 0.0, 0.0, pixelData)
+	})
 }
 
 unsafe extern "C" fn get_white_for_pixel_format(pixelFormat: PrPixelFormat, pixelData: *mut c_void) -> PF_Err {
-	unsafe { convert_color_to_pixel_formatted_data(pixelFormat, 1.0, 1.0, 1.0, 1.0, pixelData) }
+	crate::core::ffi::guard("get_white_for_pixel_format", || unsafe {
+		convert_color_to_pixel_formatted_data(pixelFormat, 1.0, 1.0, 1.0, 1.0, pixelData)
+	})
 }
 
 /// Build Premiere's `PF_PixelFormatSuite` table (wire version 1).
@@ -278,7 +296,7 @@ mod tests {
 				wide.as_mut_ptr() as *mut c_void,
 			)
 		};
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		assert_eq!(wide, [32768; 4]);
 	}
 
@@ -287,7 +305,7 @@ mod tests {
 		let mut world: PF_EffectWorld = unsafe { std::mem::zeroed() };
 		let fmt = PrPixelFormat_PrPixelFormat_BGRA_4444_32f;
 		let err = unsafe { new_world_of_pixel_format(std::ptr::null_mut(), 3, 2, 0, fmt, &mut world) };
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		assert_eq!((world.width, world.height, world.rowbytes), (3, 2, 48));
 
 		let mut out: PrPixelFormat = 0;

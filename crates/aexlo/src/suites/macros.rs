@@ -12,14 +12,13 @@
 ///     out_sdk_string: *mut PrSDKString
 /// );
 /// ```
-#[macro_export]
 macro_rules! stub_log {
     ( $fn_name:ident, $( $arg_name:ident : $arg_ty:ty ),* $(,)? ) => {
         #[allow(non_snake_case)]
         #[allow(unused_variables)]
         pub unsafe extern "C" fn $fn_name( $( $arg_name : $arg_ty ),* ) -> PF_Err {
             log::warn!("STUB: {} called", stringify!($fn_name));
-            PF_Err_NONE as PF_Err
+            PF_Err_NONE
         }
     };
 }

@@ -8,12 +8,13 @@
 //!
 //! [`PluginInstance::set_observer`]: crate::PluginInstance::set_observer
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 use std::time::Duration;
 
 /// How much an [`Observer`] is told.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum ObserveLevel {
 	/// One event as each command begins and ends.
 	Commands,
@@ -21,22 +22,33 @@ pub enum ObserveLevel {
 	/// the thread that dispatched the command. Calls made from iterate worker
 	/// threads are not reported.
 	Calls,
+	/// Calls, with their arguments (and result, where the host reports one)
+	/// as text in [`SuiteCallEvent::args`]: what the `diagnostics` feature
+	/// prints, without rebuilding. Formatting them costs time on every call.
+	Arguments,
 }
 
 /// Whether a [`CommandEvent`] marks the start or the end of a command.
+///
+/// A closed set: a command only ever begins and ends, so this enum is
+/// deliberately exhaustive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandPhase {
+	/// The entry point is about to be called.
 	Begin,
+	/// The entry point returned.
 	End,
 }
 
 /// A command sent to the plugin's entry point.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CommandEvent {
 	/// The `PF_Cmd_*` value.
 	pub command: i32,
 	/// The SDK name without its prefix, e.g. `"SMART_RENDER"`.
 	pub name: &'static str,
+	/// Whether the command is starting or has finished.
 	pub phase: CommandPhase,
 	/// Time spent inside the entry point; set on [`CommandPhase::End`].
 	pub duration: Option<Duration>,
@@ -47,44 +59,64 @@ pub struct CommandEvent {
 
 /// A host suite function the plugin called.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SuiteCallEvent {
 	/// The suite and its version, e.g. `"PF_WorldSuite2"`.
 	pub suite: &'static str,
 	/// The function, e.g. `"PF_NewWorld"`.
 	pub function: &'static str,
+	/// The arguments as `(name, value)` text, at [`ObserveLevel::Arguments`];
+	/// empty otherwise. Pointers are shown as addresses, and names ending in
+	/// `(out)` are what the host wrote back.
+	pub args: Vec<(&'static str, String)>,
+	/// What the host returned, for the calls that report it, at
+	/// [`ObserveLevel::Arguments`].
+	pub result: Option<String>,
 }
 
-/// A host-tracked allocation changed (see [`Strict::track_allocations`]).
+/// The plugin got memory from the host or gave it back. Reported whether or
+/// not [`Strict::track_allocations`] is on.
 ///
 /// [`Strict::track_allocations`]: crate::Strict::track_allocations
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AllocationEvent {
+	/// What was allocated or disposed.
 	pub kind: AllocationKind,
 	/// `true` for a new allocation, `false` for a disposal.
 	pub allocated: bool,
 	/// The allocation's address, as the plugin sees it.
 	pub address: usize,
+	/// The allocation's size in bytes.
 	pub bytes: usize,
 }
 
 /// What kind of host memory an [`AllocationEvent`] is about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum AllocationKind {
+	/// A memory handle (`PF_NewHandle` and the Handle Suite).
 	Handle,
+	/// A pixel world (`PF_NewWorld` and the World Suite).
 	World,
 }
 
-/// A smart-render checkout (see [`Strict::track_checkouts`]).
+/// A smart-render checkout or checkin. Reported whether or not
+/// [`Strict::track_checkouts`] is on.
 ///
 /// [`Strict::track_checkouts`]: crate::Strict::track_checkouts
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CheckoutEvent {
+	/// Which checkout call this is.
 	pub kind: CheckoutKind,
 	/// The checkout id the plugin chose, or the parameter index for params.
 	pub id: i32,
 }
 
+/// Which checkout call a [`CheckoutEvent`] reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum CheckoutKind {
 	/// `checkout_layer` during `SMART_PRE_RENDER`.
 	DeclareLayer,
@@ -98,15 +130,36 @@ pub enum CheckoutKind {
 	CheckinParam,
 }
 
+/// A host allocation the plugin still holds, as listed by
+/// [`PluginInstance::allocations`](crate::PluginInstance::allocations).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct LiveAllocation {
+	/// What was allocated.
+	pub kind: AllocationKind,
+	/// The allocation's address, as the plugin sees it: the handle for a
+	/// [`AllocationKind::Handle`], the first pixel for a
+	/// [`AllocationKind::World`].
+	pub address: usize,
+	/// The size in bytes it was allocated with.
+	pub bytes: usize,
+	/// The command during which it was allocated, e.g. `"GLOBAL_SETUP"`.
+	pub allocated_in: &'static str,
+}
+
 /// Receives events from a [`PluginInstance`](crate::PluginInstance). Every
 /// method has an empty default, so implement only what you need.
 ///
 /// Methods run synchronously inside the host, some while the plugin waits on
 /// them; keep them short and never call back into the instance.
 pub trait Observer: Send + Sync {
+	/// A command began or ended.
 	fn command(&self, _event: &CommandEvent) {}
+	/// The plugin called a host suite function (only at [`ObserveLevel::Calls`]).
 	fn suite_call(&self, _event: &SuiteCallEvent) {}
+	/// The plugin got memory from the host or gave it back.
 	fn allocation(&self, _event: &AllocationEvent) {}
+	/// The plugin checked a layer or parameter out or in.
 	fn checkout(&self, _event: &CheckoutEvent) {}
 }
 
@@ -128,7 +181,15 @@ impl Observer for LogObserver {
 	}
 
 	fn suite_call(&self, event: &SuiteCallEvent) {
-		log::debug!("{}::{}", event.suite, event.function);
+		let args: Vec<String> = event
+			.args
+			.iter()
+			.map(|(name, value)| format!("{name}: {value}"))
+			.collect();
+		match &event.result {
+			Some(result) => log::debug!("{}::{}({}) -> {result}", event.suite, event.function, args.join(", ")),
+			None => log::debug!("{}::{}({})", event.suite, event.function, args.join(", ")),
+		}
 	}
 
 	fn allocation(&self, event: &AllocationEvent) {
@@ -142,9 +203,8 @@ impl Observer for LogObserver {
 }
 
 /// The SDK name of a `PF_Cmd_*` value, without its `PF_Cmd_` prefix.
-#[allow(clippy::unnecessary_cast)] // `PF_Cmd_*` is `u32` on macOS only.
 pub fn command_name(command: i32) -> &'static str {
-	use after_effects_sys::*;
+	use crate::sys::*;
 	const NAMES: &[(u32, &str)] = &[
 		(PF_Cmd_ABOUT as u32, "ABOUT"),
 		(PF_Cmd_GLOBAL_SETUP as u32, "GLOBAL_SETUP"),
@@ -194,25 +254,41 @@ thread_local! {
 	/// asked for [`ObserveLevel::Calls`]: suite callbacks without an
 	/// `effect_ref` (and the ones that have one) are attributed through it.
 	static CALLS: RefCell<Option<Arc<dyn Observer>>> = const { RefCell::new(None) };
+	/// Whether that observer asked for [`ObserveLevel::Arguments`].
+	static DETAILS: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Make `observer` the target of suite-call events on this thread until the
 /// returned guard drops, restoring whatever was there (commands nest: a
-/// plugin's setup may trigger an arbitrary-data callback).
-pub(crate) fn enter_calls(observer: Option<Arc<dyn Observer>>) -> CallsGuard {
+/// plugin's setup may trigger an arbitrary-data callback). `details` asks
+/// for arguments too.
+pub(crate) fn enter_calls(observer: Option<Arc<dyn Observer>>, details: bool) -> CallsGuard {
+	let details = details && observer.is_some();
 	let previous = CALLS.with(|c| std::mem::replace(&mut *c.borrow_mut(), observer));
-	CallsGuard { previous }
+	let previous_details = DETAILS.with(|d| d.replace(details));
+	CallsGuard {
+		previous,
+		previous_details,
+	}
 }
 
 pub(crate) struct CallsGuard {
 	previous: Option<Arc<dyn Observer>>,
+	previous_details: bool,
 }
 
 impl Drop for CallsGuard {
 	fn drop(&mut self) {
 		let previous = self.previous.take();
 		CALLS.with(|c| *c.borrow_mut() = previous);
+		DETAILS.with(|d| d.set(self.previous_details));
 	}
+}
+
+/// Whether this thread's observer wants arguments, so `diag!` should format
+/// them.
+pub(crate) fn wants_details() -> bool {
+	DETAILS.with(Cell::get)
 }
 
 /// Report a suite call named `"Suite/Function"` to this thread's observer.
@@ -222,7 +298,34 @@ pub(crate) fn suite_call(name: &'static str) {
 	CALLS.with(|c| {
 		if let Some(observer) = c.borrow().as_ref() {
 			let (suite, function) = name.split_once('/').unwrap_or(("", name));
-			observer.suite_call(&SuiteCallEvent { suite, function });
+			observer.suite_call(&SuiteCallEvent {
+				suite,
+				function,
+				args: Vec::new(),
+				result: None,
+			});
+		}
+	});
+}
+
+/// [`suite_call`] with the arguments and result `diag!` formatted.
+pub(crate) fn suite_call_detailed(name: &'static str, args: Vec<(&'static str, String)>, result: Option<String>) {
+	// The `diagnostics` feature formats them for every call; hand them only
+	// to an observer that asked.
+	let (args, result) = if wants_details() {
+		(args, result)
+	} else {
+		(Vec::new(), None)
+	};
+	CALLS.with(|c| {
+		if let Some(observer) = c.borrow().as_ref() {
+			let (suite, function) = name.split_once('/').unwrap_or(("", name));
+			observer.suite_call(&SuiteCallEvent {
+				suite,
+				function,
+				args,
+				result,
+			});
 		}
 	});
 }
@@ -246,10 +349,7 @@ mod tests {
 
 	#[test]
 	fn names_commands_by_sdk_name() {
-		assert_eq!(
-			command_name(after_effects_sys::PF_Cmd_SMART_RENDER as i32),
-			"SMART_RENDER"
-		);
+		assert_eq!(command_name(crate::sys::PF_Cmd_SMART_RENDER), "SMART_RENDER");
 		assert_eq!(command_name(-5), "UNKNOWN");
 	}
 
@@ -258,10 +358,11 @@ mod tests {
 		let recorder = Arc::new(Recorder::default());
 		suite_call("Ignored/Before");
 		{
-			let _guard = enter_calls(Some(recorder.clone()));
+			let _guard = enter_calls(Some(recorder.clone()), false);
 			suite_call("PF_WorldSuite2/PF_NewWorld");
 			{
-				let _inner = enter_calls(None);
+				let _inner = enter_calls(None, true);
+				assert!(!wants_details(), "no observer, no details");
 				suite_call("Ignored/Nested");
 			}
 			suite_call("PF_HandleSuite1/host_new_handle");

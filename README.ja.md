@@ -37,7 +37,7 @@ After Effects 自体がプラグインに提供するインターフェースで
 
 > [!WARNING]
 > このプロジェクトは**現在、活発に開発中**です。
-> 最新の進捗は [master ブランチ](https://github.com/potistudio/aexlo-rs/tree/master)で確認できます。
+> 最新の進捗は [master ブランチ](https://github.com/potistudio/aexlo/tree/master)で確認できます。
 
 ## クイックスタート
 
@@ -49,7 +49,32 @@ After Effects 自体がプラグインに提供するインターフェースで
 > [!NOTE]
 > After Effects プラグインは Windows と macOS のみを対象としているため、現在 Linux はサポートしていません。
 
-### ビルド
+### ライブラリとして使う
+
+```bash
+cargo add aexlo
+```
+
+```rust,no_run
+use aexlo::{Depth8, Host, Layer, ParamValue, Time};
+
+fn main() -> aexlo::Result<()> {
+    // Windows では `.aex` ファイル、macOS では `.plugin` バンドルを渡します。
+    let mut fx = Host::get().load("MyEffect.aex")?;
+    println!("{}", fx.about()?);
+
+    fx.set_input_layer(Layer::<Depth8>::black(1920, 1080));
+    fx.set_param(1, ParamValue::Float(0.5))?;
+    fx.set_time(Time::frame(0, 30));
+    fx.render_frame()?;
+    let output: Layer<Depth8> = fx.read_output()?;
+    Ok(())
+}
+```
+
+プラグインはネイティブコードとして、呼び出し元と同じプロセス内で動きます。信頼モデル、プロセス全体で共有される状態、スレッドの扱いは [docs.rs](https://docs.rs/aexlo) のクレートドキュメントを参照してください。
+
+### リポジトリからビルドする
 
 ```bash
 cargo build
@@ -57,8 +82,14 @@ cargo build
 
 ## ツールキット
 
-`aexlo.toml` に「この条件でこのプラグインをレンダリングする」という設定をプリセットとして一度記述すれば、`aexlo` CLI（`cargo install --path crates/cli`）でテスト、ベンチマーク、プレビューを実行できます。
+`aexlo.toml` に「この条件でこのプラグインをレンダリングする」という設定をプリセットとして一度記述すれば、`aexlo` CLI でテスト、ベンチマーク、プレビューを実行できます。
 詳細は[ツールキット仕様書](docs/toolkit.ja.md)を参照してください。
+
+CLI とツールキットのクレートは crates.io には公開していないため、CLI はリポジトリからインストールします。
+
+```bash
+cargo install --git https://github.com/potistudio/aexlo aexlo-cli
+```
 
 ```toml
 [plugin]
@@ -85,7 +116,31 @@ aexlo check                        # CI で実行するコマンド（.github/wo
 ```
 
 各バリアントはワーカープロセスで実行されるため、プラグインがクラッシュしても、その実行だけが失敗します。
-Rust プラグインでは `aexlo-test` を開発用依存関係に追加すると、フレームのアサーションを伴うプロセス内の `#[aexlo::test]` を利用できます。
+Rust プラグインでは `aexlo-test` を開発用依存関係に追加すると、フレームのアサーションを伴うプロセス内の `#[aexlo_test::test]` を利用できます。
+
+プラグインの動作を調べるには、ターミナル UI のプロンプトからコマンドを実行します。
+
+```bash
+aexlo inspect build/MyGlow.plugin            # TUI。コマンド一覧は `:help`
+aexlo inspect MyGlow --exec "render; set Radius 50; render smart"
+```
+
+送ったコマンドと、プラグインが呼び出したホストのスイート関数をすべてトレースし、関数ごとに集計します。
+パラメーター、`PF_InData` / `PF_OutData` の状態、プラグインが保持するハンドルとワールドの16進ダンプ（直前のコマンドで変化したバイトを強調）、出力フレームも表示します。
+トレースの行にフォーカスすると（Enter または `:focus <text|#seq>`）、その行を診断します。呼び出しなら引数と戻り値、実行中のコマンド、確保した・引数で渡されたメモリとそれがまだ保持されているか、失敗したコマンドならエラーとその直前の呼び出しを表示します。
+`--exec` は同じ分析をテキストで出力します。クレートのディレクトリを渡した場合、`:reload` で再ビルドし、パラメーターの値を引き継ぎます。
+
+エージェントやスクリプトから使う場合は、`--format json` で1行に1つの JSON オブジェクトを出力します。
+まず `loaded`、コマンドごとに `command`（結果、発行した `PF_Cmd_*` とそのエラー、`focus` に渡せる `#seq`）、`focus` は診断をセクションに分けて、最後に `report` を出力します。
+プラグイン自身の出力は stderr に回るため、stdout はそのままパースできます。
+`--script -` は stdin からコマンドを読み、1つ答えてから次を読むので、読み込んだプラグインをパイプ越しに操作できます。`report` でその時点の分析を出力し、`clear` でそれまでのトレースを消し、`quit` で終了します。
+
+```bash
+aexlo inspect MyGlow --format json --exec "render; focus checkout"
+aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
+```
+
+オプション、コマンド、JSON のフィールドはすべて [docs/inspect.ja.md](docs/inspect.ja.md) で説明しています。
 
 ## 実装の進捗
 

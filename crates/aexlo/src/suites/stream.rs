@@ -19,9 +19,7 @@
 //! vs `AEGP_StreamValue2`, whose unions share the members written here) and,
 //! from v5, a UTF-16 `AEGP_SetExpression`.
 
-use after_effects::ParamType;
-use after_effects_sys::*;
-use std::cell::Cell;
+use crate::sys::*;
 
 use crate::core::diagnostics::diag;
 use crate::suites::effect::{effect_ref_of, with_param};
@@ -67,19 +65,15 @@ pub(crate) struct Stream {
 	pub(crate) node: Node,
 }
 
-/// Arbitrary streams stay `NO_DATA` until the effect has built its values.
-/// Reporting `ARB` while `PF_Cmd_PARAMS_SETUP` is still on the stack makes
-/// Particular throw out of its entry point.
-thread_local! {
-	static ARB_STREAMS_LIVE: Cell<bool> = const { Cell::new(false) };
-}
-
-pub(crate) fn arb_streams_live() {
-	ARB_STREAMS_LIVE.set(true);
-}
-
-pub(crate) fn arb_streams_reset() {
-	ARB_STREAMS_LIVE.set(false);
+/// Whether the instance behind `effect_ref` has built its arbitrary-data
+/// values. Until then arbitrary streams stay `NO_DATA`: reporting `ARB`
+/// while `PF_Cmd_PARAMS_SETUP` is still on the stack makes Particular throw
+/// out of its entry point. Kept per instance, so another instance's setup
+/// (or its failure) on the same thread does not change the answer.
+fn arb_streams_live(effect_ref: PF_ProgPtr) -> bool {
+	crate::PluginInstance::get_instance_ptr(effect_ref)
+		// SAFETY: effect_ref is the live instance that is running the plugin call.
+		.is_some_and(|instance| unsafe { instance.as_ref() }.arb_streams_live())
 }
 
 pub(crate) fn new_stream_handle(stream: Stream) -> AEGP_StreamRefH {
@@ -123,31 +117,31 @@ pub(crate) enum StreamValue {
 }
 
 impl StreamValue {
-	fn of(def: &PF_ParamDef) -> Self {
+	fn of(def: &PF_ParamDef, arb_live: bool) -> Self {
 		// SAFETY: every union read is selected by `param_type`.
 		unsafe {
 			match def.param_type {
-				t if t == ParamType::Layer as PF_ParamType => Self::LayerId,
-				t if t == ParamType::Slider as PF_ParamType => Self::OneD(def.u.sd.value as f64),
-				t if t == ParamType::FixSlider as PF_ParamType => {
+				t if t == PF_Param_LAYER as PF_ParamType => Self::LayerId,
+				t if t == PF_Param_SLIDER as PF_ParamType => Self::OneD(def.u.sd.value as f64),
+				t if t == PF_Param_FIX_SLIDER as PF_ParamType => {
 					Self::OneD(utils::fixed16_to_f32(def.u.fd.value) as f64)
 				}
-				t if t == ParamType::FloatSlider as PF_ParamType => Self::OneD(def.u.fs_d.value),
-				t if t == ParamType::Angle as PF_ParamType => Self::OneD(utils::fixed16_to_f32(def.u.ad.value) as f64),
-				t if t == ParamType::CheckBox as PF_ParamType => Self::OneD(def.u.bd.value as f64),
-				t if t == ParamType::PopUp as PF_ParamType => Self::OneD(def.u.pd.value as f64),
-				t if t == ParamType::Point as PF_ParamType => Self::TwoD {
+				t if t == PF_Param_FLOAT_SLIDER as PF_ParamType => Self::OneD(def.u.fs_d.value),
+				t if t == PF_Param_ANGLE as PF_ParamType => Self::OneD(utils::fixed16_to_f32(def.u.ad.value) as f64),
+				t if t == PF_Param_CHECKBOX as PF_ParamType => Self::OneD(def.u.bd.value as f64),
+				t if t == PF_Param_POPUP as PF_ParamType => Self::OneD(def.u.pd.value as f64),
+				t if t == PF_Param_POINT as PF_ParamType => Self::TwoD {
 					x: utils::fixed16_to_f32(def.u.td.x_value) as f64,
 					y: utils::fixed16_to_f32(def.u.td.y_value) as f64,
 					spatial: true,
 				},
-				t if t == ParamType::Point3D as PF_ParamType => Self::ThreeD {
+				t if t == PF_Param_POINT_3D as PF_ParamType => Self::ThreeD {
 					x: def.u.point3d_d.x_value,
 					y: def.u.point3d_d.y_value,
 					z: def.u.point3d_d.z_value,
 					spatial: true,
 				},
-				t if t == ParamType::Color as PF_ParamType => {
+				t if t == PF_Param_COLOR as PF_ParamType => {
 					let px = def.u.cd.value;
 					Self::Color {
 						alpha: px.alpha as f64 / 255.0,
@@ -156,10 +150,9 @@ impl StreamValue {
 						blue: px.blue as f64 / 255.0,
 					}
 				}
-				t if t == ParamType::ArbitraryData as PF_ParamType => {
+				t if t == PF_Param_ARBITRARY_DATA as PF_ParamType => {
 					let handle = def.u.arb_d.value;
-					let live = ARB_STREAMS_LIVE.get();
-					if handle.is_null() || !live {
+					if handle.is_null() || !arb_live {
 						Self::NoData
 					} else {
 						Self::Arb(handle)
@@ -244,7 +237,10 @@ macro_rules! write_val {
 pub(crate) unsafe fn stream_value(streamH: AEGP_StreamRefH) -> Option<StreamValue> {
 	let stream = unsafe { stream_of(streamH) }?;
 	match stream.node {
-		Node::Param => with_param(stream.effect_ref, stream.index, StreamValue::of),
+		Node::Param => {
+			let arb_live = arb_streams_live(stream.effect_ref);
+			with_param(stream.effect_ref, stream.index, |def| StreamValue::of(def, arb_live))
+		}
 		// Identity 2D transform: the anchor and the position sit on the layer
 		// centre, scale is 100%, rotation is 0 and opacity is fully on.
 		Node::Anchor | Node::Position => {
@@ -268,7 +264,7 @@ pub(crate) unsafe fn stream_value(streamH: AEGP_StreamRefH) -> Option<StreamValu
 
 fn unsupported(name: &str) -> A_Err {
 	log::warn!("AEGP_StreamSuite/{name}: aexlo only serves read-only effect parameter streams");
-	A_Err_GENERIC as A_Err
+	A_Err_GENERIC
 }
 
 unsafe extern "C" fn is_stream_legal(
@@ -276,41 +272,47 @@ unsafe extern "C" fn is_stream_legal(
 	_which_stream: AEGP_LayerStream,
 	_is_legalP: *mut A_Boolean,
 ) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_IsStreamLegal");
-	unsupported("AEGP_IsStreamLegal")
+	crate::core::ffi::guard("is_stream_legal", || {
+		diag!("AEGP_StreamSuite/AEGP_IsStreamLegal");
+		unsupported("AEGP_IsStreamLegal")
+	})
 }
 
 unsafe extern "C" fn can_vary_over_time(streamH: AEGP_StreamRefH, can_varyPB: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_CanVaryOverTime", "streamH" => format!("{:#x}", streamH as usize));
+	crate::core::ffi::guard("can_vary_over_time", || {
+		diag!("AEGP_StreamSuite/AEGP_CanVaryOverTime", "streamH" => format!("{:#x}", streamH as usize));
 
-	let Some(value) = (unsafe { stream_value(streamH) }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let Some(out) = (unsafe { can_varyPB.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*out = (value != StreamValue::NoData) as A_Boolean;
-	PF_Err_NONE as A_Err
+		let Some(value) = (unsafe { stream_value(streamH) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let Some(out) = (unsafe { can_varyPB.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		*out = (value != StreamValue::NoData) as A_Boolean;
+		PF_Err_NONE
+	})
 }
 
 unsafe extern "C" fn get_valid_interpolations(
 	streamH: AEGP_StreamRefH,
 	valid_interpolationsP: *mut AEGP_KeyInterpolationMask,
 ) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_GetValidInterpolations", "streamH" => format!("{:#x}", streamH as usize));
+	crate::core::ffi::guard("get_valid_interpolations", || {
+		diag!("AEGP_StreamSuite/AEGP_GetValidInterpolations", "streamH" => format!("{:#x}", streamH as usize));
 
-	let Some(value) = (unsafe { stream_value(streamH) }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let Some(out) = (unsafe { valid_interpolationsP.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*out = match value {
-		StreamValue::NoData => AEGP_KeyInterpMask_NONE,
-		StreamValue::LayerId | StreamValue::Arb(_) => AEGP_KeyInterpMask_HOLD,
-		_ => AEGP_KeyInterpMask_LINEAR | AEGP_KeyInterpMask_BEZIER | AEGP_KeyInterpMask_HOLD,
-	} as AEGP_KeyInterpolationMask;
-	PF_Err_NONE as A_Err
+		let Some(value) = (unsafe { stream_value(streamH) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let Some(out) = (unsafe { valid_interpolationsP.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		*out = match value {
+			StreamValue::NoData => AEGP_KeyInterpMask_NONE,
+			StreamValue::LayerId | StreamValue::Arb(_) => AEGP_KeyInterpMask_HOLD,
+			_ => AEGP_KeyInterpMask_LINEAR | AEGP_KeyInterpMask_BEZIER | AEGP_KeyInterpMask_HOLD,
+		} as AEGP_KeyInterpolationMask;
+		PF_Err_NONE
+	})
 }
 
 unsafe extern "C" fn get_new_layer_stream(
@@ -319,27 +321,31 @@ unsafe extern "C" fn get_new_layer_stream(
 	_which_stream: AEGP_LayerStream,
 	_streamPH: *mut AEGP_StreamRefH,
 ) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_GetNewLayerStream");
-	unsupported("AEGP_GetNewLayerStream")
+	crate::core::ffi::guard("get_new_layer_stream", || {
+		diag!("AEGP_StreamSuite/AEGP_GetNewLayerStream");
+		unsupported("AEGP_GetNewLayerStream")
+	})
 }
 
 unsafe extern "C" fn get_effect_num_param_streams(effect_refH: AEGP_EffectRefH, num_paramsPL: *mut A_long) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_GetEffectNumParamStreams",
-		"effect_refH" => format!("{:#x}", effect_refH as usize),
-	);
+	crate::core::ffi::guard("get_effect_num_param_streams", || {
+		diag!("AEGP_StreamSuite/AEGP_GetEffectNumParamStreams",
+			"effect_refH" => format!("{:#x}", effect_refH as usize),
+		);
 
-	let Some(effect_ref) = (unsafe { effect_ref_of(effect_refH) }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let Some(instance) = crate::PluginInstance::get_instance_ptr(effect_ref) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let Some(out) = (unsafe { num_paramsPL.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	// SAFETY: effect_ref is the live instance that is running the plugin call.
-	*out = unsafe { instance.as_ref() }.params().len() as A_long;
-	PF_Err_NONE as A_Err
+		let Some(effect_ref) = (unsafe { effect_ref_of(effect_refH) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let Some(instance) = crate::PluginInstance::get_instance_ptr(effect_ref) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let Some(out) = (unsafe { num_paramsPL.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		// SAFETY: effect_ref is the live instance that is running the plugin call.
+		*out = unsafe { instance.as_ref() }.params().len() as A_long;
+		PF_Err_NONE
+	})
 }
 
 unsafe extern "C" fn get_new_effect_stream_by_index(
@@ -348,29 +354,31 @@ unsafe extern "C" fn get_new_effect_stream_by_index(
 	param_index: PF_ParamIndex,
 	streamPH: *mut AEGP_StreamRefH,
 ) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_GetNewEffectStreamByIndex",
-		"effect_refH" => format!("{:#x}", effect_refH as usize),
-		"param_index" => param_index,
-	);
+	crate::core::ffi::guard("get_new_effect_stream_by_index", || {
+		diag!("AEGP_StreamSuite/AEGP_GetNewEffectStreamByIndex",
+			"effect_refH" => format!("{:#x}", effect_refH as usize),
+			"param_index" => param_index,
+		);
 
-	let Some(effect_ref) = (unsafe { effect_ref_of(effect_refH) }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let Some(out) = (unsafe { streamPH.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let Ok(index) = usize::try_from(param_index) else {
-		return PF_Err_INVALID_INDEX as A_Err;
-	};
-	if with_param(effect_ref, index, |_| ()).is_none() {
-		return PF_Err_INVALID_INDEX as A_Err;
-	}
-	*out = new_stream_handle(Stream {
-		effect_ref,
-		index,
-		node: Node::Param,
-	});
-	PF_Err_NONE as A_Err
+		let Some(effect_ref) = (unsafe { effect_ref_of(effect_refH) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let Some(out) = (unsafe { streamPH.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let Ok(index) = usize::try_from(param_index) else {
+			return PF_Err_INVALID_INDEX;
+		};
+		if with_param(effect_ref, index, |_| ()).is_none() {
+			return PF_Err_INVALID_INDEX;
+		}
+		*out = new_stream_handle(Stream {
+			effect_ref,
+			index,
+			node: Node::Param,
+		});
+		PF_Err_NONE
+	})
 }
 
 unsafe extern "C" fn get_new_mask_stream(
@@ -379,19 +387,23 @@ unsafe extern "C" fn get_new_mask_stream(
 	_which_stream: AEGP_MaskStream,
 	_mask_streamPH: *mut AEGP_StreamRefH,
 ) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_GetNewMaskStream");
-	unsupported("AEGP_GetNewMaskStream")
+	crate::core::ffi::guard("get_new_mask_stream", || {
+		diag!("AEGP_StreamSuite/AEGP_GetNewMaskStream");
+		unsupported("AEGP_GetNewMaskStream")
+	})
 }
 
 unsafe extern "C" fn dispose_stream(streamH: AEGP_StreamRefH) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_DisposeStream", "streamH" => format!("{:#x}", streamH as usize));
+	crate::core::ffi::guard("dispose_stream", || {
+		diag!("AEGP_StreamSuite/AEGP_DisposeStream", "streamH" => format!("{:#x}", streamH as usize));
 
-	if streamH.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	// SAFETY: non-null stream handles only come from `new_stream_handle`.
-	drop(unsafe { Box::from_raw(streamH as *mut Stream) });
-	PF_Err_NONE as A_Err
+		if streamH.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		// SAFETY: non-null stream handles only come from `new_stream_handle`.
+		drop(unsafe { Box::from_raw(streamH as *mut Stream) });
+		PF_Err_NONE
+	})
 }
 
 /// The v2 form writes the parameter's name into a fixed-size buffer.
@@ -400,31 +412,33 @@ unsafe extern "C" fn get_stream_name_v1(
 	_force_englishB: A_Boolean,
 	nameZ: *mut A_char,
 ) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_GetStreamName", "streamH" => format!("{:#x}", streamH as usize));
+	crate::core::ffi::guard("get_stream_name_v1", || {
+		diag!("AEGP_StreamSuite/AEGP_GetStreamName", "streamH" => format!("{:#x}", streamH as usize));
 
-	let Some(stream) = (unsafe { stream_of(streamH) }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	if nameZ.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	if stream.node != Node::Param {
-		return super::dynamic_stream::write_name(stream, nameZ, AEGP_MAX_STREAM_NAME_SIZE as usize);
-	}
-	let Some(name) = with_param(stream.effect_ref, stream.index, |def| def.name_do_not_use_directly) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let max = AEGP_MAX_STREAM_NAME_SIZE as usize - 1;
-	let len = name
-		.iter()
-		.take(max)
-		.position(|&c| c == 0)
-		.unwrap_or(max.min(name.len()));
-	unsafe {
-		std::ptr::copy_nonoverlapping(name.as_ptr(), nameZ, len);
-		*nameZ.add(len) = 0;
-	}
-	PF_Err_NONE as A_Err
+		let Some(stream) = (unsafe { stream_of(streamH) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		if nameZ.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		if stream.node != Node::Param {
+			return super::dynamic_stream::write_name(stream, nameZ, AEGP_MAX_STREAM_NAME_SIZE as usize);
+		}
+		let Some(name) = with_param(stream.effect_ref, stream.index, |def| def.name_do_not_use_directly) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let max = AEGP_MAX_STREAM_NAME_SIZE as usize - 1;
+		let len = name
+			.iter()
+			.take(max)
+			.position(|&c| c == 0)
+			.unwrap_or(max.min(name.len()));
+		unsafe {
+			std::ptr::copy_nonoverlapping(name.as_ptr(), nameZ, len);
+			*nameZ.add(len) = 0;
+		}
+		PF_Err_NONE
+	})
 }
 
 /// The v4 form returns a `AEGP_MemHandle`, which needs the AEGP Memory Suite.
@@ -434,8 +448,10 @@ unsafe extern "C" fn get_stream_name_v2(
 	_force_englishB: A_Boolean,
 	_utf_stream_namePH: *mut AEGP_MemHandle,
 ) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_GetStreamName");
-	unsupported("AEGP_GetStreamName")
+	crate::core::ffi::guard("get_stream_name_v2", || {
+		diag!("AEGP_StreamSuite/AEGP_GetStreamName");
+		unsupported("AEGP_GetStreamName")
+	})
 }
 
 /// Effect parameters carry no units text.
@@ -444,13 +460,15 @@ unsafe extern "C" fn get_stream_units_text(
 	_force_englishB: A_Boolean,
 	unitsZ: *mut A_char,
 ) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_GetStreamUnitsText", "streamH" => format!("{:#x}", streamH as usize));
+	crate::core::ffi::guard("get_stream_units_text", || {
+		diag!("AEGP_StreamSuite/AEGP_GetStreamUnitsText", "streamH" => format!("{:#x}", streamH as usize));
 
-	if unsafe { stream_of(streamH) }.is_none() || unitsZ.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	unsafe { *unitsZ = 0 };
-	PF_Err_NONE as A_Err
+		if unsafe { stream_of(streamH) }.is_none() || unitsZ.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		unsafe { *unitsZ = 0 };
+		PF_Err_NONE
+	})
 }
 
 unsafe extern "C" fn get_stream_properties(
@@ -459,109 +477,116 @@ unsafe extern "C" fn get_stream_properties(
 	minP0: *mut A_FpLong,
 	maxP0: *mut A_FpLong,
 ) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_GetStreamProperties", "streamH" => format!("{:#x}", streamH as usize));
+	crate::core::ffi::guard("get_stream_properties", || {
+		diag!("AEGP_StreamSuite/AEGP_GetStreamProperties", "streamH" => format!("{:#x}", streamH as usize));
 
-	let Some(stream) = (unsafe { stream_of(streamH) }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	if stream.node != Node::Param {
-		let Some(out) = (unsafe { flagsP.as_mut() }) else {
-			return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+		let Some(stream) = (unsafe { stream_of(streamH) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		*out = AEGP_StreamFlag_NONE as AEGP_StreamFlags;
-		return PF_Err_NONE as A_Err;
-	}
-	let Some((value, range)) = with_param(stream.effect_ref, stream.index, |def| {
-		// SAFETY: every union read is selected by `param_type`.
-		let range = unsafe {
-			match def.param_type {
-				t if t == ParamType::Slider as PF_ParamType => {
-					Some((def.u.sd.valid_min as f64, def.u.sd.valid_max as f64))
+		if stream.node != Node::Param {
+			let Some(out) = (unsafe { flagsP.as_mut() }) else {
+				return PF_Err_BAD_CALLBACK_PARAM;
+			};
+			*out = AEGP_StreamFlag_NONE;
+			return PF_Err_NONE;
+		}
+		let arb_live = arb_streams_live(stream.effect_ref);
+		let Some((value, range)) = with_param(stream.effect_ref, stream.index, |def| {
+			// SAFETY: every union read is selected by `param_type`.
+			let range = unsafe {
+				match def.param_type {
+					t if t == PF_Param_SLIDER as PF_ParamType => {
+						Some((def.u.sd.valid_min as f64, def.u.sd.valid_max as f64))
+					}
+					t if t == PF_Param_FIX_SLIDER as PF_ParamType => Some((
+						utils::fixed16_to_f32(def.u.fd.valid_min) as f64,
+						utils::fixed16_to_f32(def.u.fd.valid_max) as f64,
+					)),
+					t if t == PF_Param_FLOAT_SLIDER as PF_ParamType => {
+						Some((def.u.fs_d.valid_min as f64, def.u.fs_d.valid_max as f64))
+					}
+					_ => None,
 				}
-				t if t == ParamType::FixSlider as PF_ParamType => Some((
-					utils::fixed16_to_f32(def.u.fd.valid_min) as f64,
-					utils::fixed16_to_f32(def.u.fd.valid_max) as f64,
-				)),
-				t if t == ParamType::FloatSlider as PF_ParamType => {
-					Some((def.u.fs_d.valid_min as f64, def.u.fs_d.valid_max as f64))
-				}
-				_ => None,
-			}
+			};
+			(StreamValue::of(def, arb_live), range)
+		}) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		(StreamValue::of(def), range)
-	}) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
 
-	let mut flags = AEGP_StreamFlag_NONE;
-	if matches!(
-		value,
-		StreamValue::TwoD { spatial: true, .. } | StreamValue::ThreeD { spatial: true, .. }
-	) {
-		flags |= AEGP_StreamFlag_IS_SPATIAL;
-	}
-	if let Some((min, max)) = range {
-		flags |= AEGP_StreamFlag_HAS_MIN | AEGP_StreamFlag_HAS_MAX;
-		unsafe {
-			if let Some(out) = minP0.as_mut() {
-				*out = min;
-			}
-			if let Some(out) = maxP0.as_mut() {
-				*out = max;
+		let mut flags = AEGP_StreamFlag_NONE;
+		if matches!(
+			value,
+			StreamValue::TwoD { spatial: true, .. } | StreamValue::ThreeD { spatial: true, .. }
+		) {
+			flags |= AEGP_StreamFlag_IS_SPATIAL;
+		}
+		if let Some((min, max)) = range {
+			flags |= AEGP_StreamFlag_HAS_MIN | AEGP_StreamFlag_HAS_MAX;
+			unsafe {
+				if let Some(out) = minP0.as_mut() {
+					*out = min;
+				}
+				if let Some(out) = maxP0.as_mut() {
+					*out = max;
+				}
 			}
 		}
-	}
-	let Some(out) = (unsafe { flagsP.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*out = flags as AEGP_StreamFlags;
-	PF_Err_NONE as A_Err
+		let Some(out) = (unsafe { flagsP.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		*out = flags as AEGP_StreamFlags;
+		PF_Err_NONE
+	})
 }
 
 /// Nothing is keyframed or expression-driven in aexlo.
 unsafe extern "C" fn is_stream_timevarying(streamH: AEGP_StreamRefH, is_timevaryingPB: *mut A_Boolean) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_IsStreamTimevarying", "streamH" => format!("{:#x}", streamH as usize));
+	crate::core::ffi::guard("is_stream_timevarying", || {
+		diag!("AEGP_StreamSuite/AEGP_IsStreamTimevarying", "streamH" => format!("{:#x}", streamH as usize));
 
-	if unsafe { stream_of(streamH) }.is_none() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	let Some(out) = (unsafe { is_timevaryingPB.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*out = 0;
-	PF_Err_NONE as A_Err
+		if unsafe { stream_of(streamH) }.is_none() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		let Some(out) = (unsafe { is_timevaryingPB.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		*out = 0;
+		PF_Err_NONE
+	})
 }
 
 unsafe extern "C" fn get_stream_type(streamH: AEGP_StreamRefH, stream_typeP: *mut AEGP_StreamType) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_GetStreamType", "streamH" => format!("{:#x}", streamH as usize));
+	crate::core::ffi::guard("get_stream_type", || {
+		diag!("AEGP_StreamSuite/AEGP_GetStreamType", "streamH" => format!("{:#x}", streamH as usize));
 
-	let Some(value) = (unsafe { stream_value(streamH) }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let Some(out) = (unsafe { stream_typeP.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	if value == StreamValue::NoData
-		&& let Some(stream) = (unsafe { stream_of(streamH) })
-	{
-		let detail = if stream.node == Node::Param {
-			with_param(stream.effect_ref, stream.index, |def| def.param_type)
-		} else {
-			None
+		let Some(value) = (unsafe { stream_value(streamH) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		let name = if stream.node == Node::Param {
-			with_param(stream.effect_ref, stream.index, crate::host::params::param_name)
-		} else {
-			None
+		let Some(out) = (unsafe { stream_typeP.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		log::debug!(
-			"stream type NO_DATA node={:?} index={} param_type={detail:?} name={name:?}",
-			stream.node,
-			stream.index
-		);
-	}
-	*out = value.stream_type();
-	PF_Err_NONE as A_Err
+		if value == StreamValue::NoData
+			&& let Some(stream) = (unsafe { stream_of(streamH) })
+		{
+			let detail = if stream.node == Node::Param {
+				with_param(stream.effect_ref, stream.index, |def| def.param_type)
+			} else {
+				None
+			};
+			let name = if stream.node == Node::Param {
+				with_param(stream.effect_ref, stream.index, crate::host::params::param_name)
+			} else {
+				None
+			};
+			log::debug!(
+				"stream type NO_DATA node={:?} index={} param_type={detail:?} name={name:?}",
+				stream.node,
+				stream.index
+			);
+		}
+		*out = value.stream_type();
+		PF_Err_NONE
+	})
 }
 
 /// The stream's value at any time: the parameter's current value.
@@ -578,19 +603,19 @@ macro_rules! get_new_stream_value {
 			diag!("AEGP_StreamSuite/AEGP_GetNewStreamValue", "streamH" => format!("{:#x}", streamH as usize));
 
 			let Some(value) = (unsafe { stream_value(streamH) }) else {
-				return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			};
 			if value == StreamValue::NoData {
 				return unsupported("AEGP_GetNewStreamValue (stream has no data)");
 			}
 			let Some(out) = (unsafe { valueP.as_mut() }) else {
-				return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			};
 			// SAFETY: every member of the value union is plain old data.
 			*out = unsafe { std::mem::zeroed() };
 			out.streamH = streamH;
 			write_val!(value, &mut out.val);
-			PF_Err_NONE as A_Err
+			PF_Err_NONE
 		}
 	};
 }
@@ -606,9 +631,9 @@ macro_rules! dispose_stream_value {
 			diag!("AEGP_StreamSuite/AEGP_DisposeStreamValue", "valueP" => format!("{:#x}", valueP as usize));
 
 			if valueP.is_null() {
-				return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+				return PF_Err_BAD_CALLBACK_PARAM;
 			}
-			PF_Err_NONE as A_Err
+			PF_Err_NONE
 		}
 	};
 }
@@ -657,16 +682,18 @@ unsafe extern "C" fn get_expression_state(
 	streamH: AEGP_StreamRefH,
 	enabledPB: *mut A_Boolean,
 ) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_GetExpressionState", "streamH" => format!("{:#x}", streamH as usize));
+	crate::core::ffi::guard("get_expression_state", || {
+		diag!("AEGP_StreamSuite/AEGP_GetExpressionState", "streamH" => format!("{:#x}", streamH as usize));
 
-	if unsafe { stream_of(streamH) }.is_none() {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	}
-	let Some(out) = (unsafe { enabledPB.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*out = 0;
-	PF_Err_NONE as A_Err
+		if unsafe { stream_of(streamH) }.is_none() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		let Some(out) = (unsafe { enabledPB.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		*out = 0;
+		PF_Err_NONE
+	})
 }
 
 unsafe extern "C" fn set_expression_state(
@@ -674,8 +701,10 @@ unsafe extern "C" fn set_expression_state(
 	_streamH: AEGP_StreamRefH,
 	_enabledB: A_Boolean,
 ) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_SetExpressionState");
-	unsupported("AEGP_SetExpressionState")
+	crate::core::ffi::guard("set_expression_state", || {
+		diag!("AEGP_StreamSuite/AEGP_SetExpressionState");
+		unsupported("AEGP_SetExpressionState")
+	})
 }
 
 unsafe extern "C" fn get_expression(
@@ -683,8 +712,10 @@ unsafe extern "C" fn get_expression(
 	_streamH: AEGP_StreamRefH,
 	_expressionHZ: *mut AEGP_MemHandle,
 ) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_GetExpression");
-	unsupported("AEGP_GetExpression")
+	crate::core::ffi::guard("get_expression", || {
+		diag!("AEGP_StreamSuite/AEGP_GetExpression");
+		unsupported("AEGP_GetExpression")
+	})
 }
 
 unsafe extern "C" fn set_expression(
@@ -692,8 +723,10 @@ unsafe extern "C" fn set_expression(
 	_streamH: AEGP_StreamRefH,
 	_expressionP: *const A_char,
 ) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_SetExpression");
-	unsupported("AEGP_SetExpression")
+	crate::core::ffi::guard("set_expression", || {
+		diag!("AEGP_StreamSuite/AEGP_SetExpression");
+		unsupported("AEGP_SetExpression")
+	})
 }
 
 /// From v5 the expression text is UTF-16.
@@ -702,8 +735,10 @@ unsafe extern "C" fn set_expression_utf16(
 	_streamH: AEGP_StreamRefH,
 	_expressionP: *const A_UTF16Char,
 ) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_SetExpression");
-	unsupported("AEGP_SetExpression")
+	crate::core::ffi::guard("set_expression_utf16", || {
+		diag!("AEGP_StreamSuite/AEGP_SetExpression");
+		unsupported("AEGP_SetExpression")
+	})
 }
 
 unsafe extern "C" fn duplicate_stream_ref(
@@ -711,16 +746,18 @@ unsafe extern "C" fn duplicate_stream_ref(
 	streamH: AEGP_StreamRefH,
 	dup_streamPH: *mut AEGP_StreamRefH,
 ) -> A_Err {
-	diag!("AEGP_StreamSuite/AEGP_DuplicateStreamRef", "streamH" => format!("{:#x}", streamH as usize));
+	crate::core::ffi::guard("duplicate_stream_ref", || {
+		diag!("AEGP_StreamSuite/AEGP_DuplicateStreamRef", "streamH" => format!("{:#x}", streamH as usize));
 
-	let Some(stream) = (unsafe { stream_of(streamH) }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	let Some(out) = (unsafe { dup_streamPH.as_mut() }) else {
-		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
-	};
-	*out = new_stream_handle(stream);
-	PF_Err_NONE as A_Err
+		let Some(stream) = (unsafe { stream_of(streamH) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let Some(out) = (unsafe { dup_streamPH.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		*out = new_stream_handle(stream);
+		PF_Err_NONE
+	})
 }
 
 /// Builds the `AEGP_StreamSuite2` vtable (wire version 7).
@@ -841,20 +878,17 @@ mod tests {
 
 	#[test]
 	fn values_map_to_stream_types() {
-		assert_eq!(
-			StreamValue::NoData.stream_type(),
-			AEGP_StreamType_NO_DATA as AEGP_StreamType
-		);
+		assert_eq!(StreamValue::NoData.stream_type(), AEGP_StreamType_NO_DATA);
 		assert_eq!(
 			StreamValue::Arb(std::ptr::null_mut()).stream_type(),
-			AEGP_StreamType_ARB as AEGP_StreamType
+			AEGP_StreamType_ARB
 		);
 		let point = StreamValue::TwoD {
 			x: 1.0,
 			y: 2.0,
 			spatial: true,
 		};
-		assert_eq!(point.stream_type(), AEGP_StreamType_TwoD_SPATIAL as AEGP_StreamType);
+		assert_eq!(point.stream_type(), AEGP_StreamType_TwoD_SPATIAL);
 		assert_eq!((point.dimensionality(), point.temporal_dimensionality()), (2, 1));
 	}
 
@@ -885,17 +919,11 @@ mod tests {
 		});
 		let mut dup: AEGP_StreamRefH = std::ptr::null_mut();
 		unsafe {
-			assert_eq!(
-				suite.AEGP_DuplicateStreamRef.unwrap()(0, handle, &mut dup),
-				PF_Err_NONE as A_Err
-			);
+			assert_eq!(suite.AEGP_DuplicateStreamRef.unwrap()(0, handle, &mut dup), PF_Err_NONE);
 			assert_eq!(stream_of(dup).map(|s| s.index), Some(3));
-			assert_eq!(suite.AEGP_DisposeStream.unwrap()(dup), PF_Err_NONE as A_Err);
-			assert_eq!(suite.AEGP_DisposeStream.unwrap()(handle), PF_Err_NONE as A_Err);
-			assert_ne!(
-				suite.AEGP_DisposeStream.unwrap()(std::ptr::null_mut()),
-				PF_Err_NONE as A_Err
-			);
+			assert_eq!(suite.AEGP_DisposeStream.unwrap()(dup), PF_Err_NONE);
+			assert_eq!(suite.AEGP_DisposeStream.unwrap()(handle), PF_Err_NONE);
+			assert_ne!(suite.AEGP_DisposeStream.unwrap()(std::ptr::null_mut()), PF_Err_NONE);
 		}
 	}
 }

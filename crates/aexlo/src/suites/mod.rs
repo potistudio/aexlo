@@ -14,6 +14,29 @@
 //! compat suite, whose type-erased pointer slots can't be built in a `const`
 //! context - it lives in its own `LazyLock`s (see [`utility`]) instead, but is
 //! otherwise the same shared-static model.
+//!
+//! # Safety model
+//!
+//! Every callback here is `unsafe extern "C"` and trusts the plugin the way
+//! After Effects does. Rather than repeat it at each of the hundreds of
+//! `unsafe` blocks, these premises cover them (`undocumented_unsafe_blocks`
+//! is allowed in this module tree; blocks that rely on anything more say so
+//! with their own `SAFETY:` comment):
+//!
+//! - **Out-pointers** are written only after a null check. The plugin owns
+//!   them and sizes them as the SDK documents for that call.
+//! - **In-pointers** (worlds, rects, C strings, handles) are null-checked or
+//!   come straight from the SDK contract for the call; strings are
+//!   NUL-terminated and live for the duration of the call.
+//! - **`effect_ref`** is the `PluginInstance` aexlo passed in `in_data`, and
+//!   the plugin calls back during one of that instance's commands
+//!   (see `PluginInstance::get_instance_ptr`).
+//! - **Handles and worlds** the plugin passes back were created by these
+//!   suites; their bookkeeping (`handle`, `world`, `aegp_memory`, ...) rejects
+//!   ones it does not know.
+//! - **Unions** (`PF_ParamDef::u`, `PF_EventExtra::u`, ...) are read only in
+//!   the variant their tag (`param_type`, `e_type`, ...) selects.
+#![allow(clippy::undocumented_unsafe_blocks)]
 
 mod adv_app;
 mod adv_item;
@@ -60,9 +83,8 @@ pub mod transform;
 pub mod utility;
 pub mod world;
 
-#[cfg(feature = "diagnostics")]
-use crate::core::diagnostics::DiagnosticBuilder;
-use after_effects_sys::*;
+use crate::core::diagnostics::diag;
+use crate::sys::*;
 static COMP_SUITE_4: AEGP_CompSuite4 = comp::create_comp_suite_4();
 static COMP_SUITE_11: AEGP_CompSuite11 = comp::create_comp_suite_11();
 static AEGP_WORLD_1: AEGP_WorldSuite1 = aegp_world::suite_1();
@@ -257,7 +279,7 @@ macro_rules! dispatch_static {
 		unsafe { *$suite = &SUITE_CONTAINER.$field as *const _ as *const c_void };
 		// debug, not info: some plugins re-acquire suites on every render call.
 		log::debug!("Acquired {} v{}", $name, $version);
-		PF_Err_NONE as PF_Err
+		PF_Err_NONE
 	}};
 }
 
@@ -267,23 +289,21 @@ macro_rules! dispatch_static {
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suite: *mut *const c_void) -> i32 {
 	if suite.is_null() || name.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
+		return PF_Err_BAD_CALLBACK_PARAM;
 	}
 
 	let suite_name = unsafe {
 		match CStr::from_ptr(name).to_str() {
 			Ok(s) => s,
-			Err(_) => return PF_Err_INTERNAL_STRUCT_DAMAGED as PF_Err,
+			Err(_) => return PF_Err_INTERNAL_STRUCT_DAMAGED,
 		}
 	};
 
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("SPBasicSuite/AcquireSuite")
-		.add_arg("name", format!("{:?}", unsafe { CStr::from_ptr(name) }))
-		.add_arg("version", version)
-		.add_arg("suite", format!("{:?}", suite))
-		.emit();
+	diag!("SPBasicSuite/AcquireSuite",
+		"name" => format!("{suite_name:?}"),
+		"version" => version,
+		"suite" => format!("{suite:?}"),
+	);
 
 	match (suite_name, version) {
 		// Static suites: pointers into the shared SUITE_CONTAINER.
@@ -363,7 +383,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion3 as i32 => {
 			unsafe { *suite = &AEGP_STREAM_3 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion4 as i32 => {
 			dispatch_static!(suite, suite_name, version, stream4)
@@ -376,19 +396,19 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		// Suite 4 adds mask refs, UTF-16 names and dimension separation.
 		("AEGP Dynamic Stream Suite", v) if v == kAEGPDynamicStreamSuiteVersion1 as i32 => {
 			unsafe { *suite = &AEGP_DYNAMIC_STREAM_1 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Dynamic Stream Suite", v) if v == kAEGPDynamicStreamSuiteVersion2 as i32 => {
 			unsafe { *suite = &AEGP_DYNAMIC_STREAM_2 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Dynamic Stream Suite", v) if v == kAEGPDynamicStreamSuiteVersion3 as i32 => {
 			unsafe { *suite = &AEGP_DYNAMIC_STREAM_3 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Dynamic Stream Suite", v) if v == kAEGPDynamicStreamSuiteVersion4 as i32 => {
 			unsafe { *suite = &AEGP_DYNAMIC_STREAM_4 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Keyframe Suite", 4) => dispatch_static!(suite, suite_name, version, keyframe),
 		// Effect Suite v1 is v2 without DuplicateEffect. v3 adds the command
@@ -402,31 +422,31 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		("PF Color Settings Suite", v) if v == kAEGPColorSettingsSuiteVersion5 as i32 => {
 			unsafe { *suite = &COLOR_SETTINGS_5 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP World Suite", v) if v == kAEGPWorldSuiteVersion1 as i32 => {
 			unsafe { *suite = &AEGP_WORLD_1 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP World Suite", v) if v == kAEGPWorldSuiteVersion2 as i32 => {
 			unsafe { *suite = &AEGP_WORLD_2 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP World Suite", v) if v == kAEGPWorldSuiteVersion3 as i32 => {
 			unsafe { *suite = &AEGP_WORLD_3 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Memory Suite", v) if v == kAEGPMemorySuiteVersion1 as i32 => {
 			unsafe { *suite = &AEGP_MEMORY_1 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Item Suite", v) if v == kAEGPItemSuiteVersion6 as i32 => {
 			unsafe { *suite = &AEGP_ITEM_6 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Item Suite", v) if v == kAEGPItemSuiteVersion8 as i32 => {
 			unsafe { *suite = &AEGP_ITEM_8 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Item Suite", v) if v == kAEGPItemSuiteVersion9 as i32 => {
 			unsafe { *suite = &AEGP_ITEM_9 as *const _ as *const c_void };
@@ -434,22 +454,22 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		("AEGP Layer Render Options Suite", v) if v == kAEGPLayerRenderOptionsSuiteVersion2 as i32 => {
 			unsafe { *suite = &AEGP_LAYER_RENDER_OPTIONS_2 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Render Options Suite", v) if v == kAEGPRenderOptionsSuiteVersion4 as i32 => {
 			unsafe { *suite = &AEGP_RENDER_OPTIONS_4 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Render Suite", v) if v == kAEGPRenderSuiteVersion5 as i32 => {
 			unsafe { *suite = &AEGP_RENDER_5 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Light Suite", 1) => dispatch_static!(suite, suite_name, version, light),
 		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion4 as i32 => {
 			unsafe {
 				*suite = &COMP_SUITE_4 as *const _ as *const std::ffi::c_void;
 			}
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion10 as i32 => {
 			dispatch_static!(suite, suite_name, version, comp)
@@ -465,7 +485,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		// suite 5 inserts `GetLayerSourceItemID` and the duplicate/lookup calls.
 		("AEGP Layer Suite", v) if v == kAEGPLayerSuiteVersion3 as i32 => {
 			unsafe { *suite = &AEGP_LAYER_3 as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Layer Suite", v) if v == kAEGPLayerSuiteVersion5 as i32 => {
 			dispatch_static!(suite, suite_name, version, layer5)
@@ -484,44 +504,44 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		("DRAWBOT Draw Suite", 1) => {
 			unsafe { *suite = &drawbot::DRAW_SUITE as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("DRAWBOT Supplier Suite", 1) => {
 			unsafe { *suite = &drawbot::SUPPLIER_SUITE as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("DRAWBOT Surface Suite", 1 | 2) => {
 			unsafe { *suite = &drawbot::SURFACE_SUITE as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("DRAWBOT Path Suite", 1) => {
 			unsafe { *suite = &drawbot::PATH_SUITE as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("DRAWBOT Pen Suite", 1) => {
 			unsafe { *suite = &drawbot::PEN_SUITE as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("DRAWBOT Image Suite", 1) => {
 			unsafe { *suite = &drawbot::IMAGE_SUITE as *const _ as *const c_void };
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Register Suite", 6) => {
 			unsafe {
 				*suite = &register::REGISTER as *const _ as *const std::ffi::c_void;
 			}
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		("AEGP Utility Suite", 1..=18) => {
 			// Two layouts: version 6 inserts `AEGP_ReportInfoUnicode` at slot 1.
 			// SAFETY: `suite` was null-checked at the top of this function.
 			unsafe { *suite = utility::aegp_utility_suite(version) };
 			log::debug!("Acquired {} v{}", suite_name, version);
-			PF_Err_NONE as PF_Err
+			PF_Err_NONE
 		}
 		_ => {
 			log::warn!("Suite '{}' v{} not found.", suite_name, version);
-			PF_Err_OUT_OF_MEMORY as PF_Err
+			PF_Err_OUT_OF_MEMORY
 		}
 	}
 }
@@ -530,23 +550,22 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 /// # Safety
 /// This function is unsafe because it handles raw pointers.
 #[allow(non_snake_case)]
-// `version` is only read by the diagnostics build; suppress the unused warning otherwise.
-#[cfg_attr(not(feature = "diagnostics"), allow(unused_variables))]
 pub unsafe extern "C" fn rusty_release_suite(name: *const ::std::os::raw::c_char, version: i32) -> PF_Err {
-	#[cfg(feature = "diagnostics")]
-	DiagnosticBuilder::new()
-		.set_name("SPBasicSuite/ReleaseSuite")
-		.add_arg("name", format!("{:?}", unsafe { CStr::from_ptr(name) }))
-		.add_arg("version", version)
-		.emit();
+	crate::core::ffi::guard("rusty_release_suite", || {
+		if name.is_null() {
+			diag!("SPBasicSuite/ReleaseSuite", "name" => "(null)", "version" => version);
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		diag!("SPBasicSuite/ReleaseSuite",
+			// SAFETY: `name` is non-null, and the plugin passes a C string.
+			"name" => format!("{:?}", unsafe { CStr::from_ptr(name) }),
+			"version" => version,
+		);
 
-	if name.is_null() {
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
-
-	// Every suite is a process-wide shared static (see the module docs); nothing
-	// is allocated per acquire, so releasing one is a no-op.
-	PF_Err_NONE as PF_Err
+		// Every suite is a process-wide shared static (see the module docs); nothing
+		// is allocated per acquire, so releasing one is a no-op.
+		PF_Err_NONE
+	})
 }
 
 #[cfg(test)]
@@ -638,7 +657,7 @@ mod tests {
 			("AEGP World Suite", 3),
 		] {
 			let (err, ptr) = acquire(name, version);
-			assert_eq!(err, PF_Err_NONE as PF_Err, "'{name}' v{version} should be served");
+			assert_eq!(err, PF_Err_NONE, "'{name}' v{version} should be served");
 			assert!(!ptr.is_null(), "'{name}' v{version} returned a null suite");
 		}
 	}
@@ -646,15 +665,15 @@ mod tests {
 	#[test]
 	fn acquire_rejects_unknown_suites_and_versions() {
 		let (err, ptr) = acquire("PF Nonexistent Suite", 1);
-		assert_ne!(err, PF_Err_NONE as PF_Err);
+		assert_ne!(err, PF_Err_NONE);
 		assert!(ptr.is_null());
 
 		// Fill Matte is only served at its known v2 layout.
 		let (err, _) = acquire("PF Fill Matte Suite", 3);
-		assert_ne!(err, PF_Err_NONE as PF_Err);
+		assert_ne!(err, PF_Err_NONE);
 
 		// Dynamic Stream suite 4 is wire version 5, not 4.
 		let (err, _) = acquire("AEGP Dynamic Stream Suite", 4);
-		assert_ne!(err, PF_Err_NONE as PF_Err);
+		assert_ne!(err, PF_Err_NONE);
 	}
 }

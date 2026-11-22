@@ -10,7 +10,7 @@
 //! - [`RenderContext`]: the frame being processed (size, time, downsampling).
 
 use crate::core::constants::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
-use after_effects_sys::*;
+use crate::sys::*;
 use std::ptr::null_mut;
 
 const AE_VERSION_26_3_0: PF_SpecVersion = PF_SpecVersion { major: 13, minor: 29 };
@@ -70,6 +70,11 @@ impl EffectState {
 		}
 	}
 
+	/// The `global_data` and `sequence_data` handles.
+	pub fn handles(&self) -> (PF_Handle, PF_Handle) {
+		(self.global_data, self.sequence_data)
+	}
+
 	/// Drop the sequence handle so the next `SEQUENCE_SETUP` allocates from scratch.
 	pub fn reset_sequence(&mut self) {
 		self.sequence_data = null_mut();
@@ -115,7 +120,7 @@ impl Default for RenderContext {
 			time_scale: 30,
 			// Progressive frames. A field value makes field-aware effects treat
 			// alternate scanlines as separate interlaced fields.
-			field: PF_Field_FRAME as PF_Field,
+			field: PF_Field_FRAME,
 			// Rational scales default to 1/1 to avoid division by zero.
 			downsample_x: one,
 			downsample_y: one,
@@ -175,6 +180,7 @@ pub(crate) fn compose(
 	render: &RenderContext,
 	bindings: CallBindings,
 ) -> PF_InData {
+	// SAFETY: `PF_InData` is a plain C struct (integers, raw pointers, unions of those), for which all-zero bytes are a valid value.
 	let mut in_data = unsafe { std::mem::zeroed::<PF_InData>() };
 
 	in_data.version = host.version;

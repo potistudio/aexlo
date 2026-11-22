@@ -110,7 +110,7 @@ fn run(args: &[String]) -> anyhow::Result<()> {
 		.unwrap_or_else(|| root.join("target/probe/trace-aexlo.jsonl"));
 	let input_path = option(args, "--input")
 		.map(PathBuf::from)
-		.unwrap_or_else(|| root.join("input.png"));
+		.unwrap_or_else(|| root.join("fixtures/input.png"));
 
 	if let Some(parent) = trace_path.parent() {
 		std::fs::create_dir_all(parent)?;
@@ -126,7 +126,7 @@ fn run(args: &[String]) -> anyhow::Result<()> {
 	} else {
 		let dll = build_probe(release)?;
 		println!("{} {}", "loading".dimmed(), dll.display());
-		aexlo::Host::get().try_load(&dll)?
+		aexlo::Host::get().load(&dll)?
 	};
 
 	println!("{} {}", "about:".bold(), instance.about()?);
@@ -135,7 +135,7 @@ fn run(args: &[String]) -> anyhow::Result<()> {
 		.with_context(|| format!("failed to open input image {}", input_path.display()))?
 		.to_rgba8();
 	let (width, height) = img.dimensions();
-	instance.set_input_layer(Layer::<Depth8>::from_raw(img.into_raw(), width, height)?);
+	instance.set_input_layer(Layer::<Depth8>::from_rgba8(img.into_raw(), width, height)?);
 
 	// Nudge every control off its default so parameter plumbing shows up in
 	// the trace and in the picture.

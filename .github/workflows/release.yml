@@ -1,0 +1,123 @@
+# Release aexlo: push a `v<version>` tag and this publishes the `aexlo` crate to
+# crates.io and creates the GitHub Release from the CHANGELOG entry.
+#
+#   1. Bump `[workspace.package] version` and add a `## [<version>]` section to
+#      CHANGELOG.md.
+#   2. `git tag -a v<version> -m "aexlo <version>" && git push origin v<version>`
+#
+# The tag must be `v` + the workspace version, and the CHANGELOG must have a
+# section for it; both are checked before anything is published. Re-running a
+# failed release (`workflow_dispatch` with the tag) is safe: an already
+# published version is skipped and an existing Release is updated in place.
+#
+# Needs the repository secret CRATES_IO_TOKEN: a crates.io API token with
+# `publish-new` and `publish-update` scope for `aexlo`.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to release, e.g. v0.1.0.
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+# `contents: write` creates the Release; nothing else needs a token.
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: publish and release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags are not fetched by default, and `gh release create --verify-tag`
+          # needs the tag locally.
+          fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Resolve the tag and the crate version
+        id: meta
+        shell: bash
+        run: |
+          tag="${{ inputs.tag }}"
+          if [ -z "$tag" ]; then tag="$GITHUB_REF_NAME"; fi
+          version=$(cargo metadata --no-deps --format-version 1 |
+            jq -r '.packages[] | select(.name == "aexlo") | .version')
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check the tag matches the crate version
+        shell: bash
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "::error::tag $TAG does not match the workspace version $VERSION (expected v$VERSION)"
+            exit 1
+          fi
+
+      # The Release body is the CHANGELOG section, so the two cannot drift.
+      - name: Extract the release notes from CHANGELOG.md
+        shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          python3 - "$VERSION" <<'PY' > "$RUNNER_TEMP/notes.md"
+          import re, sys
+          version = sys.argv[1]
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          section = re.search(
+              rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## |^\[)", text, re.S | re.M
+          )
+          if section is None:
+              sys.exit(f"CHANGELOG.md has no '## [{version}]' section")
+          print(section.group(1).strip())
+          PY
+
+      # Publish before the Release exists, so a Release never points at a crate
+      # that is not on crates.io.
+      - name: Publish aexlo to crates.io
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::error::CRATES_IO_TOKEN is not set; add a crates.io API token as the repository secret."
+            exit 1
+          fi
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -A "potistudio/aexlo release workflow" \
+            "https://crates.io/api/v1/crates/aexlo/$VERSION")
+          if [ "$status" = "200" ]; then
+            echo "aexlo $VERSION is already on crates.io; skipping the publish."
+          else
+            cargo publish -p aexlo --locked
+          fi
+
+      - name: Create the GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --title "aexlo $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "$TAG" --verify-tag \
+              --title "aexlo $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+          fi

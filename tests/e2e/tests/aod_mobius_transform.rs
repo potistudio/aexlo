@@ -26,17 +26,17 @@ fn render(params: &[(usize, ParamValue)]) -> Option<Vec<u8>> {
 		eprintln!("skipping: fixture 'AOD_MobiusTransform' not present locally");
 		return None;
 	};
-	let mut instance: PluginInstance = aexlo::Host::get().try_load(&path).expect("failed to load plugin");
+	let mut instance: PluginInstance = aexlo::Host::get().load(&path).expect("failed to load plugin");
 	instance.set_parallel_iterate(false);
 	let (px, w, h) = pattern();
-	instance.set_input_layer(Layer::<Depth8>::from_raw(px, w, h).unwrap());
+	instance.set_input_layer(Layer::<Depth8>::from_rgba8(px, w, h).unwrap());
 	instance.set_render_size(w, h);
 	for (index, value) in params {
 		instance.set_param(*index, value.clone()).unwrap();
 	}
 	instance.render_frame().expect("render failed");
 	let mut out = vec![0u8; (w * h * 4) as usize];
-	instance.write_rendered_pixels(&mut out).unwrap();
+	instance.write_output_rgba8(&mut out).unwrap();
 	Some(out)
 }
 

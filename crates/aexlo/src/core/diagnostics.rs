@@ -3,6 +3,10 @@
 //! This module provides structured diagnostic output for debugging plugin callbacks.
 //! The design separates data structure from presentation for flexibility.
 
+// Only the `diag!` macro is used without the `diagnostics` feature; the record
+// types are built solely by feature-gated code.
+#![cfg_attr(not(feature = "diagnostics"), allow(dead_code))]
+
 use std::borrow::Cow;
 
 /// Colorize a value string based on its detected type.
@@ -81,18 +85,6 @@ impl<'a> Diagnostic<'a> {
 		}
 
 		println!();
-	}
-
-	/// Emit via the `log` crate (no colors, structured).
-	#[cfg(feature = "diagnostics")]
-	pub fn log(&self) {
-		let args_str: Vec<String> = self.args.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
-
-		if let Some(ref result) = self.result {
-			log::debug!("{}({}) -> {}", self.name, args_str.join(", "), result);
-		} else {
-			log::debug!("{}({})", self.name, args_str.join(", "));
-		}
 	}
 }
 
@@ -175,18 +167,34 @@ impl Drop for DiagnosticBuilder<'_> {
 	}
 }
 
+/// Print a host callback's call with the `diagnostics` feature.
+#[cfg(feature = "diagnostics")]
+pub(crate) fn emit(name: &'static str, args: &[(&'static str, String)], result: Option<&str>) {
+	let mut builder = DiagnosticBuilder::new();
+	builder.set_name(name);
+	for (arg, value) in args {
+		builder.add_arg(*arg, value);
+	}
+	if let Some(result) = result {
+		builder.set_result(result);
+	}
+	builder.emit();
+}
+
 /// Emit a [`Diagnostic`] record for a host callback.
 ///
 /// Also reports the call to the dispatching thread's [`Observer`] at
 /// [`ObserveLevel::Calls`](crate::ObserveLevel::Calls), so `$name` must be a
-/// `&'static str` of the form `"Suite/Function"`.
+/// `&'static str` of the form `"Suite/Function"`, and hands it the arguments
+/// at [`ObserveLevel::Arguments`](crate::ObserveLevel::Arguments).
 ///
 /// [`Observer`]: crate::Observer
 ///
-/// Otherwise expands to nothing when the `diagnostics` feature is off, so the argument
-/// expressions (typically `format!` calls) are never evaluated - callbacks like
-/// `checkout_output` or `PF_GetPixelFormat` run per frame, and eagerly building
-/// their argument strings costs real time in release builds.
+/// The argument expressions (typically `format!` calls) are only evaluated
+/// with the `diagnostics` feature or for an observer that asked for
+/// arguments - callbacks like `checkout_output` or `PF_GetPixelFormat` run
+/// per frame, and eagerly building their argument strings costs real time in
+/// release builds. They must be safe to evaluate whenever the callback runs.
 ///
 /// ```ignore
 /// diag!("PF_WorldSuite2/PF_NewWorld",
@@ -196,27 +204,19 @@ impl Drop for DiagnosticBuilder<'_> {
 /// );
 /// ```
 macro_rules! diag {
-	($name:expr $(, $arg_name:expr => $arg_value:expr)* $(,)?) => {
-		$crate::observe::suite_call($name);
-		#[cfg(feature = "diagnostics")]
-		{
-			let mut builder = $crate::core::diagnostics::DiagnosticBuilder::new();
-			builder.set_name($name);
-			$(builder.add_arg($arg_name, $arg_value);)*
-			builder.emit();
+	($name:expr $(, $arg_name:expr => $arg_value:expr)* $(; result: $result:expr)? $(,)?) => {{
+		if cfg!(feature = "diagnostics") || $crate::observe::wants_details() {
+			let args: ::std::vec::Vec<(&'static str, ::std::string::String)> =
+				::std::vec![$(($arg_name, ::std::string::ToString::to_string(&$arg_value))),*];
+			let result: ::std::option::Option<::std::string::String> =
+				[$(::std::string::ToString::to_string(&$result))?].into_iter().next();
+			#[cfg(feature = "diagnostics")]
+			$crate::core::diagnostics::emit($name, &args, result.as_deref());
+			$crate::observe::suite_call_detailed($name, args, result);
+		} else {
+			$crate::observe::suite_call($name);
 		}
-	};
-	($name:expr $(, $arg_name:expr => $arg_value:expr)*; result: $result:expr $(,)?) => {
-		$crate::observe::suite_call($name);
-		#[cfg(feature = "diagnostics")]
-		{
-			let mut builder = $crate::core::diagnostics::DiagnosticBuilder::new();
-			builder.set_name($name);
-			$(builder.add_arg($arg_name, $arg_value);)*
-			builder.set_result($result);
-			builder.emit();
-		}
-	};
+	}};
 }
 
 pub(crate) use diag;

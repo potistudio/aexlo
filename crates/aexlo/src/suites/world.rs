@@ -30,7 +30,7 @@
 /// - `dispose_world_stub`: Releases previously allocated pixel buffer memory
 /// - `get_pixel_format_stub`: Queries the pixel format of a given world buffer
 /// - `create_world_suite_2`: Factory function that constructs the suite vtable
-use after_effects_sys::{
+use crate::sys::{
 	A_long, PF_Boolean, PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_PixelFormat,
 	PF_PixelFormat_ARGB32, PF_PixelFormat_ARGB64, PF_PixelFormat_ARGB128, PF_PixelFormat_GPU_BGRA128, PF_ProgPtr,
 	PF_RationalScale, PF_UnionableRect, PF_WorldFlag_WRITEABLE, PF_WorldFlags, PF_WorldSuite2,
@@ -57,12 +57,11 @@ pub(super) fn allocated_format(world: &PF_EffectWorld) -> Option<u32> {
 /// Record the pixel format of a host-owned world (the instance's input and
 /// output, linked layers) by its `data` address: `ARGB64` for 16 bpc,
 /// `ARGB128` for 32 bpc. 8 bpc needs no tag (`ARGB32` is the default).
-#[allow(clippy::unnecessary_cast)] // `PF_PixelFormat_*` is `u32` on macOS only.
-pub(crate) fn tag_host_world(data: usize, kind: wrapper::PixelDepthKind) {
+pub(crate) fn tag_host_world(data: usize, kind: crate::pixel::PixelDepthKind) {
 	let format = match kind {
-		wrapper::PixelDepthKind::U8 => return,
-		wrapper::PixelDepthKind::U16 => PF_PixelFormat_ARGB64 as u32,
-		wrapper::PixelDepthKind::F32 => PF_PixelFormat_ARGB128 as u32,
+		crate::pixel::PixelDepthKind::U8 => return,
+		crate::pixel::PixelDepthKind::U16 => PF_PixelFormat_ARGB64 as u32,
+		crate::pixel::PixelDepthKind::F32 => PF_PixelFormat_ARGB128 as u32,
 	};
 	if let Ok(mut formats) = WORLD_FORMATS.lock() {
 		formats.insert(data, format);
@@ -111,10 +110,16 @@ pub(super) fn alloc_world(width: A_long, height: A_long, bytes_per_pixel: i32, f
 	}
 	crate::strict::allocated(crate::AllocationKind::World, data as usize, row_data * height as usize);
 
+	// `PF_WORLD_IS_DEEP` reads this flag, so a 16 bpc world must carry it.
+	let mut world_flags = PF_WorldFlag_WRITEABLE;
+	if format == PF_PixelFormat_ARGB64 as u32 {
+		world_flags |= crate::sys::PF_WorldFlag_DEEP as PF_WorldFlags;
+	}
+
 	PF_EffectWorld {
 		reserved0: null_mut(),
 		reserved1: null_mut(),
-		world_flags: PF_WorldFlag_WRITEABLE as PF_WorldFlags,
+		world_flags,
 		data: data as *mut _,
 		rowbytes,
 		width,
@@ -172,19 +177,21 @@ pub(super) unsafe fn free_world(world: &mut PF_EffectWorld) {
 }
 
 pub(crate) unsafe extern "C" fn dispose_world_sys(_effect_ref: PF_ProgPtr, worldP: *mut PF_EffectWorld) -> PF_Err {
-	if worldP.is_null() {
-		log::warn!("dispose_world: worldP is null");
-		return PF_Err_NONE as PF_Err;
-	}
+	crate::core::ffi::guard("dispose_world_sys", || {
+		if worldP.is_null() {
+			log::warn!("dispose_world: worldP is null");
+			return PF_Err_NONE;
+		}
 
-	unsafe { free_world(&mut *worldP) };
+		unsafe { free_world(&mut *worldP) };
 
-	diag!("PF_WorldSuite2/PF_DisposeWorld",
-		"effect_ref" => format!("{:#x}", _effect_ref as usize),
-		"worldP (out)" => worldP as usize,
-	);
+		diag!("PF_WorldSuite2/PF_DisposeWorld",
+			"effect_ref" => format!("{:#x}", _effect_ref as usize),
+			"worldP (out)" => worldP as usize,
+		);
 
-	PF_Err_NONE as PF_Err
+		PF_Err_NONE
+	})
 }
 
 unsafe extern "C" fn new_world_sys(
@@ -195,69 +202,70 @@ unsafe extern "C" fn new_world_sys(
 	pixel_format: PF_PixelFormat,
 	worldP: *mut PF_EffectWorld,
 ) -> PF_Err {
-	//== Validation ==//
-	if effect_ref.is_null() {
-		log::error!("new_world: effect_ref is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+	crate::core::ffi::guard("new_world_sys", || {
+		//== Validation ==//
+		if effect_ref.is_null() {
+			log::error!("new_world: effect_ref is null");
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
 
-	if worldP.is_null() {
-		log::error!("new_world: worldP is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+		if worldP.is_null() {
+			log::error!("new_world: worldP is null");
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
 
-	//== Note ==//
-	/*
-	ARGB32: flag: None, depth: 4,
-	ARGB64: flag: RESERVED0, depth: 8,
-	ARGB128: flag: RESERVED1, depth: 16,
-	GPU_BGRA128: flag: RESERVED1, depth: 16,
-	Reserved: flag: RESERVED0, depth: 8,
-	BGRA32: flag: RESERVED0, depth: 8, <- ?!
-	VUYA32: flag: RESERVED0, depth: 8, <- ?!
-	NTSCDV25: flag: RESERVED0, depth: 8,
-	PALDV25: flag: RESERVED0, depth: 8,
-	INVALID: flag: RESERVED0, depth: 8,
-	FORCE_LONG_INT: flag: RESERVED0, depth: 8,
-	*/
+		//== Note ==//
+		/*
+		ARGB32: flag: None, depth: 4,
+		ARGB64: flag: RESERVED0, depth: 8,
+		ARGB128: flag: RESERVED1, depth: 16,
+		GPU_BGRA128: flag: RESERVED1, depth: 16,
+		Reserved: flag: RESERVED0, depth: 8,
+		BGRA32: flag: RESERVED0, depth: 8, <- ?!
+		VUYA32: flag: RESERVED0, depth: 8, <- ?!
+		NTSCDV25: flag: RESERVED0, depth: 8,
+		PALDV25: flag: RESERVED0, depth: 8,
+		INVALID: flag: RESERVED0, depth: 8,
+		FORCE_LONG_INT: flag: RESERVED0, depth: 8,
+		*/
 
-	//== Implementation ==//
-	// Honor the caller's requested dimensions. Plugins allocate intermediate worlds
-	// at sizes of their own choosing (e.g. downsampled or padded glow buffers), and
-	// handing back a world sized to the output frame instead makes the plugin read or
-	// write past the buffer it thinks it got -- a layout-dependent out-of-bounds crash.
+		//== Implementation ==//
+		// Honor the caller's requested dimensions. Plugins allocate intermediate worlds
+		// at sizes of their own choosing (e.g. downsampled or padded glow buffers), and
+		// handing back a world sized to the output frame instead makes the plugin read or
+		// write past the buffer it thinks it got -- a layout-dependent out-of-bounds crash.
 
-	// Compare as u32 on both sides: bindgen gives the PF_PixelFormat_* constants
-	// a platform-dependent sign (i32 here on Windows), so a `match` on a cast
-	// scrutinee would mismatch the pattern types. Normalizing both to u32 keeps
-	// this signedness-agnostic.
-	let fmt = pixel_format as u32;
-	#[allow(clippy::unnecessary_cast)] // u32 only on some platforms.
-	let depth = if fmt == PF_PixelFormat_ARGB32 as u32 {
-		4
-	} else if fmt == PF_PixelFormat_ARGB64 as u32 {
-		8
-	} else if fmt == PF_PixelFormat_ARGB128 as u32 || fmt == PF_PixelFormat_GPU_BGRA128 as u32 {
-		16
-	} else {
-		log::warn!("Unsupported pixel format: {}. so the depth is set to 8", pixel_format);
-		8 // Default to 8 bytes per pixel for unsupported formats
-	};
+		// Compare as u32 on both sides: bindgen gives the PF_PixelFormat_* constants
+		// a platform-dependent sign (i32 here on Windows), so a `match` on a cast
+		// scrutinee would mismatch the pattern types. Normalizing both to u32 keeps
+		// this signedness-agnostic.
+		let fmt = pixel_format as u32;
+		let depth = if fmt == PF_PixelFormat_ARGB32 as u32 {
+			4
+		} else if fmt == PF_PixelFormat_ARGB64 as u32 {
+			8
+		} else if fmt == PF_PixelFormat_ARGB128 as u32 || fmt == PF_PixelFormat_GPU_BGRA128 as u32 {
+			16
+		} else {
+			log::warn!("Unsupported pixel format: {}. so the depth is set to 8", pixel_format);
+			8 // Default to 8 bytes per pixel for unsupported formats
+		};
 
-	let new_world = alloc_world(widthL, heightL, depth, fmt);
+		let new_world = alloc_world(widthL, heightL, depth, fmt);
 
-	unsafe { *worldP = new_world };
+		unsafe { *worldP = new_world };
 
-	diag!("PF_WorldSuite2/PF_NewWorld",
-		"effect_ref" => format!("{:#x}", effect_ref as usize),
-		"widthL" => widthL,
-		"heightL" => heightL,
-		"clear_pixB" => _clear_pixB,
-		"pixel_format" => pixel_format,
-		"worldP (out)" => format!("{:#x}", worldP as usize),
-	);
+		diag!("PF_WorldSuite2/PF_NewWorld",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+			"widthL" => widthL,
+			"heightL" => heightL,
+			"clear_pixB" => _clear_pixB,
+			"pixel_format" => pixel_format,
+			"worldP (out)" => format!("{:#x}", worldP as usize),
+		);
 
-	PF_Err_NONE as PF_Err
+		PF_Err_NONE
+	})
 }
 
 /// The format of `worldP`: GPU-rendered worlds are 32-bit float BGRA
@@ -268,7 +276,6 @@ unsafe extern "C" fn new_world_sys(
 ///
 /// # Safety
 /// `worldP` must point to a valid `PF_EffectWorld`.
-#[allow(clippy::unnecessary_cast)] // `PF_PixelFormat_*` is `u32` on macOS only.
 pub(super) unsafe fn world_pixel_format(worldP: *const PF_EffectWorld) -> u32 {
 	if crate::gpu::is_gpu_world(worldP as usize) {
 		return PF_PixelFormat_GPU_BGRA128 as u32;
@@ -277,24 +284,26 @@ pub(super) unsafe fn world_pixel_format(worldP: *const PF_EffectWorld) -> u32 {
 }
 
 unsafe extern "C" fn get_pixel_format_sys(worldP: *const PF_EffectWorld, pixel_formatP: *mut PF_PixelFormat) -> PF_Err {
-	if worldP.is_null() {
-		log::warn!("PF_GetPixelFormat: worldP is null");
-		return PF_Err_NONE as PF_Err;
-	}
+	crate::core::ffi::guard("get_pixel_format_sys", || {
+		if worldP.is_null() {
+			log::warn!("PF_GetPixelFormat: worldP is null");
+			return PF_Err_NONE;
+		}
 
-	if pixel_formatP.is_null() {
-		log::warn!("PF_GetPixelFormat: pixel_formatP is null");
-		return PF_Err_NONE as PF_Err;
-	}
+		if pixel_formatP.is_null() {
+			log::warn!("PF_GetPixelFormat: pixel_formatP is null");
+			return PF_Err_NONE;
+		}
 
-	unsafe { *pixel_formatP = world_pixel_format(worldP) as PF_PixelFormat };
+		unsafe { *pixel_formatP = world_pixel_format(worldP) as PF_PixelFormat };
 
-	diag!("PF_WorldSuite2/PF_GetPixelFormat",
-		"worldP" => format!("{:#x}", worldP as usize),
-		"pixel_formatP (out)" => pixel_formatP as usize,
-	);
+		diag!("PF_WorldSuite2/PF_GetPixelFormat",
+			"worldP" => format!("{:#x}", worldP as usize),
+			"pixel_formatP (out)" => pixel_formatP as usize,
+		);
 
-	PF_Err_NONE as PF_Err
+		PF_Err_NONE
+	})
 }
 
 /// Legacy `PF_UtilCallbacks::new_world`.
@@ -308,33 +317,34 @@ pub(crate) unsafe extern "C" fn new_world_util(
 	effect_ref: PF_ProgPtr,
 	width: A_long,
 	height: A_long,
-	flags: after_effects_sys::PF_NewWorldFlags,
+	flags: crate::sys::PF_NewWorldFlags,
 	world: *mut PF_EffectWorld,
 ) -> PF_Err {
-	if effect_ref.is_null() || world.is_null() {
-		log::error!("new_world: effect_ref or world is null");
-		return PF_Err_BAD_CALLBACK_PARAM as PF_Err;
-	}
+	crate::core::ffi::guard("new_world_util", || {
+		if effect_ref.is_null() || world.is_null() {
+			log::error!("new_world: effect_ref or world is null");
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
 
-	#[allow(clippy::unnecessary_cast)] // `PF_NewWorldFlag_*` is `u32` on macOS only.
-	let deep = flags & after_effects_sys::PF_NewWorldFlag_DEEP_PIXELS as after_effects_sys::PF_NewWorldFlags != 0;
-	let (bytes, format) = if deep {
-		(8, PF_PixelFormat_ARGB64 as u32)
-	} else {
-		(4, PF_PixelFormat_ARGB32 as u32)
-	};
-	let allocated = alloc_world(width, height, bytes, format);
-	unsafe { *world = allocated };
+		let deep = flags & crate::sys::PF_NewWorldFlag_DEEP_PIXELS as crate::sys::PF_NewWorldFlags != 0;
+		let (bytes, format) = if deep {
+			(8, PF_PixelFormat_ARGB64 as u32)
+		} else {
+			(4, PF_PixelFormat_ARGB32 as u32)
+		};
+		let allocated = alloc_world(width, height, bytes, format);
+		unsafe { *world = allocated };
 
-	diag!("PF_UtilCallbacks/new_world",
-		"effect_ref" => format!("{:#x}", effect_ref as usize),
-		"width" => width,
-		"height" => height,
-		"flags" => format!("{flags:#x}"),
-		"world" => format!("{:#x}", world as usize),
-	);
+		diag!("PF_UtilCallbacks/new_world",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+			"width" => width,
+			"height" => height,
+			"flags" => format!("{flags:#x}"),
+			"world" => format!("{:#x}", world as usize),
+		);
 
-	PF_Err_NONE as PF_Err
+		PF_Err_NONE
+	})
 }
 
 //==== Factory =============================================
@@ -363,15 +373,16 @@ mod tests {
 				effect,
 				4,
 				3,
-				after_effects_sys::PF_NewWorldFlag_CLEAR_PIXELS as after_effects_sys::PF_NewWorldFlags,
+				crate::sys::PF_NewWorldFlag_CLEAR_PIXELS as crate::sys::PF_NewWorldFlags,
 				&mut world,
 			)
 		};
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		assert!(!world.data.is_null());
 		assert_eq!((world.width, world.height, world.rowbytes), (4, 3, 16));
+		assert_eq!(world.world_flags & crate::sys::PF_WorldFlag_DEEP as PF_WorldFlags, 0);
 		unsafe { *(world.data as *mut u8) = 7 };
-		assert_eq!(unsafe { dispose_world_sys(effect, &mut world) }, PF_Err_NONE as PF_Err);
+		assert_eq!(unsafe { dispose_world_sys(effect, &mut world) }, PF_Err_NONE);
 		assert!(world.data.is_null());
 
 		let err = unsafe {
@@ -379,17 +390,19 @@ mod tests {
 				effect,
 				2,
 				2,
-				after_effects_sys::PF_NewWorldFlag_DEEP_PIXELS as after_effects_sys::PF_NewWorldFlags,
+				crate::sys::PF_NewWorldFlag_DEEP_PIXELS as crate::sys::PF_NewWorldFlags,
 				&mut world,
 			)
 		};
-		assert_eq!(err, PF_Err_NONE as PF_Err);
+		assert_eq!(err, PF_Err_NONE);
 		assert_eq!(world.rowbytes, 16);
-		assert_eq!(unsafe { dispose_world_sys(effect, &mut world) }, PF_Err_NONE as PF_Err);
+		let deep = crate::sys::PF_WorldFlag_DEEP as PF_WorldFlags;
+		assert_ne!(world.world_flags & deep, 0);
+		assert_eq!(unsafe { dispose_world_sys(effect, &mut world) }, PF_Err_NONE);
 
 		assert_eq!(
 			unsafe { new_world_util(std::ptr::null_mut(), 1, 1, 0, &mut world) },
-			PF_Err_BAD_CALLBACK_PARAM as PF_Err
+			PF_Err_BAD_CALLBACK_PARAM
 		);
 	}
 }
