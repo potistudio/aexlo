@@ -389,8 +389,8 @@ Each entry of `params` is `{index, name, kind, value, detail, hidden, disabled}`
 - `value` is written the way `set` reads it, except that an angle carries `°`
   and a path reads `mask <id>`. It is empty for a parameter without a value.
 - `detail` holds the slider range (`0..100`), the popup choices
-  (`1=OK 2=Crash ...`), the UI flags and `custom UI`, separated by two
-  spaces.
+  (`1=OK 2=Crash ...`), the text on a button (`button "Reset"`), the UI flags
+  and `custom UI`, separated by two spaces.
 
 `plugin.pixel_formats` lists the formats the plugin declared, such as
 `ARGB32`, `ARGB64`, `ARGB128`, `BGRA32`, `VUYA32` and `GPU_BGRA128`. A FourCC

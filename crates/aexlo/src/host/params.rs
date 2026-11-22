@@ -270,6 +270,23 @@ pub(crate) fn popup_options(popup: &PF_PopupDef) -> Vec<String> {
 	}
 }
 
+/// A button's label, or `None` when the plugin left it null or blank.
+///
+/// # Safety
+/// Call for button parameters only, while the add-param callback runs:
+/// `namesptr` is then null or the plugin's NUL-terminated label string.
+pub(crate) unsafe fn button_label(button: &PF_ButtonDef) -> Option<String> {
+	// SAFETY: guaranteed by the caller (see above).
+	unsafe {
+		if button.u.namesptr.is_null() {
+			return None;
+		}
+		let label = CStr::from_ptr(button.u.namesptr).to_string_lossy();
+		let label = label.trim();
+		(!label.is_empty()).then(|| label.to_string())
+	}
+}
+
 fn fixed_to_f64(value: PF_Fixed) -> f64 {
 	(value as f64) / 65536.0
 }

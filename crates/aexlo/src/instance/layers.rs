@@ -248,7 +248,7 @@ impl PluginInstance {
 				ld: self.input_layer.as_sys(),
 			},
 		});
-		self.popup_choices.push(Vec::new());
+		self.param_labels.push(Vec::new());
 		// The push above invalidates any (nonexistent yet) cached param pointers;
 		// mark dirty so `call_plugin` builds the cache on its first invocation.
 		self.params_dirty = true;

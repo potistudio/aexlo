@@ -603,8 +603,11 @@ fn row(ui: &mut egui::Ui, cx: &mut ParamCx, effect: &mut Effect, index: usize) {
 				ui.add_enabled_ui(enabled, |ui| layer_picker(ui, cx, effect, index));
 			}
 			ParamKind::Button => {
-				ui.label("");
-				if ui.add_enabled(enabled, egui::Button::new(&name)).clicked() {
+				// After Effects shows the name to the left and the label on
+				// the button; many plugins leave one of them empty.
+				ui.label(desc.name.trim());
+				let text = desc.button_label.as_deref().unwrap_or(&name);
+				if ui.add_enabled(enabled, egui::Button::new(text)).clicked() {
 					cx.pressed = Some(index);
 				}
 			}

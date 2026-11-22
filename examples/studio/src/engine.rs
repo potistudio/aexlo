@@ -31,6 +31,8 @@ pub struct ParamDesc {
 	pub default: Option<PValue>,
 	pub range: Option<(f64, f64)>,
 	pub choices: Option<Vec<String>>,
+	/// The text on a button, which After Effects shows apart from its name.
+	pub button_label: Option<String>,
 }
 
 /// What a loaded plugin told us about itself.
@@ -257,6 +259,7 @@ fn describe(fx: &PluginInstance) -> PluginInfo {
 				default: fx.get_param(index).and_then(PValue::from_param),
 				range: fx.param_slider_range(index),
 				choices: fx.param_choices(index),
+				button_label: fx.param_button_label(index).map(str::to_string),
 			})
 			.collect(),
 	}

@@ -359,7 +359,7 @@ impl PluginInstance {
 				global_out_flags: 0,
 				global_out_flags2: 0,
 				params: Vec::new(),
-				popup_choices: Vec::new(),
+				param_labels: Vec::new(),
 				params_dirty: false,
 				params_ptr_cache: Vec::new(),
 				input_layer,

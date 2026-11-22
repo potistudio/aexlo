@@ -596,6 +596,9 @@ fn param_row(fx: &PluginInstance, index: usize) -> ParamRow {
 			.collect();
 		detail.push(list.join(" "));
 	}
+	if let Some(label) = fx.param_button_label(index) {
+		detail.push(format!("button \"{label}\""));
+	}
 	let flags = fx.param_ui_flags(index).unwrap_or_default();
 	if flags != aexlo::ParamUiFlags::default() {
 		detail.push(format!("{flags:?}"));

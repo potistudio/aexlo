@@ -32,6 +32,9 @@ may break the API, and every breaking change is listed below.
   (`TextStyle`) and `TextLayer::rasterize` draws it as the input layer, so
   text effects such as TextGrad render. `AexloError::Font` reports a font that
   cannot be read.
+- `PluginInstance::param_button_label` returns the text on a button
+  parameter (`PF_ButtonDef`), which plugins often fill in place of the
+  parameter's name.
 
 ### Fixed
 
