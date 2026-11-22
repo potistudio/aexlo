@@ -7,6 +7,8 @@ may break the API, and every breaking change is listed below.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-23
+
 ### Added
 
 - `Observer::unsupported` hears about what the plugin asked for and aexlo
@@ -65,6 +67,14 @@ may break the API, and every breaking change is listed below.
 
 ### Fixed
 
+- The text a plugin reports (`PF_Cmd_ABOUT`, a dialog's message, an error)
+  comes back whole. Line breaks are `\n` instead of After Effects' `\r`, which
+  made each line overwrite the one before in a terminal, and text that is not
+  UTF-8 is read as Latin-1, so a `©` stays one. The ANSI suite's `sprintf`
+  formats with the C library's `vsnprintf` (at most 256 bytes) instead of
+  knowing only `%d` and `%s`: a format that was not UTF-8 (Deep Glow 2,
+  TextGrad, Displacer Pro) wrote nothing, and `%.120s` (Cosmic) was printed
+  as is.
 - On macOS the loader now finds the entry point the PiPL names, as it
   already did on Windows, before trying the usual symbol names.
 - "AEGP Utility Suite" serves each version at its own layout: v3–7
@@ -158,6 +168,7 @@ and legacy paths. See the README for which SDK suites are implemented.
   `PF_Err_INTERNAL_STRUCT_DAMAGED`. An access violation crashes the process
   as on macOS instead of being reported as a failed command.
 
-[Unreleased]: https://github.com/potistudio/aexlo/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/potistudio/aexlo/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/potistudio/aexlo/releases/tag/v0.3.0
 [0.2.0]: https://github.com/potistudio/aexlo/releases/tag/v0.2.0
 [0.1.0]: https://github.com/potistudio/aexlo/releases/tag/v0.1.0
