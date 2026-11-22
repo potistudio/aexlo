@@ -43,6 +43,9 @@ may break the API, and every breaking change is listed below.
   to `PF_Arbitrary_NEW_FUNC` only without a default or when the copy fails.
   Plugins whose `NEW_FUNC` makes an empty placeholder (TextGrad's gradient)
   rendered nothing.
+- `AEGP_DisposeColorProfile` refuses a pointer it did not hand out instead of
+  freeing it. A plugin that bailed out of a failed call disposed an
+  uninitialised profile, which aborted the process.
 
 ## [0.2.0] - 2026-11-18
 
