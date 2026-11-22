@@ -642,6 +642,20 @@ macro_rules! dispose_stream_value {
 dispose_stream_value!(dispose_stream_value_v1, AEGP_StreamValue);
 dispose_stream_value!(dispose_stream_value_v2, AEGP_StreamValue2);
 
+/// `value` clamped between `a` and `b`, whichever is the larger. A plugin
+/// declares the range, so it may be inverted or have a NaN end, where `clamp`
+/// would panic; a NaN end does not bound.
+fn within<T: PartialOrd + Copy>(value: T, a: T, b: T) -> T {
+	let (lo, hi) = if b < a { (b, a) } else { (a, b) };
+	if value < lo {
+		lo
+	} else if value > hi {
+		hi
+	} else {
+		value
+	}
+}
+
 /// The parameter value `value` sets on the parameter `def`, or `None` when
 /// the two do not fit together. Numbers are clamped to the parameter's valid
 /// range and colors to `0..=1`, as After Effects does. A color keeps the
@@ -654,14 +668,15 @@ fn param_value_of(def: &PF_ParamDef, value: StreamValue) -> Option<crate::ParamV
 	unsafe {
 		Some(match (def.param_type, value) {
 			(t, StreamValue::OneD(v)) if t == PF_Param_SLIDER as PF_ParamType => {
-				P::Slider((v.round() as i32).clamp(def.u.sd.valid_min, def.u.sd.valid_max))
+				P::Slider(within(v.round() as i32, def.u.sd.valid_min, def.u.sd.valid_max))
 			}
-			(t, StreamValue::OneD(v)) if t == PF_Param_FIX_SLIDER as PF_ParamType => P::Fixed((v as f32).clamp(
+			(t, StreamValue::OneD(v)) if t == PF_Param_FIX_SLIDER as PF_ParamType => P::Fixed(within(
+				v as f32,
 				utils::fixed16_to_f32(def.u.fd.valid_min),
 				utils::fixed16_to_f32(def.u.fd.valid_max),
 			)),
 			(t, StreamValue::OneD(v)) if t == PF_Param_FLOAT_SLIDER as PF_ParamType => {
-				P::Float(v.clamp(def.u.fs_d.valid_min as f64, def.u.fs_d.valid_max as f64))
+				P::Float(within(v, def.u.fs_d.valid_min as f64, def.u.fs_d.valid_max as f64))
 			}
 			(t, StreamValue::OneD(v)) if t == PF_Param_ANGLE as PF_ParamType => P::Angle(v as f32),
 			(t, StreamValue::OneD(v)) if t == PF_Param_CHECKBOX as PF_ParamType => P::Checkbox(v != 0.0),
@@ -1055,6 +1070,16 @@ pub(super) const fn create_stream_suite_6() -> AEGP_StreamSuite6 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn values_are_clamped_by_ranges_a_plugin_may_declare_badly() {
+		assert_eq!(within(150, 0, 100), 100);
+		assert_eq!(within(150, 100, 0), 100, "inverted");
+		assert_eq!(within(-5, 100, 0), 0, "inverted");
+		assert_eq!(within(2.0, f64::NAN, 1.0), 1.0, "a NaN end does not bound");
+		assert_eq!(within(-2.0, f64::NAN, 1.0), -2.0);
+		assert_eq!(within(0.5_f32, 0.0, 1.0), 0.5);
+	}
 
 	#[test]
 	fn unique_stream_ids_follow_the_stream_not_the_handle() {
