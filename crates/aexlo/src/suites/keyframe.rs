@@ -1,14 +1,16 @@
-//! `AEGP Keyframe Suite` (version 4) over the effect parameter streams of the
+//! `AEGP Keyframe Suite` (versions 4 and 5) over the effect parameter streams of the
 //! [Stream Suite](super::stream).
 //!
 //! aexlo has no timeline, so every stream has zero keyframes: the queries
 //! answer accordingly, anything addressing a keyframe by index gets
 //! `PF_Err_INVALID_INDEX`, and adding keyframes is refused with `A_Err_GENERIC`.
+//! Version 5 appends the keyframe label colour calls, which address a keyframe
+//! by index too.
 
 use crate::sys::{
 	A_Boolean, A_Err, A_Err_GENERIC, A_Time, A_long, A_short, AEGP_AddKeyframesInfoH, AEGP_KeyframeEase,
-	AEGP_KeyframeFlags, AEGP_KeyframeIndex, AEGP_KeyframeInterpolationType, AEGP_KeyframeSuite4, AEGP_LTimeMode,
-	AEGP_NumKF_NO_DATA, AEGP_PluginID, AEGP_StreamRefH, AEGP_StreamValue2, PF_Err_BAD_CALLBACK_PARAM,
+	AEGP_KeyframeFlags, AEGP_KeyframeIndex, AEGP_KeyframeInterpolationType, AEGP_KeyframeSuite4, AEGP_KeyframeSuite5,
+	AEGP_LTimeMode, AEGP_NumKF_NO_DATA, AEGP_PluginID, AEGP_StreamRefH, AEGP_StreamValue2, PF_Err_BAD_CALLBACK_PARAM,
 	PF_Err_INVALID_INDEX, PF_Err_NONE,
 };
 
@@ -251,6 +253,26 @@ unsafe extern "C" fn end_add_keyframes(_addB: A_Boolean, _akH: AEGP_AddKeyframes
 	})
 }
 
+unsafe extern "C" fn get_keyframe_label_color_index(
+	streamH: AEGP_StreamRefH,
+	_key_index: AEGP_KeyframeIndex,
+	_key_labelP: *mut A_long,
+) -> A_Err {
+	crate::core::ffi::guard("get_keyframe_label_color_index", || {
+		no_such_keyframe("AEGP_KeyframeSuite5/AEGP_GetKeyframeLabelColorIndex", streamH)
+	})
+}
+
+unsafe extern "C" fn set_keyframe_label_color_index(
+	streamH: AEGP_StreamRefH,
+	_key_index: AEGP_KeyframeIndex,
+	_key_label: A_long,
+) -> A_Err {
+	crate::core::ffi::guard("set_keyframe_label_color_index", || {
+		no_such_keyframe("AEGP_KeyframeSuite5/AEGP_SetKeyframeLabelColorIndex", streamH)
+	})
+}
+
 /// Builds the `AEGP_KeyframeSuite4` vtable.
 pub(super) const fn create_keyframe_suite_4() -> AEGP_KeyframeSuite4 {
 	AEGP_KeyframeSuite4 {
@@ -277,9 +299,54 @@ pub(super) const fn create_keyframe_suite_4() -> AEGP_KeyframeSuite4 {
 	}
 }
 
+/// Builds the `AEGP_KeyframeSuite5` vtable: v4 plus the label colour calls.
+pub(super) const fn create_keyframe_suite_5() -> AEGP_KeyframeSuite5 {
+	let v4 = create_keyframe_suite_4();
+	AEGP_KeyframeSuite5 {
+		AEGP_GetStreamNumKFs: v4.AEGP_GetStreamNumKFs,
+		AEGP_GetKeyframeTime: v4.AEGP_GetKeyframeTime,
+		AEGP_InsertKeyframe: v4.AEGP_InsertKeyframe,
+		AEGP_DeleteKeyframe: v4.AEGP_DeleteKeyframe,
+		AEGP_GetNewKeyframeValue: v4.AEGP_GetNewKeyframeValue,
+		AEGP_SetKeyframeValue: v4.AEGP_SetKeyframeValue,
+		AEGP_GetStreamValueDimensionality: v4.AEGP_GetStreamValueDimensionality,
+		AEGP_GetStreamTemporalDimensionality: v4.AEGP_GetStreamTemporalDimensionality,
+		AEGP_GetNewKeyframeSpatialTangents: v4.AEGP_GetNewKeyframeSpatialTangents,
+		AEGP_SetKeyframeSpatialTangents: v4.AEGP_SetKeyframeSpatialTangents,
+		AEGP_GetKeyframeTemporalEase: v4.AEGP_GetKeyframeTemporalEase,
+		AEGP_SetKeyframeTemporalEase: v4.AEGP_SetKeyframeTemporalEase,
+		AEGP_GetKeyframeFlags: v4.AEGP_GetKeyframeFlags,
+		AEGP_SetKeyframeFlag: v4.AEGP_SetKeyframeFlag,
+		AEGP_GetKeyframeInterpolation: v4.AEGP_GetKeyframeInterpolation,
+		AEGP_SetKeyframeInterpolation: v4.AEGP_SetKeyframeInterpolation,
+		AEGP_StartAddKeyframes: v4.AEGP_StartAddKeyframes,
+		AEGP_AddKeyframes: v4.AEGP_AddKeyframes,
+		AEGP_SetAddKeyframe: v4.AEGP_SetAddKeyframe,
+		AEGP_EndAddKeyframes: v4.AEGP_EndAddKeyframes,
+		AEGP_GetKeyframeLabelColorIndex: Some(get_keyframe_label_color_index),
+		AEGP_SetKeyframeLabelColorIndex: Some(set_keyframe_label_color_index),
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn label_colors_address_keyframes_that_do_not_exist() {
+		let suite = create_keyframe_suite_5();
+		let mut label: A_long = 0;
+		unsafe {
+			assert_eq!(
+				suite.AEGP_GetKeyframeLabelColorIndex.unwrap()(std::ptr::null_mut(), 0, &mut label),
+				PF_Err_BAD_CALLBACK_PARAM
+			);
+			assert_eq!(
+				suite.AEGP_SetKeyframeLabelColorIndex.unwrap()(std::ptr::null_mut(), 0, 1),
+				PF_Err_BAD_CALLBACK_PARAM
+			);
+		}
+	}
 
 	#[test]
 	fn null_streams_are_rejected() {

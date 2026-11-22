@@ -1,5 +1,5 @@
-//! M6: the browser viewer's preset picker and "Save as preset", driven over
-//! its HTTP endpoints.
+//! M6: the browser viewer's preset picker, "Save as preset" and button
+//! parameters, driven over its HTTP endpoints.
 
 mod common;
 
@@ -32,25 +32,20 @@ fn wait_for(url: &str, done: impl Fn(&serde_json::Value) -> bool) -> serde_json:
 	}
 }
 
-#[test]
-fn a_preset_saved_in_the_viewer_round_trips_into_aexlo_test() {
-	let dir = scratch("viewer");
-	let text = format!(
-		"# Kept as written.\n[plugin]\ncrate = {}\n\n[defaults]\nsize = [24, 16]\ngolden = false\n\n[[preset]]\nname = \"gains\"\nparams = {{ Gain = {{ sweep = [0.5, 2.0] }} }}\n",
-		toml_path(&misbehave_crate())
-	);
-	let path = manifest(&dir, &text);
+/// Start `aexlo preview` on the misbehaving effect with `manifest` and
+/// `args`, returning the running viewer and its URL.
+fn start(dir: &std::path::Path, manifest: &std::path::Path, args: &[&str]) -> (Viewer, String) {
 	let artifact = misbehave_artifact();
-
 	let mut child = Command::new(env!("CARGO_BIN_EXE_aexlo"))
 		.args([
 			"preview",
 			artifact.to_str().unwrap(),
 			"--manifest",
-			path.to_str().unwrap(),
+			manifest.to_str().unwrap(),
 		])
-		.args(["--preset", "gains[Gain=2]", "--port", "0", "--no-open"])
-		.current_dir(&dir)
+		.args(args)
+		.args(["--port", "0", "--no-open"])
+		.current_dir(dir)
 		.stdout(Stdio::piped())
 		.stderr(Stdio::null())
 		.spawn()
@@ -67,6 +62,83 @@ fn a_preset_saved_in_the_viewer_round_trips_into_aexlo_test() {
 				.map(str::to_string)
 		})
 		.expect("the viewer prints its URL");
+	// Keep reading, so the viewer never writes into a closed pipe.
+	std::thread::spawn(move || lines.for_each(drop));
+	(viewer, url)
+}
+
+/// The viewer's parameter list.
+fn params(url: &str) -> Vec<serde_json::Value> {
+	serde_json::from_str(&http_get(&format!("{url}params"))).unwrap_or_default()
+}
+
+/// Poll `/params` until `done` holds for it.
+fn wait_for_params(url: &str, done: impl Fn(&[serde_json::Value]) -> bool) -> Vec<serde_json::Value> {
+	let deadline = Instant::now() + Duration::from_secs(20);
+	loop {
+		let params = params(url);
+		if done(&params) {
+			return params;
+		}
+		assert!(Instant::now() < deadline, "the parameters never got there: {params:#?}");
+		std::thread::sleep(Duration::from_millis(100));
+	}
+}
+
+fn gain(params: &[serde_json::Value]) -> Option<f64> {
+	params.iter().find(|p| p["name"] == "Gain")?["value"].as_f64()
+}
+
+#[test]
+fn a_button_in_the_viewer_presses_and_its_change_is_kept() {
+	let dir = scratch("viewer_button");
+	let text = format!(
+		"[plugin]\ncrate = {}\n\n[defaults]\nsize = [24, 16]\ngolden = false\n\n[[preset]]\nname = \"loud\"\nparams = {{ Gain = 3.0 }}\n",
+		toml_path(&misbehave_crate())
+	);
+	let path = manifest(&dir, &text);
+	let (viewer, url) = start(&dir, &path, &["--preset", "loud"]);
+
+	// The button comes through with its name, the label on it, and its place.
+	let before = wait_for_params(&url, |p| gain(p) == Some(3.0));
+	let button = before
+		.iter()
+		.find(|p| p["kind"] == "button")
+		.expect("the viewer lists the button");
+	assert_eq!(button["index"], 5);
+	assert_eq!(button["name"], "Defaults");
+	assert_eq!(button["label"], "Reset Gain");
+	assert_eq!(button["disabled"], false);
+
+	// Pressing it sets Gain back to 1, and the controls show it.
+	http_get(&format!("{url}press?i=5"));
+	wait_for_params(&url, |p| gain(p) == Some(1.0));
+
+	// A parameter that is not a button can't be pressed.
+	http_get(&format!("{url}press?i=2"));
+	let info = wait_for(&url, |info| info["toast"].is_string());
+	assert!(info["toast"].as_str().unwrap().contains("not a button"), "{info:#}");
+
+	// The value the plugin changed is an edit, so a saved preset keeps it.
+	http_get(&format!("{url}save?name=reset"));
+	wait_for(&url, |info| info["variant"] == "reset");
+	drop(viewer);
+	let saved = std::fs::read_to_string(&path).unwrap();
+	assert!(
+		saved.ends_with("\n[[preset]]\nname = \"reset\"\ninherits = \"loud\"\nparams = { Gain = 1.0 }\n"),
+		"{saved}"
+	);
+}
+
+#[test]
+fn a_preset_saved_in_the_viewer_round_trips_into_aexlo_test() {
+	let dir = scratch("viewer");
+	let text = format!(
+		"# Kept as written.\n[plugin]\ncrate = {}\n\n[defaults]\nsize = [24, 16]\ngolden = false\n\n[[preset]]\nname = \"gains\"\nparams = {{ Gain = {{ sweep = [0.5, 2.0] }} }}\n",
+		toml_path(&misbehave_crate())
+	);
+	let path = manifest(&dir, &text);
+	let (viewer, url) = start(&dir, &path, &["--preset", "gains[Gain=2]"]);
 
 	// The picker lists the manifest's variants, on the one asked for.
 	wait_for(&url, |info| {

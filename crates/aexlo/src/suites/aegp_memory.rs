@@ -33,6 +33,12 @@ pub(crate) fn handle_from_bytes(bytes: Vec<u8>) -> AEGP_MemHandle {
 	publish(Block { bytes })
 }
 
+/// A copy of the bytes a memory-suite handle owns, or `None` for a handle this
+/// suite did not hand out (or already freed).
+pub(crate) fn handle_bytes(handle: AEGP_MemHandle) -> Option<Vec<u8>> {
+	live().get(&(handle as usize)).map(|block| block.bytes.clone())
+}
+
 fn publish(block: Block) -> AEGP_MemHandle {
 	let data = block.bytes.as_ptr() as *mut std::ffi::c_void;
 	let handle = Box::into_raw(Box::new(data)) as AEGP_MemHandle;

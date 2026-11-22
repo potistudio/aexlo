@@ -186,11 +186,19 @@ input = { generate = "solid", color = [0.2, 0.4, 0.8, 1.0] }
 input = { generate = "checker", cell = 32 }
 input = { generate = "dot", at = [x, y], radius = 2 }
 input = { generate = "noise", seed = 7 }
+input = { text = "Title\nline 2", color = [1, 1, 1], font = "fonts/Inter.ttf" }
 ```
 
 `fit = "stretch" | "none"` (default `stretch`). Generated inputs are produced
 directly at the variant's depth; files are converted to it. Generator colors
 are normalized `[0, 1]` regardless of depth.
+
+`text` makes the effect's layer a text layer, as `aexlo inspect --text` does
+([inspect.md](inspect.md#text-layers)): the string is set as a centred
+paragraph, as large as fits, and the layer's pixels are the text in `color`
+(white by default) on transparent. `\n` breaks lines. `font` is a TrueType
+or OpenType file, relative to the manifest; a sans-serif face installed with
+the system by default. Only `input` takes `text`, not `layers`.
 
 ### 4.6 Params
 

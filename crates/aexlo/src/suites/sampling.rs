@@ -196,7 +196,12 @@ unsafe extern "C" fn get_batch_func(
 	batch: *mut PF_BatchSampleFunc,
 ) -> PF_Err {
 	crate::core::ffi::guard("get_batch_func", || {
-		log::warn!("PF_BatchSamplingSuite1/get_batch_func: batch sampling is unsupported (deprecated since AE 7.0)");
+		// Batch sampling is deprecated since AE 7.0.
+		crate::observe::unsupported(
+			crate::observe::UnsupportedKind::Stub,
+			"PF_BatchSamplingSuite1/get_batch_func",
+			"",
+		);
 		if let Some(out) = unsafe { batch.as_mut() } {
 			*out = std::ptr::null_mut();
 		}
@@ -212,7 +217,11 @@ unsafe extern "C" fn get_batch_func16(
 	batch: *mut PF_BatchSample16Func,
 ) -> PF_Err {
 	crate::core::ffi::guard("get_batch_func16", || {
-		log::warn!("PF_BatchSamplingSuite1/get_batch_func16: batch sampling is unsupported (deprecated since AE 7.0)");
+		crate::observe::unsupported(
+			crate::observe::UnsupportedKind::Stub,
+			"PF_BatchSamplingSuite1/get_batch_func16",
+			"",
+		);
 		if let Some(out) = unsafe { batch.as_mut() } {
 			*out = std::ptr::null_mut();
 		}

@@ -22,8 +22,8 @@ use serde::{Deserialize, Serialize};
 use crate::apply::initial_input;
 use crate::error::{Error, Result};
 use crate::exec::{
-	CommandSink, Executor, RunFailure, RunOptions, RunOutput, StrictFindings, Timing, Trace, run_owned_prepared,
-	strict_of,
+	CommandSink, Executor, Recorder, RunFailure, RunOptions, RunOutput, StrictFindings, Timing, Trace,
+	run_owned_prepared, strict_of, with_setup_gaps,
 };
 use crate::frame::Frame;
 use crate::preset::{PluginRef, Variant};
@@ -319,13 +319,15 @@ pub fn serve() -> Result<()> {
 					command: String::new(),
 					phase: "begin".into(),
 				}));
+				// The setup commands' trace: what they asked for that aexlo
+				// does not serve is often why a plugin will not run.
+				let recorder = Arc::new(Recorder::new(None));
+				let loader = aexlo::Host::get()
+					.loader(&path)
+					.observer(recorder.clone(), aexlo::ObserveLevel::Commands);
 				let loaded = match variant.as_deref().map(initial_input).transpose() {
-					Ok(Some((input, (width, height)))) => Ok(aexlo::Host::get()
-						.loader(&path)
-						.input(input)
-						.output_size(width, height)
-						.load()),
-					Ok(None) => Ok(aexlo::Host::get().load(&path)),
+					Ok(Some((input, (width, height)))) => Ok(loader.input(input).output_size(width, height).load()),
+					Ok(None) => Ok(loader.load()),
 					Err(e) => Err(failed(
 						id,
 						wire_kind(e.kind),
@@ -341,10 +343,16 @@ pub fn serve() -> Result<()> {
 							id,
 							ok: true,
 							info: Some(PluginInfo::of(&fx)),
+							trace: Some(recorder.trace()),
 							..Response::default()
 						}
 					}
-					Ok(Err(e)) => failed(id, "plugin", format!("loading {}: {e}", path.display()), None),
+					Ok(Err(e)) => failed(
+						id,
+						"plugin",
+						format!("loading {}: {e}", path.display()),
+						Some(recorder.trace()),
+					),
 				}
 			}
 			Request::Run {
@@ -418,17 +426,35 @@ fn run_request(
 		Ok(prepared) => prepared,
 		Err(e) => return failed(id, wire_kind(e.kind), format!("building initial input: {e}"), None),
 	};
+	let setup = Arc::new(Recorder::new(None));
 	let fx = match aexlo::Host::get()
 		.loader(artifact)
 		.strict(strict_of(&options.strict))
 		.input(input)
 		.output_size(output_size.0, output_size.1)
+		.observer(setup.clone(), aexlo::ObserveLevel::Commands)
 		.load()
 	{
 		Ok(fx) => fx,
-		Err(e) => return failed(id, "plugin", format!("loading {}: {e}", artifact.display()), None),
+		Err(e) => {
+			return failed(
+				id,
+				"plugin",
+				format!("loading {}: {e}", artifact.display()),
+				Some(setup.trace()),
+			);
+		}
 	};
-	match run_owned_prepared(fx, variant, options, Some(sink)) {
+	let mut result = run_owned_prepared(fx, variant, options, Some(sink));
+	match &mut result {
+		Ok(output) => with_setup_gaps(&setup, &mut output.trace),
+		Err(failure) => {
+			if let Some(trace) = failure.trace_mut() {
+				with_setup_gaps(&setup, trace);
+			}
+		}
+	}
+	match result {
 		Ok(output) => {
 			let mut frames = Vec::with_capacity(output.frames.len());
 			for (i, frame) in output.frames.iter().enumerate() {
@@ -501,8 +527,9 @@ struct Live {
 	lines: Receiver<String>,
 	stderr: Arc<Mutex<String>>,
 	stderr_thread: Option<std::thread::JoinHandle<()>>,
-	/// The artifact the worker has loaded, and what it declared.
-	loaded: Option<(PathBuf, PluginInfo)>,
+	/// The artifact the worker has loaded, what it declared, and the trace
+	/// of its setup.
+	loaded: Option<(PathBuf, PluginInfo, Trace)>,
 }
 
 impl Live {
@@ -781,14 +808,14 @@ impl WorkerClient {
 		&mut self,
 		artifact: &Path,
 		variant: Option<&Variant>,
-	) -> std::result::Result<PluginInfo, RunFailure> {
+	) -> std::result::Result<(PluginInfo, Trace), RunFailure> {
 		if self.live.is_none() {
 			self.live = Some(Live::spawn(&self.command).map_err(|e| RunFailure::Harness { message: e.message })?);
 		}
-		if let Some((loaded, info)) = self.live.as_ref().and_then(|l| l.loaded.as_ref())
+		if let Some((loaded, info, trace)) = self.live.as_ref().and_then(|l| l.loaded.as_ref())
 			&& loaded == artifact
 		{
-			return Ok(info.clone());
+			return Ok((info.clone(), trace.clone()));
 		}
 		let id = self.id();
 		let send = self.live.as_mut().map(|l| {
@@ -805,11 +832,12 @@ impl WorkerClient {
 		match self.wait(id, LOAD_TIMEOUT, &mut trace) {
 			Waited::Response(response) if response.ok => {
 				let info = response.info.unwrap_or_default();
+				let mut trace = response.trace.unwrap_or_default();
 				if let Some(live) = self.live.as_mut() {
-					live.loaded = Some((artifact.to_path_buf(), info.clone()));
-					live.take_logs();
+					trace.logs = live.take_logs();
+					live.loaded = Some((artifact.to_path_buf(), info.clone(), trace.clone()));
 				}
-				Ok(info)
+				Ok((info, trace))
 			}
 			Waited::Response(response) => {
 				let logs = self.live.as_ref().map(Live::take_logs).unwrap_or_default();
@@ -831,6 +859,12 @@ impl WorkerClient {
 
 	/// The plugin's declared capabilities, loading it if needed.
 	pub fn info(&mut self, plugin: &PluginRef) -> std::result::Result<PluginInfo, RunFailure> {
+		self.load(plugin).map(|(info, _)| info)
+	}
+
+	/// The plugin's declared capabilities and the trace of its setup
+	/// (commands, gaps and logs), loading it if needed.
+	pub fn load(&mut self, plugin: &PluginRef) -> std::result::Result<(PluginInfo, Trace), RunFailure> {
 		let artifact = (self.artifacts)(plugin).ok_or_else(|| RunFailure::Harness {
 			message: format!("no artifact for plugin {}", plugin.label()),
 		})?;

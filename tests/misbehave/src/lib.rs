@@ -9,6 +9,8 @@
 //! 2. `Gain` float slider: output = input × gain, so a golden can change.
 //! 3. `Delay` float slider: milliseconds to sleep per render, for benches.
 //! 4. `Map` layer: unused, except that `ParamLeak` checks it out.
+//! 5. `Defaults` button labelled `Reset Gain`: pressing it
+//!    (`PF_Cmd_USER_CHANGED_PARAM`) sets `Gain` back to 1.
 //!
 //! On Windows, `AEXLO_TEST_PIN_AT_EXIT` makes it keep itself loaded past
 //! `FreeLibrary` and fail in its process-exit detach, as effects with
@@ -61,6 +63,9 @@ const PARAM_MODE: usize = 1;
 const PARAM_GAIN: usize = 2;
 const PARAM_DELAY: usize = 3;
 const PARAM_MAP: usize = 4;
+const PARAM_RESET: usize = 5;
+
+const RESET_LABEL: &[u8] = b"Reset Gain\0";
 
 /// Bumped on every render, so `Random` never repeats itself.
 static RENDERS: AtomicU32 = AtomicU32::new(0);
@@ -122,13 +127,20 @@ unsafe fn params_setup(in_data: *mut PF_InData, out_data: *mut PF_OutData) -> PF
 	map.uu.id = 4;
 	map.u.ld.dephault = PF_LayerDefault_NONE as A_long;
 
-	for def in [mode, gain, delay, map] {
+	let mut reset: PF_ParamDef = unsafe { std::mem::zeroed() };
+	reset.param_type = PF_Param_BUTTON as PF_ParamType;
+	reset.name_do_not_use_directly = name32("Defaults");
+	reset.uu.id = 5;
+	reset.u.button_d.u.namesptr = RESET_LABEL.as_ptr() as *const A_char;
+	reset.flags = PF_ParamFlag_SUPERVISE as PF_ParamFlags;
+
+	for def in [mode, gain, delay, map, reset] {
 		let err = unsafe { add_param(in_data, def) };
 		if err != PF_Err_NONE as PF_Err {
 			return err;
 		}
 	}
-	unsafe { (*out_data).num_params = 5 };
+	unsafe { (*out_data).num_params = 6 };
 	PF_Err_NONE as PF_Err
 }
 
@@ -404,6 +416,16 @@ mod exit_detach {
 	}
 }
 
+/// `Reset Gain` sets `Gain` back to its default.
+unsafe fn user_changed_param(params: *mut *mut PF_ParamDef, extra: *mut PF_UserChangedParamExtra) -> PF_Err {
+	if unsafe { (*extra).param_index } as usize == PARAM_RESET {
+		let gain = unsafe { &mut **params.add(PARAM_GAIN) };
+		gain.u.fs_d.value = 1.0;
+		gain.uu.change_flags = PF_ChangeFlag_CHANGED_VALUE as PF_ChangeFlags;
+	}
+	PF_Err_NONE as PF_Err
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn EffectMain(
 	cmd: PF_Cmd,
@@ -447,6 +469,7 @@ pub unsafe extern "C" fn EffectMain(
 		}
 		PF_Cmd_PARAMS_SETUP => unsafe { params_setup(in_data, out_data) },
 		PF_Cmd_RENDER => unsafe { render(in_data, params, output) },
+		PF_Cmd_USER_CHANGED_PARAM => unsafe { user_changed_param(params, _extra.cast()) },
 		PF_Cmd_SMART_PRE_RENDER => unsafe { smart_pre_render(in_data, _extra.cast()) },
 		PF_Cmd_SMART_RENDER => unsafe { smart_render(in_data, _extra.cast()) },
 		_ => PF_Err_NONE as PF_Err,

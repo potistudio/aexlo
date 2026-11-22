@@ -316,3 +316,55 @@ fn arguments_reach_only_an_observer_that_asked_for_them() {
 		assert!(seen[1].starts_with("PF_HandleSuite1::host_dispose_handle"), "{seen:?}");
 	}
 }
+
+#[test]
+fn an_observer_hears_about_missing_suites_and_stubs_at_any_level() {
+	use std::sync::Mutex;
+	#[derive(Default)]
+	struct Gaps(Mutex<Vec<String>>);
+	impl Observer for Gaps {
+		fn unsupported(&self, event: &crate::UnsupportedEvent) {
+			self.0
+				.lock()
+				.unwrap()
+				.push(format!("{:?} {} {}", event.kind, event.name, event.detail));
+		}
+	}
+	unsafe extern "C" fn entry(
+		cmd: PF_Cmd,
+		input: *mut crate::sys::PF_InData,
+		_output: *mut crate::sys::PF_OutData,
+		_params: crate::sys::PF_ParamList,
+		_world: *mut crate::sys::PF_LayerDef,
+		_extra: *mut c_void,
+	) -> crate::sys::PF_Err {
+		if cmd == RawCommand::About.to_sys() {
+			let pica = unsafe { &*(*input).pica_basicP };
+			let mut suite: *const c_void = std::ptr::null();
+			let err = unsafe { pica.AcquireSuite.unwrap()(c"AEGP Nonexistent Suite".as_ptr(), 3, &mut suite) };
+			assert_ne!(err, PF_Err_NONE);
+			let stub = crate::suites::utility::create_utility_suite()
+				.GetFilterInstanceID
+				.unwrap();
+			let mut id = 0;
+			let err = unsafe { stub((*input).effect_ref, &mut id) };
+			assert_eq!(
+				err,
+				crate::sys::PF_Err_INVALID_CALLBACK,
+				"a stub does not claim success"
+			);
+		}
+		PF_Err_NONE
+	}
+	let gaps = Arc::new(Gaps::default());
+	let mut fx = unsafe { Host::get().entry_loader(entry) }
+		.observer(gaps.clone(), ObserveLevel::Commands)
+		.size(8, 8)
+		.load()
+		.unwrap();
+	fx.about().unwrap();
+	assert_eq!(
+		*gaps.0.lock().unwrap(),
+		["MissingSuite AEGP Nonexistent Suite v3", "Stub get_filter_instance_id "]
+	);
+}

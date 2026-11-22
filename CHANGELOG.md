@@ -9,6 +9,11 @@ may break the API, and every breaking change is listed below.
 
 ### Added
 
+- `Observer::unsupported` hears about what the plugin asked for and aexlo
+  does not do (`UnsupportedEvent`, at every `ObserveLevel`): suites or
+  versions it does not serve (`UnsupportedKind::MissingSuite`), host
+  functions it only stubs (`Stub`) and calls it serves but declines for those
+  arguments (`Declined`). They are still logged as warnings.
 - `Loader::observer` installs an `Observer` before `PF_Cmd_GLOBAL_SETUP`, so
   setup commands, the suite calls they make and what they allocate are
   observed too.
@@ -24,6 +29,55 @@ may break the API, and every breaking change is listed below.
   levels leave them empty and pay nothing for them. The Handle and Iterate
   suites, `AcquireSuite` / `ReleaseSuite` and the utility callbacks are now
   reported as suite calls too.
+- Text layers: `PluginInstance::set_text_layer` puts a `TextLayer` on the
+  effect's layer. `AEGP_GetLayerObjectType` then answers
+  `AEGP_ObjectType_TEXT`, and the new "AEGP Text Layer Suite" v1 hands out its
+  glyph outlines, which the PF Path Data Suite reads with absolute tangents as
+  After Effects gives them. `TextLayer::layout` sets a string in a font
+  (`TextStyle`) and `TextLayer::rasterize` draws it as the input layer, so
+  text effects such as TextGrad render. `AexloError::Font` reports a font that
+  cannot be read.
+- `PluginInstance::param_button_label` returns the text on a button
+  parameter (`PF_ButtonDef`), which plugins often fill in place of the
+  parameter's name.
+- "AEGP Stream Suite" v11 (`AEGP_GetUniqueStreamID`) and "AEGP Keyframe
+  Suite" v5 (keyframe label colours). RXXR applies its Preset popup through
+  them, and ten more fixtures that asked for Stream Suite v11 (the AOD
+  effects, Circle-Repeater, RainyDay) no longer report it missing.
+- The AEGP Utility, Persistent Data and PF Param Utils suites report their
+  calls to the observer, so `aexlo inspect` and `aexlo compat` see them.
+  `AEGP_ExecuteScript`, and `AEGP_GetPluginPlatformRef` on macOS, report
+  themselves as stubs.
+- `AEGP_SetStreamValue` sets an effect parameter's value, clamped to its valid
+  range (a color keeps its alpha), and `AEGP_SetDynamicStreamFlag` hides and
+  disables parameters (`PF_PUI_INVISIBLE`, `PF_PUI_DISABLED`), which
+  `AEGP_GetDynamicStreamFlags` now reports. Deep Glow's and TextGrad's Reset
+  and Swap buttons work through them, and Deep Glow's
+  `PF_Cmd_UPDATE_PARAMS_UI` no longer fails.
+
+### Fixed
+
+- "AEGP Utility Suite" serves each version at its own layout: v3–7
+  (`AEGP_UtilitySuite1`–`3`), v10–11 (`4`–`5`) and v13 (`6`). One table
+  served every version from 1 to 18, so a v11 plugin calling
+  `AEGP_RegisterWithAEGP` reached `AEGP_EndUndoGroup`, and a v13 plugin
+  calling `AEGP_StartUndoGroup` reached `AEGP_RegisterWithAEGP`. Every
+  other slot returned success without doing anything; the calls now do
+  what the SDK says (versions, quiet errors, palette colours, HSF ratios,
+  `AEGP_GetSuppressInteractiveUI` from `AppHost::is_render_engine`, the
+  `APP` path of `AEGP_GetPluginPaths`). `AEGP_IsScriptingAvailable` answers
+  false, since aexlo runs no scripts. Versions the SDK never defined are
+  refused.
+- `AEGP_GetDataHandle` and `AEGP_SetDataHandle` keep their data in the
+  Persistent Data store instead of returning nothing and dropping it.
+- An arbitrary-data parameter starts as a copy of its default
+  (`PF_Arbitrary_COPY_FUNC` of `dephault`), as in After Effects, and falls back
+  to `PF_Arbitrary_NEW_FUNC` only without a default or when the copy fails.
+  Plugins whose `NEW_FUNC` makes an empty placeholder (TextGrad's gradient)
+  rendered nothing.
+- `AEGP_DisposeColorProfile` refuses a pointer it did not hand out instead of
+  freeing it. A plugin that bailed out of a failed call disposed an
+  uninitialised profile, which aborted the process.
 
 ### Fixed
 

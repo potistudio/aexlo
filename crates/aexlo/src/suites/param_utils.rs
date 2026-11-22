@@ -6,6 +6,7 @@
 //! host is [`update_param_ui`], which lets a plugin refresh a parameter's UI state
 //! (twirl collapse, disabled, name, …) in response to a user edit.
 
+use crate::core::diagnostics::diag;
 use crate::sys::*;
 
 use crate::PluginInstance;
@@ -21,6 +22,7 @@ unsafe extern "C" fn update_param_ui(
 	defP: *const PF_ParamDef,
 ) -> PF_Err {
 	crate::core::ffi::guard("update_param_ui", || {
+		diag!("PF_ParamUtilsSuite3/PF_UpdateParamUI", "param_index" => param_index);
 		if effect_ref.is_null() || defP.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
@@ -52,6 +54,7 @@ unsafe extern "C" fn get_current_state(
 	stateP: *mut PF_State,
 ) -> PF_Err {
 	crate::core::ffi::guard("get_current_state", || {
+		diag!("PF_ParamUtilsSuite3/PF_GetCurrentState", "param_index" => _param_index);
 		if stateP.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
@@ -70,6 +73,7 @@ unsafe extern "C" fn are_states_identical(
 	samePB: *mut A_Boolean,
 ) -> PF_Err {
 	crate::core::ffi::guard("are_states_identical", || {
+		diag!("PF_ParamUtilsSuite3/PF_AreStatesIdentical");
 		if samePB.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
@@ -91,6 +95,7 @@ unsafe extern "C" fn is_identical_checkout(
 	identicalPB: *mut PF_Boolean,
 ) -> PF_Err {
 	crate::core::ffi::guard("is_identical_checkout", || {
+		diag!("PF_ParamUtilsSuite3/PF_IsIdenticalCheckout", "param_index" => _param_index);
 		if identicalPB.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
@@ -112,6 +117,7 @@ unsafe extern "C" fn find_keyframe_time(
 	_key_timescaleP0: *mut A_u_long,
 ) -> PF_Err {
 	crate::core::ffi::guard("find_keyframe_time", || {
+		diag!("PF_ParamUtilsSuite3/PF_FindKeyframeTime", "param_index" => _param_index);
 		if !foundPB.is_null() {
 			unsafe { *foundPB = 0 };
 		}
@@ -126,6 +132,7 @@ unsafe extern "C" fn get_keyframe_count(
 	key_countP: *mut PF_KeyIndex,
 ) -> PF_Err {
 	crate::core::ffi::guard("get_keyframe_count", || {
+		diag!("PF_ParamUtilsSuite3/PF_GetKeyframeCount", "param_index" => _param_index);
 		if key_countP.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
@@ -143,12 +150,18 @@ unsafe extern "C" fn checkout_keyframe(
 	_key_timescaleP0: *mut A_u_long,
 	_paramP0: *mut PF_ParamDef,
 ) -> PF_Err {
-	crate::core::ffi::guard("checkout_keyframe", || PF_Err_BAD_CALLBACK_PARAM)
+	crate::core::ffi::guard("checkout_keyframe", || {
+		diag!("PF_ParamUtilsSuite3/PF_CheckoutKeyframe", "param_index" => _param_index, "key_index" => _key_index);
+		PF_Err_BAD_CALLBACK_PARAM
+	})
 }
 
 /// Checking a keyframe back in is a no-op (none were ever checked out).
 unsafe extern "C" fn checkin_keyframe(_effect_ref: PF_ProgPtr, _paramP: *mut PF_ParamDef) -> PF_Err {
-	crate::core::ffi::guard("checkin_keyframe", || PF_Err_NONE)
+	crate::core::ffi::guard("checkin_keyframe", || {
+		diag!("PF_ParamUtilsSuite3/PF_CheckinKeyframe");
+		PF_Err_NONE
+	})
 }
 
 /// There are no keyframes, so any index maps to time zero.
@@ -160,6 +173,7 @@ unsafe extern "C" fn key_index_to_time(
 	key_timescaleP: *mut A_u_long,
 ) -> PF_Err {
 	crate::core::ffi::guard("key_index_to_time", || {
+		diag!("PF_ParamUtilsSuite3/PF_KeyIndexToTime", "param_index" => _param_index);
 		if !key_timeP.is_null() {
 			unsafe { *key_timeP = 0 };
 		}

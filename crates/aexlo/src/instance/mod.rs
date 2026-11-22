@@ -222,11 +222,12 @@ pub struct PluginInstance {
 	/// Instance-specific parameters from the host (non-global storage).
 	params: Vec<crate::sys::PF_ParamDef>,
 
-	/// Popup choice labels captured per parameter at `PF_Cmd_PARAMS_SETUP`,
-	/// parallel to `params` (empty for non-popup params). Captured at add time
-	/// because a popup's `namesptr` points into a plugin-owned string that only
-	/// lives for the add-param callback; reading it later is a dangling read.
-	popup_choices: Vec<Vec<String>>,
+	/// Labels captured per parameter at `PF_Cmd_PARAMS_SETUP`, parallel to
+	/// `params`: a popup's choices, or a button's one label (empty for other
+	/// params). Captured at add time because `namesptr` points into a
+	/// plugin-owned string that only lives for the add-param callback; reading
+	/// it later is a dangling read.
+	param_labels: Vec<Vec<String>>,
 
 	/// Track if instance params need synchronization.
 	params_dirty: bool,
@@ -285,6 +286,10 @@ pub struct PluginInstance {
 
 	/// Masks on the effect's layer, served through the Path Query/Data suites.
 	mask_paths: Vec<crate::MaskPath>,
+
+	/// The text when the effect's layer is a text layer, served through the
+	/// Text Layer Suite.
+	text_layer: Option<crate::TextLayer>,
 
 	/// Layers linked to the plugin's own `PF_Param_LAYER` parameters, by index.
 	linked_layers: HashMap<usize, LinkedLayer>,

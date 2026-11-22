@@ -234,14 +234,20 @@ impl Session {
 		}
 	}
 
-	/// Re-render after an edit, publishing the frame (or the error).
-	fn rerender(&mut self, viewer: &Viewer) {
+	/// Re-render after an edit, publishing the frame (or the error). With
+	/// `rebuild`, the browser also rebuilds its controls, for when the plugin
+	/// changed values or UI state itself.
+	fn rerender(&mut self, viewer: &Viewer, rebuild: bool) {
 		match self.render() {
 			Ok(()) => {
 				self.error = None;
 				let frame = self.last.as_ref().map(|(f, ..)| image_of(f)).unwrap_or_default();
 				if let Some(fx) = &self.fx {
-					viewer.publish_frame(fx, frame);
+					if rebuild {
+						viewer.publish_controls(fx, frame);
+					} else {
+						viewer.publish_frame(fx, frame);
+					}
 				}
 				self.refresh_compare(viewer);
 			}
@@ -253,12 +259,17 @@ impl Session {
 	/// Answer the viewer's queued commands.
 	pub fn step(&mut self, viewer: &Viewer) {
 		let mut changed = false;
+		let mut rebuild = false;
 		let mut reload = false;
 		for command in viewer.commands() {
 			match command {
 				Command::Set { index, raw } => match self.set_param(index, &raw) {
 					Ok(()) => changed = true,
 					Err(err) => self.toast = Some(format!("set #{index} failed: {err:#}")),
+				},
+				Command::Press(index) => match self.press_button(index) {
+					Ok(()) => rebuild = true,
+					Err(err) => self.toast = Some(format!("pressing #{index} failed: {err:#}")),
 				},
 				Command::Select(id) => match &self.manifest {
 					Some(manifest) => match find_variant(manifest, &id) {
@@ -305,8 +316,8 @@ impl Session {
 			if let Err(err) = self.reload(viewer) {
 				eprintln!("aexlo: {err:#}");
 			}
-		} else if changed {
-			self.rerender(viewer);
+		} else if changed || rebuild {
+			self.rerender(viewer, rebuild);
 		} else if self.toast.is_some() {
 			self.publish_info(viewer);
 		}
@@ -322,6 +333,31 @@ impl Session {
 		let value = manifest_value(fx, index, &value);
 		self.edits.retain(|(k, _)| *k != key);
 		self.edits.push((key, value));
+		Ok(())
+	}
+
+	/// Press the button at `index` (`PF_Cmd_USER_CHANGED_PARAM`). The values
+	/// the plugin changes in response become edits, so a reload or a saved
+	/// preset keeps them.
+	fn press_button(&mut self, index: usize) -> Result<()> {
+		let fx = self.fx.as_mut().context("no plugin loaded")?;
+		if fx.param_kind(index) != Some(aexlo::ParamKind::Button) {
+			bail!("parameter #{index} is not a button");
+		}
+		if fx.param_disabled(index) {
+			bail!("the plugin disabled this button");
+		}
+		let before = fx.param_values();
+		fx.user_changed_param(index)?;
+		for (i, value) in fx.param_values() {
+			if before.iter().any(|(j, old)| *j == i && *old == value) {
+				continue;
+			}
+			let key = param_key(fx, i);
+			let value = manifest_value(fx, i, &value);
+			self.edits.retain(|(k, _)| *k != key);
+			self.edits.push((key, value));
+		}
 		Ok(())
 	}
 

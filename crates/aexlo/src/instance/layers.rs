@@ -123,6 +123,24 @@ impl PluginInstance {
 		self.mask_paths = paths;
 	}
 
+	/// The text on the effect's layer, when it is a text layer (see
+	/// [`Self::set_text_layer`]).
+	pub fn text_layer(&self) -> Option<&crate::TextLayer> {
+		self.text_layer.as_ref()
+	}
+
+	/// Make the effect's layer a text layer showing `text`, or an AV layer
+	/// again with `None`. `AEGP_GetLayerObjectType` then answers
+	/// `AEGP_ObjectType_TEXT`, and the "AEGP Text Layer Suite" serves the
+	/// glyph outlines.
+	///
+	/// The pixels the plugin renders from are still the input layer's; set it
+	/// to [`TextLayer::rasterize`](crate::TextLayer::rasterize) to match what
+	/// After Effects would hand the effect.
+	pub fn set_text_layer(&mut self, text: Option<crate::TextLayer>) {
+		self.text_layer = text;
+	}
+
 	/// Link `layer` to the plugin's own layer parameter at `index` (same index
 	/// space as [`Self::set_param`]), or unlink it with `None` (the parameter's
 	/// "None" choice). The plugin sees the layer through `checkout_param` and
@@ -234,7 +252,7 @@ impl PluginInstance {
 				ld: self.input_layer.as_sys(),
 			},
 		});
-		self.popup_choices.push(Vec::new());
+		self.param_labels.push(Vec::new());
 		// The push above invalidates any (nonexistent yet) cached param pointers;
 		// mark dirty so `call_plugin` builds the cache on its first invocation.
 		self.params_dirty = true;

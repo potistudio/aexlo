@@ -16,7 +16,7 @@
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
-use aexlo::{ParamValue, PluginInstance};
+use aexlo::{ParamKind, ParamValue, PluginInstance};
 use anyhow::{Result, anyhow};
 use tiny_http::{Header, Response, Server};
 
@@ -77,6 +77,8 @@ struct State {
 pub(crate) enum Command {
 	/// Set parameter `index` from its textual value.
 	Set { index: usize, raw: String },
+	/// Press the button parameter `index` (`PF_Cmd_USER_CHANGED_PARAM`).
+	Press(usize),
 	/// Switch to the variant with this display id.
 	Select(String),
 	/// Render at this frame.
@@ -179,6 +181,17 @@ impl Viewer {
 		});
 	}
 
+	/// Publish a re-render after the plugin changed values or UI state itself
+	/// (a button press): a new frame, and controls rebuilt from the new values.
+	pub fn publish_controls(&self, fx: &PluginInstance, frame: Image) {
+		let json = params_json(fx);
+		self.with(|s| {
+			publish(s, frame);
+			s.params_json = json;
+			s.params_gen += 1;
+		});
+	}
+
 	/// Publish the comparison images (`None` clears them).
 	pub fn publish_reference(&self, reference: Option<Image>, diff: Option<Image>) {
 		self.with(|s| {
@@ -220,15 +233,34 @@ fn publish(s: &mut State, frame: Image) {
 /// Serialize the instance's parameters to a small JSON array the viewer turns
 /// into controls. Hand-rolled to avoid a serde dependency for a handful of
 /// flat objects.
+///
+/// Parameters with a value come through, and so do buttons (which have none)
+/// unless the plugin hid them; a button carries its label and whether it is
+/// disabled.
 pub(crate) fn params_json(fx: &PluginInstance) -> String {
 	let mut out = String::from("[");
-	for (i, (index, value)) in fx.param_values().into_iter().enumerate() {
-		if i > 0 {
+	let mut first = true;
+	for index in 1..fx.param_count() {
+		let value = match fx.get_param(index) {
+			Some(value) => Some(value),
+			None if fx.param_kind(index) == Some(ParamKind::Button) && !fx.param_hidden(index) => None,
+			None => continue,
+		};
+		if !first {
 			out.push(',');
 		}
+		first = false;
 		let name = json_escape(&fx.param_name(index).unwrap_or_default());
 		let head = format!("{{\"index\":{index},\"name\":\"{name}\",");
 		out.push_str(&head);
+		let Some(value) = value else {
+			let disabled = fx.param_disabled(index);
+			let label = json_escape(fx.param_button_label(index).unwrap_or_default());
+			out.push_str(&format!(
+				"\"kind\":\"button\",\"label\":\"{label}\",\"disabled\":{disabled}}}"
+			));
+			continue;
+		};
 		match value {
 			ParamValue::Float(v) => {
 				out.push_str(&format!("\"kind\":\"float\",\"value\":{v}"));
@@ -358,6 +390,7 @@ fn serve(server: &Server, state: &Mutex<State>, tx: &mpsc::Sender<Command>) {
 			"/reference" => request.respond(image(|s| s.reference.as_ref())),
 			"/diff" => request.respond(image(|s| s.diff.as_ref())),
 			"/set" => request.respond(send(parse_set(query))),
+			"/press" => request.respond(send(arg("i").and_then(|i| i.parse().ok()).map(Command::Press))),
 			"/select" => request.respond(send(arg("id").map(Command::Select))),
 			"/time" => request.respond(send(arg("frame").and_then(|f| f.parse().ok()).map(Command::Time))),
 			"/compare" => request.respond(send(arg("mode").map(Command::Compare))),
@@ -496,6 +529,7 @@ const VIEWER_HTML: &str = r#"<!doctype html>
   input, select, button { background: var(--panel); color: var(--text); border: 1px solid #2f343c;
     border-radius: 4px; padding: 3px 5px; font: inherit; }
   button { cursor: pointer; }
+  button:disabled { cursor: default; opacity: .45; }
   input[type=range] { padding: 0; accent-color: var(--ok); }
   main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
     overflow: auto; padding: 12px; min-width: 0; gap: 8px; }
@@ -646,7 +680,15 @@ function buildControls(params) {
   panel.innerHTML = '';
   for (const p of params) {
     let row;
-    if (p.kind === 'checkbox') {
+    if (p.kind === 'button') {
+      // After Effects shows the name to the left and the label on the button.
+      row = p.name.trim() ? labelled(p) : el('div', 'row');
+      const btn = el('button', '', p.label || p.name.trim() || `#${p.index}`);
+      btn.title = `#${p.index} · PF_Cmd_USER_CHANGED_PARAM`;
+      btn.disabled = p.disabled;
+      btn.onclick = () => fetch('/press?i=' + p.index);
+      row.append(btn);
+    } else if (p.kind === 'checkbox') {
       row = labelled(p);
       const inp = document.createElement('input');
       inp.type = 'checkbox'; inp.checked = p.value;

@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use aexlo::{
-	AnyLayer, InstanceState, LiveAllocation, ObserveLevel, OutFlags, OutFlags2, ParamValue, PixelDepthKind,
-	PluginInstance, Strict, Time,
+	AnyLayer, InstanceState, LiveAllocation, ObserveLevel, OutFlags, OutFlags2, ParamKind, ParamValue, PixelDepthKind,
+	PluginInstance, Strict, TextLayer, Time,
 };
 use anyhow::{Context, Result, bail};
 
@@ -26,6 +26,10 @@ pub struct Setup {
 	pub manifest: Option<PathBuf>,
 	/// The input layer; its depth is the project depth.
 	pub input: AnyLayer,
+	/// The text when the layer is a text layer (`input text`).
+	pub text: Option<TextLayer>,
+	/// The font `input text` sets text in; `None` is a system sans-serif.
+	pub font: Option<PathBuf>,
 	pub size: Option<(u32, u32)>,
 	pub level: ObserveLevel,
 	pub strict: Strict,
@@ -164,6 +168,7 @@ impl Engine {
 			.load()
 			.with_context(|| format!("loading plugin {}", setup.path.display()))?;
 		instance.set_parallel_iterate(!setup.serial);
+		instance.set_text_layer(setup.text.clone());
 		Ok(instance)
 	}
 
@@ -225,6 +230,29 @@ impl Engine {
 					.context("PF_Cmd_USER_CHANGED_PARAM failed")?;
 				Ok(format!("told the plugin #{index} changed"))
 			}
+			Command::Press(key) => {
+				let fx = self.instance()?;
+				let index = resolve_button(fx, key)?;
+				if fx.param_hidden(index) || fx.param_disabled(index) {
+					let state = if fx.param_hidden(index) { "hidden" } else { "disabled" };
+					bail!("the plugin {state} button #{index}; `changed {index}` sends it anyway");
+				}
+				let before = fx.param_values();
+				fx.user_changed_param(index)
+					.context("PF_Cmd_USER_CHANGED_PARAM failed")?;
+				let changed: Vec<String> = fx
+					.param_values()
+					.into_iter()
+					.filter(|(i, value)| !before.iter().any(|(j, old)| j == i && old == value))
+					.map(|(i, value)| format!("#{i} = {}", describe_value(&value)))
+					.collect();
+				let text = button_text(fx, index);
+				Ok(if changed.is_empty() {
+					format!("pressed #{index} {text}; no values changed")
+				} else {
+					format!("pressed #{index} {text}; {}", changed.join(", "))
+				})
+			}
 			Command::UpdateUi => {
 				self.instance()?
 					.update_params_ui()
@@ -252,11 +280,18 @@ impl Engine {
 				let fx = self.instance()?;
 				let depth = fx.input_depth();
 				let (w, h) = fx.input_size();
-				let layer = build_input(source, depth, (w, h))?;
+				let (layer, text) = build_input(source, depth, (w, h), self.setup.font.as_deref())?;
 				let (w, h) = (layer.width(), layer.height());
+				let fx = self.instance()?;
 				set_input(fx, layer.clone());
+				fx.set_text_layer(text.clone());
+				let kind = match &text {
+					Some(text) => format!(" text layer, {} outline(s)", text.outlines().len()),
+					None => String::new(),
+				};
 				self.setup.input = layer;
-				Ok(format!("input = {w}x{h} {}-bit", depth.bits()))
+				self.setup.text = text;
+				Ok(format!("input = {w}x{h} {}-bit{kind}", depth.bits()))
 			}
 			Command::Depth(kind) => {
 				if !self.instance()?.supports_depth(*kind) {
@@ -418,8 +453,20 @@ fn set_input(fx: &mut PluginInstance, layer: AnyLayer) {
 	}
 }
 
-pub fn build_input(source: &InputSource, depth: PixelDepthKind, current: (u32, u32)) -> Result<AnyLayer> {
-	Ok(match source {
+/// The input layer `source` describes, and its text when it is a text layer.
+pub fn build_input(
+	source: &InputSource,
+	depth: PixelDepthKind,
+	current: (u32, u32),
+	font: Option<&Path>,
+) -> Result<(AnyLayer, Option<TextLayer>)> {
+	if let InputSource::Text(text) = source {
+		let (w, h) = current;
+		let text = aexlo_harness::input::fit_text(text, font, w, h).context("setting the text")?;
+		return Ok((text.rasterize(depth, w, h, [1.0; 4]), Some(text)));
+	}
+	let layer = match source {
+		InputSource::Text(_) => unreachable!("handled above"),
 		InputSource::Png(path) => load_png(path)?.convert(depth),
 		InputSource::Fill(rgba, size) => {
 			let (w, h) = size.unwrap_or(current);
@@ -438,7 +485,8 @@ pub fn build_input(source: &InputSource, depth: PixelDepthKind, current: (u32, u
 			layer.set_from_unit_rgba(values);
 			layer
 		}
-	})
+	};
+	Ok((layer, None))
 }
 
 pub fn load_png(path: &Path) -> Result<AnyLayer> {
@@ -500,6 +548,52 @@ fn existing(fx: &PluginInstance, index: usize) -> Result<()> {
 	Ok(())
 }
 
+/// The button `key` names: an index, `#index` or name as for `set`, or else
+/// the text on the button, ignoring case. Plugins often leave a button's name
+/// empty and put what it does on the button.
+fn resolve_button(fx: &PluginInstance, key: &str) -> Result<usize> {
+	let is_button = |i: usize| fx.param_kind(i) == Some(ParamKind::Button);
+	let by_name = crate::resolve_param_key(fx, key);
+	if let Ok(index) = by_name
+		&& is_button(index)
+	{
+		return Ok(index);
+	}
+	let labelled: Vec<usize> = (1..fx.param_count())
+		.filter(|&i| {
+			fx.param_button_label(i)
+				.is_some_and(|label| label.eq_ignore_ascii_case(key.trim()))
+		})
+		.collect();
+	match (labelled.as_slice(), by_name) {
+		(&[index], _) => Ok(index),
+		([], Ok(index)) => {
+			existing(fx, index)?;
+			let kind = fx.param_kind(index).map_or("unknown".into(), |k| format!("{k:?}"));
+			let name = fx.param_name(index).unwrap_or_default();
+			bail!("parameter #{index} '{name}' is a {kind}, not a button")
+		}
+		([], Err(err)) => Err(err.context(format!("no button is named or labelled '{}'", key.trim()))),
+		(several, _) => {
+			let list: Vec<String> = several.iter().map(|i| format!("#{i}")).collect();
+			bail!(
+				"{} buttons say '{}': {}; press one by index",
+				several.len(),
+				key.trim(),
+				list.join(", ")
+			)
+		}
+	}
+}
+
+/// How a message names a button: the text on it, or else its name.
+fn button_text(fx: &PluginInstance, index: usize) -> String {
+	match fx.param_button_label(index) {
+		Some(label) => format!("\"{label}\""),
+		None => format!("'{}'", fx.param_name(index).unwrap_or_default().trim()),
+	}
+}
+
 /// `index` exists and holds a value `set` can change.
 fn settable(fx: &PluginInstance, index: usize) -> Result<()> {
 	existing(fx, index)?;
@@ -551,6 +645,9 @@ fn param_row(fx: &PluginInstance, index: usize) -> ParamRow {
 			.map(|(i, c)| format!("{}={c}", i + 1))
 			.collect();
 		detail.push(list.join(" "));
+	}
+	if let Some(label) = fx.param_button_label(index) {
+		detail.push(format!("button \"{label}\""));
 	}
 	let flags = fx.param_ui_flags(index).unwrap_or_default();
 	if flags != aexlo::ParamUiFlags::default() {

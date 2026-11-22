@@ -228,8 +228,20 @@ impl PluginInstance {
 			return None;
 		}
 		// Read the labels captured at PARAMS_SETUP, not the now-dangling
-		// `namesptr` (see `popup_choices`).
-		self.popup_choices.get(index).filter(|c| !c.is_empty()).cloned()
+		// `namesptr` (see `param_labels`).
+		self.param_labels.get(index).filter(|c| !c.is_empty()).cloned()
+	}
+
+	/// The text on the button at `index` (`PF_ButtonDef`'s label), which is
+	/// separate from its [`Self::param_name`]: After Effects shows the name to
+	/// the left and this on the button. `None` if the parameter is not a
+	/// button or the plugin gave it no label.
+	pub fn param_button_label(&self, index: usize) -> Option<&str> {
+		let param = self.params.get(index)?;
+		if param.param_type != crate::sys::PF_Param_BUTTON as PF_ParamType {
+			return None;
+		}
+		self.param_labels.get(index)?.first().map(String::as_str)
 	}
 
 	// -----------------------------------------------------
@@ -239,16 +251,22 @@ impl PluginInstance {
 	/// Crate-internal: this exists only to bridge `PF_Cmd_PARAMS_SETUP` -- the
 	/// plugin owns its parameter list, the host never appends to it.
 	pub(crate) fn add_instance_param(&mut self, param: PF_ParamDef) {
-		// Capture popup choice labels now, while the plugin-owned `namesptr`
-		// string is still alive (it dies when the add-param callback returns).
-		let choices = if param.param_type == PF_Param_POPUP as PF_ParamType {
+		// Capture popup choice and button labels now, while the plugin-owned
+		// `namesptr` string is still alive (it dies when the add-param
+		// callback returns).
+		let labels = if param.param_type == PF_Param_POPUP as PF_ParamType {
 			// SAFETY: Only read for popup parameters, whose `u` holds `pd`.
 			unsafe { crate::host::params::popup_options(&param.u.pd) }
+		} else if param.param_type == crate::sys::PF_Param_BUTTON as PF_ParamType {
+			// SAFETY: Only read for button parameters, whose `u` holds `button_d`.
+			unsafe { crate::host::params::button_label(&param.u.button_d) }
+				.into_iter()
+				.collect()
 		} else {
 			Vec::new()
 		};
 		self.params.push(param);
-		self.popup_choices.push(choices);
+		self.param_labels.push(labels);
 		self.params_dirty = true;
 		log::debug!(
 			"PluginInstance: added param #{} (type: {:?})",
@@ -425,6 +443,18 @@ impl PluginInstance {
 			.is_some_and(|p| p.ui_flags & crate::sys::PF_PUI_DISABLED as crate::sys::PF_ParamUIFlags != 0)
 	}
 
+	/// Turn the UI flag `flag` (`PF_PUI_*`) of the parameter at `index` on or
+	/// off, as `AEGP_SetDynamicStreamFlag` hides or disables a parameter.
+	pub(crate) fn set_param_ui_flag(&mut self, index: usize, flag: crate::sys::PF_ParamUIFlags, on: bool) {
+		if let Some(param) = self.params.get_mut(index) {
+			if on {
+				param.ui_flags |= flag;
+			} else {
+				param.ui_flags &= !flag;
+			}
+		}
+	}
+
 	/// Apply a plugin's `PF_UpdateParamUI` request: copy the UI-only fields from
 	/// `def` into the stored parameter at `index`, leaving its value untouched.
 	///
@@ -448,7 +478,7 @@ impl PluginInstance {
 	#[allow(dead_code)]
 	pub(crate) fn clear_instance_params(&mut self) {
 		self.params.clear();
-		self.popup_choices.clear();
+		self.param_labels.clear();
 		self.params_dirty = true;
 		log::debug!("PluginInstance: cleared all instance params");
 	}

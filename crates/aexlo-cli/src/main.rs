@@ -10,6 +10,7 @@
 //! ```
 
 mod bench;
+mod compat;
 mod dev;
 mod inspect;
 mod preview;
@@ -159,7 +160,7 @@ platform's extension, e.g. `SDK_Noise` -> `SDK_Noise.plugin`.
 ";
 
 fn print_usage() {
-	print!("{USAGE_HEAD}{}{USAGE_TAIL}", inspect::USAGE);
+	print!("{USAGE_HEAD}{}{}{USAGE_TAIL}", compat::USAGE, inspect::USAGE);
 }
 
 fn main() {
@@ -184,6 +185,7 @@ fn dispatch() -> u8 {
 		Some("test") => return toolkit::cmd_test(args),
 		Some("check") => return toolkit::cmd_check(args),
 		Some("worker") => return toolkit::cmd_worker(),
+		Some("compat") => return compat::cmd_compat(args),
 		Some("bench") => {
 			let args: Vec<String> = args.collect();
 			let is_plugin = |arg: &str| resolve_plugin(arg).exists() || bench::resolve_fixture(arg).is_some();
@@ -454,10 +456,16 @@ fn cmd_render(args: impl Iterator<Item = String>) -> Result<()> {
 
 	// A preset sets the stage (plugin, input, size, time, params, depth,
 	// render path); the flags below then override it.
-	let variant = match &preset {
+	let mut variant = match &preset {
 		Some(name) => Some(preset_variant(manifest.as_deref(), name)?),
 		None => None,
 	};
+	// `--input` replaces the preset's input, text layer included.
+	if input.is_some()
+		&& let Some(variant) = &mut variant
+	{
+		variant.input = aexlo_harness::InputSpec::default();
+	}
 	// Resolve overrides before setup and decode each input only once.
 	let depth = variant.as_ref().map_or(aexlo::PixelDepthKind::U8, |v| v.depth_kind());
 	let initial = if let Some(path) = &input {

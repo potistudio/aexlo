@@ -10,10 +10,8 @@
 //!
 //! Nearly all suites live in the `const` [`SUITE_CONTAINER`] static, so
 //! acquiring one just hands back a pointer into it and releasing it is a
-//! no-op; nothing is allocated or freed. The sole exception is the AEGP Utility
-//! compat suite, whose type-erased pointer slots can't be built in a `const`
-//! context - it lives in its own `LazyLock`s (see [`utility`]) instead, but is
-//! otherwise the same shared-static model.
+//! no-op; nothing is allocated or freed. Suites served at several versions
+//! with different layouts are separate `static` tables in the same model.
 //!
 //! # Safety model
 //!
@@ -45,6 +43,7 @@ mod ae_app;
 mod aegp_item;
 mod aegp_memory;
 mod aegp_render;
+mod aegp_utility;
 mod aegp_world;
 mod angle_param;
 pub mod ansi;
@@ -56,6 +55,7 @@ mod color_settings;
 mod comp;
 pub(crate) mod compute_cache;
 pub(crate) mod drawbot;
+pub(crate) use drawbot::system_font;
 mod dynamic_stream;
 pub(crate) mod effect;
 mod effect_ui;
@@ -70,7 +70,6 @@ pub mod iterate;
 mod keyframe;
 pub(crate) mod layer;
 pub(crate) use layer::enter_effect;
-pub mod macros;
 pub mod param_utils;
 mod path;
 pub mod persistent_data;
@@ -82,6 +81,7 @@ mod project;
 pub(crate) mod register;
 pub mod sampling;
 pub(crate) mod stream;
+mod text_layer;
 pub mod transform;
 pub mod utility;
 pub mod world;
@@ -96,6 +96,9 @@ static AEGP_WORLD_1: AEGP_WorldSuite1 = aegp_world::suite_1();
 static AEGP_WORLD_2: AEGP_WorldSuite2 = aegp_world::suite_2();
 static AEGP_WORLD_3: AEGP_WorldSuite3 = aegp_world::suite_3();
 static AEGP_MEMORY_1: AEGP_MemorySuite1 = aegp_memory::suite_1();
+static AEGP_UTILITY_3: AEGP_UtilitySuite3 = aegp_utility::suite_3();
+static AEGP_UTILITY_5: AEGP_UtilitySuite5 = aegp_utility::suite_5();
+static AEGP_UTILITY_6: AEGP_UtilitySuite6 = aegp_utility::suite_6();
 static AEGP_ITEM_6: AEGP_ItemSuite6 = aegp_item::suite_6();
 static AEGP_STREAM_3: AEGP_StreamSuite3 = stream::create_stream_suite_3();
 static AEGP_LAYER_3: AEGP_LayerSuite3 = layer::create_layer_suite_3();
@@ -184,13 +187,16 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	stream2: stream::create_stream_suite_2(),
 	stream4: stream::create_stream_suite_4(),
 	stream5: stream::create_stream_suite_5(),
+	stream6: stream::create_stream_suite_6(),
 	keyframe: keyframe::create_keyframe_suite_4(),
+	keyframe5: keyframe::create_keyframe_suite_5(),
 	effect1: effect::create_effect_suite_1(),
 	effect2: effect::create_effect_suite_2(),
 	effect3: effect::create_effect_suite_3(),
 	effect4: effect::create_effect_suite_4(),
 	color_settings: color_settings::create_color_settings_suite_2(),
 	light: layer::create_light_suite_1(),
+	text_layer: text_layer::suite_1(),
 	comp: comp::create_comp_suite_10(),
 	layer5: layer::create_layer_suite_5(),
 	layer6: layer::create_layer_suite_6(),
@@ -257,13 +263,16 @@ pub struct SuiteContainer {
 	pub stream2: AEGP_StreamSuite2,
 	pub stream4: AEGP_StreamSuite4,
 	pub stream5: AEGP_StreamSuite5,
+	pub stream6: AEGP_StreamSuite6,
 	pub keyframe: AEGP_KeyframeSuite4,
+	pub keyframe5: AEGP_KeyframeSuite5,
 	pub effect1: AEGP_EffectSuite1,
 	pub effect2: AEGP_EffectSuite2,
 	pub effect3: AEGP_EffectSuite3,
 	pub effect4: AEGP_EffectSuite4,
 	pub color_settings: AEGP_ColorSettingsSuite2,
 	pub light: AEGP_LightSuite1,
+	pub text_layer: AEGP_TextLayerSuite1,
 	pub comp: AEGP_CompSuite10,
 	pub layer5: AEGP_LayerSuite5,
 	pub layer6: AEGP_LayerSuite6,
@@ -384,8 +393,8 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("AEGP Persistent Data Suite", 3) => {
 			dispatch_static!(suite, suite_name, version, persistent_data)
 		}
-		// Stream Suite wire versions 7, 8, 9 and 10 are AEGP_StreamSuite2, 3, 4
-		// and 5. They differ in their stream value structs and in whether names
+		// Stream Suite wire versions 7, 8, 9, 10 and 11 are AEGP_StreamSuite2, 3,
+		// 4, 5 and 6. They differ in their stream value structs and in whether names
 		// and expression text are `char` or UTF-16.
 		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion2 as i32 => {
 			dispatch_static!(suite, suite_name, version, stream2)
@@ -399,6 +408,9 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion5 as i32 => {
 			dispatch_static!(suite, suite_name, version, stream5)
+		}
+		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion6 as i32 => {
+			dispatch_static!(suite, suite_name, version, stream6)
 		}
 		// Dynamic Stream wire versions 1, 2, 3 and 5 are suites 1, 2, 3 and 4.
 		// `kAEGPDynamicStreamSuiteVersion4` is 5; there is no wire version 4.
@@ -420,6 +432,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			PF_Err_NONE
 		}
 		("AEGP Keyframe Suite", 4) => dispatch_static!(suite, suite_name, version, keyframe),
+		("AEGP Keyframe Suite", 5) => dispatch_static!(suite, suite_name, version, keyframe5),
 		// Effect Suite v1 is v2 without DuplicateEffect. v3 adds the command
 		// argument to EffectCallGeneric; v4 appends the effect-mask calls.
 		("AEGP Effect Suite", 1) => dispatch_static!(suite, suite_name, version, effect1),
@@ -478,6 +491,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			PF_Err_NONE
 		}
 		("AEGP Light Suite", 1) => dispatch_static!(suite, suite_name, version, light),
+		("AEGP Text Layer Suite", 1) => dispatch_static!(suite, suite_name, version, text_layer),
 		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion4 as i32 => {
 			unsafe {
 				*suite = &COMP_SUITE_4 as *const _ as *const std::ffi::c_void;
@@ -545,11 +559,23 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			}
 			PF_Err_NONE
 		}
-		("AEGP Utility Suite", 1..=18) => {
-			// Two layouts: version 6 inserts `AEGP_ReportInfoUnicode` at slot 1.
-			// SAFETY: `suite` was null-checked at the top of this function.
-			unsafe { *suite = utility::aegp_utility_suite(version) };
-			log::debug!("Acquired {} v{}", suite_name, version);
+		// Utility Suite 1 and 2 (wire 3 and 5) are prefixes of 3 (wire 7), and 4
+		// (wire 10) of 5 (wire 11). 5 inserts AEGP_GetLastErrorMessage and 6
+		// (wire 13) AEGP_ReportInfoUnicode, moving every later slot.
+		("AEGP Utility Suite", v)
+			if v == kAEGPUtilitySuiteVersion1 as i32
+				|| v == kAEGPUtilitySuiteVersion2 as i32
+				|| v == kAEGPUtilitySuiteVersion3 as i32 =>
+		{
+			unsafe { *suite = &AEGP_UTILITY_3 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
+		("AEGP Utility Suite", v) if v == kAEGPUtilitySuiteVersion4 as i32 || v == kAEGPUtilitySuiteVersion5 as i32 => {
+			unsafe { *suite = &AEGP_UTILITY_5 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
+		("AEGP Utility Suite", v) if v == kAEGPUtilitySuiteVersion6 as i32 => {
+			unsafe { *suite = &AEGP_UTILITY_6 as *const _ as *const c_void };
 			PF_Err_NONE
 		}
 		("AEGP Compute Cache", 1) => {
@@ -565,7 +591,11 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			PF_Err_NONE
 		}
 		_ => {
-			log::warn!("Suite '{}' v{} not found.", suite_name, version);
+			crate::observe::unsupported(
+				crate::observe::UnsupportedKind::MissingSuite,
+				suite_name,
+				format!("v{version}"),
+			);
 			PF_Err_OUT_OF_MEMORY
 		}
 	}
@@ -636,6 +666,7 @@ mod tests {
 			("PF Effect Custom UI Overlay Theme Suite", 1),
 			("PF Path Query Suite", 1),
 			("PF Path Data Suite", 1),
+			("AEGP Text Layer Suite", 1),
 			("PF AE Adv App Suite", 1),
 			("PF AE Adv App Suite", 2),
 			("PF AE Adv Item Suite", 1),
@@ -649,11 +680,13 @@ mod tests {
 			("AEGP Stream Suite", 8),
 			("AEGP Stream Suite", 9),
 			("AEGP Stream Suite", 10),
+			("AEGP Stream Suite", 11),
 			("AEGP Dynamic Stream Suite", 1),
 			("AEGP Dynamic Stream Suite", 2),
 			("AEGP Dynamic Stream Suite", 3),
 			("AEGP Dynamic Stream Suite", 5),
 			("AEGP Keyframe Suite", 4),
+			("AEGP Keyframe Suite", 5),
 			("AEGP Effect Suite", 1),
 			("AEGP Effect Suite", 2),
 			("AEGP Effect Suite", 3),
@@ -686,6 +719,12 @@ mod tests {
 			("AEGP Render Options Suite", 4),
 			("AEGP Render Suite", 8),
 			("AEGP World Suite", 3),
+			("AEGP Utility Suite", 3),
+			("AEGP Utility Suite", 5),
+			("AEGP Utility Suite", 7),
+			("AEGP Utility Suite", 10),
+			("AEGP Utility Suite", 11),
+			("AEGP Utility Suite", 13),
 		] {
 			let (err, ptr) = acquire(name, version);
 			assert_eq!(err, PF_Err_NONE, "'{name}' v{version} should be served");
@@ -706,5 +745,19 @@ mod tests {
 		// Dynamic Stream suite 4 is wire version 5, not 4.
 		let (err, _) = acquire("AEGP Dynamic Stream Suite", 4);
 		assert_ne!(err, PF_Err_NONE);
+
+		// Utility Suite versions that do not exist get no table to guess at.
+		let (err, _) = acquire("AEGP Utility Suite", 14);
+		assert_ne!(err, PF_Err_NONE);
+	}
+
+	#[test]
+	fn utility_versions_get_their_own_layout() {
+		let (_, v7) = acquire("AEGP Utility Suite", 7);
+		let (_, v11) = acquire("AEGP Utility Suite", 11);
+		let (_, v13) = acquire("AEGP Utility Suite", 13);
+		assert_eq!(v7, &AEGP_UTILITY_3 as *const _ as *const c_void);
+		assert_eq!(v11, &AEGP_UTILITY_5 as *const _ as *const c_void);
+		assert_eq!(v13, &AEGP_UTILITY_6 as *const _ as *const c_void);
 	}
 }

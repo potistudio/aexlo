@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use ab_glyph::{Font, FontArc, PxScale, ScaleFont, point};
+use ab_glyph::{Font, FontArc, OutlineCurve, PxScale, ScaleFont, point};
 use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Stroke};
 
 use crate::model::{BezPath, Geometry, KAPPA, Mask, MaskMode, Rgba, ShapeItem, Text, TextAlign};
@@ -376,6 +376,97 @@ pub fn render_text(text: &Text, width: u32, height: u32, frame: i32, fonts: &mut
 	image
 }
 
+/// A text layer's glyph outlines in layer pixels, one closed path per
+/// contour, for effects that read the text through the "AEGP Text Layer
+/// Suite". They follow the same layout as [`render_text`].
+pub fn text_outlines(text: &Text, frame: i32, fonts: &mut Fonts) -> Vec<aexlo::MaskPath> {
+	let mut paths = Vec::new();
+	for (font, glyph) in layout_text(text, frame, fonts) {
+		let Some(outline) = font.outline(glyph.id) else {
+			continue;
+		};
+		let scaled = font.as_scaled(glyph.scale);
+		let (sx, sy) = (scaled.h_scale_factor(), scaled.v_scale_factor());
+		let origin = glyph.position;
+		let to_layer = |p: ab_glyph::Point| (f64::from(origin.x + p.x * sx), f64::from(origin.y - p.y * sy));
+		for contour in contours(&outline.curves) {
+			let id = paths.len() as u32 + 1;
+			let path = contour_path(contour, to_layer, id);
+			if path.vertices.len() >= 2 {
+				paths.push(path);
+			}
+		}
+	}
+	paths
+}
+
+/// Split a glyph's curves where a curve does not start at the previous one's
+/// end.
+fn contours(curves: &[OutlineCurve]) -> Vec<&[OutlineCurve]> {
+	let ends = |c: &OutlineCurve| match *c {
+		OutlineCurve::Line(a, b) | OutlineCurve::Quad(a, _, b) | OutlineCurve::Cubic(a, _, _, b) => (a, b),
+	};
+	let mut out = Vec::new();
+	let mut start = 0;
+	for i in 1..=curves.len() {
+		if i == curves.len() || ends(&curves[i - 1]).1 != ends(&curves[i]).0 {
+			out.push(&curves[start..i]);
+			start = i;
+		}
+	}
+	out
+}
+
+/// One contour as a closed path: a vertex where each curve starts, its
+/// control points as the tangents (relative to the vertex, as in a mask).
+/// Quadratic curves are raised to cubics.
+fn contour_path(curves: &[OutlineCurve], to_layer: impl Fn(ab_glyph::Point) -> (f64, f64), id: u32) -> aexlo::MaskPath {
+	let mut vertices: Vec<aexlo::MaskVertex> = Vec::with_capacity(curves.len() + 1);
+	for curve in curves {
+		let (p0, c1, c2, p3) = match *curve {
+			OutlineCurve::Line(a, b) => {
+				let (a, b) = (to_layer(a), to_layer(b));
+				(a, a, b, b)
+			}
+			OutlineCurve::Quad(a, q, b) => {
+				let (a, q, b) = (to_layer(a), to_layer(q), to_layer(b));
+				let lerp = |p: (f64, f64)| (p.0 + (q.0 - p.0) * 2.0 / 3.0, p.1 + (q.1 - p.1) * 2.0 / 3.0);
+				(a, lerp(a), lerp(b), b)
+			}
+			OutlineCurve::Cubic(a, c, d, b) => (to_layer(a), to_layer(c), to_layer(d), to_layer(b)),
+		};
+		if vertices.last().is_none_or(|v| (v.x, v.y) != p0) {
+			vertices.push(aexlo::MaskVertex::corner(p0.0, p0.1));
+		}
+		let from = vertices.last_mut().expect("pushed above");
+		from.tan_out_x = c1.0 - p0.0;
+		from.tan_out_y = c1.1 - p0.1;
+		vertices.push(aexlo::MaskVertex {
+			x: p3.0,
+			y: p3.1,
+			tan_in_x: c2.0 - p3.0,
+			tan_in_y: c2.1 - p3.1,
+			..Default::default()
+		});
+	}
+	// The last vertex closes back onto the first: keep its incoming tangent
+	// on the first instead of a duplicate vertex.
+	if let [first, .., last] = vertices[..]
+		&& (first.x, first.y) == (last.x, last.y)
+	{
+		vertices[0].tan_in_x = last.tan_in_x;
+		vertices[0].tan_in_y = last.tan_in_y;
+		vertices.pop();
+	}
+	aexlo::MaskPath {
+		id,
+		name: format!("Text Outline {id}"),
+		vertices,
+		closed: true,
+		..Default::default()
+	}
+}
+
 /// The inked bounds of a text layer, `[x0, y0, x1, y1]` in layer pixels.
 pub fn text_bounds(text: &Text, frame: i32, fonts: &mut Fonts) -> Option<[f32; 4]> {
 	layout_text(text, frame, fonts)
@@ -477,5 +568,31 @@ mod tests {
 		};
 		let img = render_text(&text, 100, 60, 0, &mut Fonts::new());
 		assert!(img.pixels.chunks(4).filter(|p| p[3] > 128).count() > 50);
+	}
+
+	#[test]
+	fn text_outlines_cover_the_drawn_ink() {
+		let text = Text {
+			text: "Hi".into(),
+			font: None,
+			size: Anim::new(40.0),
+			color: Anim::new([1.0; 4]),
+			position: Anim::new([10.0, 50.0]),
+			align: TextAlign::Left,
+			tracking: Anim::new(0.0),
+		};
+		let mut fonts = Fonts::new();
+		let outlines = text_outlines(&text, 0, &mut fonts);
+		// "H" and "i" have a contour each, plus the dot of the "i".
+		assert!(outlines.len() >= 3, "{} contours", outlines.len());
+		assert!(outlines.iter().all(|p| p.closed && p.vertices.len() >= 2));
+		let [x0, y0, x1, y1] = text_bounds(&text, 0, &mut fonts).unwrap();
+		for v in outlines.iter().flat_map(|p| &p.vertices) {
+			let (x, y) = (v.x as f32, v.y as f32);
+			assert!(
+				x >= x0 - 1.0 && x <= x1 + 1.0 && y >= y0 - 1.0 && y <= y1 + 1.0,
+				"({x}, {y}) is outside the ink"
+			);
+		}
 	}
 }

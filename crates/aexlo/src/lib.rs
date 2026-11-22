@@ -102,7 +102,9 @@ mod param_value;
 mod pipl;
 mod pixel;
 mod strict;
+mod stub_log;
 pub mod sys;
+mod text;
 mod time;
 mod utils;
 
@@ -154,6 +156,10 @@ pub use strict::{
 /// ([`PluginInstance::set_mask_paths`]).
 pub use mask::{MaskMode, MaskPath, MaskVertex};
 
+/// Text on the effect's layer, served through the Text Layer Suite
+/// ([`PluginInstance::set_text_layer`]).
+pub use text::{TextLayer, TextStyle};
+
 /// Injectable host-application services (App, Adv App/Item/Time, Plugin
 /// Helper and Custom UI Overlay Theme suites): UI colors, fonts, language,
 /// color picker, progress dialogs, Info panel, time display, tools, ...
@@ -170,5 +176,5 @@ pub use pixel::{AnyLayer, Depth8, Depth16, Depth32, Layer, LayerError, Pixel, Pi
 /// Observation hooks ([`PluginInstance::set_observer`]).
 pub use observe::{
 	AllocationEvent, AllocationKind, CheckoutEvent, CheckoutKind, CommandEvent, CommandPhase, LiveAllocation,
-	LogObserver, ObserveLevel, Observer, SuiteCallEvent, command_name,
+	LogObserver, ObserveLevel, Observer, SuiteCallEvent, UnsupportedEvent, UnsupportedKind, command_name,
 };

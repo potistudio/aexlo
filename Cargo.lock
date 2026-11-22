@@ -185,6 +185,7 @@ dependencies = [
  "minifb",
  "notify",
  "ratatui",
+ "serde",
  "serde_json",
  "tiny_http",
  "toml 1.1.6+spec-1.1.0",

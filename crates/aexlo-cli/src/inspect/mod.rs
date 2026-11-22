@@ -39,6 +39,10 @@ pub const USAGE: &str = "\
                        totals), its parameters, host state, live memory
                        (hex dump, changes per command) and the output
         -i, --input <png>    Input layer  [default: a gradient]
+        --text <string>      Make the layer a text layer showing <string>
+                             (\\n breaks lines), for plugins that need one
+        --font <file>        Font for --text and `input text`
+                             [default: a system sans-serif]
         --size <W>x<H>       Size of the default input and of the output
         --depth <8|16|32>    Project depth  [default: 8]
         --level <l>          args (every suite call with its arguments),
@@ -68,7 +72,7 @@ const DEFAULT_SIZE: (u32, u32) = (640, 360);
 
 pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 	let mut plugin: Option<String> = None;
-	let mut input: Option<PathBuf> = None;
+	let mut input = InputArgs::default();
 	let mut size: Option<(u32, u32)> = None;
 	let mut depth = PixelDepthKind::U8;
 	let mut level = ObserveLevel::Arguments;
@@ -81,7 +85,9 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 	let mut args = args.peekable();
 	while let Some(arg) = args.next() {
 		match arg.as_str() {
-			"-i" | "--input" => input = Some(PathBuf::from(crate::next_value(&mut args, &arg)?)),
+			"-i" | "--input" => input.png = Some(PathBuf::from(crate::next_value(&mut args, &arg)?)),
+			"--text" => input.text = Some(crate::next_value(&mut args, &arg)?.replace("\\n", "\n")),
+			"--font" => input.font = Some(PathBuf::from(crate::next_value(&mut args, &arg)?)),
 			"--size" => {
 				let raw = crate::next_value(&mut args, &arg)?;
 				let (w, h) = raw.split_once('x').context("--size expects <W>x<H>")?;
@@ -151,9 +157,9 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 		if format != Format::Human {
 			bail!("--format only applies to --exec and --script");
 		}
-		return tui(prepare(&plugin, input.as_deref(), size, depth, level, strict, serial)?);
+		return tui(prepare(&plugin, &input, size, depth, level, strict, serial)?);
 	};
-	let setup = match prepare(&plugin, input.as_deref(), size, depth, level, strict, serial) {
+	let setup = match prepare(&plugin, &input, size, depth, level, strict, serial) {
 		Ok(setup) => setup,
 		Err(err) => {
 			if format == Format::Json {
@@ -165,10 +171,18 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 	batch(setup, script, print_trace, format)
 }
 
+/// `--input`, `--text` and `--font`.
+#[derive(Default)]
+struct InputArgs {
+	png: Option<PathBuf>,
+	text: Option<String>,
+	font: Option<PathBuf>,
+}
+
 /// Find (or build) the plugin and its input.
 fn prepare(
 	plugin: &str,
-	input: Option<&std::path::Path>,
+	input: &InputArgs,
 	size: Option<(u32, u32)>,
 	depth: PixelDepthKind,
 	level: ObserveLevel,
@@ -184,14 +198,24 @@ fn prepare(
 	if !path.exists() {
 		bail!("no plugin at {}", path.display());
 	}
-	let input = match input {
-		Some(png) => engine::load_png(png)?.convert(depth),
-		None => engine::build_input(&InputSource::Gradient(None), depth, size.unwrap_or(DEFAULT_SIZE))?,
+	let font = input.font.clone();
+	let (input, text) = match (&input.png, &input.text) {
+		(Some(_), Some(_)) => bail!("give either --input or --text"),
+		(Some(png), None) => (engine::load_png(png)?.convert(depth), None),
+		(None, Some(text)) => engine::build_input(
+			&InputSource::Text(text.clone()),
+			depth,
+			size.unwrap_or(DEFAULT_SIZE),
+			font.as_deref(),
+		)?,
+		(None, None) => engine::build_input(&InputSource::Gradient(None), depth, size.unwrap_or(DEFAULT_SIZE), None)?,
 	};
 	Ok(Setup {
 		path,
 		manifest,
 		input,
+		text,
+		font,
 		size,
 		level,
 		strict,

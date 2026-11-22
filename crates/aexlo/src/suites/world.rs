@@ -258,7 +258,12 @@ unsafe extern "C" fn new_world_sys(
 		} else if fmt == PF_PixelFormat_ARGB128 as u32 || fmt == PF_PixelFormat_GPU_BGRA128 as u32 {
 			16
 		} else {
-			log::warn!("Unsupported pixel format: {}. so the depth is set to 8", pixel_format);
+			// Allocated as 8 bytes per pixel anyway.
+			crate::observe::unsupported(
+				crate::observe::UnsupportedKind::Declined,
+				"PF_WorldSuite2/PF_NewWorld",
+				format!("pixel format {pixel_format}"),
+			);
 			8 // Default to 8 bytes per pixel for unsupported formats
 		};
 

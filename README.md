@@ -161,6 +161,21 @@ aexlo inspect MyGlow --format json --script -    # one command per line on stdin
 Every option, command and JSON field is described in
 [docs/inspect.md](https://github.com/potistudio/aexlo/blob/master/docs/inspect.md).
 
+To see how far aexlo can drive plugins you did not write, run them through
+`aexlo compat`. It loads each one and runs it on every render path and depth,
+with other inputs, sizes and times, and with each parameter set to other
+values, one scenario per worker. It reports `ok`, `partial`, `n/a`, `error`,
+`crash` or `timeout` per scenario, then lists the missing suites, stubs and
+declined calls the plugins asked for, with the most widespread first. A saved
+baseline shows which scenarios a change to aexlo made worse:
+
+```bash
+aexlo compat fixtures/plugins/macos --save-baseline compat.json
+aexlo compat fixtures/plugins/macos --baseline compat.json   # exit 1 if any got worse
+```
+
+See [docs/compat.md](https://github.com/potistudio/aexlo/blob/master/docs/compat.md).
+
 ## Implementation Progress
 
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 89% (32/36)
@@ -194,7 +209,7 @@ Legacy Gaussian-kernel generation uses approximate coefficients that have not be
 
 ### AEGP
 
-⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 11% (4/36)
+⣿⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 14% (5/36)
 
 | Project        | Streams           | Pixels                 | Other                  |
 | -------------- | ----------------- | ---------------------- | ---------------------- |
@@ -205,7 +220,7 @@ Legacy Gaussian-kernel generation uses approximate coefficients that have not be
 | △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
 | △ PF Interface | × Mask Outline    | △ Layer Render Options | × Math                 |
 | △ Proj         | × Text Document   | × Composite            | △ Compute Cache        |
-| × Footage      | × Text Layer      | × Canvas               | △ Hash                 |
+| × Footage      | ○ Text Layer      | × Canvas               | △ Hash                 |
 | × Collection   |                   | × Sound Data           | × Render Async Manager |
 | × Marker       |                   |                        |                        |
 
@@ -216,7 +231,7 @@ The Effect Suite exposes identities reported by loaded plugins; it does not enum
 △ Render / Render Options / Layer Render Options: checkout returns the effect's own input.
 △ Color Settings: the working space is sRGB, with no colour management.
 △ Register: idle hooks are recorded and never called.
-△ Utility: `AEGP_ExecuteScript` does not run the script.
+△ Utility: there is no script engine (`AEGP_IsScriptingAvailable` says so and `AEGP_ExecuteScript` returns an error), no undo history and no palette UI. `AEGP_GetPluginPlatformRef` gives no bundle on macOS.
 △ Compute Cache: entries persist until class unregistration or plugin teardown;
 memory-pressure eviction is not implemented. △ Hash: deterministic host-local
 hashes are provided, but their values are not guaranteed to match After Effects.

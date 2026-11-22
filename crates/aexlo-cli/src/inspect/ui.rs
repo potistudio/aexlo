@@ -426,8 +426,11 @@ impl App {
 			Tab::Params => {
 				let n = self.snapshot.as_ref().map_or(0, |s| s.params.len());
 				if code == KeyCode::Enter {
-					if let Some(row) = self.snapshot.as_ref().and_then(|s| s.params.get(self.selected_param())) {
-						self.prompt = Some(format!("set {} ", row.index));
+					let row = self.snapshot.as_ref().and_then(|s| s.params.get(self.selected_param()));
+					match row {
+						Some(row) if row.kind == "Button" => return self.submit(format!("press {}", row.index)),
+						Some(row) => self.prompt = Some(format!("set {} ", row.index)),
+						None => {}
 					}
 					return None;
 				}
@@ -540,7 +543,7 @@ impl App {
 			let area = centered(frame.area(), 84, 34);
 			frame.render_widget(Clear, area);
 			frame.render_widget(
-				Paragraph::new(format!("{HELP}\nKEYS\n  Memory: ←→↑↓/hjkl move  [ ] (K J) allocation  PgUp/PgDn  g/G\n  Trace: j/k pick a line, Enter (or d) diagnoses it, J/K scroll the diagnosis, Esc closes\n  Calls: Enter focuses the newest call of that function\n  Params: Enter fills `set <index> `\n\n(any key closes)"))
+				Paragraph::new(format!("{HELP}\nKEYS\n  Memory: ←→↑↓/hjkl move  [ ] (K J) allocation  PgUp/PgDn  g/G\n  Trace: j/k pick a line, Enter (or d) diagnoses it, J/K scroll the diagnosis, Esc closes\n  Calls: Enter focuses the newest call of that function\n  Params: Enter presses a button, or fills `set <index> `\n\n(any key closes)"))
 					.block(Block::bordered().title(" help ")),
 				area,
 			);
@@ -846,7 +849,7 @@ impl App {
 			)
 			.header(Row::new(["#", "name", "kind", "value", "state", "range / choices / flags"]).bold())
 			.row_highlight_style(Style::new().reversed())
-			.block(Block::bordered().title(format!(" {} parameters (Enter: set) ", s.params.len()))),
+			.block(Block::bordered().title(format!(" {} parameters (Enter: set / press) ", s.params.len()))),
 			area,
 			&mut self.params,
 		);

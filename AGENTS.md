@@ -15,3 +15,14 @@ use `aexlo inspect <plugin> --format json --script -` and read one JSON
 object per line. The commands and every event field are in
 [docs/inspect.md](docs/inspect.md). The TUI (`aexlo inspect` with no
 `--exec` or `--script`) needs a terminal, so an agent cannot drive it.
+
+## Measuring how far aexlo drives plugins
+
+To see which plugins aexlo can run, under which conditions, and what they
+ask for that aexlo does not do, use
+`aexlo compat fixtures/plugins/<platform> --format json`. Save a baseline
+before changing aexlo and pass it back with `--baseline` afterwards; exit 1
+means a scenario got worse. See [docs/compat.md](docs/compat.md).
+
+To close a gap that `compat` reports, follow the loop in
+[docs/compat-workflow.md](docs/compat-workflow.md).

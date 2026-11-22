@@ -4,7 +4,9 @@
 //! what an sRGB working space without linearization means. So the comp's
 //! working-space profile is sRGB, an RGB profile with an approximate gamma of
 //! 2.2. Profiles are opaque boxes the plugin frees with
-//! `AEGP_DisposeColorProfile`. ICC data, descriptions (which need the AEGP
+//! `AEGP_DisposeColorProfile`, which refuses a pointer it did not hand out:
+//! a plugin that bails out of a failed call may dispose an uninitialised
+//! one. ICC data, descriptions (which need the AEGP
 //! Memory Suite), views and blending tables are refused with `A_Err_GENERIC`.
 
 use crate::sys::*;
@@ -19,6 +21,13 @@ struct ColorProfile {
 
 /// The sRGB working space.
 const SRGB: ColorProfile = ColorProfile { approximate_gamma: 2.2 };
+
+/// The profiles handed out and not yet disposed, by address.
+static LIVE: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
+
+fn live() -> std::sync::MutexGuard<'static, Vec<usize>> {
+	LIVE.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 fn unsupported(name: &str) -> A_Err {
 	log::warn!("AEGP_ColorSettingsSuite2/{name}: aexlo does no color management");
@@ -76,7 +85,9 @@ unsafe extern "C" fn get_new_working_space_color_profile(
 		let Some(out) = (unsafe { color_profilePP.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		*out = Box::into_raw(Box::new(SRGB)) as AEGP_ColorProfileP;
+		let profile = Box::into_raw(Box::new(SRGB));
+		live().push(profile as usize);
+		*out = profile as AEGP_ColorProfileP;
 		PF_Err_NONE
 	})
 }
@@ -124,7 +135,16 @@ unsafe extern "C" fn dispose_color_profile(color_profileP: AEGP_ColorProfileP) -
 		if color_profileP.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		// SAFETY: non-null profiles only come from `get_new_working_space_color_profile`.
+		{
+			let mut live = live();
+			let Some(at) = live.iter().position(|&p| p == color_profileP as usize) else {
+				log::warn!("AEGP_DisposeColorProfile: {color_profileP:?} is not a profile aexlo handed out");
+				return PF_Err_BAD_CALLBACK_PARAM;
+			};
+			live.swap_remove(at);
+		}
+		// SAFETY: the profile came from `get_new_working_space_color_profile`
+		// and was live until just now.
 		drop(unsafe { Box::from_raw(color_profileP as *mut ColorProfile) });
 		PF_Err_NONE
 	})
@@ -278,7 +298,9 @@ mod tests {
 	#[test]
 	fn profiles_report_srgb_and_dispose() {
 		let suite = create_color_settings_suite_2();
-		let profile = Box::into_raw(Box::new(SRGB)) as AEGP_ColorProfileP;
+		let profile = Box::into_raw(Box::new(SRGB));
+		live().push(profile as usize);
+		let profile = profile as AEGP_ColorProfileP;
 		let mut gamma: A_FpShort = 0.0;
 		let mut rgb: A_Boolean = 0;
 		unsafe {
@@ -290,6 +312,16 @@ mod tests {
 			assert_eq!(suite.AEGP_DisposeColorProfile.unwrap()(profile), PF_Err_NONE);
 		}
 		assert_eq!((gamma, rgb), (2.2, 1));
+	}
+
+	#[test]
+	fn a_pointer_it_did_not_hand_out_is_not_freed() {
+		let suite = create_color_settings_suite_2();
+		// What a plugin's uninitialised local might hold: not a heap block.
+		let mut stack = SRGB;
+		let foreign = &mut stack as *mut ColorProfile as AEGP_ColorProfileP;
+		let err = unsafe { suite.AEGP_DisposeColorProfile.unwrap()(foreign) };
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
 	}
 
 	#[test]

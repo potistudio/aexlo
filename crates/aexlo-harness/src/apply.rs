@@ -38,8 +38,8 @@ pub fn unsupported(fx: &PluginInstance, variant: &Variant) -> Option<String> {
 	}
 }
 
-/// Configure `fx` for `variant`: input layer at the variant's depth, render
-/// size, time, parameters, layer parameters and iteration, then one
+/// Configure `fx` for `variant`: input layer at the variant's depth (a text
+/// layer when the input gives `text`), render size, time, parameters, layer parameters and iteration, then one
 /// `PF_Cmd_UPDATE_PARAMS_UI` (as `aexlo render --set` does).
 ///
 /// # Errors
@@ -61,6 +61,8 @@ pub fn configure_prepared(fx: &mut PluginInstance, variant: &Variant) -> Result<
 	let (in_w, in_h) = fx.input_size();
 	let (w, h) = size.unwrap_or((in_w, in_h));
 	fx.set_render_size(w, h);
+	// The same text the input layer shows, laid out on the same size.
+	fx.set_text_layer(input::text_layer(&variant.input, in_w, in_h)?);
 
 	fx.set_time(variant.time.as_ae()?);
 
@@ -72,6 +74,11 @@ pub fn configure_prepared(fx: &mut PluginInstance, variant: &Variant) -> Result<
 	}
 
 	for (key, spec) in &variant.layers {
+		if spec.text.is_some() {
+			return Err(Error::invalid(format!(
+				"layer '{key}': only the effect's own layer can be a text layer"
+			)));
+		}
 		let index = resolve_param(fx, key)?;
 		if fx.param_kind(index) != Some(ParamKind::Layer) {
 			return Err(Error::invalid(format!(
@@ -255,4 +262,62 @@ pub fn param_value(fx: &PluginInstance, index: usize, value: &Value) -> Result<P
 		}
 		other => return Err(Error::invalid(format!("{other:?} parameters take no value"))),
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use std::ffi::c_void;
+
+	use super::*;
+	use crate::preset::{Generator, InputSpec, PluginRef, PluginSource};
+
+	/// An effect that does nothing and declares nothing.
+	unsafe extern "C" fn entry(
+		_cmd: aexlo::sys::PF_Cmd,
+		_in_data: *mut aexlo::sys::PF_InData,
+		_out_data: *mut aexlo::sys::PF_OutData,
+		_params: aexlo::sys::PF_ParamList,
+		_output: *mut aexlo::sys::PF_LayerDef,
+		_extra: *mut c_void,
+	) -> aexlo::sys::PF_Err {
+		aexlo::sys::PF_Err_NONE as aexlo::sys::PF_Err
+	}
+
+	fn variant(input: InputSpec) -> Variant {
+		let plugin = PluginRef {
+			source: PluginSource::Artifact("none".into()),
+			entry: "EffectMain".into(),
+		};
+		let mut variant = Variant::standalone("v", plugin);
+		variant.input = input;
+		variant.size = Some([96, 48]);
+		variant
+	}
+
+	#[test]
+	fn a_text_input_puts_a_text_layer_on_the_effect() {
+		// SAFETY: `entry` has the effect entry point's signature and touches nothing.
+		let mut fx = unsafe { aexlo::Host::get().entry_loader(entry) }.load().unwrap();
+		let text = variant(InputSpec::text("Hi"));
+		configure(&mut fx, &text).unwrap_or_else(|e| panic!("{e}"));
+		assert_eq!(fx.input_size(), (96, 48));
+		let layer = fx.text_layer().expect("a text layer");
+		assert_eq!(layer.text(), "Hi");
+		assert!(!layer.outlines().is_empty());
+
+		// Another input makes it an AV layer again.
+		configure(&mut fx, &variant(InputSpec::generated(Generator::Solid))).unwrap();
+		assert!(fx.text_layer().is_none());
+	}
+
+	#[test]
+	fn a_layer_parameter_cannot_be_a_text_layer() {
+		// SAFETY: as above.
+		let mut fx = unsafe { aexlo::Host::get().entry_loader(entry) }.load().unwrap();
+		let mut v = variant(InputSpec::default());
+		v.layers = vec![("#1".into(), InputSpec::text("Hi"))];
+		let err = configure(&mut fx, &v).unwrap_err();
+		assert_eq!(err.kind, crate::ErrorKind::Invalid);
+		assert!(err.message.contains("text layer"), "{err}");
+	}
 }

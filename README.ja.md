@@ -142,6 +142,18 @@ aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
 
 オプション、コマンド、JSON のフィールドはすべて [docs/inspect.ja.md](docs/inspect.ja.md) で説明しています。
 
+自分で書いていないプラグインを aexlo がどこまで動かせるかは、`aexlo compat` で調べます。
+各プラグインを読み込み、すべてのレンダーパスと深度、別の入力・サイズ・時間、各パラメーターを別の値にした状態で、シナリオごとに1つのワーカーで実行します。
+シナリオごとに `ok`、`partial`、`n/a`、`error`、`crash`、`timeout` を報告し、プラグインが求めたのに aexlo が応えなかったスイート、スタブ、呼び出しを、多い順に一覧にします。
+ベースラインを保存しておけば、aexlo の変更で悪化したシナリオが分かります。
+
+```bash
+aexlo compat fixtures/plugins/macos --save-baseline compat.json
+aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれば終了コード 1
+```
+
+詳しくは [docs/compat.ja.md](docs/compat.ja.md) を参照してください。
+
 ## 実装の進捗
 
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 89% (32/36)
@@ -175,7 +187,7 @@ aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
 
 ### AEGP
 
-⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 11% (4/36)
+⣿⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 14% (5/36)
 
 | Project        | Streams           | Pixels                 | その他                 |
 | -------------- | ----------------- | ---------------------- | ---------------------- |
@@ -186,7 +198,7 @@ aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
 | △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
 | △ PF Interface | × Mask Outline    | △ Layer Render Options | × Math                 |
 | △ Proj         | × Text Document   | × Composite            | △ Compute Cache        |
-| × Footage      | × Text Layer      | × Canvas               | △ Hash                 |
+| × Footage      | ○ Text Layer      | × Canvas               | △ Hash                 |
 | × Collection   |                   | × Sound Data           | × Render Async Manager |
 | × Marker       |                   |                        |                        |
 
@@ -197,7 +209,7 @@ Effect Suite はロード中のプラグインが申告した識別情報を返�
 △ Render / Render Options / Layer Render Options：チェックアウトはエフェクト自身の入力を返します。
 △ Color Settings：作業用スペースは sRGB で、カラーマネジメントはしません。
 △ Register：アイドルフックは記録しますが、呼びません。
-△ Utility：`AEGP_ExecuteScript` はスクリプトを実行しません。
+△ Utility：スクリプトエンジンはありません（`AEGP_IsScriptingAvailable` はそう答え、`AEGP_ExecuteScript` はエラーを返します）。取り消し履歴とパレットの UI もありません。macOS の `AEGP_GetPluginPlatformRef` はバンドルを返しません。
 △ Compute Cache：値はクラス登録の解除またはプラグイン終了まで保持し、メモリー不足時の退避は未実装です。
 △ Hash：決定的なホスト内ハッシュを提供しますが、After Effects と同じ値は保証しません。
 
