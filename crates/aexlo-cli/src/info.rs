@@ -1,9 +1,9 @@
-//! `info`: what a plugin says about itself - its PiPL, ABOUT text, the flags
-//! and version it declares at GLOBAL_SETUP, and its parameters.
+//! `info`: what a plugin says about itself - its PiPL, ABOUT text, the
+//! version and flags it declares at GLOBAL_SETUP, and its parameters.
 
 use std::path::Path;
 
-use aexlo::{OutFlags, OutFlags2, ParamValue, Pipl, PluginInstance};
+use aexlo::{ParamValue, Pipl, PluginInstance};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
@@ -18,8 +18,7 @@ pub struct InfoArgs {
 	/// The ABOUT text (PF_Cmd_ABOUT)
 	#[arg(long)]
 	about: bool,
-	/// The version, out_flags and out_flags2 GLOBAL_SETUP declares, beside
-	/// the PiPL's eVER, eGLO and eGL2, with the bits that differ marked
+	/// The version, out_flags and out_flags2 GLOBAL_SETUP declares
 	#[arg(long)]
 	flags: bool,
 	/// Each parameter's index, name, kind, value, visibility and UI flags
@@ -73,16 +72,11 @@ pub fn run(args: InfoArgs) -> Result<()> {
 	let format = Format::from_flags(args.json, args.format);
 	let mut out = Output::new(format, &path, sections.count() > 1);
 
-	let pipl = if sections.pipl || sections.flags {
+	if sections.pipl {
 		match Pipl::read(&path).with_context(|| format!("reading the PiPL of {}", path.display())) {
-			Ok(pipl) => pipl,
+			Ok(pipl) => out.pipl(pipl.as_ref()),
 			Err(err) => return Err(out.fail(err)),
 		}
-	} else {
-		None
-	};
-	if sections.pipl {
-		out.pipl(pipl.as_ref());
 	}
 
 	if sections.needs_loading() {
@@ -100,7 +94,7 @@ pub fn run(args: InfoArgs) -> Result<()> {
 			}
 		}
 		if sections.flags {
-			out.flags(pipl.as_ref(), &instance);
+			out.flags(&instance);
 		}
 		if sections.params {
 			out.params(&instance);
@@ -207,90 +201,38 @@ impl Output {
 		}
 	}
 
-	fn flags(&mut self, pipl: Option<&Pipl>, instance: &PluginInstance) {
-		let version = (pipl.and_then(Pipl::effect_version), instance.version());
-		let flags = (pipl.and_then(Pipl::out_flags), instance.out_flags());
-		let flags2 = (pipl.and_then(Pipl::out_flags2), instance.out_flags2());
-		let rows1 = bit_rows(flags.0.map(OutFlags::bits), flags.1.bits(), |bit| {
-			name(&format!("{:?}", OutFlags::from_bits(bit)))
-		});
-		let rows2 = bit_rows(flags2.0.map(OutFlags2::bits), flags2.1.bits(), |bit| {
-			name(&format!("{:?}", OutFlags2::from_bits(bit)))
-		});
-		let version_differs = version.0.is_some_and(|v| v != version.1);
-
+	fn flags(&mut self, instance: &PluginInstance) {
+		let version = instance.version();
+		let sets = [
+			(
+				"out_flags",
+				instance.out_flags().bits(),
+				names(&format!("{:?}", instance.out_flags())),
+			),
+			(
+				"out_flags2",
+				instance.out_flags2().bits(),
+				names(&format!("{:?}", instance.out_flags2())),
+			),
+		];
 		match self.format {
 			Format::Json => {
-				let set = |pipl: Option<u32>, setup: u32, rows: &[BitRow]| {
-					json!({
-						"pipl": pipl,
-						"global_setup": setup,
-						"differ": rows.iter().filter(|r| r.differs()).map(|r| r.name.clone()).collect::<Vec<_>>(),
-					})
-				};
-				self.json.insert(
-					"flags".into(),
-					json!({
-						"version": {
-							"pipl": version.0.map(|v| v.to_string()),
-							"global_setup": version.1.to_string(),
-							"differs": version_differs,
-						},
-						"out_flags": set(flags.0.map(OutFlags::bits), flags.1.bits(), &rows1),
-						"out_flags2": set(flags2.0.map(OutFlags2::bits), flags2.1.bits(), &rows2),
-					}),
-				);
+				let mut value = json!({"version": version.to_string()});
+				for (label, bits, names) in sets {
+					value[label] = json!({"bits": bits, "names": names});
+				}
+				self.json.insert("flags".into(), value);
 			}
 			Format::Human => {
-				let width = rows1
-					.iter()
-					.chain(&rows2)
-					.map(|r| r.name.len() + 2)
-					.chain([10])
-					.max()
-					.unwrap_or(10);
-				let column = |v: Option<String>| v.unwrap_or_else(|| "-".into());
-				let pipl_version = column(version.0.map(|v| v.to_string()));
-				let cell = pipl_version.len().max(10);
-				let mark = |differs: bool| if differs { "  differs" } else { "" };
-				let mut lines = vec![format!("{:<width$}  {:<cell$}  GLOBAL_SETUP", "", "PiPL")];
-				let differences =
-					usize::from(version_differs) + rows1.iter().chain(&rows2).filter(|r| r.differs()).count();
-				lines.push(format!(
-					"{:<width$}  {pipl_version:<cell$}  {}{}",
-					"version",
-					version.1,
-					mark(version_differs)
-				));
-				for (label, pipl, setup, rows) in [
-					("out_flags", flags.0.map(OutFlags::bits), flags.1.bits(), &rows1),
-					("out_flags2", flags2.0.map(OutFlags2::bits), flags2.1.bits(), &rows2),
-				] {
-					lines.push(format!(
-						"{label:<width$}  {:<cell$}  {setup:#010x}{}",
-						column(pipl.map(|bits| format!("{bits:#010x}"))),
-						mark(pipl.is_some_and(|bits| bits != setup))
-					));
-					for row in rows {
-						let yes = |on: bool| if on { "yes" } else { "no" };
-						lines.push(format!(
-							"  {:<w$}  {:<cell$}  {}{}",
-							row.name,
-							row.pipl.map_or("-", yes),
-							yes(row.setup),
-							mark(row.differs()),
-							w = width - 2
-						));
-					}
+				let mut lines = vec![format!("{:<10}  {version}", "version")];
+				for (label, bits, names) in sets {
+					let names = if names.is_empty() {
+						"(none)".to_string()
+					} else {
+						names.join(" | ")
+					};
+					lines.push(format!("{label:<10}  {bits:#010x}  {names}"));
 				}
-				lines.push(String::new());
-				lines.push(match (pipl.is_some(), differences) {
-					(false, _) => "no PiPL to compare with".into(),
-					(true, 0) => "GLOBAL_SETUP matches the PiPL".into(),
-					(true, n) => {
-						format!("{n} difference(s): After Effects warns when GLOBAL_SETUP and the PiPL disagree")
-					}
-				});
 				self.section("Flags", &lines);
 			}
 		}
@@ -353,40 +295,16 @@ impl Output {
 	}
 }
 
-/// One bit of out_flags or out_flags2, set in the PiPL, at GLOBAL_SETUP or
-/// both.
-struct BitRow {
-	name: String,
-	/// `None` when there is no PiPL value to compare with.
-	pipl: Option<bool>,
-	setup: bool,
-}
-
-impl BitRow {
-	fn differs(&self) -> bool {
-		self.pipl.is_some_and(|pipl| pipl != self.setup)
-	}
-}
-
-fn bit_rows(pipl: Option<u32>, setup: u32, name: impl Fn(u32) -> String) -> Vec<BitRow> {
-	let union = pipl.unwrap_or(0) | setup;
-	(0..32)
-		.map(|i| 1u32 << i)
-		.filter(|bit| union & bit != 0)
-		.map(|bit| BitRow {
-			name: name(bit),
-			pipl: pipl.map(|bits| bits & bit != 0),
-			setup: setup & bit != 0,
-		})
-		.collect()
-}
-
-/// `OutFlags(DEEP_COLOR_AWARE)` -> `DEEP_COLOR_AWARE`.
-fn name(debug: &str) -> String {
-	debug
+/// `OutFlags(A | B | 0x40)` -> `[A, B, 0x40]`; no flags -> `[]`.
+fn names(debug: &str) -> Vec<String> {
+	let inner = debug
 		.split_once('(')
-		.map_or(debug, |(_, rest)| rest.trim_end_matches(')'))
-		.to_string()
+		.map_or(debug, |(_, rest)| rest.trim_end_matches(')'));
+	inner
+		.split(" | ")
+		.filter(|name| !name.is_empty() && *name != "0x0")
+		.map(str::to_string)
+		.collect()
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -470,16 +388,8 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn bit_rows_mark_bits_set_on_one_side() {
-		let rows = bit_rows(Some(0b0110), 0b0011, |bit| bit.to_string());
-		let summary: Vec<_> = rows.iter().map(|r| (r.name.as_str(), r.differs())).collect();
-		assert_eq!(summary, [("1", true), ("2", false), ("4", true)]);
-		assert!(bit_rows(None, 0b1, |bit| bit.to_string()).iter().all(|r| !r.differs()));
-	}
-
-	#[test]
-	fn names_drop_the_type() {
-		assert_eq!(name("OutFlags(DEEP_COLOR_AWARE)"), "DEEP_COLOR_AWARE");
-		assert_eq!(name("OutFlags2(0x40)"), "0x40");
+	fn names_split_the_flags() {
+		assert_eq!(names("OutFlags(DEEP_COLOR_AWARE | 0x40)"), ["DEEP_COLOR_AWARE", "0x40"]);
+		assert!(names("OutFlags2(0x0)").is_empty());
 	}
 }

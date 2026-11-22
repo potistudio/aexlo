@@ -134,12 +134,8 @@ To see what a plugin declares without rendering it:
 
 ```bash
 aexlo info MyGlow             # PiPL, ABOUT text, flags and parameters
-aexlo info MyGlow --flags     # GLOBAL_SETUP's version and flags beside the PiPL's
+aexlo info MyGlow --pipl      # the PiPL alone, without loading the plugin
 ```
-
-`--flags` marks every bit where GLOBAL_SETUP and the PiPL disagree, which
-After Effects warns about; `--pipl` reads the resource without loading the
-plugin.
 
 To see what a plugin does, drive it from a prompt in a terminal UI:
 

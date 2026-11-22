@@ -125,11 +125,8 @@ Rust プラグインでは `aexlo-test` を開発用依存関係に追加する�
 
 ```bash
 aexlo info MyGlow             # PiPL、ABOUT テキスト、フラグ、パラメーター
-aexlo info MyGlow --flags     # GLOBAL_SETUP のバージョンとフラグを PiPL と並べる
+aexlo info MyGlow --pipl      # PiPL だけを、プラグインを読み込まずに表示
 ```
-
-`--flags` は GLOBAL_SETUP と PiPL で食い違うビット（After Effects が警告するもの）に印を付けます。
-`--pipl` はプラグインを読み込まずにリソースだけを読みます。
 
 プラグインの動作を調べるには、ターミナル UI のプロンプトからコマンドを実行します。
 

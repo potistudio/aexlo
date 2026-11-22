@@ -17,7 +17,7 @@ fn json(args: &[&str], dir: &Path) -> (i32, serde_json::Value) {
 }
 
 #[test]
-fn info_reports_every_section_and_compares_flags_with_the_pipl() {
+fn info_reports_every_section() {
 	let Some(noise) = common::fixture("SDK_Noise") else {
 		eprintln!("skipping: no SDK_Noise fixture");
 		return;
@@ -34,12 +34,14 @@ fn info_reports_every_section_and_compares_flags_with_the_pipl() {
 	assert!(names.contains(&"eGLO") && names.contains(&"eMNA"), "{names:?}");
 	assert!(report["about"].as_str().unwrap().contains("SDK_Noise"), "{report}");
 	let flags = &report["flags"];
-	assert_eq!(flags["version"]["differs"], false, "{flags}");
-	assert_eq!(
-		flags["out_flags"]["pipl"], flags["out_flags"]["global_setup"],
+	assert!(flags["version"].as_str().unwrap().starts_with("5."), "{flags}");
+	assert!(
+		flags["out_flags"]["names"]
+			.as_array()
+			.unwrap()
+			.contains(&serde_json::json!("DEEP_COLOR_AWARE")),
 		"{flags}"
 	);
-	assert_eq!(flags["out_flags2"]["differ"], serde_json::json!([]), "{flags}");
 	assert_eq!(report["params"][0]["name"], "Noise variation", "{report}");
 
 	// One section prints bare, the way `aexlo about` did.
@@ -54,7 +56,7 @@ fn info_reports_every_section_and_compares_flags_with_the_pipl() {
 		text.starts_with("PiPL\n") && text.contains("\nFlags\n") && !text.contains("About"),
 		"{text}"
 	);
-	assert!(text.contains("GLOBAL_SETUP matches the PiPL"), "{text}");
+	assert!(text.contains("  out_flags   0x"), "{text}");
 }
 
 #[test]

@@ -34,8 +34,7 @@ enum Command {
 	/// Show what the plugin says about itself.
 	///
 	/// Its PiPL resource, its ABOUT text, the version and flags it declares at
-	/// GLOBAL_SETUP (beside the PiPL's, with the bits that differ marked) and
-	/// its parameters. With no section flag, every section; if the plugin
+	/// GLOBAL_SETUP, and its parameters. With no section flag, every section; if the plugin
 	/// fails to load, the PiPL is still printed, then the error.
 	#[command(after_help = PLUGIN_ARG)]
 	Info(info::InfoArgs),
