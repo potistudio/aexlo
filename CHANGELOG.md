@@ -40,6 +40,10 @@ may break the API, and every breaking change is listed below.
 - `PluginInstance::param_button_label` returns the text on a button
   parameter (`PF_ButtonDef`), which plugins often fill in place of the
   parameter's name.
+- The AEGP Utility, Persistent Data and PF Param Utils suites report their
+  calls to the observer, so `aexlo inspect` and `aexlo compat` see them.
+  `AEGP_ExecuteScript`, and `AEGP_GetPluginPlatformRef` on macOS, report
+  themselves as stubs.
 - `AEGP_SetStreamValue` sets an effect parameter's value, clamped to its valid
   range (a color keeps its alpha), and `AEGP_SetDynamicStreamFlag` hides and
   disables parameters (`PF_PUI_INVISIBLE`, `PF_PUI_DISABLED`), which
@@ -60,6 +64,8 @@ may break the API, and every breaking change is listed below.
   `APP` path of `AEGP_GetPluginPaths`). `AEGP_IsScriptingAvailable` answers
   false, since aexlo runs no scripts. Versions the SDK never defined are
   refused.
+- `AEGP_GetDataHandle` and `AEGP_SetDataHandle` keep their data in the
+  Persistent Data store instead of returning nothing and dropping it.
 - An arbitrary-data parameter starts as a copy of its default
   (`PF_Arbitrary_COPY_FUNC` of `dephault`), as in After Effects, and falls back
   to `PF_Arbitrary_NEW_FUNC` only without a default or when the copy fails.

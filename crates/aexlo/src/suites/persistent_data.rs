@@ -22,9 +22,10 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
 
+use crate::core::diagnostics::diag;
 use crate::sys::{
 	A_Boolean, A_Err, A_FpLong, A_char, A_long, A_u_long, AEGP_MemHandle, AEGP_PersistentBlobH,
-	AEGP_PersistentDataSuite3, AEGP_PluginID,
+	AEGP_PersistentDataSuite3, AEGP_PluginID, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE,
 };
 
 /// A single stored preference value, tagged by the setter that wrote it.
@@ -89,6 +90,7 @@ unsafe fn write_str(bytes: &[u8], bufZ: *mut A_char, buf_size: A_u_long, actual:
 
 unsafe extern "C" fn get_application_blob(blobPH: *mut AEGP_PersistentBlobH) -> A_Err {
 	crate::core::ffi::guard("get_application_blob", || {
+		diag!("AEGPPersistentDataSuite/AEGP_GetApplicationBlob");
 		if !blobPH.is_null() {
 			unsafe { *blobPH = blob_handle() };
 		}
@@ -98,6 +100,7 @@ unsafe extern "C" fn get_application_blob(blobPH: *mut AEGP_PersistentBlobH) -> 
 
 unsafe extern "C" fn get_num_sections(_blobH: AEGP_PersistentBlobH, num: *mut A_long) -> A_Err {
 	crate::core::ffi::guard("get_num_sections", || {
+		diag!("AEGPPersistentDataSuite/AEGP_GetNumSections");
 		if !num.is_null() {
 			let store = store();
 			let mut sections: Vec<&String> = store.keys().map(|(s, _)| s).collect();
@@ -116,6 +119,9 @@ unsafe extern "C" fn get_section_key_by_index(
 	section_keyZ: *mut A_char,
 ) -> A_Err {
 	crate::core::ffi::guard("get_section_key_by_index", || {
+		diag!("AEGPPersistentDataSuite/AEGP_GetSectionKeyByIndex",
+			"section_index" => section_index,
+		);
 		let store = store();
 		let mut sections: Vec<String> = store.keys().map(|(s, _)| s.clone()).collect();
 		sections.sort();
@@ -140,6 +146,10 @@ unsafe extern "C" fn does_key_exist(
 	existsPB: *mut A_Boolean,
 ) -> A_Err {
 	crate::core::ffi::guard("does_key_exist", || {
+		diag!("AEGPPersistentDataSuite/AEGP_DoesKeyExist",
+			"section_keyZ" => format!("{:?}", unsafe { key(section_keyZ) }),
+			"value_keyZ" => format!("{:?}", unsafe { key(value_keyZ) }),
+		);
 		log::debug!("AEGP_DoesKeyExist [{}] {}", unsafe { key(section_keyZ) }, unsafe {
 			key(value_keyZ)
 		});
@@ -160,6 +170,9 @@ unsafe extern "C" fn get_num_keys(
 	num: *mut A_long,
 ) -> A_Err {
 	crate::core::ffi::guard("get_num_keys", || {
+		diag!("AEGPPersistentDataSuite/AEGP_GetNumKeys",
+			"section_keyZ" => format!("{:?}", unsafe { key(section_keyZ) }),
+		);
 		if !num.is_null() {
 			let section = unsafe { key(section_keyZ) };
 			let store = store();
@@ -178,6 +191,10 @@ unsafe extern "C" fn get_value_key_by_index(
 	value_keyZ: *mut A_char,
 ) -> A_Err {
 	crate::core::ffi::guard("get_value_key_by_index", || {
+		diag!("AEGPPersistentDataSuite/AEGP_GetValueKeyByIndex",
+			"section_keyZ" => format!("{:?}", unsafe { key(section_keyZ) }),
+			"key_index" => key_index,
+		);
 		let section = unsafe { key(section_keyZ) };
 		let store = store();
 		let mut values: Vec<String> = store
@@ -202,18 +219,38 @@ unsafe extern "C" fn get_value_key_by_index(
 unsafe extern "C" fn get_data_handle(
 	_plugin_id: AEGP_PluginID,
 	_blobH: AEGP_PersistentBlobH,
-	_section_keyZ: *const A_char,
-	_value_keyZ: *const A_char,
-	_defaultH0: AEGP_MemHandle,
+	section_keyZ: *const A_char,
+	value_keyZ: *const A_char,
+	defaultH0: AEGP_MemHandle,
 	valuePH: *mut AEGP_MemHandle,
 ) -> A_Err {
 	crate::core::ffi::guard("get_data_handle", || {
-		// We don't vend AEGP_MemHandles; report "no data" (NULL handle) per the SDK's
-		// zero-sized-handle convention. Not reached by the license path.
-		if !valuePH.is_null() {
-			unsafe { *valuePH = std::ptr::null_mut() };
+		diag!("AEGPPersistentDataSuite/AEGP_GetDataHandle",
+			"section_keyZ" => format!("{:?}", unsafe { key(section_keyZ) }),
+			"value_keyZ" => format!("{:?}", unsafe { key(value_keyZ) }),
+		);
+		if valuePH.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		0
+		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+		let mut store = store();
+		let bytes = match store.get(&k) {
+			Some(Value::Data(bytes)) => Some(bytes.clone()),
+			_ if defaultH0.is_null() => None,
+			_ => {
+				// Not found: the default is the value, and is written back as the
+				// SDK specifies.
+				let Some(default) = super::aegp_memory::handle_bytes(defaultH0) else {
+					return PF_Err_BAD_CALLBACK_PARAM;
+				};
+				store.insert(k, Value::Data(default.clone()));
+				Some(default)
+			}
+		};
+		// No value and no default: a null handle, the SDK's "no data".
+		let handle = bytes.map_or(std::ptr::null_mut(), super::aegp_memory::handle_from_bytes);
+		unsafe { *valuePH = handle };
+		PF_Err_NONE
 	})
 }
 
@@ -226,6 +263,11 @@ unsafe extern "C" fn get_data(
 	bufPV: *mut std::os::raw::c_void,
 ) -> A_Err {
 	crate::core::ffi::guard("get_data", || {
+		diag!("AEGPPersistentDataSuite/AEGP_GetData",
+			"section_keyZ" => format!("{:?}", unsafe { key(section_keyZ) }),
+			"value_keyZ" => format!("{:?}", unsafe { key(value_keyZ) }),
+			"data_sizeLu" => data_sizeLu,
+		);
 		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
 		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 		let size = data_sizeLu as usize;
@@ -262,6 +304,11 @@ unsafe extern "C" fn get_string(
 	actual_buf_sizeLu0: *mut A_u_long,
 ) -> A_Err {
 	crate::core::ffi::guard("get_string", || {
+		diag!("AEGPPersistentDataSuite/AEGP_GetString",
+			"section_keyZ" => format!("{:?}", unsafe { key(section_keyZ) }),
+			"value_keyZ" => format!("{:?}", unsafe { key(value_keyZ) }),
+			"buf_sizeLu" => buf_sizeLu,
+		);
 		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
 		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 		let mut store = store();
@@ -284,6 +331,11 @@ unsafe extern "C" fn get_long(
 	valuePL: *mut A_long,
 ) -> A_Err {
 	crate::core::ffi::guard("get_long", || {
+		diag!("AEGPPersistentDataSuite/AEGP_GetLong",
+			"section_keyZ" => format!("{:?}", unsafe { key(section_keyZ) }),
+			"value_keyZ" => format!("{:?}", unsafe { key(value_keyZ) }),
+			"defaultL" => defaultL,
+		);
 		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
 		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 		let mut store = store();
@@ -309,6 +361,11 @@ unsafe extern "C" fn get_fp_long(
 	valuePF: *mut A_FpLong,
 ) -> A_Err {
 	crate::core::ffi::guard("get_fp_long", || {
+		diag!("AEGPPersistentDataSuite/AEGP_GetFpLong",
+			"section_keyZ" => format!("{:?}", unsafe { key(section_keyZ) }),
+			"value_keyZ" => format!("{:?}", unsafe { key(value_keyZ) }),
+			"defaultF" => defaultF,
+		);
 		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
 		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 		let mut store = store();
@@ -328,14 +385,21 @@ unsafe extern "C" fn get_fp_long(
 
 unsafe extern "C" fn set_data_handle(
 	_blobH: AEGP_PersistentBlobH,
-	_section_keyZ: *const A_char,
-	_value_keyZ: *const A_char,
-	_valueH: AEGP_MemHandle,
+	section_keyZ: *const A_char,
+	value_keyZ: *const A_char,
+	valueH: AEGP_MemHandle,
 ) -> A_Err {
 	crate::core::ffi::guard("set_data_handle", || {
-		// We can't read foreign AEGP_MemHandles without the memory suite; accept and
-		// drop. Not reached by the license path.
-		0
+		diag!("AEGPPersistentDataSuite/AEGP_SetDataHandle",
+			"section_keyZ" => format!("{:?}", unsafe { key(section_keyZ) }),
+			"value_keyZ" => format!("{:?}", unsafe { key(value_keyZ) }),
+		);
+		let Some(bytes) = super::aegp_memory::handle_bytes(valueH) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
+		store().insert(k, Value::Data(bytes));
+		PF_Err_NONE
 	})
 }
 
@@ -347,6 +411,11 @@ unsafe extern "C" fn set_data(
 	dataPV: *const std::os::raw::c_void,
 ) -> A_Err {
 	crate::core::ffi::guard("set_data", || {
+		diag!("AEGPPersistentDataSuite/AEGP_SetData",
+			"section_keyZ" => format!("{:?}", unsafe { key(section_keyZ) }),
+			"value_keyZ" => format!("{:?}", unsafe { key(value_keyZ) }),
+			"data_sizeLu" => data_sizeLu,
+		);
 		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
 		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 		let bytes = if dataPV.is_null() {
@@ -366,6 +435,10 @@ unsafe extern "C" fn set_string(
 	strZ: *const A_char,
 ) -> A_Err {
 	crate::core::ffi::guard("set_string", || {
+		diag!("AEGPPersistentDataSuite/AEGP_SetString",
+			"section_keyZ" => format!("{:?}", unsafe { key(section_keyZ) }),
+			"value_keyZ" => format!("{:?}", unsafe { key(value_keyZ) }),
+		);
 		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
 		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 		STORE
@@ -383,6 +456,11 @@ unsafe extern "C" fn set_long(
 	valueL: A_long,
 ) -> A_Err {
 	crate::core::ffi::guard("set_long", || {
+		diag!("AEGPPersistentDataSuite/AEGP_SetLong",
+			"section_keyZ" => format!("{:?}", unsafe { key(section_keyZ) }),
+			"value_keyZ" => format!("{:?}", unsafe { key(value_keyZ) }),
+			"valueL" => valueL,
+		);
 		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
 		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 		store().insert(k, Value::Long(valueL));
@@ -397,6 +475,11 @@ unsafe extern "C" fn set_fp_long(
 	valueF: A_FpLong,
 ) -> A_Err {
 	crate::core::ffi::guard("set_fp_long", || {
+		diag!("AEGPPersistentDataSuite/AEGP_SetFpLong",
+			"section_keyZ" => format!("{:?}", unsafe { key(section_keyZ) }),
+			"value_keyZ" => format!("{:?}", unsafe { key(value_keyZ) }),
+			"valueF" => valueF,
+		);
 		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
 		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 		store().insert(k, Value::FpLong(valueF));
@@ -410,6 +493,10 @@ unsafe extern "C" fn delete_entry(
 	value_keyZ: *const A_char,
 ) -> A_Err {
 	crate::core::ffi::guard("delete_entry", || {
+		diag!("AEGPPersistentDataSuite/AEGP_DeleteEntry",
+			"section_keyZ" => format!("{:?}", unsafe { key(section_keyZ) }),
+			"value_keyZ" => format!("{:?}", unsafe { key(value_keyZ) }),
+		);
 		let k = (unsafe { key(section_keyZ) }, unsafe { key(value_keyZ) });
 		log::debug!("AEGP_PersistentData [{}] {}", k.0, k.1);
 		store().remove(&k);
@@ -419,6 +506,7 @@ unsafe extern "C" fn delete_entry(
 
 unsafe extern "C" fn get_prefs_directory(unicode_pathPH: *mut AEGP_MemHandle) -> A_Err {
 	crate::core::ffi::guard("get_prefs_directory", || {
+		diag!("AEGPPersistentDataSuite/AEGP_GetPrefsDirectory");
 		// "empty string if no file": we have no prefs directory, so report none.
 		if !unicode_pathPH.is_null() {
 			unsafe { *unicode_pathPH = std::ptr::null_mut() };
@@ -451,5 +539,56 @@ pub(super) const fn create_persistent_data_suite_3() -> AEGP_PersistentDataSuite
 		AEGP_SetFpLong: Some(set_fp_long),
 		AEGP_DeleteEntry: Some(delete_entry),
 		AEGP_GetPrefsDirectory: Some(get_prefs_directory),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::suites::aegp_memory::{handle_bytes, handle_from_bytes};
+
+	#[test]
+	fn data_handles_round_trip_through_the_store() {
+		let section = c"aexlo-test-handles";
+		let value = c"blob";
+		let blob = blob_handle();
+		let mut out: AEGP_MemHandle = std::ptr::null_mut();
+
+		// Nothing stored and no default: a null handle.
+		let err = unsafe {
+			get_data_handle(
+				0,
+				blob,
+				section.as_ptr(),
+				value.as_ptr(),
+				std::ptr::null_mut(),
+				&mut out,
+			)
+		};
+		assert_eq!((err, out.is_null()), (PF_Err_NONE, true));
+
+		// The default is returned and written back.
+		let default = handle_from_bytes(vec![1, 2, 3]);
+		let err = unsafe { get_data_handle(0, blob, section.as_ptr(), value.as_ptr(), default, &mut out) };
+		assert_eq!(err, PF_Err_NONE);
+		assert_eq!(handle_bytes(out).as_deref(), Some(&[1u8, 2, 3][..]));
+
+		// A set handle is what the next get returns.
+		let set = handle_from_bytes(vec![9, 8]);
+		assert_eq!(
+			unsafe { set_data_handle(blob, section.as_ptr(), value.as_ptr(), set) },
+			PF_Err_NONE
+		);
+		let err = unsafe { get_data_handle(0, blob, section.as_ptr(), value.as_ptr(), default, &mut out) };
+		assert_eq!(err, PF_Err_NONE);
+		assert_eq!(handle_bytes(out).as_deref(), Some(&[9u8, 8][..]));
+
+		// A handle the memory suite did not hand out is refused.
+		let foreign = 0x10 as AEGP_MemHandle;
+		assert_eq!(
+			unsafe { set_data_handle(blob, section.as_ptr(), value.as_ptr(), foreign) },
+			PF_Err_BAD_CALLBACK_PARAM
+		);
+		store().retain(|(s, _), _| s != "aexlo-test-handles");
 	}
 }
