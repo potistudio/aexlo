@@ -1217,6 +1217,33 @@ unsafe extern "C" fn get_unique_stream_id(streamH: AEGP_StreamRefH, outID: *mut 
 	})
 }
 
+/// Wire version 4 (Extrude's 3D Camera mode asks for it): version 7 without
+/// `AEGP_GetValidInterpolations` and `AEGP_DuplicateStreamRef`.
+pub(super) const fn create_stream_suite_1() -> AEGP_StreamSuite1 {
+	AEGP_StreamSuite1 {
+		AEGP_IsStreamLegal: Some(is_stream_legal),
+		AEGP_CanVaryOverTime: Some(can_vary_over_time),
+		AEGP_GetNewLayerStream: Some(get_new_layer_stream),
+		AEGP_GetEffectNumParamStreams: Some(get_effect_num_param_streams),
+		AEGP_GetNewEffectStreamByIndex: Some(get_new_effect_stream_by_index),
+		AEGP_GetNewMaskStream: Some(get_new_mask_stream),
+		AEGP_DisposeStream: Some(dispose_stream),
+		AEGP_GetStreamName: Some(get_stream_name_v1),
+		AEGP_GetStreamUnitsText: Some(get_stream_units_text),
+		AEGP_GetStreamProperties: Some(get_stream_properties),
+		AEGP_IsStreamTimevarying: Some(is_stream_timevarying),
+		AEGP_GetStreamType: Some(get_stream_type),
+		AEGP_GetNewStreamValue: Some(get_new_stream_value_v1),
+		AEGP_DisposeStreamValue: Some(dispose_stream_value_v1),
+		AEGP_SetStreamValue: Some(set_stream_value_v1),
+		AEGP_GetLayerStreamValue: Some(get_layer_stream_value_v1),
+		AEGP_GetExpressionState: Some(get_expression_state),
+		AEGP_SetExpressionState: Some(set_expression_state),
+		AEGP_GetExpression: Some(get_expression),
+		AEGP_SetExpression: Some(set_expression),
+	}
+}
+
 /// Builds the `AEGP_StreamSuite2` vtable (wire version 7).
 pub(super) const fn create_stream_suite_2() -> AEGP_StreamSuite2 {
 	AEGP_StreamSuite2 {

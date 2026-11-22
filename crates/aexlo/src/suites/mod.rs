@@ -105,6 +105,7 @@ static AEGP_MASK_OUTLINE_1: AEGP_MaskOutlineSuite1 = mask_outline::suite_1();
 static AEGP_MASK_OUTLINE_2: AEGP_MaskOutlineSuite2 = mask_outline::suite_2();
 static AEGP_MASK_OUTLINE_3: AEGP_MaskOutlineSuite3 = mask_outline::suite_3();
 static AEGP_TEXT_DOCUMENT_1: AEGP_TextDocumentSuite1 = text_document::suite_1();
+static AEGP_STREAM_1: AEGP_StreamSuite1 = stream::create_stream_suite_1();
 static COMP_SUITE_4: AEGP_CompSuite4 = comp::create_comp_suite_4();
 static PF_WORLD_1: PF_WorldSuite1 = world::create_world_suite_1();
 static AEGP_LAYER_RENDER_OPTIONS_1: AEGP_LayerRenderOptionsSuite1 = aegp_render::layer_render_options_suite_1();
@@ -411,9 +412,13 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("AEGP Persistent Data Suite", 3) => {
 			dispatch_static!(suite, suite_name, version, persistent_data)
 		}
-		// Stream Suite wire versions 7, 8, 9, 10 and 11 are AEGP_StreamSuite2, 3,
-		// 4, 5 and 6. They differ in their stream value structs and in whether names
+		// Stream Suite wire versions 4, 7, 8, 9, 10 and 11 are AEGP_StreamSuite1, 2,
+		// 3, 4, 5 and 6. They differ in their stream value structs and in whether names
 		// and expression text are `char` or UTF-16.
+		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion1 as i32 => {
+			unsafe { *suite = &AEGP_STREAM_1 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion2 as i32 => {
 			dispatch_static!(suite, suite_name, version, stream2)
 		}
@@ -723,6 +728,7 @@ mod tests {
 			("PF Cache On Load Suite", 1),
 			("AE Plugin Helper Suite", 1),
 			("AE Plugin Helper Suite2", 2),
+			("AEGP Stream Suite", 4),
 			("AEGP Stream Suite", 7),
 			("AEGP Stream Suite", 8),
 			("AEGP Stream Suite", 9),

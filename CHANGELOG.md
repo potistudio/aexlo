@@ -63,7 +63,7 @@ may break the API, and every breaking change is listed below.
   `params` array, `PF_CHECKOUT_PARAM`, streams, the Keyframe Suite and PF Param
   Utils all read that track, at the time each is asked about. With a project,
   `set_time` is the effect layer's time.
-- "AEGP Comp Suite" v19 and "AEGP Math Suite" v1.
+- "AEGP Comp Suite" v19, "AEGP Math Suite" v1 and "AEGP Stream Suite" v4.
 - `aexlo inspect` takes `input shape`, `mask` and `key`.
 - `AEGP_SetStreamValue` sets an effect parameter's value, clamped to its valid
   range (a color keeps its alpha), and `AEGP_SetDynamicStreamFlag` hides and
