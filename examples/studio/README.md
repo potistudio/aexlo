@@ -24,6 +24,8 @@ Use `--release`: debug builds composite several times slower.
   fill and stroke), text (any TTF/OTF/TTC font, falling back to a system
   Japanese font), and adjustment layers whose effects process everything
   below them. Each has a transform, opacity, blend mode, and in/out points.
+  Effects on a text layer see it as one (`AEGP_ObjectType_TEXT`) and can read
+  its glyph outlines, so text effects such as TextGrad work.
 - **Masks**: drawn with the pen or shape tools on any layer, with Add,
   Subtract, Intersect, Lighten, Darken, Difference and None modes, inversion,
   opacity and feather. They cut the layer before its effects run, as in AE,
@@ -68,8 +70,8 @@ Use `--release`: debug builds composite several times slower.
 `engine.rs` runs on its own thread and owns every `PluginInstance`; the UI
 sends it snapshots of the project and only the newest pending one renders.
 Per layer: source → masks → effects (each one `set_input_layer`,
-`set_time`, parameters, `set_mask_paths`, `set_layer_param`,
-`render_frame`) → transform and blend onto the comp with tiny-skia. Layer
+`set_time`, parameters, `set_mask_paths`, `set_text_layer`,
+`set_layer_param`, `render_frame`) → transform and blend onto the comp with tiny-skia. Layer
 sources whose contents and masks don't change are cached across frames.
 
 For scripted checks, `AEXLO_STUDIO_SCREENSHOT=out.png` saves the window once

@@ -19,7 +19,7 @@ use tiny_skia::{FilterQuality, Pixmap, PixmapPaint};
 
 use crate::model::{BlendMode, Effect, Id, Layer, LayerKind, PValue, Project};
 use crate::plugins;
-use crate::raster::{Fonts, Image, ImageCache, mask_coverage, render_shapes, render_text};
+use crate::raster::{Fonts, Image, ImageCache, mask_coverage, render_shapes, render_text, text_outlines};
 
 /// One plugin parameter, as declared at `PF_Cmd_PARAMS_SETUP`.
 #[derive(Debug, Clone)]
@@ -575,6 +575,14 @@ impl Worker {
 		links: Vec<(usize, Option<Image>)>,
 		ctx: &Frame,
 	) -> Result<Image, String> {
+		// A text layer's effects see real text, not only its pixels.
+		let text = match &layer.kind {
+			LayerKind::Text(text) => Some(aexlo::TextLayer::from_outlines(
+				text.text.clone(),
+				text_outlines(text, ctx.frame, &mut self.fonts),
+			)),
+			_ => None,
+		};
 		let slot = self.slots.get_mut(&effect.id).ok_or("not loaded")?;
 		let info = slot.info.clone();
 		let fx = slot.instance.as_mut().map_err(|e| format!("failed to load: {e}"))?;
@@ -607,6 +615,7 @@ impl Worker {
 		}
 
 		fx.set_mask_paths(layer.masks.iter().map(mask_path).collect());
+		fx.set_text_layer(text);
 
 		let mut linked = BTreeSet::new();
 		for (index, image) in links {
@@ -1036,6 +1045,39 @@ mod tests {
 		// Sliding the layer 60 frames later restarts its clock.
 		p.layers[0].shift(60);
 		assert_eq!(white(&w.render(&p, 60, 1).image), early);
+	}
+
+	/// TextGrad fills each character of a text layer with a gradient: it
+	/// reads the outlines of the layer's text, not its pixels.
+	#[test]
+	fn text_effects_read_the_layer_text() {
+		if !has_fixture("TextGrad") {
+			return;
+		}
+		let mut p = project(320, 120);
+		let text = crate::model::Text {
+			text: "Hi".into(),
+			font: None,
+			size: Anim::new(96.0),
+			color: Anim::new([1.0; 4]),
+			position: Anim::new([100.0, 95.0]),
+			align: crate::model::TextAlign::Left,
+			tracking: Anim::new(0.0),
+		};
+		let mut layer = p.new_layer("text", LayerKind::Text(text));
+		layer.effects.push(p.new_effect("TextGrad"));
+		p.layers.push(layer);
+		let result = worker().render(&p, 0, 1);
+		assert!(result.problems.is_empty(), "{:?}", result.problems);
+		let colours: HashSet<[u8; 4]> = result
+			.image
+			.pixels
+			.chunks(4)
+			.filter(|px| px[3] == 255 && px[..3].iter().max().unwrap() - px[..3].iter().min().unwrap() > 64)
+			.map(|px| px.try_into().unwrap())
+			.collect();
+		// White text passed through would have no colour at all.
+		assert!(colours.len() > 50, "only {} gradient colours", colours.len());
 	}
 }
 
