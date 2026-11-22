@@ -20,6 +20,10 @@ may break the API, and every breaking change is listed below.
 
 ### Fixed
 
+- `PF_Event_DRAG` hands the plugin back the `continue_refcon` that its click
+  (or the drag before it) left, as After Effects does, instead of zeros.
+  Curve editors that keep the point being dragged there, such as Falloff's
+  and Furikake's, ignored every drag.
 - `PF_Cmd_SMART_PRE_RENDER` hands the plugin a `GuidMixInPtr` callback in
   `PF_PreRenderCallbacks` instead of a null pointer. Plugins that mix state
   into the frame GUID without checking the pointer, such as Cosmic and

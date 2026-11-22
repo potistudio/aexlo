@@ -339,6 +339,9 @@ struct LiveUiContext {
 	#[allow(dead_code)]
 	context: Box<crate::sys::PF_Context>,
 	handle: Box<*mut crate::sys::PF_Context>,
+	/// What the plugin left in `continue_refcon` at the last click or drag.
+	/// After Effects hands it back with each `PF_Event_DRAG` that follows.
+	continue_refcon: [crate::sys::A_intptr_t; 4],
 }
 
 impl LiveUiContext {
@@ -356,6 +359,7 @@ impl LiveUiContext {
 		Self {
 			context,
 			handle: Box::new(ptr),
+			continue_refcon: [0; 4],
 		}
 	}
 

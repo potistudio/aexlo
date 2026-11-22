@@ -87,7 +87,12 @@ impl PluginInstance {
 				},
 				num_clicks: 1,
 				modifiers: 0,
-				continue_refcon: [0; 4],
+				// A click starts afresh; its drags get back what it stored.
+				continue_refcon: if event == crate::sys::PF_Event_DRAG {
+					kept.continue_refcon
+				} else {
+					[0; 4]
+				},
 				send_drag: (event == crate::sys::PF_Event_DRAG) as crate::sys::PF_Boolean,
 				last_time: pointer.last as crate::sys::PF_Boolean,
 			};
@@ -110,10 +115,13 @@ impl PluginInstance {
 			"effect event {event} on param {index}: {result:?} evt_out_flags={:#x}",
 			extra.evt_out_flags
 		);
-		let send_drag = matches!(
-			event,
-			crate::sys::PF_Event_DO_CLICK | crate::sys::PF_Event_DRAG // SAFETY: `event` is a click or drag here, so the plugin's reply is in `u.do_click`.
-		) && unsafe { extra.u.do_click.send_drag } != 0;
+		let clicked = matches!(event, crate::sys::PF_Event_DO_CLICK | crate::sys::PF_Event_DRAG);
+		// SAFETY: `event` is a click or drag here, so the plugin's reply is in `u.do_click`.
+		let send_drag = clicked && unsafe { extra.u.do_click.send_drag } != 0;
+		if clicked {
+			// SAFETY: as above.
+			kept.continue_refcon = unsafe { extra.u.do_click.continue_refcon };
+		}
 		self.ui_contexts.insert(index, kept);
 		(extra.evt_out_flags, send_drag)
 	}
