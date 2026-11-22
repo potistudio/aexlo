@@ -164,21 +164,35 @@ fn pump_window_messages() {
 	while peek_message() {}
 }
 
+/// A Win32 `MSG`.
+#[cfg(windows)]
+#[repr(C)]
+struct Msg {
+	hwnd: *mut std::ffi::c_void,
+	message: u32,
+	_pad: u32,
+	wparam: usize,
+	lparam: isize,
+	time: u32,
+	_pad2: u32,
+	x: i32,
+	y: i32,
+}
+
+#[cfg(windows)]
+#[link(name = "user32")]
+unsafe extern "system" {
+	fn PeekMessageW(msg: *mut Msg, hwnd: *mut std::ffi::c_void, min: u32, max: u32, remove: u32) -> i32;
+}
+
 /// Answer what other threads have sent to this thread's windows, and leave
 /// its queue to the event loop.
 #[cfg(windows)]
 fn answer_sent_messages() {
-	#[repr(C)]
-	struct Msg([u64; 6]);
-	#[link(name = "user32")]
-	unsafe extern "system" {
-		#[link_name = "PeekMessageW"]
-		fn peek(msg: *mut Msg, hwnd: *mut std::ffi::c_void, min: u32, max: u32, remove: u32) -> i32;
-	}
-	let mut msg = Msg([0; 6]);
-	// SAFETY: `Msg` has the size and alignment of a `MSG`. PM_NOREMOVE still
-	// dispatches sent messages, which are never queued.
-	unsafe { peek(&mut msg, std::ptr::null_mut(), 0, 0, 0) };
+	let mut msg = std::mem::MaybeUninit::<Msg>::uninit();
+	// SAFETY: `msg` has room for a `MSG` and is not read back. PM_NOREMOVE
+	// still dispatches sent messages, which are never queued.
+	unsafe { PeekMessageW(msg.as_mut_ptr(), std::ptr::null_mut(), 0, 0, 0) };
 }
 
 /// Ask the windows of `thread` to close, as their close button would: a
@@ -227,21 +241,8 @@ fn close_windows(thread: &JoinHandle<()>) {
 
 #[cfg(windows)]
 fn peek_message() -> bool {
-	#[repr(C)]
-	struct Msg {
-		hwnd: *mut std::ffi::c_void,
-		message: u32,
-		_pad: u32,
-		wparam: usize,
-		lparam: isize,
-		time: u32,
-		_pad2: u32,
-		x: i32,
-		y: i32,
-	}
 	#[link(name = "user32")]
 	unsafe extern "system" {
-		fn PeekMessageW(msg: *mut Msg, hwnd: *mut std::ffi::c_void, min: u32, max: u32, remove: u32) -> i32;
 		fn TranslateMessage(msg: *const Msg) -> i32;
 		fn DispatchMessageW(msg: *const Msg) -> isize;
 	}
