@@ -6,7 +6,8 @@
 //! whole comp: the comp is the input layer's size, the layer starts at comp
 //! time 0 with no stretch (so layer time is comp time), runs for
 //! [`COMP_DURATION_SECONDS`], is a 2D AV layer with an identity transform, and
-//! has no parent, track matte or source item. The comp's frame rate and the
+//! has no parent or track matte. Its synthetic footage source is the input
+//! image. The comp's frame rate and the
 //! current time are the instance's render context (frame 0 at 30 fps by
 //! default).
 //!
@@ -20,22 +21,39 @@ use crate::sys::*;
 
 use crate::PluginInstance;
 use crate::core::diagnostics::diag;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+
+// Tokens are only resolved while their owning instance is executing a plugin call.
+static SOURCE_ITEMS: LazyLock<Mutex<HashMap<usize, (usize, usize)>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 thread_local! {
 	static CURRENT_EFFECT: Cell<PF_ProgPtr> = const { Cell::new(std::ptr::null_mut()) };
 }
 
 /// Restores the effect that was current before [`enter_effect`].
-pub(crate) struct EffectGuard(PF_ProgPtr);
+pub(crate) struct EffectGuard(PF_ProgPtr, usize);
 
 /// The effect behind the plugin call on this thread. Suite callbacks that take
 /// no effect reference (`AEGP_GetActiveItem`) recover the instance from it.
-pub(crate) fn enter_effect(effect_ref: PF_ProgPtr) -> EffectGuard {
-	EffectGuard(CURRENT_EFFECT.with(|slot| slot.replace(effect_ref)))
+pub(crate) fn enter_effect(effect_ref: PF_ProgPtr, source: *mut std::ffi::c_void) -> EffectGuard {
+	let token = source as usize;
+	let mut items = SOURCE_ITEMS.lock().unwrap();
+	let entry = items.entry(token).or_insert((effect_ref as usize, 0));
+	entry.0 = effect_ref as usize;
+	entry.1 += 1;
+	EffectGuard(CURRENT_EFFECT.with(|slot| slot.replace(effect_ref)), token)
 }
 
 impl Drop for EffectGuard {
 	fn drop(&mut self) {
+		let mut items = SOURCE_ITEMS.lock().unwrap();
+		if let Some(entry) = items.get_mut(&self.1) {
+			entry.1 -= 1;
+			if entry.1 == 0 {
+				items.remove(&self.1);
+			}
+		}
 		CURRENT_EFFECT.with(|slot| slot.set(self.0));
 	}
 }
@@ -65,6 +83,23 @@ pub(crate) fn item_handle(effect_ref: PF_ProgPtr) -> AEGP_ItemH {
 	effect_ref as AEGP_ItemH
 }
 
+pub(crate) fn source_item_handle(effect_ref: PF_ProgPtr) -> AEGP_ItemH {
+	SOURCE_ITEMS
+		.lock()
+		.unwrap()
+		.iter()
+		.find_map(|(token, (owner, _))| (*owner == effect_ref as usize).then_some(*token as AEGP_ItemH))
+		.unwrap_or(std::ptr::null_mut())
+}
+
+pub(crate) fn source_item_effect(item: AEGP_ItemH) -> Option<PF_ProgPtr> {
+	SOURCE_ITEMS
+		.lock()
+		.unwrap()
+		.get(&(item as usize))
+		.map(|(owner, _)| *owner as PF_ProgPtr)
+}
+
 /// What the timeline looks like from the effect behind a layer or comp handle.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Timeline {
@@ -79,7 +114,15 @@ impl Timeline {
 	/// The timeline of the effect behind a layer or comp handle, or `None` for
 	/// a null handle.
 	pub(crate) fn of(handle: *mut std::ffi::c_void) -> Option<Self> {
-		let instance = PluginInstance::get_instance_ptr(handle as PF_ProgPtr)?;
+		let effect = {
+			let items = SOURCE_ITEMS.lock().unwrap();
+			if items.values().any(|(owner, _)| *owner == handle as usize) {
+				handle as PF_ProgPtr
+			} else {
+				return None;
+			}
+		};
+		let instance = PluginInstance::get_instance_ptr(effect)?;
 		// SAFETY: the handle is the live instance that is running the plugin call.
 		let instance = unsafe { instance.as_ref() };
 		let (width, height) = instance.input_size();
@@ -91,6 +134,11 @@ impl Timeline {
 			time_step,
 			time_scale,
 		})
+	}
+
+	pub(crate) fn of_item(handle: AEGP_ItemH) -> Option<Self> {
+		let effect = source_item_effect(handle).unwrap_or(handle as PF_ProgPtr);
+		Self::of(effect.cast())
 	}
 
 	pub(crate) fn current(&self) -> A_Time {
@@ -172,17 +220,32 @@ unsafe extern "C" fn get_layer_index(layerH: AEGP_LayerH, layer_indexPL: *mut A_
 	})
 }
 
-unsafe extern "C" fn get_layer_source_item(_layerH: AEGP_LayerH, _source_itemPH: *mut AEGP_ItemH) -> A_Err {
+unsafe extern "C" fn get_layer_source_item(layerH: AEGP_LayerH, source_itemPH: *mut AEGP_ItemH) -> A_Err {
 	crate::core::ffi::guard("get_layer_source_item", || {
 		diag!("AEGP_LayerSuite/AEGP_GetLayerSourceItem");
-		unsupported("AEGP_GetLayerSourceItem")
+		let Some(out) = (unsafe { source_itemPH.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let source = source_item_handle(layerH as PF_ProgPtr);
+		if source.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		*out = source;
+		PF_Err_NONE
 	})
 }
 
-unsafe extern "C" fn get_layer_source_item_id(_layerH: AEGP_LayerH, _source_item_idPL: *mut A_long) -> A_Err {
+unsafe extern "C" fn get_layer_source_item_id(layerH: AEGP_LayerH, source_item_idPL: *mut A_long) -> A_Err {
 	crate::core::ffi::guard("get_layer_source_item_id", || {
 		diag!("AEGP_LayerSuite/AEGP_GetLayerSourceItemID");
-		unsupported("AEGP_GetLayerSourceItemID")
+		if source_item_handle(layerH as PF_ProgPtr).is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		let Some(out) = (unsafe { source_item_idPL.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		*out = 2;
+		PF_Err_NONE
 	})
 }
 

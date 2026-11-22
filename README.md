@@ -209,6 +209,7 @@ during `PF_Event_DRAW`. The CLI never sends `PF_Cmd_EVENT`; an embedder does.
 | × Marker       |                   |                        |                        |
 
 △ Layer / Comp / Item / Light / Effect / PF Interface / Stream / Dynamic Stream / Keyframe: the project is aexlo's fixed one-layer comp, with no keyframes.
+The layer has one hosted effect and a synthetic footage item representing its input.
 △ Render / Render Options / Layer Render Options: checkout returns the effect's own input.
 △ Color Settings: the working space is sRGB, with no colour management.
 △ Register: idle hooks are recorded and never called.

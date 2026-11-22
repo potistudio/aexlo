@@ -338,6 +338,7 @@ impl PluginInstance {
 
 		{
 			let mut instance_placeholder = PluginInstance {
+				source_item_token: Box::new(0),
 				aegp_owner: crate::suites::register::new_owner(),
 				raw_library: None,
 				entry_point: None,
@@ -709,7 +710,8 @@ impl PluginInstance {
 		}
 		let _aegp_scope = crate::suites::register::enter_owner(self.aegp_owner);
 		let effect_ref = self as *mut _ as PF_ProgPtr;
-		let _current_effect = crate::suites::enter_effect(effect_ref);
+		let source_token = (&raw mut *self.source_item_token).cast();
+		let _current_effect = crate::suites::enter_effect(effect_ref, source_token);
 
 		let entry_point_name = self.entry_point_name.as_deref().unwrap_or(DEFAULT_ENTRY_POINT_NAME);
 

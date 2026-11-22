@@ -1,11 +1,11 @@
 //! `AEGP Effect Suite` (wire versions 1, 2, 3 and 4) and the `AEGP_EffectRefH`
 //! handles it takes.
 //!
-//! aexlo hosts exactly one effect per [`PluginInstance`] and has no layers, so
-//! an effect handle is just the effect's `PF_ProgPtr` in a box: it is minted
+//! aexlo hosts one effect on a synthetic layer per [`PluginInstance`]. An
+//! effect handle is the effect's `PF_ProgPtr` in a box: it is minted
 //! by `AEGP_GetNewEffectForEffect` (PF Interface Suite), read by this suite and
 //! the Stream Suite, and freed by `AEGP_DisposeEffect`. Everything that needs a
-//! layer or the installed-effect registry is refused with `A_Err_GENERIC`.
+//! installed-effect registry is refused with `A_Err_GENERIC`.
 //!
 //! Wire version 1 is version 2 without `AEGP_DuplicateEffect`. Version 3 adds
 //! the command argument to `AEGP_EffectCallGeneric` (the same signature as
@@ -58,22 +58,33 @@ fn unsupported(name: &str) -> A_Err {
 	A_Err_GENERIC
 }
 
-unsafe extern "C" fn get_layer_num_effects(_layerH: AEGP_LayerH, _num_effectsPL: *mut A_long) -> A_Err {
+unsafe extern "C" fn get_layer_num_effects(layerH: AEGP_LayerH, num_effectsPL: *mut A_long) -> A_Err {
 	crate::core::ffi::guard("get_layer_num_effects", || {
 		diag!("AEGP_EffectSuite2/AEGP_GetLayerNumEffects");
-		unsupported("AEGP_GetLayerNumEffects")
+		super::layer::answer(layerH.cast(), num_effectsPL, |_| 1)
 	})
 }
 
 unsafe extern "C" fn get_layer_effect_by_index(
 	_aegp_plugin_id: AEGP_PluginID,
-	_layerH: AEGP_LayerH,
-	_layer_effect_indexL: AEGP_EffectIndex,
-	_effectPH: *mut AEGP_EffectRefH,
+	layerH: AEGP_LayerH,
+	layer_effect_indexL: AEGP_EffectIndex,
+	effectPH: *mut AEGP_EffectRefH,
 ) -> A_Err {
 	crate::core::ffi::guard("get_layer_effect_by_index", || {
 		diag!("AEGP_EffectSuite2/AEGP_GetLayerEffectByIndex");
-		unsupported("AEGP_GetLayerEffectByIndex")
+		let Some(out) = (unsafe { effectPH.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		*out = std::ptr::null_mut();
+		if super::layer::Timeline::of(layerH.cast()).is_none() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		if layer_effect_indexL != 0 {
+			return PF_Err_INVALID_INDEX;
+		}
+		*out = new_effect_handle(layerH.cast());
+		PF_Err_NONE
 	})
 }
 

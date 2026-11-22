@@ -190,6 +190,7 @@ aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
 | × Marker       |                   |                        |                        |
 
 △ Layer / Comp / Item / Light / Effect / PF Interface / Stream / Dynamic Stream / Keyframe：コンポジションそのものである固定の 1 レイヤーを返し、キーフレームはありません。
+このレイヤーにはホスト中のエフェクトが 1 つあり、入力画像を表す仮想フッテージアイテムが対応します。
 △ Render / Render Options / Layer Render Options：チェックアウトはエフェクト自身の入力を返します。
 △ Color Settings：作業用スペースは sRGB で、カラーマネジメントはしません。
 △ Register：アイドルフックは記録しますが、呼びません。

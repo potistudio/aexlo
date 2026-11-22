@@ -178,6 +178,8 @@ pub type PluginEntryPoint = unsafe extern "C" fn(
 /// Manages its library, entry point, parameters, and execution state.
 /// All operations related to the plug-in should be invoked from this.
 pub struct PluginInstance {
+	/// Stable identity for the synthetic input footage item.
+	source_item_token: Box<u8>,
 	/// Identifies AEGP registrations whose callbacks must not outlive this DLL.
 	aegp_owner: u64,
 	raw_library: Option<Library>,
