@@ -122,13 +122,14 @@ plugin renders or returns.
   layer parameters, masks, text and shapes on the layer, and the bytes of
   arbitrary data. The `CHECK_ALL` indices mean what the SDK says.
   `PF_IsIdenticalCheckout` compares all the parameters those stand for.
-- PF World Transform works at 16 and 32 bpc. `composite_rect`, `blend`,
-  `convolve`, `transfer_rect` and `transform_world` refused those worlds,
-  which failed every render of Shine at those depths. `copy` and `copy_hq`
-  succeeded after copying a half or a quarter of each row. Deep opacity is
-  read from `opacitySu`, and 32 bpc keeps values out of range through
-  copying, filtering, normal and additive compositing. 8-bit results are
-  unchanged.
+- PF World Transform works at 16 and 32 bpc. `composite_rect`,
+  `transfer_rect` and `transform_world` refused those worlds, which failed
+  every render of Shine at those depths; `blend` and `convolve` read them as
+  8-bit; `copy` and `copy_hq` succeeded after copying a half or a quarter of
+  each row. Deep opacity is read from `opacitySu`, and 32 bpc keeps values
+  out of range through copying, filtering, normal and additive compositing.
+  At 8 bpc only `copy` differs: it stretches into a destination rectangle of
+  another size and no longer reads past the source.
 - The legacy `copy` honours its rectangles, and `fill` and the colourless
   `premultiply` cover the whole of a deep world. Discotext and DisplacerPro
   left the alpha of three quarters of a 32 bpc frame wrong.

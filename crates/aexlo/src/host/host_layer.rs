@@ -1,8 +1,8 @@
 //! A layer owned by the host (input, output or a linked layer parameter),
 //! whose depth `PF_GetPixelFormat` must report.
 
-use std::cell::OnceCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::OnceLock;
 
 use rayon::prelude::*;
 
@@ -16,7 +16,8 @@ use crate::pixel::{AnyLayer, PixelDepthKind};
 /// layer moves; replacing the buffer must go through a new `HostLayer`.
 pub(crate) struct HostLayer {
 	layer: AnyLayer,
-	digest: OnceCell<u64>,
+	// Plugins ask for states from iterate's workers, several at once.
+	digest: OnceLock<u64>,
 }
 
 impl HostLayer {
@@ -25,7 +26,7 @@ impl HostLayer {
 		crate::suites::world::tag_host_world(layer.data_ptr() as usize, bytes, layer.kind());
 		Self {
 			layer,
-			digest: OnceCell::new(),
+			digest: OnceLock::new(),
 		}
 	}
 
