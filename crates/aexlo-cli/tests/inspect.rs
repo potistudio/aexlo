@@ -26,8 +26,12 @@ fn inspect(scratch: &str, args: &[&str]) -> (bool, String) {
 fn exit_does_not_run_the_detach_of_a_plugin_that_stays_loaded() {
 	let plugin = common::misbehave_artifact();
 	for (commands, expected) in [("render", 0), ("set Mode Error; render", 1)] {
+		let dir = common::scratch("inspect_exit");
 		let out = std::process::Command::new(env!("CARGO_BIN_EXE_aexlo"))
-			.current_dir(common::scratch("inspect_exit"))
+			.current_dir(&dir)
+			// The pinned plugin's staged copy cannot be deleted: keep it out of %TEMP%.
+			.env("TEMP", &dir)
+			.env("TMP", &dir)
 			.env("AEXLO_TEST_PIN_AT_EXIT", "1")
 			.arg("inspect")
 			.arg(&plugin)
