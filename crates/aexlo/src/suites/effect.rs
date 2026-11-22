@@ -105,7 +105,7 @@ fn unsupported(name: &str) -> A_Err {
 unsafe extern "C" fn get_layer_num_effects(layerH: AEGP_LayerH, num_effectsPL: *mut A_long) -> A_Err {
 	crate::core::ffi::guard("get_layer_num_effects", || {
 		diag!("AEGP_EffectSuite2/AEGP_GetLayerNumEffects");
-		super::layer::answer(layerH.cast(), num_effectsPL, |_| 1)
+		super::layer::answer(layerH.cast(), num_effectsPL, |t| t.hosts_effect as A_long)
 	})
 }
 
@@ -121,10 +121,11 @@ unsafe extern "C" fn get_layer_effect_by_index(
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = std::ptr::null_mut();
-		if super::layer::Timeline::of(layerH.cast()).is_none() {
+		let Some(timeline) = super::layer::Timeline::of(layerH.cast()) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
-		}
-		if layer_effect_indexL != 0 {
+		};
+		// The project does not say what effects are on the other layers.
+		if layer_effect_indexL != 0 || !timeline.hosts_effect {
 			return PF_Err_INVALID_INDEX;
 		}
 		*out = new_effect_handle(layerH.cast());
@@ -144,7 +145,7 @@ unsafe extern "C" fn get_installed_key_from_layer_effect(
 		let Some(effect_ref) = (unsafe { effect_ref_of(effect_refH) }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		if super::layer::Timeline::of(effect_ref.cast()).is_none() {
+		if super::layer::Timeline::of_effect(effect_ref.cast()).is_none() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let instance = unsafe { PluginInstance::get_instance_ptr(effect_ref).unwrap().as_ref() };

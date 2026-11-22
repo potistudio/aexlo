@@ -141,6 +141,43 @@ impl PluginInstance {
 		self.text_layer = text;
 	}
 
+	/// The project around the effect (see [`Self::set_project`]).
+	pub fn project(&self) -> Option<&crate::Project> {
+		self.project.as_ref().map(|state| &state.project)
+	}
+
+	pub(crate) fn project_state(&self) -> Option<&crate::project::ProjectState> {
+		self.project.as_ref()
+	}
+
+	/// Describe the project around the effect: its comp, every layer, and
+	/// which one the effect is on. With `None` the effect is alone again, on a
+	/// layer that fills its comp.
+	///
+	/// With a project, what the effect's layer is comes from the project, not
+	/// from [`Self::set_text_layer`], and [`Self::set_time`]'s time is that
+	/// layer's: comp time is `start + time * stretch`. The pixels are still
+	/// [`Self::set_input_layer`]'s; [`ProjectLayer::rasterize`](crate::ProjectLayer::rasterize)
+	/// makes them for a text or shape layer.
+	///
+	/// A layer keeps its handle for as long as its id stays in the project;
+	/// the handle of one that left is refused from then on.
+	pub fn set_project(&mut self, project: Option<crate::Project>) {
+		if self.project() == project.as_ref() {
+			return;
+		}
+		let duration = project.as_ref().map(|project| {
+			let layer = project.effect_layer();
+			layer
+				.to_layer_time(layer.out_point)
+				.since(layer.to_layer_time(layer.in_point))
+		});
+		self.render_context.set_layer_duration(duration);
+		let owner = (&raw const *self.source_item_token) as usize;
+		let previous = self.project.take();
+		self.project = project.map(|project| crate::project::ProjectState::new(project, owner, previous));
+	}
+
 	/// Link `layer` to the plugin's own layer parameter at `index` (same index
 	/// space as [`Self::set_param`]), or unlink it with `None` (the parameter's
 	/// "None" choice). The plugin sees the layer through `checkout_param` and

@@ -75,6 +75,8 @@ impl RawCommand {
 mod layers;
 mod load;
 mod params;
+#[cfg(test)]
+mod project_tests;
 mod render;
 #[cfg(test)]
 mod tests;
@@ -290,6 +292,9 @@ pub struct PluginInstance {
 	/// The text when the effect's layer is a text layer, served through the
 	/// Text Layer Suite.
 	text_layer: Option<crate::TextLayer>,
+
+	/// The project around the effect, when the embedder described one.
+	project: Option<crate::project::ProjectState>,
 
 	/// Layers linked to the plugin's own `PF_Param_LAYER` parameters, by index.
 	linked_layers: HashMap<usize, LinkedLayer>,

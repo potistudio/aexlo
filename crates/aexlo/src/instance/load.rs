@@ -402,6 +402,7 @@ impl PluginInstance {
 				supported_pixel_formats: Vec::new(),
 				mask_paths: Vec::new(),
 				text_layer: None,
+				project: None,
 				linked_layers: HashMap::new(),
 				layer_checkouts: HashMap::new(),
 				parallel_iterate: true,

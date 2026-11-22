@@ -5,8 +5,8 @@
 //! plugin's out-params uninitialised. The effect and its layer do exist: their
 //! handles feed the Effect, Stream and Layer suites (see [`effect`](super::effect)
 //! and [`layer`](super::layer)).
-//! Everything that can be computed is: effect time maps 1:1 to comp time (the
-//! layer starts at comp time 0), and the camera geometry is After Effects'
+//! Everything that can be computed is: effect time maps to comp time by the
+//! layer's offset and stretch, and the camera geometry is After Effects'
 //! default comp camera (50 mm preset) for the effect's layer.
 
 use crate::sys::{
@@ -61,17 +61,16 @@ unsafe extern "C" fn get_new_effect_for_effect_sys(
 	})
 }
 
-/// The effect's layer starts at comp time 0 with no stretch, so layer time is
-/// comp time.
+/// Effect time is the layer's.
 unsafe extern "C" fn convert_effect_to_comp_time_sys(
-	_effect_pp_ref: PF_ProgPtr,
+	effect_pp_ref: PF_ProgPtr,
 	what_timeL: A_long,
 	time_scaleLu: A_u_long,
 	comp_timePT: *mut A_Time,
 ) -> A_Err {
 	crate::core::ffi::guard("convert_effect_to_comp_time_sys", || {
 		diag!("AEGP_PFInterfaceSuite1/AEGP_ConvertEffectToCompTime",
-			"effect_pp_ref" => format!("{:#x}", _effect_pp_ref as usize),
+			"effect_pp_ref" => format!("{:#x}", effect_pp_ref as usize),
 			"what_timeL" => what_timeL,
 			"time_scaleLu" => time_scaleLu,
 			"comp_timePT" => format!("{:#x}", comp_timePT as usize),
@@ -84,6 +83,11 @@ unsafe extern "C" fn convert_effect_to_comp_time_sys(
 			value: what_timeL,
 			scale: time_scaleLu,
 		};
+		if let Some(timeline) = layer::Timeline::of_effect(effect_pp_ref.cast())
+			&& let Some(time) = crate::animation::TimePoint::from_sys(*out)
+		{
+			*out = timeline.to_comp_time(time).to_sys();
+		}
 		PF_Err_NONE
 	})
 }
@@ -148,8 +152,13 @@ unsafe extern "C" fn get_effect_camera_matrix(
 		let Some(instance) = PluginInstance::get_instance_ptr(effect_pp_ref) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		// The comp is the effect's layer.
-		let (width, height) = unsafe { instance.as_ref() }.input_size();
+		// SAFETY: the effect ref is the live instance that is running the plugin call.
+		let instance = unsafe { instance.as_ref() };
+		// Without a project the comp is the effect's layer.
+		let (width, height) = match instance.project() {
+			Some(project) => (project.comp().width, project.comp().height),
+			None => instance.input_size(),
+		};
 		let (matrix, zoom) = default_camera(width as f64, height as f64);
 		unsafe {
 			if let Some(out) = camera_matrixP.as_mut() {

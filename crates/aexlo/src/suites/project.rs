@@ -7,7 +7,7 @@ unsafe extern "C" fn count(out: *mut A_long) -> A_Err {
 		let Some(out) = (unsafe { out.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		if Timeline::of(current_effect().cast()).is_none() {
+		if Timeline::of_effect(current_effect().cast()).is_none() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = 1;
@@ -24,7 +24,7 @@ unsafe extern "C" fn by_index(index: A_long, out: *mut AEGP_ProjectH) -> A_Err {
 			return PF_Err_INVALID_INDEX;
 		}
 		let effect = current_effect();
-		if Timeline::of(effect.cast()).is_none() {
+		if Timeline::of_effect(effect.cast()).is_none() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = effect.cast();
@@ -33,7 +33,7 @@ unsafe extern "C" fn by_index(index: A_long, out: *mut AEGP_ProjectH) -> A_Err {
 }
 unsafe extern "C" fn name(project: AEGP_ProjectH, out: *mut A_char) -> A_Err {
 	crate::core::ffi::guard("project_name", || {
-		if out.is_null() || Timeline::of(project.cast()).is_none() {
+		if out.is_null() || Timeline::of_effect(project.cast()).is_none() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		unsafe { std::ptr::copy_nonoverlapping(c"aexlo".as_ptr(), out, 6) };
@@ -41,11 +41,13 @@ unsafe extern "C" fn name(project: AEGP_ProjectH, out: *mut A_char) -> A_Err {
 	})
 }
 unsafe extern "C" fn dirty(project: AEGP_ProjectH, out: *mut A_Boolean) -> A_Err {
-	crate::core::ffi::guard("project_dirty", || super::layer::answer(project.cast(), out, |_| 0))
+	crate::core::ffi::guard("project_dirty", || {
+		super::layer::answer_comp(project.cast(), out, |_| 0)
+	})
 }
 unsafe extern "C" fn depth(project: AEGP_ProjectH, out: *mut AEGP_ProjBitDepth) -> A_Err {
 	crate::core::ffi::guard("project_depth", || {
-		if Timeline::of(project.cast()).is_none() || out.is_null() {
+		if Timeline::of_effect(project.cast()).is_none() || out.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let instance = unsafe {
@@ -76,7 +78,7 @@ unsafe extern "C" fn path(project: AEGP_ProjectH, out: *mut AEGP_MemHandle) -> A
 		let Some(out) = (unsafe { out.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		if Timeline::of(project.cast()).is_none() {
+		if Timeline::of_effect(project.cast()).is_none() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		// The synthetic project has never been saved: AE returns an empty UTF-16 string.

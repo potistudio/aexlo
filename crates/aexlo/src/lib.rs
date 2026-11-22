@@ -102,6 +102,7 @@ mod observe;
 mod param_value;
 mod pipl;
 mod pixel;
+mod project;
 mod strict;
 mod stub_log;
 pub mod sys;
@@ -159,6 +160,13 @@ pub use strict::{
 /// Layer masks served through the Path Query/Data suites
 /// ([`PluginInstance::set_mask_paths`]).
 pub use mask::{MaskMode, MaskPath, MaskVertex};
+
+/// The project around an effect: comp, layers, shapes
+/// ([`PluginInstance::set_project`]).
+pub use project::{
+	Comp, LayerContent, LayerTransform, MergeMode, Project, ProjectLayer, ShapeFill, ShapeGroup, ShapeItem, ShapePath,
+	ShapeTransform,
+};
 
 /// Text on the effect's layer, served through the Text Layer Suite
 /// ([`PluginInstance::set_text_layer`]).

@@ -96,8 +96,19 @@ unsafe extern "C" fn new_from_layer(
 		let Some(out) = (unsafe { options_out.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		if PluginInstance::get_instance_ptr(layerH as PF_ProgPtr).is_none() {
-			return PF_Err_BAD_CALLBACK_PARAM;
+		// Checked before the handle is read as an instance: only the effect's
+		// own layer is one, and only its pixels are known.
+		match super::layer::Timeline::of(layerH.cast()) {
+			Some(timeline) if timeline.hosts_effect => {}
+			Some(_) => {
+				crate::observe::unsupported(
+					crate::observe::UnsupportedKind::Declined,
+					"AEGP_LayerRenderOptionsSuite/AEGP_NewFromLayer",
+					"only the effect's own layer can be rendered",
+				);
+				return crate::sys::A_Err_GENERIC;
+			}
+			None => return PF_Err_BAD_CALLBACK_PARAM,
 		}
 		*out = publish_options(fresh_options(layerH as PF_ProgPtr));
 		PF_Err_NONE

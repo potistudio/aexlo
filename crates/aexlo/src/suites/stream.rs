@@ -245,7 +245,7 @@ pub(crate) unsafe fn stream_value(streamH: AEGP_StreamRefH) -> Option<StreamValu
 		// Identity 2D transform: the anchor and the position sit on the layer
 		// centre, scale is 100%, rotation is 0 and opacity is fully on.
 		Node::Anchor | Node::Position => {
-			let timeline = super::layer::Timeline::of(stream.effect_ref as *mut std::ffi::c_void)?;
+			let timeline = super::layer::Timeline::of_effect(stream.effect_ref as *mut std::ffi::c_void)?;
 			Some(StreamValue::TwoD {
 				x: timeline.width as f64 / 2.0,
 				y: timeline.height as f64 / 2.0,

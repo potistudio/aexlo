@@ -79,7 +79,7 @@ unsafe extern "C" fn get_new_working_space_color_profile(
 			"compH" => format!("{:#x}", compH as usize),
 		);
 
-		if Timeline::of(compH as _).is_none() {
+		if Timeline::of_effect(compH as _).is_none() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let Some(out) = (unsafe { color_profilePP.as_mut() }) else {

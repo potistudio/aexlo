@@ -272,15 +272,6 @@ impl<T> Track<T> {
 			Values::Keyed(keys) => keys,
 		}
 	}
-
-	/// Every value the track is made of.
-	pub(crate) fn values(&self) -> impl Iterator<Item = &T> {
-		let constant = match &self.0 {
-			Values::Constant(value) => Some(value),
-			Values::Keyed(_) => None,
-		};
-		constant.into_iter().chain(self.keys().iter().map(|key| &key.value))
-	}
 }
 
 impl<T: Animate> Track<T> {

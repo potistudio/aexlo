@@ -10,7 +10,7 @@
 use crate::sys::*;
 
 use super::aegp_memory::handle_from_bytes;
-use super::layer::{Timeline, current_effect, item_handle, source_item_effect, source_item_handle};
+use super::layer::{Item, current_effect, item_handle, source_item_effect, source_item_handle};
 use crate::core::diagnostics::diag;
 
 const ITEM_NAME: &str = "aexlo";
@@ -23,7 +23,7 @@ fn refuse(name: &str) -> A_Err {
 }
 
 fn known(itemH: AEGP_ItemH) -> bool {
-	Timeline::of_item(itemH).is_some()
+	Item::of(itemH).is_some()
 }
 
 unsafe extern "C" fn get_first_proj_item(projectH: AEGP_ProjectH, itemPH: *mut AEGP_ItemH) -> A_Err {
@@ -271,10 +271,10 @@ unsafe extern "C" fn set_item_parent_folder(_itemH: AEGP_ItemH, _parent_folder_i
 unsafe extern "C" fn get_item_duration(itemH: AEGP_ItemH, durationPT: *mut A_Time) -> A_Err {
 	crate::core::ffi::guard("get_item_duration", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemDuration");
-		let (Some(timeline), Some(out)) = (Timeline::of_item(itemH), unsafe { durationPT.as_mut() }) else {
+		let (Some(item), Some(out)) = (Item::of(itemH), unsafe { durationPT.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		*out = timeline.duration();
+		*out = item.duration;
 		PF_Err_NONE
 	})
 }
@@ -282,10 +282,10 @@ unsafe extern "C" fn get_item_duration(itemH: AEGP_ItemH, durationPT: *mut A_Tim
 unsafe extern "C" fn get_item_current_time(itemH: AEGP_ItemH, curr_timePT: *mut A_Time) -> A_Err {
 	crate::core::ffi::guard("get_item_current_time", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemCurrentTime");
-		let (Some(timeline), Some(out)) = (Timeline::of_item(itemH), unsafe { curr_timePT.as_mut() }) else {
+		let (Some(item), Some(out)) = (Item::of(itemH), unsafe { curr_timePT.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		*out = timeline.current();
+		*out = item.current;
 		PF_Err_NONE
 	})
 }
@@ -293,14 +293,14 @@ unsafe extern "C" fn get_item_current_time(itemH: AEGP_ItemH, curr_timePT: *mut 
 unsafe extern "C" fn get_item_dimensions(itemH: AEGP_ItemH, widthPL: *mut A_long, heightPL: *mut A_long) -> A_Err {
 	crate::core::ffi::guard("get_item_dimensions", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemDimensions");
-		let Some(timeline) = Timeline::of_item(itemH) else {
+		let Some(item) = Item::of(itemH) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if let Some(width) = unsafe { widthPL.as_mut() } {
-			*width = timeline.width as A_long;
+			*width = item.width as A_long;
 		}
 		if let Some(height) = unsafe { heightPL.as_mut() } {
-			*height = timeline.height as A_long;
+			*height = item.height as A_long;
 		}
 		PF_Err_NONE
 	})
@@ -530,6 +530,7 @@ pub const fn suite_9() -> AEGP_ItemSuite9 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::suites::layer::Timeline;
 	use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 	static SOURCE_OK: AtomicBool = AtomicBool::new(false);
