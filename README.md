@@ -261,7 +261,7 @@ See [docs/compat.md](https://github.com/potistudio/aexlo/blob/master/docs/compat
 
 ## Implementation Progress
 
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀ 78% (29/37)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀ 76% (28/37)
 
 > ○ fully implemented / △ only partially implemented / × not implemented
 
@@ -283,20 +283,27 @@ See [docs/compat.md](https://github.com/potistudio/aexlo/blob/master/docs/compat
 | ○ Sampling16       |                                  |                   |                   |
 | ○ SamplingFloat    |                                  |                   |                   |
 | ○ World            |                                  |                   |                   |
-| ○ World Transform  |                                  |                   |                   |
+| △ World Transform  |                                  |                   |                   |
 
 △ Effect Custom UI / Overlay Theme: theme values are served, and Drawbot draws
 during `PF_Event_DRAW`. The CLI never sends `PF_Cmd_EVENT`; an embedder does.
 △ Batch Sampling: no batch functions are provided (the SDK withdrew them in
 After Effects 7.0); the per-pixel samplers work.
-△ Param Utils: states follow values and keyframes over the whole timeline,
-not the time range asked about or the pixels of layer parameters.
+△ Param Utils: states cover values over the range asked about, the pixels of
+layers, masks and arbitrary data's bytes (not what those point to). The host
+has only each layer's current pixels, so a picture set for another frame reads
+as a change; ranges of `AUTOMATIC_WIDE_TIME_INPUT` effects count the whole
+track, as what they need is not tracked.
+△ World Transform: 8, 16 and 32 bpc, one depth per call. Dissolve, the
+alpha-multiply modes and the quality setting are approximated or ignored,
+non-additive blend modes are not extended to HDR, and no result has been
+compared with After Effects.
 △ Path Query: masks are read-only and the same at every time.
 × PF Utility: not to be confused with AEGP Utility. The suite can be acquired,
 but each of its functions is a stub that returns an error.
 △ Channel: layers are plain 2D images and report no auxiliary channels.
 Callbacks that are not implemented return an error rather than a false success.
-Legacy Gaussian-kernel generation uses approximate coefficients that have not been checked against After Effects. Legacy blend and convolution currently accept 8-bit worlds only.
+Legacy Gaussian-kernel generation uses approximate coefficients that have not been checked against After Effects.
 
 ### AEGP
 
