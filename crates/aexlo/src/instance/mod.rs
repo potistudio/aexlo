@@ -513,10 +513,13 @@ impl PluginInstance {
 	/// [`Strict::track_allocations`](crate::Strict) is on, from the command
 	/// that turned it on; install the observer with [`Loader::observer`] to
 	/// include what setup allocates. Only the thread dispatching a command is
-	/// tracked: memory got or freed from iterate worker threads is missed
-	/// (see [`Self::set_parallel_iterate`]).
+	/// tracked: memory got from iterate worker threads is missed (see
+	/// [`Self::set_parallel_iterate`]). Memory freed there is left out, since
+	/// the host knows it is gone.
 	pub fn allocations(&self) -> Vec<crate::LiveAllocation> {
-		self.tracker.lock().map(|t| t.live()).unwrap_or_default()
+		let mut live = self.tracker.lock().map(|t| t.live()).unwrap_or_default();
+		live.retain(|l| crate::strict::is_host_memory(l.kind, l.address));
+		live
 	}
 
 	/// Copy up to `len` bytes, from `offset` on, of a live allocation listed
@@ -524,24 +527,27 @@ impl PluginInstance {
 	/// any resize), or a world's pixel rows. `None` when nothing live starts
 	/// at `address` or `offset` is past its end.
 	///
-	/// Reads what the plugin left there between commands. A plugin that
-	/// frees host memory from an iterate worker thread leaves an entry
-	/// behind that this would read after the free; run such a plugin with
-	/// [`Self::set_parallel_iterate`] off while inspecting its memory.
+	/// Reads what the plugin left there between commands. Memory the plugin
+	/// has freed, on any thread, is not read.
 	pub fn read_allocation(&self, address: usize, offset: usize, len: usize) -> Option<Vec<u8>> {
-		let (kind, bytes) = self.tracker.lock().ok()?.find_live(address)?;
-		let (data, size) = match kind {
-			// SAFETY: the tracker saw the plugin get this handle and has not
-			// seen it disposed, and no command runs while `self` is borrowed.
-			crate::AllocationKind::Handle => unsafe { crate::suites::handle::handle_contents(address)? },
-			crate::AllocationKind::World => (address as *const u8, bytes),
-		};
-		if offset > size {
-			return None;
-		}
-		let len = len.min(size - offset);
-		// SAFETY: `data..data + size` is the live allocation's own memory.
-		Some(unsafe { std::slice::from_raw_parts(data.add(offset), len) }.to_vec())
+		let (kind, _) = self.tracker.lock().ok()?.find_live(address)?;
+		// The host's own record of what is live, not the tracker's: the
+		// tracker misses frees on iterate worker threads. It also holds off a
+		// dispose while the bytes are copied.
+		crate::strict::with_host_memory(kind, address, |bytes| {
+			let (data, size) = match kind {
+				// SAFETY: the host handed out this handle and has not had it
+				// back, and its disposal waits for this closure.
+				crate::AllocationKind::Handle => unsafe { crate::suites::handle::handle_contents(address)? },
+				crate::AllocationKind::World => (address as *const u8, bytes),
+			};
+			if offset > size {
+				return None;
+			}
+			let len = len.min(size - offset);
+			// SAFETY: `data..data + size` is the live allocation's own memory.
+			Some(unsafe { std::slice::from_raw_parts(data.add(offset), len) }.to_vec())
+		})
 	}
 
 	/// The host-side state carried between commands, and what the plugin
