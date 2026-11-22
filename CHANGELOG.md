@@ -43,7 +43,8 @@ may break the API, and every breaking change is listed below.
 - `Pipl::read` reads a plugin's PiPL resource without loading it: from a
   Windows binary's `PIPL` resource, a macOS bundle's `.rsrc` files (in their
   data or resource fork), a Mach-O binary's `__TEXT,__pipl` section or its
-  resource fork; a `.rsrc` it cannot read is passed over for the next. Each
+  resource fork; a `.rsrc` or `__pipl` section it cannot read is passed over
+  for the next place. Each
   `PiplProperty` decodes to a `PiplValue`, and `Pipl` has accessors for the
   name, category, match name, entry point, `eVER` (`EffectVersion`) and
   `eGLO` / `eGL2`. `AexloError::InvalidPipl` reports a malformed one.
