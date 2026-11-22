@@ -267,14 +267,14 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 
 ⣿⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 14% (5/36)
 
-実装済み 5、一部実装 21、未実装 10 です。
+実装済み 5、一部実装 22、未実装 9 です。
 
 | Project        | Streams           | Pixels                 | その他                 |
 | -------------- | ----------------- | ---------------------- | ---------------------- |
 | △ Layer        | △ Stream          | ○ World                | △ Color Settings       |
 | △ Comp         | △ Dynamic Stream  | ○ Memory               | △ Register             |
 | △ Item         | △ Keyframe        | ○ Iterate              | △ Utility              |
-| △ Light        | ○ Persistent Data | △ Render               | × Camera               |
+| △ Light        | ○ Persistent Data | △ Render               | △ Camera               |
 | △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
 | △ PF Interface | △ Mask Outline    | △ Layer Render Options | △ Math                 |
 | △ Proj         | △ Text Document   | × Composite            | △ Compute Cache        |
@@ -288,6 +288,7 @@ Effect Suite が扱うエフェクトはホスト中の 1 つと、ロード中�
 線、パラメトリックシェイプ、レイヤーマスク、エクスプレッションはストリームにしていません。プラグインはパラメーターの非表示・無効化と、キーフレームのないパラメーター（レイヤーと任意データを除く）への値の設定ができます。ほかの書き込みは拒否します。
 △ Keyframe：読み取りのみで、線形か停止です。ベジェのイージングと空間接線はありません。別の時刻でチェックアウトしたレイヤーの画素は、現在時刻のものです。
 △ Mask Outline / Text Document：シェイプのパスとソーステキストの文字列を読めます。書き込みはできません。レイヤーマスクは Path Query で読みます。
+△ Camera：v2 のみです。プロジェクトにカメラとライトのレイヤーはないため、カメラは「なし」と答え、既定カメラの距離を返します。
 △ Math：`AEGP_MatrixDecompose4` の角度の規約は After Effects と照合していません。
 △ Proj：未保存の仮想プロジェクトを 1 つ公開します。編集、保存、ルートフォルダー、時間表示設定は未実装です。
 △ Render / Render Options / Layer Render Options：チェックアウトはエフェクト自身の入力を返します。

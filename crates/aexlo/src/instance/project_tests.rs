@@ -303,3 +303,64 @@ fn without_a_project_the_layer_is_still_the_comp() {
 	});
 	assert_eq!(seen, (1, 1, (12, 24), (30 * 24, 24)));
 }
+
+#[test]
+fn layer_suite_v5_answers_as_the_newer_ones_do() {
+	let mut fx = load();
+	let three = three_layers();
+	let mut layers = three.layers().to_vec();
+	layers[0].name = "A name far longer than the thirty-one characters a v5 caller has room for".into();
+	let project = Project::new(three.comp().clone(), layers, 7).unwrap();
+	fx.set_project(Some(project));
+	let (seen, name, untouched) = during(&mut fx, |p| unsafe {
+		let old: &AEGP_LayerSuite1 = p.suite(c"AEGP Layer Suite", kAEGPLayerSuiteVersion1);
+		let comp = p.effect as AEGP_CompH;
+		let mut count = 0;
+		old.AEGP_GetCompNumLayers.unwrap()(comp, &mut count);
+		let mut seen = Vec::new();
+		for at in 0..count {
+			let mut layer: AEGP_LayerH = std::ptr::null_mut();
+			old.AEGP_GetCompLayerByIndex.unwrap()(comp, at, &mut layer);
+			let (mut kind, mut id) = (-1, 0);
+			old.AEGP_GetLayerObjectType.unwrap()(layer, &mut kind);
+			old.AEGP_GetLayerID.unwrap()(layer, &mut id);
+			seen.push((id, kind));
+		}
+		let mut top: AEGP_LayerH = std::ptr::null_mut();
+		old.AEGP_GetCompLayerByIndex.unwrap()(comp, 0, &mut top);
+		// The 32 characters a caller of this version has, and what follows them.
+		let mut buffer = [0x55 as A_char; 48];
+		old.AEGP_GetLayerName.unwrap()(top, buffer.as_mut_ptr(), std::ptr::null_mut());
+		let name = CStr::from_ptr(buffer.as_ptr()).to_bytes().len();
+		(seen, name, buffer[32..].iter().all(|&byte| byte == 0x55))
+	});
+	let av = AEGP_ObjectType_AV as AEGP_ObjectType;
+	assert_eq!(seen, [(40, av), (7, av), (9, av)]);
+	assert_eq!(name, 31, "cut to the caller's buffer");
+	assert!(untouched, "nothing past it");
+}
+
+#[test]
+fn a_comp_without_a_camera_has_the_default_one() {
+	let mut fx = load();
+	fx.set_project(Some(three_layers()));
+	let (camera, distance, kind) = during(&mut fx, |p| unsafe {
+		let cameras: &AEGP_CameraSuite2 = p.suite(c"AEGP Camera Suite", kAEGPCameraSuiteVersion2);
+		let now = A_Time { value: 0, scale: 1 };
+		let mut camera = 1usize as AEGP_LayerH;
+		let found = cameras.AEGP_GetCamera.unwrap()(std::ptr::null_mut(), &now, &mut camera);
+		let mut distance = 0.0;
+		let measured =
+			cameras.AEGP_GetDefaultCameraDistanceToImagePlane.unwrap()(p.effect as AEGP_CompH, &mut distance);
+		let mut kind: AEGP_CameraType = 7;
+		let kind = cameras.AEGP_GetCameraType.unwrap()(p.effect as AEGP_LayerH, &mut kind);
+		((found, camera as usize), (measured, distance), kind)
+	});
+	assert_eq!(camera, (PF_Err_NONE, 0), "no camera");
+	assert_eq!(distance.0, PF_Err_NONE);
+	assert!(
+		(distance.1 - 320.0 * 50.0 / 36.0).abs() < 1e-9,
+		"50 mm across the comp, not the layer"
+	);
+	assert_eq!(kind, A_Err_GENERIC, "a layer that is no camera has no camera type");
+}

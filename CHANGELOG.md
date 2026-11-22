@@ -101,6 +101,10 @@ plugin renders or returns.
   v1, "AEGP Compute Cache" v1 and "AEGP Hash Suite" v1. The angle convention
   of `AEGP_MatrixDecompose4` and the hash values have not been checked
   against After Effects.
+- "AEGP Layer Suite" v5 and "AEGP Camera Suite" v2, for comps without a
+  camera: none is found, and the default camera's distance is given. Shine's
+  three 3D Light choices ask for them, and corrupted the heap while unwinding
+  from the failed acquire.
 - The input layer is a footage item and the hosted effect an effect on its
   layer: the Layer, Item and Effect suites report both, and the Effect Suite
   gives the identities the loaded plugins declare.

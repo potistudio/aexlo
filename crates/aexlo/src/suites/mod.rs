@@ -48,6 +48,7 @@ mod aegp_world;
 mod angle_param;
 pub mod ansi;
 mod cache_on_load;
+mod camera;
 mod channel;
 pub mod color_callbacks;
 mod color_param;
@@ -107,6 +108,7 @@ static AEGP_MASK_OUTLINE_2: AEGP_MaskOutlineSuite2 = mask_outline::suite_2();
 static AEGP_MASK_OUTLINE_3: AEGP_MaskOutlineSuite3 = mask_outline::suite_3();
 static AEGP_TEXT_DOCUMENT_1: AEGP_TextDocumentSuite1 = text_document::suite_1();
 static AEGP_STREAM_1: AEGP_StreamSuite1 = stream::create_stream_suite_1();
+static AEGP_CAMERA_2: AEGP_CameraSuite2 = camera::suite_2();
 static COMP_SUITE_4: AEGP_CompSuite4 = comp::create_comp_suite_4();
 static PF_WORLD_1: PF_WorldSuite1 = world::create_world_suite_1();
 static AEGP_LAYER_RENDER_OPTIONS_1: AEGP_LayerRenderOptionsSuite1 = aegp_render::layer_render_options_suite_1();
@@ -121,6 +123,7 @@ static AEGP_UTILITY_5: AEGP_UtilitySuite5 = aegp_utility::suite_5();
 static AEGP_UTILITY_6: AEGP_UtilitySuite6 = aegp_utility::suite_6();
 static AEGP_ITEM_6: AEGP_ItemSuite6 = aegp_item::suite_6();
 static AEGP_STREAM_3: AEGP_StreamSuite3 = stream::create_stream_suite_3();
+static AEGP_LAYER_1: AEGP_LayerSuite1 = layer::create_layer_suite_1();
 static AEGP_LAYER_3: AEGP_LayerSuite3 = layer::create_layer_suite_3();
 static AEGP_DYNAMIC_STREAM_1: AEGP_DynamicStreamSuite1 = dynamic_stream::suite_1();
 static AEGP_DYNAMIC_STREAM_2: AEGP_DynamicStreamSuite2 = dynamic_stream::suite_2();
@@ -514,6 +517,10 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			unsafe { *suite = &AEGP_RENDER_5 as *const _ as *const c_void };
 			PF_Err_NONE
 		}
+		("AEGP Camera Suite", v) if v == kAEGPCameraSuiteVersion2 as i32 => {
+			unsafe { *suite = &AEGP_CAMERA_2 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("AEGP Light Suite", 1) => dispatch_static!(suite, suite_name, version, light),
 		("AEGP Text Layer Suite", 1) => dispatch_static!(suite, suite_name, version, text_layer),
 		("AEGP Mask Outline Suite", v) if v == kAEGPMaskOutlineSuiteVersion1 as i32 => {
@@ -558,6 +565,10 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		// Layer Suite v6 switches names to UTF-16 handles; later versions append.
 		// Wire version 8 is `AEGP_LayerSuite3`. It is not a prefix of suite 5:
 		// suite 5 inserts `GetLayerSourceItemID` and the duplicate/lookup calls.
+		("AEGP Layer Suite", v) if v == kAEGPLayerSuiteVersion1 as i32 => {
+			unsafe { *suite = &AEGP_LAYER_1 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("AEGP Layer Suite", v) if v == kAEGPLayerSuiteVersion3 as i32 => {
 			unsafe { *suite = &AEGP_LAYER_3 as *const _ as *const c_void };
 			PF_Err_NONE
@@ -746,6 +757,7 @@ mod tests {
 			("AEGP Effect Suite", 3),
 			("AEGP Effect Suite", 4),
 			("AEGP Iterate Suite", 1),
+			("AEGP Layer Suite", 5),
 			("AEGP Layer Suite", 8),
 			("AEGP Layer Suite", 11),
 			("AEGP Layer Suite", 12),
@@ -757,6 +769,7 @@ mod tests {
 			("AEGP Comp Suite", 21),
 			("AEGP Comp Suite", 25),
 			("AEGP Comp Suite", 26),
+			("AEGP Camera Suite", 2),
 			("AEGP Light Suite", 1),
 			("PF Color Settings Suite", 3),
 			("PF Color Settings Suite", 6),

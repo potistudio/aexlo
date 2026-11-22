@@ -309,14 +309,14 @@ Legacy Gaussian-kernel generation uses approximate coefficients that have not be
 
 ⣿⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 14% (5/36)
 
-5 fully and 21 partially implemented, 10 not implemented.
+5 fully and 22 partially implemented, 9 not implemented.
 
 | Project        | Streams           | Pixels                 | Other                  |
 | -------------- | ----------------- | ---------------------- | ---------------------- |
 | △ Layer        | △ Stream          | ○ World                | △ Color Settings       |
 | △ Comp         | △ Dynamic Stream  | ○ Memory               | △ Register             |
 | △ Item         | △ Keyframe        | ○ Iterate              | △ Utility              |
-| △ Light        | ○ Persistent Data | △ Render               | × Camera               |
+| △ Light        | ○ Persistent Data | △ Render               | △ Camera               |
 | △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
 | △ PF Interface | △ Mask Outline    | △ Layer Render Options | △ Math                 |
 | △ Proj         | △ Text Document   | × Composite            | △ Compute Cache        |
@@ -330,6 +330,7 @@ The Effect Suite knows one effect, the hosted one, and the identities reported b
 Strokes, parametric shapes, layer masks and expressions are not streams. A plugin can hide or disable parameters, and set those without keyframes other than layers and arbitrary data; other writes are refused.
 △ Keyframe: reads only, linear or held; no bezier eases or spatial tangents. A layer checked out at another time has the current pixels.
 △ Mask Outline / Text Document: shape paths and source strings are read; nothing is written. Layer masks are read through Path Query.
+△ Camera: v2 only. A project has no camera or light layers: no camera is found, and the default one gives its distance.
 △ Math: the angle convention of `AEGP_MatrixDecompose4` has not been checked against After Effects.
 △ Proj: one unsaved synthetic project is exposed; project editing, persistence, root folders and time-display settings are not implemented.
 △ Render / Render Options / Layer Render Options: checkout returns the effect's own input.
