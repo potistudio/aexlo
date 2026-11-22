@@ -102,6 +102,7 @@ mod param_value;
 mod pipl;
 mod pixel;
 mod strict;
+mod stub_log;
 pub mod sys;
 mod text;
 mod time;

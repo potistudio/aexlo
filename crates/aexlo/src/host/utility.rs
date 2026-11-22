@@ -1,5 +1,5 @@
 use crate::core::diagnostics::*;
-use crate::suites::stub_log::stub_log;
+use crate::stub_log::stub_log;
 use crate::sys::*;
 use std::os::raw::c_void;
 #[cfg(windows)]
