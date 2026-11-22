@@ -8,11 +8,11 @@
 //! without a prep build a temporary one.
 //!
 //! The Path Data Suite also reads the text outlines of the "AEGP Text Layer
-//! Suite". After Effects gives their `PF_PathVertex` tangents as points in
-//! layer space, not offsets from the vertex: plugins that draw text outlines
-//! (TextGrad among them) pass `tan_out` and `tan_in` straight to `curve_to`.
-//! [`register_absolute`] marks those outlines so `PF_PathVertexInfo` answers
-//! that way; masks keep the vertex-relative tangents [`MaskPath`] stores.
+//! Suite". In both, `PF_PathVertex` tangents are points in layer space, as the
+//! SDK guide describes them ("Working With Paths"): plugins pass `tan_out` and
+//! `tan_in` straight to `curve_to` (TextGrad for text, Extrude for masks).
+//! [`MaskPath`] stores offsets from the vertex, which is what the "AEGP Mask
+//! Outline Suite" hands out.
 
 use super::ffi::write_c_str;
 use crate::PluginInstance;
@@ -24,8 +24,6 @@ use crate::sys::{
 	PF_PathSegPrepPtr, PF_PathVertex, PF_ProgPtr,
 };
 use std::borrow::Cow;
-use std::ops::Range;
-use std::sync::Mutex;
 
 /// Arc-length samples per segment when the plugin passes no prep (or a
 /// non-positive frequency).
@@ -37,44 +35,6 @@ struct SegPrep {
 	path: usize,
 	seg: usize,
 	table: ArcTable,
-}
-
-/// Address ranges of the outline lists whose tangents `PF_PathVertexInfo`
-/// reports as absolute points (text outlines).
-static ABSOLUTE: Mutex<Vec<Range<usize>>> = Mutex::new(Vec::new());
-
-fn address_range(paths: &[MaskPath]) -> Range<usize> {
-	let start = paths.as_ptr() as usize;
-	start..start + std::mem::size_of_val(paths)
-}
-
-/// Report the tangents of `paths` as absolute points until
-/// [`unregister_absolute`]. `paths` must not move in between.
-pub(crate) fn register_absolute(paths: &[MaskPath]) {
-	if !paths.is_empty() {
-		ABSOLUTE
-			.lock()
-			.unwrap_or_else(|e| e.into_inner())
-			.push(address_range(paths));
-	}
-}
-
-/// Undo [`register_absolute`] for the same `paths`.
-pub(crate) fn unregister_absolute(paths: &[MaskPath]) {
-	let range = address_range(paths);
-	ABSOLUTE
-		.lock()
-		.unwrap_or_else(|e| e.into_inner())
-		.retain(|r| *r != range);
-}
-
-fn is_absolute(path: &MaskPath) -> bool {
-	let at = path as *const MaskPath as usize;
-	ABSOLUTE
-		.lock()
-		.unwrap_or_else(|e| e.into_inner())
-		.iter()
-		.any(|r| r.contains(&at))
 }
 
 /// The masks of the instance behind `effect_ref`.
@@ -210,6 +170,7 @@ unsafe extern "C" fn path_is_open(
 	openPB: *mut PF_Boolean,
 ) -> PF_Err {
 	crate::core::ffi::guard("path_is_open", || {
+		diag!("PF_PathDataSuite1/PF_PathIsOpen", "pathP" => format!("{:#x}", pathP as usize));
 		let (Some(path), Some(out)) = (unsafe { outline(pathP) }, unsafe { openPB.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
@@ -224,6 +185,7 @@ unsafe extern "C" fn path_num_segments(
 	num_segmentsPL: *mut A_long,
 ) -> PF_Err {
 	crate::core::ffi::guard("path_num_segments", || {
+		diag!("PF_PathDataSuite1/PF_PathNumSegments", "pathP" => format!("{:#x}", pathP as usize));
 		let (Some(path), Some(out)) = (unsafe { outline(pathP) }, unsafe { num_segmentsPL.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
@@ -239,20 +201,20 @@ unsafe extern "C" fn path_vertex_info(
 	vertexP: *mut PF_PathVertex,
 ) -> PF_Err {
 	crate::core::ffi::guard("path_vertex_info", || {
+		diag!("PF_PathDataSuite1/PF_PathVertexInfo", "pathP" => format!("{:#x}", pathP as usize));
 		let (Some(path), Some(out)) = (unsafe { outline(pathP) }, unsafe { vertexP.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let Some(v) = usize::try_from(which_pointL).ok().and_then(|i| path.vertex(i)) else {
 			return PF_Err_INVALID_INDEX;
 		};
-		let (ox, oy) = if is_absolute(path) { (v.x, v.y) } else { (0.0, 0.0) };
 		*out = PF_PathVertex {
 			x: v.x,
 			y: v.y,
-			tan_in_x: ox + v.tan_in_x,
-			tan_in_y: oy + v.tan_in_y,
-			tan_out_x: ox + v.tan_out_x,
-			tan_out_y: oy + v.tan_out_y,
+			tan_in_x: v.x + v.tan_in_x,
+			tan_in_y: v.y + v.tan_in_y,
+			tan_out_x: v.x + v.tan_out_x,
+			tan_out_y: v.y + v.tan_out_y,
 		};
 		PF_Err_NONE
 	})
@@ -507,7 +469,7 @@ mod tests {
 	}
 
 	#[test]
-	fn registered_outlines_report_absolute_tangents() {
+	fn vertex_tangents_are_points_in_layer_space() {
 		let paths = vec![MaskPath {
 			vertices: vec![
 				MaskVertex {
@@ -536,10 +498,6 @@ mod tests {
 			assert_eq!(err, PF_Err_NONE);
 			(v.tan_out_x, v.tan_out_y, v.tan_in_x, v.tan_in_y)
 		};
-		assert_eq!(info(), (3.0, 0.0, 0.0, -4.0));
-		register_absolute(&paths);
 		assert_eq!(info(), (13.0, 20.0, 10.0, 16.0));
-		unregister_absolute(&paths);
-		assert_eq!(info(), (3.0, 0.0, 0.0, -4.0));
 	}
 }

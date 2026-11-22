@@ -53,7 +53,6 @@ unsafe extern "C" fn get_new_text_outlines(
 		let boxed = Box::new(TextOutlines {
 			paths: text.outlines().to_vec(),
 		});
-		super::path::register_absolute(&boxed.paths);
 		*out = Box::into_raw(boxed) as AEGP_TextOutlinesH;
 		PF_Err_NONE
 	})
@@ -69,7 +68,6 @@ unsafe extern "C" fn dispose_text_outlines(outlinesH: AEGP_TextOutlinesH) -> A_E
 		}
 		// SAFETY: non-null handles only come from `get_new_text_outlines`.
 		let list = unsafe { Box::from_raw(outlinesH as *mut TextOutlines) };
-		super::path::unregister_absolute(&list.paths);
 		drop(list);
 		PF_Err_NONE
 	})
