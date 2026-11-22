@@ -7,8 +7,59 @@ use anstyle::{AnsiColor, Style};
 
 use super::{Change, PluginReport, Scenario, Status};
 
-/// The worse and better scenarios since the baseline, when one was given.
-pub type Changes = (Vec<Change>, Vec<Change>);
+/// What changed since the baseline, when one was given.
+pub struct Changes {
+	pub worse: Vec<Change>,
+	pub better: Vec<Change>,
+	/// Coverage before and now, over the scenarios both runs have; `None`
+	/// when they share none that apply.
+	pub coverage: Option<(f64, f64)>,
+}
+
+/// The share of the scenarios that apply (all but n/a and invalid) that
+/// were ok. `None` when none apply.
+pub fn coverage<'a>(statuses: impl IntoIterator<Item = &'a Status>) -> Option<f64> {
+	let (mut ok, mut apply) = (0usize, 0usize);
+	for status in statuses {
+		match status {
+			Status::NotApplicable | Status::Invalid => {}
+			Status::Ok => {
+				ok += 1;
+				apply += 1;
+			}
+			_ => apply += 1,
+		}
+	}
+	(apply > 0).then(|| ok as f64 / apply as f64)
+}
+
+/// `94.2%`, rounded down so that only every scenario ok reads `100.0%`.
+fn percent(ratio: f64) -> String {
+	format!("{:.1}%", (ratio * 1000.0).floor() / 10.0)
+}
+
+/// The coverage in green from 95%, yellow from 50%, red below.
+fn coverage_style(ratio: f64) -> Style {
+	let color = |c: AnsiColor| Style::new().fg_color(Some(c.into())).bold();
+	match ratio {
+		r if r >= 0.95 => color(AnsiColor::Green),
+		r if r >= 0.5 => color(AnsiColor::Yellow),
+		_ => color(AnsiColor::Red),
+	}
+}
+
+/// A coverage figure, right-aligned to `width`, colored when rich.
+fn coverage_text(look: Look, ratio: Option<f64>, width: usize) -> String {
+	match ratio {
+		Some(r) => look.paint(coverage_style(r), &format!("{:>width$}", percent(r))),
+		None => format!("{:>width$}", "-"),
+	}
+}
+
+/// The coverage of a plugin's scenarios.
+fn plugin_coverage(report: &PluginReport) -> Option<f64> {
+	coverage(report.all().map(|s| &s.status))
+}
 
 /// How the text report looks: colors, symbols and bars, or plain text for
 /// pipes, files and logs.
@@ -309,15 +360,33 @@ pub fn human(reports: &[PluginReport], all: bool, changes: Option<&Changes>, loo
 	let plural = |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
 	let plugins = plural(reports.len(), "plugin", "plugins");
 	let scenarios = plural(total.values().sum::<usize>(), "scenario", "scenarios");
+	let covered = coverage(reports.iter().flat_map(PluginReport::all).map(|s| &s.status));
+	let apply: usize = total
+		.iter()
+		.filter(|(s, _)| !matches!(s, Status::NotApplicable | Status::Invalid))
+		.map(|(_, n)| n)
+		.sum();
+	let ok = total.get(&Status::Ok).copied().unwrap_or(0);
 	if look.rich {
 		out.push(format!("{}  {plugins} · {scenarios}", look.bold("aexlo compat")));
-		out.push(bar(look, &total, TOTAL_BAR));
+		out.push(format!(
+			"{}  {} {}",
+			bar(look, &total, TOTAL_BAR),
+			coverage_text(look, covered, 0),
+			look.dim(&format!("coverage ({ok} of {apply} ok)"))
+		));
 		out.push(counts_text(look, &total));
 	} else {
 		out.push(format!(
 			"aexlo compat: {plugins}, {scenarios}: {}",
 			counts_text(look, &total)
 		));
+		if let Some(covered) = covered {
+			out.push(format!(
+				"Coverage: {} ({ok} of the {apply} scenarios that apply ran ok)",
+				percent(covered)
+			));
+		}
 	}
 
 	let mut order: Vec<&PluginReport> = reports.iter().collect();
@@ -330,13 +399,19 @@ pub fn human(reports: &[PluginReport], all: bool, changes: Option<&Changes>, loo
 		let loaded = matches!(report.load.status, Status::Ok | Status::Partial);
 		let worst = worst(report);
 		out.push(match (look.rich, loaded) {
-			(false, true) => format!("{}  {}", report.plugin, counts_text(look, &counts(report.all()))),
+			(false, true) => format!(
+				"{}  {}  {}",
+				report.plugin,
+				coverage_text(look, plugin_coverage(report), 0),
+				counts_text(look, &counts(report.all()))
+			),
 			(false, false) => format!("{}  did not load", report.plugin),
 			(true, true) => format!(
-				"{}{}  {}  {}",
+				"{}{}  {}  {}  {}",
 				look.symbol(worst),
 				look.bold(&format!("{:<name_width$}", report.plugin)),
 				bar(look, &counts(report.all()), PLUGIN_BAR),
+				coverage_text(look, plugin_coverage(report), 6),
 				counts_text(look, &counts(report.all()))
 			),
 			(true, false) => format!(
@@ -382,8 +457,23 @@ pub fn human(reports: &[PluginReport], all: bool, changes: Option<&Changes>, loo
 		}
 	}
 
-	if let Some((worse, better)) = changes {
+	if let Some(Changes {
+		worse,
+		better,
+		coverage,
+	}) = changes
+	{
 		out.push(String::new());
+		if let Some((was, now)) = coverage {
+			let delta = (now - was) * 100.0;
+			out.push(format!(
+				"Coverage since the baseline: {} -> {} ({}{:.1} points, on the scenarios both runs have)",
+				percent(*was),
+				coverage_text(look, Some(*now), 0),
+				if delta >= 0.0 { "+" } else { "" },
+				delta
+			));
+		}
 		if worse.is_empty() && better.is_empty() {
 			out.push("Same as the baseline.".into());
 		}
@@ -422,14 +512,30 @@ pub fn json(reports: &[PluginReport], changes: Option<&Changes>) -> String {
 		.into_iter()
 		.map(|(gap, plugins)| serde_json::json!({ "gap": gap, "plugins": plugins }))
 		.collect();
+	let mut plugins = serde_json::json!(reports);
+	if let Some(list) = plugins.as_array_mut() {
+		for (value, report) in list.iter_mut().zip(reports) {
+			value["coverage"] = serde_json::json!(plugin_coverage(report));
+		}
+	}
 	let mut value = serde_json::json!({
 		"summary": summary,
-		"plugins": reports,
+		"coverage": coverage(reports.iter().flat_map(PluginReport::all).map(|s| &s.status)),
+		"plugins": plugins,
 		"gaps": gaps,
 	});
-	if let Some((worse, better)) = changes {
+	if let Some(Changes {
+		worse,
+		better,
+		coverage,
+	}) = changes
+	{
 		value["worse"] = serde_json::json!(worse);
 		value["better"] = serde_json::json!(better);
+		value["coverage_change"] = match coverage {
+			Some((was, now)) => serde_json::json!({ "was": was, "now": now }),
+			None => serde_json::Value::Null,
+		};
 	}
 	serde_json::to_string_pretty(&value).unwrap_or_default()
 }
@@ -466,12 +572,13 @@ mod tests {
 		let text = human(&reports(), false, None, Look::PLAIN);
 		let expected = "\
 aexlo compat: 4 plugins, 13 scenarios: 4 ok · 1 n/a · 2 error · 6 crash
+Coverage: 33.3% (4 of the 12 scenarios that apply ran ok)
 
-Crashing  1 ok · 6 crash
+Crashing  14.2%  1 ok · 6 crash
     crash       ×6  worker killed by signal 11 (SIGSEGV) during PF_Cmd_RENDER
                     size:0, size:1, size:2, size:3, … (+2)
 
-Erring  1 ok · 1 error
+Erring  50.0%  1 ok · 1 error
     error       ×1  Plugin rejected Render with error code: 516
                     render:auto@8
 
@@ -507,10 +614,22 @@ Everything ok or n/a (1):
 		let ids: Vec<(&str, Status)> = ids.iter().map(|(id, s)| (id.as_str(), *s)).collect();
 		let text = human(&[report(&ids)], true, None, Look::PLAIN);
 		assert!(
-			text.contains("Fx  7 ok\n    ok          ×7  load, size:0, size:1, size:2, size:3, size:4, size:5\n"),
+			text.contains(
+				"Fx  100.0%  7 ok\n    ok          ×7  load, size:0, size:1, size:2, size:3, size:4, size:5\n"
+			),
 			"{text}"
 		);
 		assert!(!text.contains("Everything ok"), "{text}");
+	}
+
+	#[test]
+	fn coverage_counts_ok_among_the_scenarios_that_apply() {
+		use Status::*;
+		assert_eq!(coverage(&[Ok, Ok, Partial, Crash, NotApplicable, Invalid]), Some(0.5));
+		assert_eq!(coverage(&[NotApplicable]), None);
+		// Only every scenario ok reads 100%.
+		assert_eq!(percent(1999.0 / 2000.0), "99.9%");
+		assert_eq!(percent(1.0), "100.0%");
 	}
 
 	#[test]

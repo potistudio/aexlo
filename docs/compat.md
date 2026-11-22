@@ -75,6 +75,15 @@ the two differently, it works on text layers, and every scenario except
 A scenario is only marked `partial` for gaps beyond the ones loading already
 had. Those are reported once, on `load`.
 
+### Coverage
+
+Coverage is the share of the scenarios that apply that went `ok`:
+`ok / (all - n/a - invalid)`. `n/a` and `invalid` are left out because they
+say nothing about aexlo. `partial` counts against it: the plugin ran, but
+aexlo did not do everything it asked. The report gives it for the whole run
+and for each plugin, rounded down, so `100.0%` means every scenario was
+`ok`.
+
 ## 3. Options
 
 | Option | Default | |
@@ -106,8 +115,9 @@ first. That is the list of what to implement next.
 
 ```text
 aexlo compat: 34 plugins, 5323 scenarios: 4919 ok · 1 partial · 103 n/a · 8 error · 292 crash
+Coverage: 94.2% (4919 of the 5220 scenarios that apply ran ok)
 
-Falloff  4 ok · 145 crash
+Falloff  2.6%  4 ok · 145 crash
     crash     ×145  worker killed by signal 11 (SIGSEGV) during PF_Cmd_SMART_PRE_RENDER
                     render:auto@8, render:smart@8, render:smart@16, render:smart@32, … (+141)
 
@@ -115,7 +125,7 @@ AutoFill2  did not load
     error       ×1  loading AutoFill2.plugin: Plugin not found: AutoFill2.plugin/Contents/MacOS
                     load
 
-RainyDay  114 ok · 1 partial
+RainyDay  99.1%  114 ok · 1 partial
     partial     ×1  missing-suite PF Effect Sequence Data Suite v1 (in PARAMS_SETUP)
                     load
 
@@ -143,9 +153,11 @@ grouped too, and each group names all of its scenarios.
 ```json
 {
   "summary": { "ok": 1992, "partial": 1654, "n/a": 90, "error": 6, "crash": 38 },
+  "coverage": 0.5398,
   "plugins": [
     {
       "plugin": "RainyDay",
+      "coverage": 0.1754,
       "path": "fixtures/plugins/macos/RainyDay.plugin",
       "load": { "id": "load", "status": "partial", "unsupported": [ … ] },
       "info": { "params": [ … ], "smart": true, "gpu": false, "depths": [8, 16, 32], "formats": [] },
@@ -163,13 +175,15 @@ grouped too, and each group names all of its scenarios.
   ],
   "gaps": [ { "gap": "missing-suite AEGP Stream Suite v11", "plugins": ["AOD_ChannelRemap", …] } ],
   "worse": [],
-  "better": []
+  "better": [],
+  "coverage_change": { "was": 0.5012, "now": 0.5398 }
 }
 ```
 
 A scenario also has `message` (why it did not pass) and, for `error`, `crash`
-and `timeout`, `last_command`. `worse` and `better` are only present with
-`--baseline`.
+and `timeout`, `last_command`. `coverage` is a ratio from 0 to 1, or
+`null` when no scenario applies. `worse`, `better` and `coverage_change` are
+only present with `--baseline`.
 
 The same gaps appear per run in `aexlo test --json` (`unsupported`).
 In code, they reach `Observer::unsupported` as an `UnsupportedEvent`.
@@ -187,6 +201,14 @@ moved down this order: `ok` → `partial` → `error` → `timeout` → `crash`.
 Scenarios that are `n/a` or `invalid` on either side are not compared. Nor
 are scenarios or plugins that only one side has, such as a parameter that
 was renamed.
+
+It also gives the coverage before and now, over the scenarios both runs
+have, so a run with `--only` or with plugins the baseline lacks still
+compares like with like:
+
+```text
+Coverage since the baseline: 93.1% -> 94.2% (+1.1 points, on the scenarios both runs have)
+```
 
 Most plugin fixtures are local to each machine (`fixtures/plugins/.gitignore`),
 so keep a baseline next to them rather than in the repository. Save one

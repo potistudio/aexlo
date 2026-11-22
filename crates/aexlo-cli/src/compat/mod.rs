@@ -681,6 +681,24 @@ pub fn compare(baseline: &Baseline, reports: &[PluginReport]) -> (Vec<Change>, V
 	(worse, better)
 }
 
+/// Coverage in `baseline` and now, over the scenarios both have, so that a
+/// run with `--only` or new plugins compares like with like.
+pub fn coverage_change(baseline: &Baseline, reports: &[PluginReport]) -> Option<(f64, f64)> {
+	let (mut was, mut now) = (Vec::new(), Vec::new());
+	for report in reports {
+		let Some(old) = baseline.plugins.get(&report.plugin) else {
+			continue;
+		};
+		for scenario in report.all() {
+			if let Some(status) = old.get(&scenario.id) {
+				was.push(*status);
+				now.push(scenario.status);
+			}
+		}
+	}
+	Some((report::coverage(&was)?, report::coverage(&now)?))
+}
+
 //==== Command =============================================================
 
 /// The plugin artifacts `arg` names: itself, or every plugin in a directory
@@ -746,7 +764,14 @@ fn compat(args: CompatArgs) -> Result<ExitCode, Error> {
 	}
 
 	let reports = run(&paths, only.as_deref(), jobs, timeout)?;
-	let changes = previous.as_ref().map(|b| compare(b, &reports));
+	let changes = previous.as_ref().map(|b| {
+		let (worse, better) = compare(b, &reports);
+		report::Changes {
+			worse,
+			better,
+			coverage: coverage_change(b, &reports),
+		}
+	});
 	match format {
 		Format::Human => {
 			let rich = anstream::AutoStream::choice(&std::io::stdout()) != anstream::ColorChoice::Never;
@@ -760,7 +785,7 @@ fn compat(args: CompatArgs) -> Result<ExitCode, Error> {
 		eprintln!("aexlo compat: wrote {}", path.display());
 	}
 	Ok(match changes {
-		Some((worse, _)) if !worse.is_empty() => ExitCode::from(1),
+		Some(changes) if !changes.worse.is_empty() => ExitCode::from(1),
 		_ => ExitCode::SUCCESS,
 	})
 }
@@ -869,6 +894,17 @@ mod tests {
 		let ids = |list: &[Change]| list.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
 		assert_eq!(ids(&worse), ["a"]);
 		assert_eq!(ids(&better), ["b"]);
+	}
+
+	#[test]
+	fn coverage_change_compares_the_scenarios_both_runs_have() {
+		let baseline = Baseline::of(&[report(&[("a", Status::Ok), ("b", Status::Crash), ("c", Status::Ok)])]);
+		// `c` is not in this run and `d` not in the baseline: neither counts.
+		let now = report(&[("a", Status::Ok), ("b", Status::Ok), ("d", Status::Crash)]);
+		assert_eq!(coverage_change(&baseline, &[now]), Some((2.0 / 3.0, 1.0)));
+		let mut other = report(&[]);
+		other.plugin = "Other".into();
+		assert_eq!(coverage_change(&baseline, &[other]), None);
 	}
 
 	#[test]

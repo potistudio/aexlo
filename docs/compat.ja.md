@@ -74,6 +74,13 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 読み込み時にすでに出た不足は `load` に一度だけ記録します。
 各シナリオが `partial` になるのは、それ以外の不足があったときだけです。
 
+### 対応率（coverage）
+
+対応率は、適用できるシナリオのうち `ok` だったものの割合です（`ok / (全体 - n/a - invalid)`）。
+`n/a` と `invalid` は aexlo について何も示さないので除きます。
+`partial` は対応していないものとして数えます。プラグインは動いたものの、aexlo が求められたことをすべてはしていないためです。
+レポートでは全体とプラグインごとに、切り捨てで表示します。`100.0%` は全シナリオが `ok` だったときだけです。
+
 ## 3. オプション
 
 | オプション | 既定値 | |
@@ -105,8 +112,9 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 
 ```text
 aexlo compat: 34 plugins, 5323 scenarios: 4919 ok · 1 partial · 103 n/a · 8 error · 292 crash
+Coverage: 94.2% (4919 of the 5220 scenarios that apply ran ok)
 
-Falloff  4 ok · 145 crash
+Falloff  2.6%  4 ok · 145 crash
     crash     ×145  worker killed by signal 11 (SIGSEGV) during PF_Cmd_SMART_PRE_RENDER
                     render:auto@8, render:smart@8, render:smart@16, render:smart@32, … (+141)
 
@@ -114,7 +122,7 @@ AutoFill2  did not load
     error       ×1  loading AutoFill2.plugin: Plugin not found: AutoFill2.plugin/Contents/MacOS
                     load
 
-RainyDay  114 ok · 1 partial
+RainyDay  99.1%  114 ok · 1 partial
     partial     ×1  missing-suite PF Effect Sequence Data Suite v1 (in PARAMS_SETUP)
                     load
 
@@ -136,7 +144,8 @@ Asked for, but not done by aexlo (plugins that asked):
 `--json` の形式は [英語版](compat.md#4-output) を参照してください。
 各シナリオは `id`、`status`、`message`、`unsupported` を持ちます。
 `error`、`crash`、`timeout` の場合は `last_command` も持ちます。
-全体には `summary`、`plugins`、`gaps` があり、`--baseline` を指定すると `worse` と `better` も加わります。
+全体には `summary`、`coverage`、`plugins`、`gaps` があり、`--baseline` を指定すると `worse`、`better`、`coverage_change`（`was` と `now`）も加わります。
+`coverage` は 0 から 1 の比率で、プラグインごとにもあります。適用できるシナリオがなければ `null` です。
 
 同じ不足は `aexlo test --json` でも実行ごとに出力されます（`unsupported`）。
 コードからは `Observer::unsupported` で `UnsupportedEvent` として受け取れます。
@@ -153,6 +162,13 @@ Asked for, but not done by aexlo (plugins that asked):
 `ok` → `partial` → `error` → `timeout` → `crash` の順に後ろへ動いたものが悪化です。
 どちらかで `n/a` または `invalid` のシナリオは比べません。
 片方にしかないシナリオやプラグイン（名前の変わったパラメーターなど）も比べません。
+
+対応率も、両方の実行にあるシナリオだけで、以前と今を比べて表示します。
+`--only` で絞った実行や、ベースラインにないプラグインを含む実行でも、同じ条件で比べられます。
+
+```text
+Coverage since the baseline: 93.1% -> 94.2% (+1.1 points, on the scenarios both runs have)
+```
 
 プラグインのフィクスチャはほとんどがマシンごとのローカルなもの（`fixtures/plugins/.gitignore`）です。
 そのため、ベースラインはリポジトリではなくフィクスチャのそばに置いてください。
