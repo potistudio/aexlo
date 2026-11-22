@@ -123,6 +123,9 @@ aexlo preview build/MyGlow.plugin --preset dot_glow
 aexlo check                        # what CI runs (.github/workflows/aexlo-check.yml)
 ```
 
+`aexlo help` lists every command, and `aexlo help <command>` (or
+`aexlo <command> --help`) shows its options.
+
 Every variant runs in a worker process, so a crashing plugin fails one run,
 not the suite. Rust plugins add `aexlo-test` as a dev-dependency for
 in-process `#[aexlo_test::test]`s with frame assertions.

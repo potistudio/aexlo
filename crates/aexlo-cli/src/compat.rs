@@ -26,27 +26,29 @@ use toml::Value;
 
 use crate::toolkit::{self, Format};
 
-pub const USAGE: &str = "\
-    compat <plugin|dir>...   How far aexlo can drive each plugin: load it, render
-                       every path and depth, other inputs, sizes and times,
-                       and each parameter set to other values, each in a
-                       worker. Effects that render a text layer differently
-                       from the same pixels on an AV layer go through it all
-                       again on a text layer (text:*). Reports ok, partial
-                       (ran, but asked for something aexlo does not do), n/a,
-                       error, crash or timeout per scenario, and the missing
-                       suites, stubs and declined calls behind them. A
-                       directory means every plugin in it.
-        --only <text>          Only scenarios whose id contains <text>
-        --jobs <n>             Workers at once  [default: half the CPUs]
-        --timeout <s>          Seconds per scenario  [default: 20]
-        --all                  List every scenario on its own, not only
-                               the ones that were not ok, grouped by how
-                               they went
-        --format json          Print the report as JSON
-        --save-baseline <file> Write each scenario's status to <file>
-        --baseline <file>      Compare with <file>; exit 1 when a scenario
-                               got worse
+pub const HELP: &str = "\
+Usage: aexlo compat <plugin|dir>... [OPTIONS]
+
+How far aexlo can drive each plugin: load it, render every path and depth,
+other inputs, sizes and times, and each parameter set to other values, each
+in a worker. Effects that render a text layer differently from the same
+pixels on an AV layer go through it all again on a text layer (text:*).
+Reports ok, partial (ran, but asked for something aexlo does not do), n/a,
+error, crash or timeout per scenario, and the missing suites, stubs and
+declined calls behind them. A directory means every plugin in it.
+
+Options:
+      --only <text>           Only scenarios whose id contains <text>
+      --jobs <n>              Workers at once  [default: half the CPUs]
+      --timeout <s>           Seconds per scenario  [default: 20]
+      --all                   List every scenario on its own, not only the
+                              ones that were not ok, grouped by how they went
+      --format json           Print the report as JSON
+      --save-baseline <file>  Write each scenario's status to <file>
+      --baseline <file>       Compare with <file>; exit 1 when a scenario got
+                              worse
+
+See docs/compat.md.
 ";
 
 /// The render size of every scenario that is not about size.

@@ -211,6 +211,64 @@ pub fn fail(err: &Error) -> ExitCode {
 	ExitCode::from(err.exit_code())
 }
 
+//==== Help ==============================================================
+
+pub const PRESETS_HELP: &str = "\
+Usage: aexlo presets [filter] [PRESET OPTIONS]
+
+List the variants the manifest's presets expand to.
+";
+
+pub const TEST_HELP: &str = "\
+Usage: aexlo test [filter] [OPTIONS] [PRESET OPTIONS]
+
+Run each variant in a worker, check it and compare it with its golden;
+report pass, fail, error, crash, timeout or skipped.
+
+Options:
+      --bless             Write missing or changed goldens (never ones
+                          rendered by After Effects)
+      --save-frames <dir> Also write each variant's frame to <dir>
+      --fuzz <n>          Instead, render n cases per preset with parameters
+                          drawn from their declared ranges; failing cases
+                          print as [[preset]] blocks
+      --seed <s>          The fuzzing seed  [default: time-based, printed]
+";
+
+pub const CHECK_HELP: &str = "\
+Usage: aexlo check [filter] [OPTIONS] [PRESET OPTIONS]
+
+What CI gates on: `test --strict`, then `bench --baseline` when a baseline
+is configured. Parity failures against After Effects goldens are listed
+apart from regressions.
+
+Options:
+      --baseline <name>   The baseline to compare with
+                          [default: main, if .aexlo/baselines/main.json exists]
+      --threshold <p>     [default: 5%]
+";
+
+/// The flags [`parse`] takes for every preset-driven command, and what
+/// their exit codes mean.
+pub const PRESET_OPTIONS: &str = "
+Preset options:
+      --manifest <path>   The manifest  [default: the nearest aexlo.toml]
+      --depth 8,16        Narrow the matrix to these depths
+      --render smart      Narrow the matrix to these render paths
+      --isolate <how>     preset (one worker per preset, default), variant,
+                          or none (in this process; debugging only)
+  -j, --jobs <n>          Workers at once  [default: 1; bench runs one]
+      --strict            Every strict check (bounds, allocations,
+                          checkouts, flags) on every variant (check always
+                          does; bench never does)
+      --format <f>        human or json  [default: human]
+      --junit <path>      Also write a JUnit XML report
+
+[filter] matches variant ids by substring, or as a glob when it has `*`.
+Exit codes: 0 all passed or skipped, 1 the plugin was judged bad, 2 invalid
+manifest or flags, 3 harness error (no verdict reached).
+";
+
 //==== aexlo presets ====================================================
 
 pub fn cmd_presets(args: impl Iterator<Item = String>) -> ExitCode {

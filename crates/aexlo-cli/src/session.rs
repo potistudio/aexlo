@@ -325,7 +325,7 @@ impl Session {
 
 	fn set_param(&mut self, index: usize, raw: &str) -> Result<()> {
 		let fx = self.fx.as_mut().context("no plugin loaded")?;
-		let value = crate::parse_param_value(fx, index, raw)?;
+		let value = crate::param::parse_value(fx, index, raw)?;
 		fx.set_param(index, value.clone())
 			.with_context(|| format!("setting parameter #{index}"))?;
 		let _ = fx.update_params_ui();

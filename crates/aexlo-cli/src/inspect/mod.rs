@@ -33,38 +33,44 @@ use engine::{Engine, Setup, Snapshot};
 use recorder::{Kind, Recorder, fmt_duration};
 use ui::{Action, App, MEMORY_WINDOW};
 
-pub const USAGE: &str = "\
-    inspect <plugin>   Drive the plugin from a prompt and analyze it in a TUI:
-                       the commands and suite calls it makes (trace and
-                       totals), its parameters, host state, live memory
-                       (hex dump, changes per command) and the output
-        -i, --input <png>    Input layer  [default: a gradient]
-        --text <string>      Make the layer a text layer showing <string>
-                             (\\n breaks lines), for plugins that need one
-        --font <file>        Font for --text and `input text`
-                             [default: a system sans-serif]
-        --size <W>x<H>       Size of the default input and of the output
-        --depth <8|16|32>    Project depth  [default: 8]
-        --level <l>          args (every suite call with its arguments),
-                             calls (without them) or commands  [default: args]
-        --strict             Every strict check from the first command
-        --serial             Iterate callbacks on the plugin's thread, so
-                             their suite calls are traced too
-        --exec <cmds>        No TUI: run `;`-separated commands, then print
-                             the analysis (e.g. --exec \"render; set 1 2; render\")
-        --script <file>      Like --exec, one command per line; `-` reads
-                             them from stdin as they come, answering each
-                             before the next, so a pipe drives one session
-        --format <f>         With --exec/--script: human, or json for one
-                             JSON object per line (loaded, command, focus,
-                             report, error), for agents  [default: human]
-        --trace              With --exec/--script, print the whole trace
-                       `focus <text>` in --exec prints the diagnosis of the
-                       newest matching call (e.g. --exec \"render; focus checkout\");
-                       `report` prints the analysis then, `clear` forgets the
-                       trace so far, `quit` stops reading.
-                       `:help` in the TUI lists the commands; docs/inspect.md
-                       describes them and every JSON event.
+/// What `--exec`, `--script` and the TUI prompt take.
+pub const COMMANDS_HELP: &str = command::HELP;
+
+pub const HELP: &str = "\
+Usage: aexlo inspect <plugin> [OPTIONS]
+
+Drive the plugin from a prompt and analyze it in a TUI: the commands and
+suite calls it makes (trace and totals), its parameters, host state, live
+memory (hex dump, changes per command) and the output.
+
+Options:
+  -i, --input <png>       Input layer  [default: a gradient]
+      --text <string>     Make the layer a text layer showing <string>
+                          (\\n breaks lines), for plugins that need one
+      --font <file>       Font for --text and `input text`
+                          [default: a system sans-serif]
+      --size <W>x<H>      Size of the default input and of the output
+      --depth <8|16|32>   Project depth  [default: 8]
+      --level <l>         args (every suite call with its arguments), calls
+                          (without them) or commands  [default: args]
+      --strict            Every strict check from the first command
+      --serial            Iterate callbacks on the plugin's thread, so their
+                          suite calls are traced too
+      --exec <cmds>       No TUI: run `;`-separated commands, then print the
+                          analysis (e.g. --exec \"render; set 1 2; render\")
+      --script <file>     Like --exec, one command per line; `-` reads them
+                          from stdin as they come, answering each before the
+                          next, so a pipe drives one session
+      --format <f>        With --exec/--script: human, or json for one JSON
+                          object per line (loaded, command, focus, report,
+                          error), for agents  [default: human]
+      --trace             With --exec/--script, print the whole trace
+
+`focus <text>` in --exec prints the diagnosis of the newest matching call
+(e.g. --exec \"render; focus checkout\"); `report` prints the analysis then,
+`clear` forgets the trace so far, `quit` stops reading. `:help` in the TUI
+lists the commands; docs/inspect.md describes them and every JSON event.
+
 ";
 
 /// Default input size when no `--input` or `--size` is given.
@@ -85,11 +91,11 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 	let mut args = args.peekable();
 	while let Some(arg) = args.next() {
 		match arg.as_str() {
-			"-i" | "--input" => input.png = Some(PathBuf::from(crate::next_value(&mut args, &arg)?)),
-			"--text" => input.text = Some(crate::next_value(&mut args, &arg)?.replace("\\n", "\n")),
-			"--font" => input.font = Some(PathBuf::from(crate::next_value(&mut args, &arg)?)),
+			"-i" | "--input" => input.png = Some(PathBuf::from(crate::args::next_value(&mut args, &arg)?)),
+			"--text" => input.text = Some(crate::args::next_value(&mut args, &arg)?.replace("\\n", "\n")),
+			"--font" => input.font = Some(PathBuf::from(crate::args::next_value(&mut args, &arg)?)),
 			"--size" => {
-				let raw = crate::next_value(&mut args, &arg)?;
+				let raw = crate::args::next_value(&mut args, &arg)?;
 				let (w, h) = raw.split_once('x').context("--size expects <W>x<H>")?;
 				size = Some((
 					w.parse().context("--size expects <W>x<H>")?,
@@ -97,7 +103,7 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 				));
 			}
 			"--depth" => {
-				depth = match crate::next_value(&mut args, &arg)?.as_str() {
+				depth = match crate::args::next_value(&mut args, &arg)?.as_str() {
 					"8" => PixelDepthKind::U8,
 					"16" => PixelDepthKind::U16,
 					"32" => PixelDepthKind::F32,
@@ -105,7 +111,7 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 				}
 			}
 			"--level" => {
-				level = match crate::next_value(&mut args, &arg)?.as_str() {
+				level = match crate::args::next_value(&mut args, &arg)?.as_str() {
 					"args" => ObserveLevel::Arguments,
 					"calls" => ObserveLevel::Calls,
 					"commands" => ObserveLevel::Commands,
@@ -114,18 +120,14 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 			}
 			"--strict" => strict = Strict::all(),
 			"--serial" => serial = true,
-			"-h" | "--help" => {
-				print!("aexlo inspect <plugin> [OPTIONS]\n\n{USAGE}\n{}", command::HELP);
-				return Ok(());
-			}
 			"--exec" | "--script" if script.is_some() => bail!("give either --exec or --script, once"),
 			"--exec" => {
-				script = Some(Script::Parsed(command::parse_script(&crate::next_value(
+				script = Some(Script::Parsed(command::parse_script(&crate::args::next_value(
 					&mut args, &arg,
 				)?)?))
 			}
 			"--script" => {
-				let path = crate::next_value(&mut args, &arg)?;
+				let path = crate::args::next_value(&mut args, &arg)?;
 				script = Some(if path == "-" {
 					Script::Stdin
 				} else {
@@ -135,7 +137,7 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 			}
 			"--trace" => print_trace = true,
 			"--format" => {
-				format = match crate::next_value(&mut args, &arg)?.as_str() {
+				format = match crate::args::next_value(&mut args, &arg)?.as_str() {
 					"human" => Format::Human,
 					"json" => Format::Json,
 					other => bail!("--format expects human or json, got '{other}'"),
@@ -189,7 +191,7 @@ fn prepare(
 	strict: Strict,
 	serial: bool,
 ) -> Result<Setup> {
-	let resolved = crate::resolve_plugin(plugin);
+	let resolved = crate::args::resolve_plugin(plugin);
 	let manifest = Some(resolved.join("Cargo.toml")).filter(|m| resolved.is_dir() && m.exists());
 	let path = match &manifest {
 		Some(manifest) => crate::watch::build_cdylib(manifest)?,

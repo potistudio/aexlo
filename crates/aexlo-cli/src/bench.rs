@@ -6,14 +6,80 @@
 //! variables, which is fine for CI but awkward interactively - here every knob
 //! is a flag, and a plugin path can be a crate directory that gets built first
 //! (the same resolution `render` does).
+//!
+//! `aexlo bench [filter]`, which times a manifest's presets instead, lives in
+//! [`crate::toolkit`]; [`cmd`] picks between the two.
 
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use aexlo_bench::report::{
 	Measurement, print_leaderboard, print_speedups, sort_by_throughput, to_csv, to_json, write_file,
 };
 use aexlo_bench::{MeasureOptions, ParamConfig, RenderMode, Resolution, bench_modes, measure, param_config_label};
 use anyhow::{Context, Result, bail};
+
+use crate::args::{next_value, resolve_artifact};
+use crate::toolkit;
+
+pub const HELP: &str = "\
+Usage: aexlo bench <plugin>... [OPTIONS]
+       aexlo bench [filter] [PRESET OPTIONS]
+
+With plugins: time each one and rank them by throughput (megapixels per
+second), then optionally export the numbers. Same measurements as
+`cargo bench -p aexlo-bench`, driven by flags instead of AEXLO_BENCH_*
+variables.
+
+Options:
+  -r, --resolution <spec> Frame size: a name (512, 720p, 1080p, 4k) or <W>x<H>.
+                          Repeatable, or comma-separated  [default: 1080p]
+  -n, --samples <n>       Timed renders per measurement  [default: 30]
+      --warmup <n>        Untimed renders first, to pay setup costs
+                          [default: 5]
+      --mode <m>          Force a render path: auto, cpu or gpu
+                          [default: cpu and gpu for GPU-capable plugins]
+  -s, --set <p>=<v>       Set parameter <p> (name or index) to a number
+                          before timing (repeatable)
+  -i, --input <png>       Input frame, resized to each resolution
+                          [default: a synthetic gradient]
+      --csv <path>        Write the results as CSV
+      --json <path>       Write the results as JSON
+
+Without plugins: time the manifest's presets (each preset's `bench` samples
+and warmup), one at a time, with a phase breakdown (pre-render, render, GPU,
+host overhead).
+
+Options:
+      --save-baseline <name>  Store the timings in .aexlo/baselines/
+      --baseline <name>       Compare with them; a variant whose median and
+                              min are both slower than --threshold regresses
+                              (exit 1)
+      --threshold <p>         [default: 5%]
+";
+
+/// `aexlo bench`: the plugins named, else the manifest's presets.
+pub fn cmd(args: impl Iterator<Item = String>) -> ExitCode {
+	let args: Vec<String> = args.collect();
+	let is_plugin = |arg: &str| crate::args::resolve_plugin(arg).exists() || resolve_fixture(arg).is_some();
+	if !toolkit::bench_names_plugins(&args, is_plugin) {
+		return toolkit::cmd_bench(args.into_iter());
+	}
+	crate::report(bench_plugins(args.into_iter()))
+}
+
+fn bench_plugins(args: impl Iterator<Item = String>) -> Result<()> {
+	let options = parse_args(args, |spec| {
+		let path = resolve_artifact(spec)?;
+		if path.exists() {
+			return Ok(path);
+		}
+		// Last resort: a bare name may be one of the bundled bench fixtures, so
+		// `aexlo bench SDK_Noise` works like the `cargo bench` harness does.
+		resolve_fixture(spec).with_context(|| format!("no plugin found for '{spec}'"))
+	})?;
+	run(options)
+}
 
 /// Everything `bench` needs, resolved from the command line.
 pub struct Options {
@@ -31,7 +97,7 @@ pub struct Options {
 	pub json: Option<PathBuf>,
 }
 
-pub fn run(options: Options) -> Result<()> {
+fn run(options: Options) -> Result<()> {
 	let config_label = param_config_label(&options.config);
 	println!(
 		"aexlo bench: {} plugin(s) x {} resolution(s), params={config_label}, {} samples ({} warmup)\n",
@@ -118,7 +184,7 @@ pub fn run(options: Options) -> Result<()> {
 
 /// Parse `bench`'s arguments. `resolve` turns a plugin argument into an artifact
 /// path (building a crate directory when needed), matching `render`'s behavior.
-pub fn parse_args(args: impl Iterator<Item = String>, resolve: impl Fn(&str) -> Result<PathBuf>) -> Result<Options> {
+fn parse_args(args: impl Iterator<Item = String>, resolve: impl Fn(&str) -> Result<PathBuf>) -> Result<Options> {
 	let mut specs: Vec<String> = Vec::new();
 	let mut resolutions: Vec<Resolution> = Vec::new();
 	let mut config: ParamConfig = Vec::new();
@@ -229,14 +295,10 @@ fn parse_set(raw: &str) -> Result<(String, f64)> {
 	Ok((name.to_string(), value))
 }
 
-fn next_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String> {
-	args.next().with_context(|| format!("option '{flag}' needs a value"))
-}
-
 /// Fixture-name fallback: `aexlo bench SDK_Noise` should find the bundled
 /// fixture the same way the `cargo bench` harness does, so the two front-ends
 /// accept the same plugin names.
-pub fn resolve_fixture(spec: &str) -> Option<PathBuf> {
+fn resolve_fixture(spec: &str) -> Option<PathBuf> {
 	let path = aexlo_bench::resolve_plugin(spec);
 	path.exists().then_some(path)
 }

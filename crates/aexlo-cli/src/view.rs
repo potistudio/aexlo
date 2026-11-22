@@ -14,6 +14,19 @@ use anyhow::{Context, Result, anyhow};
 use minifb::{Key, ScaleMode, Window, WindowOptions};
 use notify::{RecursiveMode, Watcher};
 
+pub const HELP: &str = "\
+Usage: aexlo view <png>
+
+Show a PNG in a window and reload it whenever it changes. A `dev`-driven
+#[aexlo_test::preview] opens one by itself; pair it with your own re-runner
+otherwise.
+";
+
+pub fn cmd(mut args: impl Iterator<Item = String>) -> Result<()> {
+	let path = args.next().context("view: missing <png> path")?;
+	run(Path::new(&path))
+}
+
 /// Debounce so a non-atomic PNG write isn't read back half-finished.
 const DEBOUNCE: Duration = Duration::from_millis(80);
 

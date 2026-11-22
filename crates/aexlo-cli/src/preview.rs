@@ -15,8 +15,76 @@ use aexlo::{Depth8, Layer};
 use anyhow::{Context, Result, bail};
 use notify::{RecursiveMode, Watcher};
 
+use crate::args;
 use crate::session::Session;
 use crate::viewer::{self, Viewer};
+
+pub const HELP: &str = "\
+Usage: aexlo preview <plugin> [OPTIONS]
+
+Preview a built plugin (.plugin, .aex, .dll) in the browser, with its
+parameters as live controls. No compiler in the loop: this is the `preview`
+to `dev`'s watch loop.
+
+Options:
+  -i, --input <png>       Feed a PNG as the effect's input layer
+                          [default: the plugin's built-in test frame]
+      --watch             Reload the plugin when the file changes on disk
+                          (e.g. rebuilt by another toolchain)
+      --port <n>          Port to serve on  [default: OS-assigned]
+      --preset <name>     Start on a manifest preset (or a variant id); the
+                          viewer's picker lists them all, compares against
+                          goldens, depths and render paths, and `Save as
+                          preset` appends to the manifest
+      --manifest <path>   The manifest  [default: the nearest aexlo.toml]
+      --strict            Poison and guard the output while previewing
+      --no-open           Don't open a browser tab
+";
+
+pub fn cmd(args: impl Iterator<Item = String>) -> Result<()> {
+	let mut plugin: Option<String> = None;
+	let mut input: Option<PathBuf> = None;
+	let mut port: u16 = 0;
+	let mut watch = false;
+	let mut preset: Option<String> = None;
+	let mut manifest: Option<PathBuf> = None;
+	let mut strict = false;
+	let mut no_open = false;
+
+	let mut args = args.peekable();
+	while let Some(arg) = args.next() {
+		match arg.as_str() {
+			"-i" | "--input" => input = Some(PathBuf::from(args::next_value(&mut args, &arg)?)),
+			"--watch" => watch = true,
+			"--preset" => preset = Some(args::next_value(&mut args, &arg)?),
+			"--manifest" => manifest = Some(PathBuf::from(args::next_value(&mut args, &arg)?)),
+			"--strict" => strict = true,
+			"--no-open" => no_open = true,
+			"--port" => port = args::port(&mut args, &arg)?,
+			other if other.starts_with('-') => bail!("unknown option '{other}'"),
+			_ => {
+				if plugin.replace(arg).is_some() {
+					bail!("preview: expected a single <plugin>");
+				}
+			}
+		}
+	}
+
+	let plugin = plugin.context("preview: missing <plugin>")?;
+	let path = args::resolve_plugin(&plugin);
+	run(
+		&path,
+		Options {
+			input: input.as_deref(),
+			port,
+			watch,
+			manifest: manifest.as_deref(),
+			preset: preset.as_deref(),
+			strict,
+			no_open,
+		},
+	)
+}
 
 /// Debounce so an external rebuild's non-atomic write isn't loaded half-finished.
 const DEBOUNCE: Duration = Duration::from_millis(120);
@@ -56,7 +124,7 @@ pub fn run(artifact: &Path, options: Options<'_>) -> Result<()> {
 	// Decode up front: a bad path should fail before we open a browser tab.
 	let input = match options.input {
 		Some(path) => {
-			let (rgba, w, h) = crate::load_input(path)?;
+			let (rgba, w, h) = load_input(path)?;
 			println!("aexlo preview: input {} ({w}×{h})", path.display());
 			Some(Input { rgba, w, h })
 		}
@@ -191,4 +259,13 @@ fn copy_artifact(from: &Path, to: &Path) -> Result<()> {
 
 fn remove_staged(path: &Path) {
 	let _ = std::fs::remove_file(path);
+}
+
+/// Load a PNG as an RGBA8 buffer plus its dimensions.
+fn load_input(path: &Path) -> Result<(Vec<u8>, u32, u32)> {
+	let img = image::open(path)
+		.with_context(|| format!("opening input {}", path.display()))?
+		.to_rgba8();
+	let (w, h) = img.dimensions();
+	Ok((img.into_raw(), w, h))
 }

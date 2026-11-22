@@ -11,7 +11,8 @@ PLUGIN COMMANDS (each runs on the plugin's thread and is traced)
   render [auto|smart|legacy|gpu]
                             Render a frame through that path  [auto]
   set <param> <value>       Set a parameter (index, #index or name)
-  changed <param>           PF_Cmd_USER_CHANGED_PARAM (+ UPDATE_PARAMS_UI if asked)
+  changed <param>           PF_Cmd_USER_CHANGED_PARAM (+ UPDATE_PARAMS_UI if
+                            asked)
   press <button>            Press a button (index, #index, name or the text on
                             it); prints the values the plugin changed
   updateui                  PF_Cmd_UPDATE_PARAMS_UI

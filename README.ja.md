@@ -115,6 +115,9 @@ aexlo preview build/MyGlow.plugin --preset dot_glow
 aexlo check                        # CI で実行するコマンド（.github/workflows/aexlo-check.yml）
 ```
 
+`aexlo help` でコマンドの一覧を、`aexlo help <command>`（または
+`aexlo <command> --help`）でそのオプションを表示します。
+
 各バリアントはワーカープロセスで実行されるため、プラグインがクラッシュしても、その実行だけが失敗します。
 Rust プラグインでは `aexlo-test` を開発用依存関係に追加すると、フレームのアサーションを伴うプロセス内の `#[aexlo_test::test]` を利用できます。
 
