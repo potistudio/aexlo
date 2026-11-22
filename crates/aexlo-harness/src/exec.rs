@@ -6,7 +6,7 @@ use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use aexlo::{CommandEvent, CommandPhase, ObserveLevel, Observer, PluginInstance};
+use aexlo::{CommandEvent, CommandPhase, ObserveLevel, Observer, PluginInstance, UnsupportedEvent, UnsupportedKind};
 use serde::{Deserialize, Serialize};
 
 use crate::apply;
@@ -26,10 +26,80 @@ pub struct TracedCommand {
 	pub error: Option<i32>,
 }
 
+/// Something the plugin asked for that aexlo does not do
+/// ([`aexlo::UnsupportedEvent`]), with how often it asked.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Gap {
+	/// `missing-suite`, `stub` or `declined`.
+	pub kind: String,
+	/// The suite (for `missing-suite`) or the function.
+	pub name: String,
+	/// The version or argument that was not served, e.g. `v6`.
+	#[serde(default, skip_serializing_if = "String::is_empty")]
+	pub detail: String,
+	/// The command it was asked in, e.g. `GLOBAL_SETUP`.
+	pub command: String,
+	pub count: u32,
+}
+
+impl Gap {
+	/// The wire name of `kind`.
+	pub fn kind_name(kind: UnsupportedKind) -> &'static str {
+		match kind {
+			UnsupportedKind::MissingSuite => "missing-suite",
+			UnsupportedKind::Stub => "stub",
+			UnsupportedKind::Declined => "declined",
+			_ => "unsupported",
+		}
+	}
+
+	/// `missing-suite AEGP Mask Suite v6`.
+	pub fn label(&self) -> String {
+		if self.detail.is_empty() {
+			format!("{} {}", self.kind, self.name)
+		} else {
+			format!("{} {} {}", self.kind, self.name, self.detail)
+		}
+	}
+
+	/// Count `event`, asked during `command`, into `gaps`.
+	pub fn record(gaps: &mut Vec<Gap>, event: &UnsupportedEvent, command: &str) {
+		let kind = Self::kind_name(event.kind);
+		match gaps
+			.iter_mut()
+			.find(|g| g.kind == kind && g.name == event.name && g.detail == event.detail && g.command == command)
+		{
+			Some(gap) => gap.count += 1,
+			None => gaps.push(Gap {
+				kind: kind.to_string(),
+				name: event.name.clone(),
+				detail: event.detail.clone(),
+				command: command.to_string(),
+				count: 1,
+			}),
+		}
+	}
+
+	/// Add `more` to `gaps`, summing the counts of the same gap.
+	pub fn merge(gaps: &mut Vec<Gap>, more: Vec<Gap>) {
+		for gap in more {
+			match gaps.iter_mut().find(|g| {
+				g.kind == gap.kind && g.name == gap.name && g.detail == gap.detail && g.command == gap.command
+			}) {
+				Some(existing) => existing.count += gap.count,
+				None => gaps.push(gap),
+			}
+		}
+	}
+}
+
 /// What the plugin was asked to do, and what it logged (§6.4).
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Trace {
 	pub commands: Vec<TracedCommand>,
+	/// What the plugin asked for that aexlo does not do, from its setup on.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub unsupported: Vec<Gap>,
 	/// The command that began but never ended, when a run died inside it.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub unfinished: Option<String>,
@@ -189,6 +259,13 @@ impl RunFailure {
 		}
 	}
 
+	pub fn trace_mut(&mut self) -> Option<&mut Trace> {
+		match self {
+			Self::Plugin { trace, .. } | Self::Crash { trace, .. } | Self::Timeout { trace, .. } => Some(trace),
+			_ => None,
+		}
+	}
+
 	pub(crate) fn from_error(err: crate::Error, trace: Trace) -> Self {
 		match err.kind {
 			ErrorKind::Plugin => Self::Plugin {
@@ -210,10 +287,24 @@ pub trait Executor {
 /// so a crash can name the command it died in).
 pub type CommandSink = Arc<dyn Fn(&CommandEvent) + Send + Sync>;
 
-/// Records commands into a [`Trace`] and forwards them to a sink.
-struct Recorder {
+/// Records commands and gaps into a [`Trace`] and forwards commands to a
+/// sink.
+pub(crate) struct Recorder {
 	trace: Mutex<Trace>,
 	sink: Option<CommandSink>,
+}
+
+impl Recorder {
+	pub(crate) fn new(sink: Option<CommandSink>) -> Self {
+		Self {
+			trace: Mutex::new(Trace::default()),
+			sink,
+		}
+	}
+
+	pub(crate) fn trace(&self) -> Trace {
+		self.trace.lock().map(|t| t.clone()).unwrap_or_default()
+	}
 }
 
 impl Observer for Recorder {
@@ -234,6 +325,20 @@ impl Observer for Recorder {
 			}
 		}
 	}
+
+	fn unsupported(&self, event: &UnsupportedEvent) {
+		let Ok(mut trace) = self.trace.lock() else { return };
+		let command = trace.unfinished.clone().unwrap_or_default();
+		Gap::record(&mut trace.unsupported, event, &command);
+	}
+}
+
+/// What the plugin asked for and aexlo did not do while `setup` watched it
+/// load, put in front of what `trace` saw afterwards.
+pub(crate) fn with_setup_gaps(setup: &Recorder, trace: &mut Trace) {
+	let mut gaps = setup.trace().unsupported;
+	Gap::merge(&mut gaps, std::mem::take(&mut trace.unsupported));
+	trace.unsupported = gaps;
 }
 
 /// Configure `fx` for `variant` and render it `options.renders` times.
@@ -262,10 +367,7 @@ fn run_on_impl(
 		});
 	}
 
-	let recorder = Arc::new(Recorder {
-		trace: Mutex::new(Trace::default()),
-		sink,
-	});
+	let recorder = Arc::new(Recorder::new(sink));
 	let level = if options.calls {
 		ObserveLevel::Calls
 	} else {
@@ -429,5 +531,47 @@ where
 				})
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// As if `name` had begun (events are the host's to make).
+	fn begin(recorder: &Recorder, name: &str) {
+		recorder.trace.lock().unwrap().unfinished = Some(name.to_string());
+	}
+
+	#[test]
+	fn gaps_are_counted_per_command_and_setup_comes_first() {
+		let stub = UnsupportedEvent::new(UnsupportedKind::Stub, "blend", "");
+		let missing = UnsupportedEvent::new(UnsupportedKind::MissingSuite, "AEGP Mask Suite", "v6");
+
+		let setup = Recorder::new(None);
+		begin(&setup, "GLOBAL_SETUP");
+		setup.unsupported(&missing);
+		setup.unsupported(&missing);
+
+		let run = Recorder::new(None);
+		begin(&run, "RENDER");
+		run.unsupported(&stub);
+		run.unsupported(&stub);
+		run.unsupported(&stub);
+
+		let mut trace = run.trace();
+		with_setup_gaps(&setup, &mut trace);
+		let labels: Vec<(String, &str, u32)> = trace
+			.unsupported
+			.iter()
+			.map(|g| (g.label(), g.command.as_str(), g.count))
+			.collect();
+		assert_eq!(
+			labels,
+			[
+				("missing-suite AEGP Mask Suite v6".to_string(), "GLOBAL_SETUP", 2),
+				("stub blend".to_string(), "RENDER", 3),
+			]
+		);
 	}
 }

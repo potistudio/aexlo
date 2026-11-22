@@ -163,6 +163,17 @@ pub struct UnsupportedEvent {
 	pub detail: String,
 }
 
+impl UnsupportedEvent {
+	/// An event as the host reports it (for feeding observers in tests).
+	pub fn new(kind: UnsupportedKind, name: impl Into<String>, detail: impl Into<String>) -> Self {
+		Self {
+			kind,
+			name: name.into(),
+			detail: detail.into(),
+		}
+	}
+}
+
 /// A host allocation the plugin still holds, as listed by
 /// [`PluginInstance::allocations`](crate::PluginInstance::allocations).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -336,11 +347,7 @@ impl Drop for CallsGuard {
 /// Report that the plugin asked for something aexlo does not do: logged as
 /// a warning, and handed to this thread's observer.
 pub(crate) fn unsupported(kind: UnsupportedKind, name: impl Into<String>, detail: impl Into<String>) {
-	let event = UnsupportedEvent {
-		kind,
-		name: name.into(),
-		detail: detail.into(),
-	};
+	let event = UnsupportedEvent::new(kind, name, detail);
 	log::warn!("unsupported ({:?}): {} {}", event.kind, event.name, event.detail);
 	ANY.with(|a| {
 		if let Some(observer) = a.borrow().as_ref() {

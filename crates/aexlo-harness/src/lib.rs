@@ -26,7 +26,7 @@ pub mod runner;
 pub mod worker;
 
 pub use error::{Error, ErrorKind, Result};
-pub use exec::{Executor, InProcess, RunFailure, RunOptions, RunOutput, Timing, Trace};
+pub use exec::{Executor, Gap, InProcess, RunFailure, RunOptions, RunOutput, Timing, Trace};
 pub use frame::{Comparison, Frame};
 pub use manifest::Manifest;
 pub use preset::{

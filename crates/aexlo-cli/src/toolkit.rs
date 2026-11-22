@@ -320,6 +320,7 @@ pub fn report_json(report: &Report) -> String {
 				"notes": run.notes,
 				"strict": run.strict,
 				"last_command": run.trace.last_command(),
+				"unsupported": run.trace.unsupported,
 				"logs": run.trace.logs,
 			})
 		})
