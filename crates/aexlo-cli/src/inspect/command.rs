@@ -22,7 +22,7 @@ PLUGIN COMMANDS (each runs on the plugin's thread and is traced)
   input <png> | input <black|white|gradient> [w h]
                             Replace the input layer (keeps its depth)
   input text <string>       Make the layer a text layer showing <string>
-                            (\n breaks lines): the plugin gets its glyph
+                            (\\n breaks lines): the plugin gets its glyph
                             outlines and the text, white, as its input
   depth <8|16|32>           Convert the input (project) depth
   reload                    Tear the plugin down and load it again (a crate

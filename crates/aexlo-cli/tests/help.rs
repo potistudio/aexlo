@@ -35,6 +35,36 @@ fn help_lists_commands_and_shows_each_ones_options() {
 }
 
 #[test]
+fn short_help_shows_the_whole_description() {
+	let dir = common::scratch("help_description");
+
+	for args in [&["compat", "-h"][..], &["compat", "--help"], &["help", "compat"]] {
+		let out = common::aexlo(args, &dir);
+		assert!(out.status.success(), "{args:?}");
+		let text = String::from_utf8_lossy(&out.stdout);
+		assert!(
+			text.starts_with("Measure how far aexlo can drive each plugin\n")
+				&& text.contains("See docs/compat.md")
+				&& text.find("See docs/compat.md") < text.find("Usage: aexlo compat"),
+			"{args:?}: {text}"
+		);
+	}
+
+	// The command list keeps one line per command.
+	let out = common::aexlo(&["help"], &dir);
+	let text = String::from_utf8_lossy(&out.stdout);
+	assert!(
+		text.contains("compat   Measure how far") && !text.contains("See docs/compat.md"),
+		"{text}"
+	);
+
+	// A `\n` in inspect's command list is two characters, not a line break.
+	let out = common::aexlo(&["inspect", "-h"], &dir);
+	let text = String::from_utf8_lossy(&out.stdout);
+	assert!(text.contains("(\\n breaks lines): the plugin"), "{text}");
+}
+
+#[test]
 fn usage_errors_exit_2() {
 	let dir = common::scratch("help_usage");
 

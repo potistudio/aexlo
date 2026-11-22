@@ -24,7 +24,7 @@ mod web;
 
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
 /// Run After Effects plugins without After Effects.
 #[derive(Parser)]
@@ -124,7 +124,8 @@ a Cargo.toml) and build its cdylib first.";
 fn main() -> ExitCode {
 	let _ = env_logger::try_init();
 	// A usage error exits 2, like the preset-driven commands' invalid flags.
-	let cli = Cli::parse();
+	let mut command = whole_descriptions(Cli::command());
+	let cli = Cli::from_arg_matches(&command.get_matches_mut()).unwrap_or_else(|err| err.format(&mut command).exit());
 	match cli.command {
 		Command::About(args) => report(info::about(args)),
 		Command::Params(args) => report(info::params(args)),
@@ -141,6 +142,34 @@ fn main() -> ExitCode {
 		Command::View(args) => report(view::cmd(args)),
 		Command::Worker => toolkit::cmd_worker(),
 	}
+}
+
+/// The help of a command with a description: its first line, the rest of the
+/// description, then usage and options.
+const DESCRIBED_HELP: &str = "\
+{about-with-newline}
+{before-help}{usage-heading} {usage}
+
+{all-args}{after-help}";
+
+/// Show each command's whole description under both `-h` and `--help`.
+///
+/// clap prints only a doc comment's first paragraph for `-h` and keeps the
+/// rest for `--help`, so `aexlo compat -h` said what compat is for but not
+/// what it does. The first paragraph stays the about (the one line `aexlo
+/// help` lists); the rest moves to before-help, which both print, placed
+/// after the about.
+fn whole_descriptions(cli: clap::Command) -> clap::Command {
+	cli.mut_subcommands(|command| {
+		let Some(long) = command.get_long_about().map(ToString::to_string) else {
+			return command;
+		};
+		let Some((_, rest)) = long.split_once("\n\n") else {
+			return command;
+		};
+		let rest = rest.to_owned();
+		command.long_about(None).before_help(rest).help_template(DESCRIBED_HELP)
+	})
 }
 
 /// Exit 1 after printing the error. The preset-driven commands choose their
@@ -163,6 +192,6 @@ mod tests {
 
 	#[test]
 	fn the_command_line_is_consistent() {
-		Cli::command().debug_assert();
+		whole_descriptions(Cli::command()).debug_assert();
 	}
 }
