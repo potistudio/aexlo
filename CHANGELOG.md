@@ -7,6 +7,14 @@ may break the API, and every breaking change is listed below.
 
 ## [Unreleased]
 
+### Fixed
+
+- `PF_Cmd_SMART_PRE_RENDER` hands the plugin a `GuidMixInPtr` callback in
+  `PF_PreRenderCallbacks` instead of a null pointer. Plugins that mix state
+  into the frame GUID without checking the pointer, such as Cosmic and
+  Falloff, crashed there. aexlo keeps no frame cache, so the callback checks
+  its arguments, records the call and returns success.
+
 ## [0.3.0] - 2026-11-23
 
 ### Added
