@@ -27,8 +27,11 @@ plugin renders or returns.
   parameter, clips `result_rect` to the request and no longer claims that the
   input is solid. `checkout_layer_pixels` refuses an id that was never
   checked out, where it gave the input layer.
-- The legacy blend and convolve callbacks, and those of PF World Transform,
-  refuse 16- and 32-bit worlds instead of treating them as 8-bit.
+- PF World Transform and the legacy callbacks of the same names refuse worlds
+  of two depths in one call, and worlds whose depth cannot be told, and
+  report it. `copy` used to move raw bytes between them: AEPixelSorter2's
+  legacy path at 16 and 32 bpc now fails where it drew a scrambled picture
+  (its smart path is unaffected).
 
 ### Added
 
@@ -98,8 +101,8 @@ plugin renders or returns.
 - The input layer is a footage item and the hosted effect an effect on its
   layer: the Layer, Item and Effect suites report both, and the Effect Suite
   gives the identities the loaded plugins declare.
-- The legacy utility callbacks blend, convolve (8-bit), generate Gaussian
-  kernels (approximate coefficients) and resolve `get_callback_addr`.
+- The legacy utility callbacks blend, convolve, generate Gaussian kernels
+  (approximate coefficients) and resolve `get_callback_addr`.
 - Smart pre-renders have a `GuidMixInPtr`. No frames are cached by GUID.
 - `AEGP_SetStreamValue` sets an effect parameter's value, clamped to its valid
   range (a colour keeps its alpha), and `AEGP_SetDynamicStreamFlag` hides and
@@ -110,6 +113,18 @@ plugin renders or returns.
 
 ### Fixed
 
+- PF World Transform works at 16 and 32 bpc. `composite_rect`, `blend`,
+  `convolve`, `transfer_rect` and `transform_world` refused those worlds,
+  which failed every render of Shine at those depths. `copy` and `copy_hq`
+  succeeded after copying a half or a quarter of each row. Deep opacity is
+  read from `opacitySu`, and 32 bpc keeps values out of range through
+  copying, filtering, normal and additive compositing. 8-bit results are
+  unchanged.
+- The legacy `copy` honours its rectangles, and `fill` and the colourless
+  `premultiply` cover the whole of a deep world. Discotext and DisplacerPro
+  left the alpha of three quarters of a 32 bpc frame wrong.
+- `PF_GetPixelFormat` knows the depth of a world that a plugin made over part
+  of one of the host's.
 - "AEGP Utility Suite" serves each version at its own layout: v3–7
   (`AEGP_UtilitySuite1`–`3`), v10–11 (`4`–`5`) and v13 (`6`). One table
   served every version from 1 to 18, so a v11 plugin calling

@@ -15,7 +15,8 @@ pub(crate) struct HostLayer {
 
 impl HostLayer {
 	pub(crate) fn new(layer: AnyLayer) -> Self {
-		crate::suites::world::tag_host_world(layer.data_ptr() as usize, layer.kind());
+		let bytes = layer.len() * layer.kind().bytes_per_pixel();
+		crate::suites::world::tag_host_world(layer.data_ptr() as usize, bytes, layer.kind());
 		Self { layer }
 	}
 

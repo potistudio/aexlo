@@ -35,38 +35,44 @@ use crate::sys::{
 	PF_PixelFormat_ARGB32, PF_PixelFormat_ARGB64, PF_PixelFormat_ARGB128, PF_PixelFormat_GPU_BGRA128, PF_ProgPtr,
 	PF_RationalScale, PF_UnionableRect, PF_WorldFlag_WRITEABLE, PF_WorldFlags, PF_WorldSuite2,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ptr::null_mut;
 use std::sync::{LazyLock, Mutex};
 
 use crate::core::diagnostics::diag;
 
-/// Pixel format of every world allocated through this module, keyed by its
-/// `data` pointer (stable however the plugin copies the `PF_EffectWorld`), so
-/// `PF_GetPixelFormat` can report what the world was created as.
-static WORLD_FORMATS: LazyLock<Mutex<HashMap<usize, u32>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Pixel format and length in bytes of every world allocated through this
+/// module or tagged, by its `data` pointer (stable however the plugin copies
+/// the `PF_EffectWorld`), so `PF_GetPixelFormat` can report what the world was
+/// created as, also for a world the plugin made over part of one.
+static WORLD_FORMATS: LazyLock<Mutex<BTreeMap<usize, (u32, usize)>>> = LazyLock::new(|| Mutex::new(BTreeMap::new()));
 /// Owns unguarded allocations; never reconstruct a Vec from plugin-modifiable fields.
 static BUFFERS: LazyLock<Mutex<HashMap<usize, Vec<u8>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Worlds allocated with guard bands (strict mode), keyed by `data`.
 static GUARDED: LazyLock<Mutex<HashMap<usize, crate::strict::Guarded>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// The format `world` was allocated with by [`alloc_world`], if any.
+/// The format of the allocation `world`'s pixels start in, if there is one:
+/// plugins point worlds of their own into the middle of those they are given.
 pub(super) fn allocated_format(world: &PF_EffectWorld) -> Option<u32> {
-	WORLD_FORMATS.lock().ok()?.get(&(world.data as usize)).copied()
+	let at = world.data as usize;
+	let formats = WORLD_FORMATS.lock().ok()?;
+	let (&start, &(format, bytes)) = formats.range(..=at).next_back()?;
+	(at == start || at - start < bytes).then_some(format)
 }
 
 /// Record the pixel format of a host-owned world (the instance's input and
 /// output, linked layers) by its `data` address: `ARGB64` for 16 bpc,
-/// `ARGB128` for 32 bpc. 8 bpc needs no tag (`ARGB32` is the default).
-pub(crate) fn tag_host_world(data: usize, kind: crate::pixel::PixelDepthKind) {
+/// `ARGB128` for 32 bpc, over `bytes` of pixels. 8 bpc needs no tag (`ARGB32`
+/// is the default).
+pub(crate) fn tag_host_world(data: usize, bytes: usize, kind: crate::pixel::PixelDepthKind) {
 	let format = match kind {
 		crate::pixel::PixelDepthKind::U8 => return,
 		crate::pixel::PixelDepthKind::U16 => PF_PixelFormat_ARGB64 as u32,
 		crate::pixel::PixelDepthKind::F32 => PF_PixelFormat_ARGB128 as u32,
 	};
 	if let Ok(mut formats) = WORLD_FORMATS.lock() {
-		formats.insert(data, format);
+		formats.insert(data, (format, bytes));
 	}
 }
 
@@ -104,7 +110,7 @@ pub(super) fn alloc_world(width: A_long, height: A_long, bytes_per_pixel: i32, f
 		(data, width * bytes_per_pixel)
 	});
 	if let Ok(mut formats) = WORLD_FORMATS.lock() {
-		formats.insert(data as usize, format);
+		formats.insert(data as usize, (format, rowbytes as usize * height as usize));
 	}
 	crate::strict::allocated(crate::AllocationKind::World, data as usize, row_data * height as usize);
 
