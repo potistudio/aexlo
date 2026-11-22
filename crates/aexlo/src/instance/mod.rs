@@ -314,6 +314,9 @@ pub struct PluginInstance {
 	output_guard: Option<crate::strict::Guarded>,
 	/// Whether the plugin has been set down (see [`Self::finish`]).
 	torn_down: bool,
+	/// Only completed setup stages may receive their matching setdown.
+	global_setup_complete: bool,
+	sequence_setup_complete: bool,
 }
 
 struct ControlPointer {

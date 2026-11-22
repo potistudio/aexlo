@@ -395,6 +395,8 @@ impl PluginInstance {
 				tracker: Default::default(),
 				output_guard: None,
 				torn_down: false,
+				global_setup_complete: false,
+				sequence_setup_complete: false,
 			};
 
 			instance_placeholder.wire_self_pointers();
@@ -425,6 +427,7 @@ impl PluginInstance {
 	/// Call the plugin with `PF_Cmd_GLOBAL_SETUP` command.
 	fn setup_global(&mut self) -> Result<()> {
 		self.call_plugin(RawCommand::GlobalSetup, null_mut())?;
+		self.global_setup_complete = true;
 		self.global_out_flags = self.out_data.out_flags;
 		// The capabilities declared here are what count. `out_data` is shared
 		// by every later command, and plugins overwrite its flags in some of
@@ -524,7 +527,9 @@ impl PluginInstance {
 	fn setup_sequence(&mut self) -> Result<()> {
 		self.effect_state.reset_sequence();
 		self.out_data.sequence_data = null_mut();
-		self.call_plugin(RawCommand::SequenceSetup, null_mut())
+		self.call_plugin(RawCommand::SequenceSetup, null_mut())?;
+		self.sequence_setup_complete = true;
+		Ok(())
 	}
 
 	/// Ask the plugin what its real entry point symbol is via the modern
@@ -827,18 +832,95 @@ impl PluginInstance {
 			log::warn!("PF_Cmd_GPU_DEVICE_SETDOWN failed during drop: {err:?}");
 		}
 
-		if let Err(err) = self.call_plugin(RawCommand::SequenceSetdown, null_mut()) {
-			log::warn!("PF_Cmd_SEQUENCE_SETDOWN failed during drop: {err:?}");
+		if self.sequence_setup_complete {
+			self.sequence_setup_complete = false;
+			if let Err(err) = self.call_plugin(RawCommand::SequenceSetdown, null_mut()) {
+				log::warn!("PF_Cmd_SEQUENCE_SETDOWN failed during drop: {err:?}");
+			}
 		}
 
 		self.dispose_arbitrary_params();
 
-		if let Err(err) = self.call_plugin(RawCommand::GlobalSetdown, null_mut()) {
-			log::warn!("PF_Cmd_GLOBAL_SETDOWN failed during drop: {err:?}");
+		if self.global_setup_complete {
+			self.global_setup_complete = false;
+			if let Err(err) = self.call_plugin(RawCommand::GlobalSetdown, null_mut()) {
+				log::warn!("PF_Cmd_GLOBAL_SETDOWN failed during drop: {err:?}");
+			}
 		}
 		crate::suites::register::remove_owner(self.aegp_owner);
 		if let Ok(mut tracker) = self.tracker.lock() {
 			tracker.torn_down();
 		}
+	}
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+	use super::*;
+	use std::sync::Mutex;
+
+	static COMMANDS: Mutex<Vec<crate::sys::PF_Cmd>> = Mutex::new(Vec::new());
+	static FAIL: Mutex<crate::sys::PF_Cmd> = Mutex::new(-1);
+
+	unsafe extern "C" fn entry(
+		cmd: crate::sys::PF_Cmd,
+		_: *mut crate::sys::PF_InData,
+		_: *mut crate::sys::PF_OutData,
+		_: crate::sys::PF_ParamList,
+		_: *mut crate::sys::PF_LayerDef,
+		_: *mut std::ffi::c_void,
+	) -> crate::sys::PF_Err {
+		COMMANDS.lock().unwrap().push(cmd);
+		if cmd == *FAIL.lock().unwrap() {
+			PF_Err_INVALID_CALLBACK
+		} else {
+			PF_Err_NONE
+		}
+	}
+
+	#[test]
+	fn setdown_only_follows_successful_setup() {
+		use crate::sys::*;
+		for (fail, expected) in [
+			(PF_Cmd_GLOBAL_SETUP, vec![PF_Cmd_GLOBAL_SETUP]),
+			(
+				PF_Cmd_PARAMS_SETUP,
+				vec![PF_Cmd_GLOBAL_SETUP, PF_Cmd_PARAMS_SETUP, PF_Cmd_GLOBAL_SETDOWN],
+			),
+			(
+				PF_Cmd_SEQUENCE_SETUP,
+				vec![
+					PF_Cmd_GLOBAL_SETUP,
+					PF_Cmd_PARAMS_SETUP,
+					PF_Cmd_SEQUENCE_SETUP,
+					PF_Cmd_GLOBAL_SETDOWN,
+				],
+			),
+		] {
+			COMMANDS.lock().unwrap().clear();
+			*FAIL.lock().unwrap() = fail;
+			let mut instance = PluginInstance::new(Path::new("test"));
+			instance.entry_point = Some(entry);
+			assert!(instance.finalize().is_err());
+			drop(instance);
+			assert_eq!(*COMMANDS.lock().unwrap(), expected);
+		}
+		COMMANDS.lock().unwrap().clear();
+		*FAIL.lock().unwrap() = -1;
+		let mut instance = PluginInstance::new(Path::new("test"));
+		instance.entry_point = Some(entry);
+		instance.finalize().unwrap();
+		instance.teardown();
+		drop(instance);
+		assert_eq!(
+			*COMMANDS.lock().unwrap(),
+			vec![
+				PF_Cmd_GLOBAL_SETUP,
+				PF_Cmd_PARAMS_SETUP,
+				PF_Cmd_SEQUENCE_SETUP,
+				PF_Cmd_SEQUENCE_SETDOWN,
+				PF_Cmd_GLOBAL_SETDOWN
+			]
+		);
 	}
 }

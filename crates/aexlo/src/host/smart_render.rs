@@ -6,6 +6,17 @@ use crate::PluginInstance;
 use crate::core::constants::{DEFAULT_HEIGHT as HEIGHT, DEFAULT_WIDTH as WIDTH};
 use crate::core::diagnostics::diag;
 
+/// aexlo renders every requested frame and does not reuse frames by GUID.
+/// Consequently no dependency bytes need to be retained until such a cache exists.
+unsafe extern "C" fn guid_mix_in_ptr(_effect_ref: PF_ProgPtr, size: A_u_long, data: *const std::ffi::c_void) -> PF_Err {
+	crate::core::ffi::guard("guid_mix_in_ptr", || {
+		if size != 0 && data.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		PF_Err_NONE
+	})
+}
+
 //==== Stub implementations ================================
 unsafe extern "C" fn checkout_layer_stub(
 	effect_ref: PF_ProgPtr,
@@ -229,6 +240,27 @@ pub(crate) struct SmartRenderData {
 	cpu_bitdepth: i16,
 }
 
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn pre_render_guid_callback_accepts_dependencies() {
+		let mut state = SmartRenderData::new();
+		let extra = state.pre_render_extra();
+		let callback = unsafe { (*extra.cb).GuidMixInPtr.expect("GUID callback") };
+		let bytes = [1u8, 2, 3];
+		unsafe {
+			assert_eq!(
+				callback(null_mut(), bytes.len() as A_u_long, bytes.as_ptr().cast()),
+				PF_Err_NONE
+			);
+			assert_eq!(callback(null_mut(), 0, null()), PF_Err_NONE);
+			assert_eq!(callback(null_mut(), 1, null()), PF_Err_BAD_CALLBACK_PARAM);
+		}
+	}
+}
+
 impl SmartRenderData {
 	/// Creates a new SmartRenderData with default values.
 	pub fn new() -> Self {
@@ -255,7 +287,7 @@ impl SmartRenderData {
 			pre_output: Box::new(empty_pre_render_output()),
 			pre_callbacks: Box::new(crate::sys::PF_PreRenderCallbacks {
 				checkout_layer: Some(checkout_layer_stub),
-				GuidMixInPtr: None,
+				GuidMixInPtr: Some(guid_mix_in_ptr),
 			}),
 
 			input: Box::new(crate::sys::PF_SmartRenderInput {
