@@ -10,20 +10,21 @@ pub fn pump_messages() {
 /// Dispatch one pending message for this thread's windows; whether there was
 /// one.
 fn peek_message() -> bool {
+	// `MSG` from WinUser.h; `repr(C)` lays it out as the SDK does (48 bytes
+	// on x64, `pt` right after `time`).
 	#[repr(C)]
 	struct Msg {
 		hwnd: *mut std::ffi::c_void,
 		message: u32,
-		_pad: u32,
 		wparam: usize,
 		lparam: isize,
 		time: u32,
-		_pad2: u32,
 		x: i32,
 		y: i32,
 		lprivate: u32,
-		_pad3: u32,
 	}
+	#[cfg(target_pointer_width = "64")]
+	const _: () = assert!(std::mem::size_of::<Msg>() == 48 && std::mem::offset_of!(Msg, x) == 36);
 	#[link(name = "user32")]
 	unsafe extern "system" {
 		fn PeekMessageW(msg: *mut Msg, hwnd: *mut std::ffi::c_void, min: u32, max: u32, remove: u32) -> i32;

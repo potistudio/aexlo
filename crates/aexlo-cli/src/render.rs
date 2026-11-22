@@ -63,6 +63,15 @@ pub fn run(args: RenderArgs) -> Result<()> {
 		Some(name) => Some(preset_variant(manifest.as_deref(), name)?),
 		None => None,
 	};
+	// `--smart`/`--legacy` replace the preset's render path, before it is
+	// checked against what the plugin supports.
+	if let Some(variant) = &mut variant {
+		if force_smart {
+			variant.render = aexlo_harness::RenderMode::Smart;
+		} else if force_legacy {
+			variant.render = aexlo_harness::RenderMode::Legacy;
+		}
+	}
 	// `--input` replaces the preset's input, text layer included.
 	if input.is_some()
 		&& let Some(variant) = &mut variant
@@ -172,7 +181,7 @@ fn preset_variant(manifest: Option<&Path>, name: &str) -> Result<aexlo_harness::
 		return Ok(exact.clone());
 	}
 	match &variants[..] {
-		[only] => Ok(only.clone()),
+		[only] if name == preset => Ok(only.clone()),
 		[first, ..] if name == preset => {
 			eprintln!(
 				"aexlo render: preset '{preset}' has {} variants; rendering {} (name one exactly to pick another)",

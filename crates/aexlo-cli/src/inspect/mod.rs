@@ -17,6 +17,7 @@ mod engine;
 mod json;
 mod recorder;
 mod term;
+pub(crate) use term::json_output;
 mod ui;
 #[cfg(windows)]
 mod win32;

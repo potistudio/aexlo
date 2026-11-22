@@ -294,11 +294,17 @@ impl Pipl {
 		let stem = path.file_stem().and_then(|s| s.to_str());
 		let in_contents = parent.ends_with(Path::new("Contents").join("MacOS"));
 		let mut search = Search::default();
-		if in_contents
-			&& let Some(contents) = parent.parent()
-			&& let Some(pipl) = read_rsrc_dir(&contents.join("Resources"), stem, false, &mut search)
-		{
-			return Ok(Some(pipl));
+		// As for the bundle itself: `Contents/Resources/`, then its top level.
+		if in_contents && let Some(contents) = parent.parent() {
+			let dirs = [
+				Some(contents.join("Resources")),
+				contents.parent().map(Path::to_path_buf),
+			];
+			for dir in dirs.iter().flatten() {
+				if let Some(pipl) = read_rsrc_dir(dir, stem, false, &mut search) {
+					return Ok(Some(pipl));
+				}
+			}
 		}
 		let in_bundle = parent.extension().is_some_and(|e| e.eq_ignore_ascii_case("plugin"));
 		if in_bundle && let Some(pipl) = read_rsrc_dir(parent, stem, false, &mut search) {
@@ -473,9 +479,17 @@ fn read_mach_o(binary: &Path, bytes: &[u8]) -> Result<Option<Pipl>> {
 	if let Some(section) = mach_o_pipl_section(bytes) {
 		// The section holds a whole resource file (what Rez writes), or
 		// else the bare PiPL resource.
-		return match rsrc_pipl_resource(section) {
-			Ok(Some(resource)) => parse(binary, resource, true).map(Some),
-			_ => parse(binary, section, true).map(Some),
+		let parsed = match rsrc_pipl_resource(section) {
+			Ok(Some(resource)) => parse(binary, resource, true),
+			_ => parse(binary, section, true),
+		};
+		// A malformed section still leaves the resource fork to try.
+		return match parsed {
+			Ok(pipl) => Ok(Some(pipl)),
+			Err(err) => match read_resource_fork(binary) {
+				Ok(Some(pipl)) => Ok(Some(pipl)),
+				_ => Err(err),
+			},
 		};
 	}
 	read_resource_fork(binary)
@@ -945,6 +959,51 @@ mod tests {
 			parse(Path::new("x.rsrc"), &blob, true),
 			Err(AexloError::InvalidPipl { .. })
 		));
+	}
+
+	#[test]
+	fn a_bundles_binary_finds_the_rsrc_at_the_bundle_top() {
+		let dir = std::env::temp_dir().join(format!("aexlo-pipl-top-{}", std::process::id()));
+		let bundle = dir.join("Top.plugin");
+		let macos = bundle.join("Contents").join("MacOS");
+		std::fs::create_dir_all(&macos).unwrap();
+		std::fs::write(macos.join("Top"), b"not a Mach-O").unwrap();
+		std::fs::write(bundle.join("Top.rsrc"), rsrc(&pipl_be(&[("name", pascal("Top"))]))).unwrap();
+
+		let from_binary = Pipl::read(macos.join("Top")).unwrap().unwrap();
+		let from_bundle = Pipl::read(&bundle).unwrap().unwrap();
+		assert_eq!(from_binary.source(), from_bundle.source());
+
+		// `Contents/Resources/` still comes first.
+		let resources = bundle.join("Contents").join("Resources");
+		std::fs::create_dir_all(&resources).unwrap();
+		std::fs::write(resources.join("Top.rsrc"), rsrc(&pipl_be(&[("name", pascal("Res"))]))).unwrap();
+		assert_eq!(
+			Pipl::read(macos.join("Top")).unwrap().unwrap().name().as_deref(),
+			Some("Res")
+		);
+		let _ = std::fs::remove_dir_all(&dir);
+	}
+
+	#[test]
+	fn a_malformed_pipl_section_falls_back_to_the_resource_fork() {
+		let dir = std::env::temp_dir().join(format!("aexlo-pipl-fork-{}", std::process::id()));
+		std::fs::create_dir_all(&dir).unwrap();
+		let binary = dir.join("Forked");
+		std::fs::write(&binary, mach_o_with_pipl(b"not a PiPL")).unwrap();
+		assert!(matches!(Pipl::read(&binary), Err(AexloError::InvalidPipl { .. })));
+
+		if cfg!(target_os = "macos")
+			&& std::fs::write(
+				binary.join("..namedfork").join("rsrc"),
+				rsrc(&pipl_be(&[("name", pascal("Forked"))])),
+			)
+			.is_ok()
+		{
+			let pipl = Pipl::read(&binary).unwrap().unwrap();
+			assert_eq!(pipl.name().as_deref(), Some("Forked"));
+		}
+		let _ = std::fs::remove_dir_all(&dir);
 	}
 
 	#[test]

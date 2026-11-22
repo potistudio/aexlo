@@ -40,7 +40,8 @@ pub(crate) fn open_window(title: &str) -> Result<Window> {
 	.map_err(|e| anyhow!("opening preview window: {e}"))
 }
 
-pub fn run(manifest: &Path) -> Result<()> {
+pub fn run(package: &crate::args::Package) -> Result<()> {
+	let manifest = package.manifest.as_path();
 	let crate_dir = manifest.parent().context("manifest path has no parent directory")?;
 	let src_dir = crate_dir.join("src");
 
@@ -86,7 +87,7 @@ pub fn run(manifest: &Path) -> Result<()> {
 			generation += 1;
 			window.set_title("aexlo dev --bin - building…");
 
-			match build_and_render(manifest, generation) {
+			match build_and_render(package, generation) {
 				Ok((rgba, w, h)) => {
 					framebuf = rgba_to_argb(&rgba);
 					frame_dims = (w as usize, h as usize);
@@ -113,8 +114,8 @@ pub fn run(manifest: &Path) -> Result<()> {
 ///
 /// One-shot: the instance is dropped and its staged copy removed before
 /// returning.
-fn build_and_render(manifest: &Path, generation: u64) -> Result<(Vec<u8>, u32, u32)> {
-	let (mut fx, staged) = build_and_load(manifest, generation)?;
+fn build_and_render(package: &crate::args::Package, generation: u64) -> Result<(Vec<u8>, u32, u32)> {
+	let (mut fx, staged) = build_and_load(package, generation)?;
 	let result = render_instance(&mut fx);
 	drop(fx);
 	let _ = std::fs::remove_file(&staged);
@@ -124,8 +125,8 @@ fn build_and_render(manifest: &Path, generation: u64) -> Result<(Vec<u8>, u32, u
 /// Build the crate's cdylib and load it, returning the live instance plus the
 /// path of the staged copy it was loaded from (so the caller can remove that
 /// copy once it drops the instance).
-fn build_and_load(manifest: &Path, generation: u64) -> Result<(PluginInstance, PathBuf)> {
-	let artifact = build_cdylib(manifest)?;
+fn build_and_load(package: &crate::args::Package, generation: u64) -> Result<(PluginInstance, PathBuf)> {
+	let artifact = build(&package.manifest, Some(&package.name))?;
 	stage_and_load(&artifact, generation)
 }
 
@@ -171,12 +172,22 @@ fn render_instance(fx: &mut PluginInstance) -> Result<(Vec<u8>, u32, u32)> {
 
 /// Run `cargo build` for `manifest` and return the path to its cdylib artifact.
 pub(crate) fn build_cdylib(manifest: &Path) -> Result<PathBuf> {
+	build(manifest, None)
+}
+
+/// [`build_cdylib`], of `package` only when given.
+fn build(manifest: &Path, package: Option<&str>) -> Result<PathBuf> {
 	use std::process::{Command, Stdio};
 
 	let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-	let mut child = Command::new(cargo)
+	let mut command = Command::new(cargo);
+	command
 		.args(["build", "--message-format=json-render-diagnostics", "--manifest-path"])
-		.arg(manifest)
+		.arg(manifest);
+	if let Some(package) = package {
+		command.args(["--package", package]);
+	}
+	let mut child = command
 		.stdout(Stdio::piped())
 		.stderr(Stdio::inherit())
 		.spawn()

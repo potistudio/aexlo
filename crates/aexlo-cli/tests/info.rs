@@ -103,3 +103,14 @@ fn info_reports_a_missing_plugin_as_json() {
 	assert_eq!(code, 1);
 	assert!(report["error"].as_str().unwrap().contains("not found"), "{report}");
 }
+
+#[test]
+fn info_reports_a_crate_that_does_not_build_as_json() {
+	let dir = common::scratch("info_broken_crate");
+	let broken = dir.join("broken");
+	std::fs::create_dir_all(&broken).unwrap();
+	std::fs::write(broken.join("Cargo.toml"), "this is not a manifest").unwrap();
+	let (code, report) = json(&["info", "broken", "--json"], &dir);
+	assert_eq!(code, 1);
+	assert!(report["error"].as_str().unwrap().contains("cargo build"), "{report}");
+}

@@ -122,8 +122,19 @@ fn depth(node: Node) -> A_long {
 	match node {
 		Node::Layer => 0,
 		Node::Transform | Node::Effects | Node::Masks => 1,
-		Node::Anchor | Node::Position | Node::Scale | Node::Rotation | Node::Opacity | Node::Effect => 2,
-		Node::Param | Node::MaskOutline | Node::MaskOpacity | Node::MaskFeather | Node::MaskExpansion => 3,
+		// No mask atom sits between a mask's streams and the parade (see
+		// `parent_of`), so they are one level below it.
+		Node::Anchor
+		| Node::Position
+		| Node::Scale
+		| Node::Rotation
+		| Node::Opacity
+		| Node::Effect
+		| Node::MaskOutline
+		| Node::MaskOpacity
+		| Node::MaskFeather
+		| Node::MaskExpansion => 2,
+		Node::Param => 3,
 	}
 }
 
@@ -800,6 +811,39 @@ mod tests {
 			index: 0,
 			node: Node::Layer,
 		})
+	}
+
+	#[test]
+	fn each_depth_is_the_number_of_parents_above() {
+		for node in [
+			Node::Layer,
+			Node::Transform,
+			Node::Anchor,
+			Node::Position,
+			Node::Scale,
+			Node::Rotation,
+			Node::Opacity,
+			Node::Effects,
+			Node::Effect,
+			Node::Masks,
+			Node::Param,
+			Node::MaskOutline,
+			Node::MaskOpacity,
+			Node::MaskFeather,
+			Node::MaskExpansion,
+		] {
+			let mut stream = Stream {
+				effect_ref: std::ptr::null_mut(),
+				index: 0,
+				node,
+			};
+			let mut parents = 0;
+			while let Some(parent) = parent_of(stream) {
+				stream = parent;
+				parents += 1;
+			}
+			assert_eq!(depth(node), parents, "{node:?}");
+		}
 	}
 
 	#[test]

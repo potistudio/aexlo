@@ -518,7 +518,7 @@ impl PluginInstance {
 	/// the host knows it is gone.
 	pub fn allocations(&self) -> Vec<crate::LiveAllocation> {
 		let mut live = self.tracker.lock().map(|t| t.live()).unwrap_or_default();
-		live.retain(|l| crate::strict::is_host_memory(l.kind, l.address));
+		live.retain(|l| crate::strict::is_host_memory(&self.tracker, l.kind, l.address));
 		live
 	}
 
@@ -534,7 +534,7 @@ impl PluginInstance {
 		// The host's own record of what is live, not the tracker's: the
 		// tracker misses frees on iterate worker threads. It also holds off a
 		// dispose while the bytes are copied.
-		crate::strict::with_host_memory(kind, address, |bytes| {
+		crate::strict::with_host_memory(&self.tracker, kind, address, |bytes| {
 			let (data, size) = match kind {
 				// SAFETY: the host handed out this handle and has not had it
 				// back, and its disposal waits for this closure.

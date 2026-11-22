@@ -39,11 +39,11 @@ pub struct DevArgs {
 }
 
 pub fn cmd(args: DevArgs) -> Result<()> {
-	let manifest = args::cargo_package(args.package.as_deref())?;
+	let package = args::cargo_package(args.package.as_deref())?;
 	if args.bin {
-		crate::watch::run(&manifest)
+		crate::watch::run(&package)
 	} else {
-		run(&manifest, args.filter.as_deref())
+		run(&package, args.filter.as_deref())
 	}
 }
 
@@ -54,7 +54,8 @@ const FRAME_DEBOUNCE: Duration = Duration::from_millis(80);
 
 /// Rerun the crate's tests on every save, and show the PNG a
 /// `#[aexlo_test::preview]` wrote last in a window.
-pub fn run(manifest: &Path, filter: Option<&str>) -> Result<()> {
+pub fn run(package: &args::Package, filter: Option<&str>) -> Result<()> {
+	let manifest = package.manifest.as_path();
 	let crate_dir = manifest.parent().context("manifest path has no parent directory")?;
 	let src_dir = crate_dir.join("src");
 	// Where `#[aexlo_test::preview]` writes (`aexlo_harness::preview::preview_path`).
@@ -77,7 +78,7 @@ pub fn run(manifest: &Path, filter: Option<&str>) -> Result<()> {
 		.watch(&frames, RecursiveMode::NonRecursive)
 		.with_context(|| format!("watching {}", frames.display()))?;
 
-	let mut current: Option<Child> = None;
+	let mut current = Reaped(None);
 	let mut pending: Option<Instant> = Some(Instant::now()); // run once on startup
 	// The PNG written last, and when, so it is read once the write settles.
 	let mut frame: Option<(PathBuf, Instant)> = None;
@@ -105,6 +106,7 @@ pub fn run(manifest: &Path, filter: Option<&str>) -> Result<()> {
 		// serializes on the target-dir lock, so racing a second `cargo test`
 		// in would just block on that lock anyway.
 		let running = current
+			.0
 			.as_mut()
 			.is_some_and(|child| matches!(child.try_wait(), Ok(None)));
 		if let Some(since) = pending
@@ -112,7 +114,7 @@ pub fn run(manifest: &Path, filter: Option<&str>) -> Result<()> {
 			&& !running
 		{
 			pending = None;
-			current = Some(spawn_test(manifest, filter)?);
+			current.0 = Some(spawn_test(package, filter)?);
 		}
 
 		if let Some((path, since)) = &frame
@@ -136,12 +138,20 @@ pub fn run(manifest: &Path, filter: Option<&str>) -> Result<()> {
 			.map_err(|e| anyhow::anyhow!("updating preview window: {e}"))?;
 		std::thread::sleep(Duration::from_millis(16));
 	}
-
-	if let Some(mut child) = current {
-		let _ = child.kill();
-		let _ = child.wait();
-	}
 	Ok(())
+}
+
+/// The `cargo test` running, killed and waited for when `run` returns, by
+/// an error too: dropping a `Child` leaves it running.
+struct Reaped(Option<Child>);
+
+impl Drop for Reaped {
+	fn drop(&mut self) {
+		if let Some(child) = &mut self.0 {
+			let _ = child.kill();
+			let _ = child.wait();
+		}
+	}
 }
 
 /// Run `cargo test` for `manifest`, filtered to `filter` if given. Each
@@ -149,10 +159,12 @@ pub fn run(manifest: &Path, filter: Option<&str>) -> Result<()> {
 ///
 /// `#[aexlo_test::preview]` generates an `#[ignore]`d test (so a plain `cargo test`
 /// never pays the render cost), so this passes `--ignored` to actually run it.
-fn spawn_test(manifest: &Path, filter: Option<&str>) -> Result<Child> {
+fn spawn_test(package: &args::Package, filter: Option<&str>) -> Result<Child> {
 	let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
 	let mut cmd = Command::new(cargo);
-	cmd.args(["test", "--manifest-path"]).arg(manifest);
+	cmd.args(["test", "--manifest-path"])
+		.arg(&package.manifest)
+		.args(["--package", &package.name]);
 	if let Some(filter) = filter {
 		cmd.arg(filter);
 	}

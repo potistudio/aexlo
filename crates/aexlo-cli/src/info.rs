@@ -1,6 +1,7 @@
 //! `info`: what a plugin says about itself - its PiPL, ABOUT text, the
 //! version and flags it declares at GLOBAL_SETUP, and its parameters.
 
+use std::io::Write;
 use std::path::Path;
 
 use aexlo::{ParamValue, Pipl, PluginInstance};
@@ -68,8 +69,12 @@ impl Sections {
 
 pub fn run(args: InfoArgs) -> Result<()> {
 	let sections = Sections::of(&args);
-	let path = resolve_artifact(&args.plugin)?;
 	let format = Format::from_flags(args.json, args.format);
+	// A crate directory that does not build is reported like a missing plugin.
+	let path = match resolve_artifact(&args.plugin) {
+		Ok(path) => path,
+		Err(err) => return Err(Output::new(format, Path::new(&args.plugin), false).fail(err)),
+	};
 	let mut out = Output::new(format, &path, sections.count() > 1);
 
 	if sections.pipl {
@@ -112,6 +117,9 @@ struct Output {
 	headed: bool,
 	printed: usize,
 	json: serde_json::Map<String, Value>,
+	/// Where the JSON goes, out of the way of what the plugin prints (see
+	/// `json_output`). `None` for human output.
+	json_out: Option<Box<dyn std::io::Write>>,
 }
 
 impl Output {
@@ -123,6 +131,7 @@ impl Output {
 			headed,
 			printed: 0,
 			json,
+			json_out: (format == Format::Json).then(crate::inspect::json_output),
 		}
 	}
 
@@ -289,8 +298,9 @@ impl Output {
 	}
 
 	fn finish(self) {
-		if self.format == Format::Json {
-			println!("{}", Value::Object(self.json));
+		if let Some(mut out) = self.json_out {
+			let _ = writeln!(out, "{}", Value::Object(self.json));
+			let _ = out.flush();
 		}
 	}
 }
