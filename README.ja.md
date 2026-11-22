@@ -43,7 +43,7 @@ After Effects 自体がプラグインに提供するインターフェースで
 
 ### 必要な環境
 
-- `rust-toolchain.toml` で指定された Rust ツールチェーン（現在は 1.99.0）
+- Rust 1.99.0 以上
 - Windows x64 または macOS arm64
 
 > [!NOTE]

@@ -47,7 +47,7 @@ However, all of these plugins are designed to run exclusively within After Effec
 
 ### Requirements
 
-- Rust toolchain specified by `rust-toolchain.toml` (currently 1.99.0)
+- Rust 1.99.0 or later
 
 - Windows x64 or macOS arm64
 

@@ -6,7 +6,7 @@ aexlo is a Rust host that loads existing After Effects plugins and processes ima
 
 ## 1. Load a plugin
 
-- Install Rust and Cargo through rustup. The repository selects its toolchain in `rust-toolchain.toml` (currently 1.99.0).
+- Install Rust 1.99.0 or later through rustup.
 - Use a plugin built for your platform. The primary targets are macOS ARM64 and Windows x64; Linux is not supported.
 - The bundled examples do not require After Effects. Comparing host behavior against Adobe's host does require After Effects.
 
