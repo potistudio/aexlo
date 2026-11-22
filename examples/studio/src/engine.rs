@@ -36,7 +36,6 @@ pub struct ParamDesc {
 /// What a loaded plugin told us about itself.
 #[derive(Debug)]
 pub struct PluginInfo {
-	pub about: String,
 	pub smart_render: bool,
 	pub gpu: bool,
 	pub params: Vec<ParamDesc>,
@@ -74,6 +73,11 @@ pub enum Request {
 		generation: u64,
 		effect: Id,
 		index: usize,
+	},
+	/// `PF_Cmd_ABOUT`. Only on request: plugins may answer it with a modal
+	/// dialog, which holds this thread until it is closed.
+	About {
+		effect: Id,
 	},
 	Export(ExportJob),
 }
@@ -123,6 +127,8 @@ pub enum Event {
 		frame: i32,
 		values: Vec<(usize, PValue)>,
 	},
+	/// What the plugin answered to `PF_Cmd_ABOUT`.
+	About(Result<String, String>),
 	ExportProgress {
 		done: i32,
 		total: i32,
@@ -277,7 +283,7 @@ impl Slot {
 		log::info!("loading {plugin} from {}", path.display());
 		let instance = aexlo::Host::get().load(&path).map_err(|e| e.to_string());
 		let info = instance.as_ref().ok().map(|fx| Arc::new(describe(fx)));
-		let mut slot = Self {
+		Self {
 			plugin: plugin.to_string(),
 			instance,
 			info,
@@ -286,18 +292,7 @@ impl Slot {
 			linked: BTreeSet::new(),
 			hidden: Vec::new(),
 			disabled: Vec::new(),
-		};
-		if let Ok(fx) = &mut slot.instance {
-			match fx.about() {
-				Ok(about) => {
-					if let Some(info) = &mut slot.info {
-						Arc::get_mut(info).expect("unshared").about = about.trim().to_string();
-					}
-				}
-				Err(e) => log::debug!("{plugin}: PF_Cmd_ABOUT failed: {e}"),
-			}
 		}
-		slot
 	}
 
 	/// Re-read the hidden/disabled flags; whether they changed.
@@ -314,7 +309,6 @@ impl Slot {
 
 fn describe(fx: &PluginInstance) -> PluginInfo {
 	PluginInfo {
-		about: String::new(),
 		smart_render: fx.supports_smart_render(),
 		gpu: fx.supports_gpu(),
 		load_size: fx.input_size(),
@@ -406,6 +400,7 @@ impl Worker {
 						let result = self.render(&project, frame, generation);
 						self.notify.send(Event::Frame(Box::new(result)));
 					}
+					Request::About { effect } => self.about(effect),
 					Request::Export(job) => {
 						let result = self.export(job);
 						self.notify.send(Event::ExportFinished(result));
@@ -710,6 +705,21 @@ impl Worker {
 			height: h,
 			pixels: out,
 		})
+	}
+
+	fn about(&mut self, effect: Id) {
+		let Some(slot) = self.slots.get_mut(&effect) else {
+			return;
+		};
+		let Ok(fx) = &mut slot.instance else { return };
+		let name = plugins::display_name(&slot.plugin);
+		let answer = match fx.about() {
+			// The status bar has one line.
+			Ok(text) => Ok(text.split_whitespace().collect::<Vec<_>>().join(" "))
+				.map(|text| if text.is_empty() { name } else { text }),
+			Err(e) => Err(format!("{name}: About failed: {e}")),
+		};
+		self.notify.send(Event::About(answer));
 	}
 
 	fn press_button(&mut self, effect: Id, index: usize, frame: i32) {

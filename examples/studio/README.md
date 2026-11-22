@@ -35,7 +35,8 @@ Use `--release`: debug builds composite several times slower.
   `PF_Cmd_USER_CHANGED_PARAM`. Layer parameters pick any layer in the comp,
   rendered with its masks and effects, even when hidden; picking the
   effect's own layer gives its source. Point parameters get handles in the
-  viewer.
+  viewer. *About…* sends `PF_Cmd_ABOUT`, which is never sent on load: some
+  plugins answer it with a modal dialog.
 - **Time**: every property and effect parameter has a stopwatch. Keyframes
   are Linear, Easy Ease or Hold, can be dragged in the timeline, and
   right-clicked to change. Effects see layer time (`frame - start`), so

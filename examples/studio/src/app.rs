@@ -210,6 +210,10 @@ impl Studio {
 		});
 	}
 
+	pub fn show_about(&mut self, effect: Id) {
+		self.engine.send(Request::About { effect });
+	}
+
 	// ---- Editing helpers -----------------------------------------------------
 
 	pub fn add_layer(&mut self, name: &str, kind: LayerKind) -> Id {
@@ -535,6 +539,7 @@ impl Studio {
 						}
 					}
 				}
+				Event::About(Ok(message) | Err(message)) => self.notify(message),
 				Event::ExportProgress { done, total } => self.export = Some((done, total)),
 				Event::ExportFinished(result) => {
 					self.export = None;
