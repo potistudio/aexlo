@@ -5,31 +5,15 @@ use anyhow::{Context, Result};
 
 use crate::args::load;
 
-pub const ABOUT_HELP: &str = "\
-Usage: aexlo about <plugin>
+/// The one argument `about`, `params` and `dialog` take.
+#[derive(clap::Args)]
+pub struct PluginArgs {
+	/// The plugin, or a crate directory to build
+	plugin: String,
+}
 
-Send PF_Cmd_ABOUT and print the plugin's text.
-";
-
-pub const PARAMS_HELP: &str = "\
-Usage: aexlo params <plugin>
-
-List the plugin's parameters: index, name, kind and value, whether it is
-hidden, and its UI flags.
-";
-
-pub const DIALOG_HELP: &str = "\
-Usage: aexlo dialog <plugin>
-
-Send PF_Cmd_DO_DIALOG, what the effect's Options button does, after printing
-the plugin's flags and parameters, and keep the process alive while a plugin
-window is visible.
-";
-
-pub fn about(mut args: impl Iterator<Item = String>) -> Result<()> {
-	let plugin = args.next().context("about: missing <plugin>")?;
-
-	let mut instance = load(&plugin)?;
+pub fn about(args: PluginArgs) -> Result<()> {
+	let mut instance = load(&args.plugin)?;
 
 	let text = instance.about().context("plugin rejected PF_Cmd_ABOUT")?;
 	println!("{}", text.trim());
@@ -37,16 +21,14 @@ pub fn about(mut args: impl Iterator<Item = String>) -> Result<()> {
 	Ok(())
 }
 
-pub fn params(mut args: impl Iterator<Item = String>) -> Result<()> {
-	let plugin = args.next().context("params: missing <plugin>")?;
-	let instance = load(&plugin)?;
+pub fn params(args: PluginArgs) -> Result<()> {
+	let instance = load(&args.plugin)?;
 	print_params(&instance);
 	Ok(())
 }
 
-pub fn dialog(mut args: impl Iterator<Item = String>) -> Result<()> {
-	let plugin = args.next().context("dialog: missing <plugin>")?;
-	let mut instance = load(&plugin)?;
+pub fn dialog(args: PluginArgs) -> Result<()> {
+	let mut instance = load(&args.plugin)?;
 	println!(
 		"out_flags={:#x} out_flags2={:#x} options_button={}",
 		instance.out_flags(),

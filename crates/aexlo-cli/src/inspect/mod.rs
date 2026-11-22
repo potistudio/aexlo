@@ -36,129 +36,115 @@ use ui::{Action, App, MEMORY_WINDOW};
 /// What `--exec`, `--script` and the TUI prompt take.
 pub const COMMANDS_HELP: &str = command::HELP;
 
-pub const HELP: &str = "\
-Usage: aexlo inspect <plugin> [OPTIONS]
+#[derive(clap::Args)]
+pub struct InspectArgs {
+	/// The plugin, or a crate directory to build
+	plugin: String,
+	/// Input layer [default: a gradient]
+	#[arg(short, long, value_name = "PNG", conflicts_with = "text")]
+	input: Option<PathBuf>,
+	/// Make the layer a text layer showing <STRING> (\n breaks lines), for
+	/// plugins that need one
+	#[arg(long, value_name = "STRING", allow_hyphen_values = true)]
+	text: Option<String>,
+	/// Font for --text and `input text` [default: a system sans-serif]
+	#[arg(long, value_name = "FILE")]
+	font: Option<PathBuf>,
+	/// Size of the default input and of the output
+	#[arg(long, value_name = "WxH", value_parser = parse_size)]
+	size: Option<(u32, u32)>,
+	/// Project depth
+	#[arg(long, value_name = "8|16|32", default_value = "8", value_parser = parse_depth)]
+	depth: PixelDepthKind,
+	/// args (every suite call with its arguments), calls (without them) or
+	/// commands
+	#[arg(long, value_name = "L", default_value = "args", value_parser = parse_level)]
+	level: ObserveLevel,
+	/// Every strict check from the first command
+	#[arg(long)]
+	strict: bool,
+	/// Iterate callbacks on the plugin's thread, so their suite calls are
+	/// traced too
+	#[arg(long)]
+	serial: bool,
+	/// No TUI: run `;`-separated commands, then print the analysis (e.g.
+	/// --exec "render; set 1 2; render")
+	#[arg(long, value_name = "CMDS", group = "script_source", allow_hyphen_values = true)]
+	exec: Option<String>,
+	/// Like --exec, one command per line; `-` reads them from stdin as they
+	/// come, answering each before the next, so a pipe drives one session
+	#[arg(long, value_name = "FILE", group = "script_source")]
+	script: Option<String>,
+	/// With --exec/--script: human, or json for one JSON object per line
+	/// (loaded, command, focus, report, error), for agents
+	#[arg(long, value_enum, value_name = "F", default_value_t, requires = "script_source")]
+	format: Format,
+	/// With --exec/--script, print the whole trace
+	#[arg(long, requires = "script_source")]
+	trace: bool,
+}
 
-Drive the plugin from a prompt and analyze it in a TUI: the commands and
-suite calls it makes (trace and totals), its parameters, host state, live
-memory (hex dump, changes per command) and the output.
+fn parse_size(raw: &str) -> Result<(u32, u32), String> {
+	let parse = || {
+		let (w, h) = raw.split_once('x')?;
+		Some((w.parse().ok()?, h.parse().ok()?))
+	};
+	parse().ok_or_else(|| format!("'{raw}' is not <W>x<H>"))
+}
 
-Options:
-  -i, --input <png>       Input layer  [default: a gradient]
-      --text <string>     Make the layer a text layer showing <string>
-                          (\\n breaks lines), for plugins that need one
-      --font <file>       Font for --text and `input text`
-                          [default: a system sans-serif]
-      --size <W>x<H>      Size of the default input and of the output
-      --depth <8|16|32>   Project depth  [default: 8]
-      --level <l>         args (every suite call with its arguments), calls
-                          (without them) or commands  [default: args]
-      --strict            Every strict check from the first command
-      --serial            Iterate callbacks on the plugin's thread, so their
-                          suite calls are traced too
-      --exec <cmds>       No TUI: run `;`-separated commands, then print the
-                          analysis (e.g. --exec \"render; set 1 2; render\")
-      --script <file>     Like --exec, one command per line; `-` reads them
-                          from stdin as they come, answering each before the
-                          next, so a pipe drives one session
-      --format <f>        With --exec/--script: human, or json for one JSON
-                          object per line (loaded, command, focus, report,
-                          error), for agents  [default: human]
-      --trace             With --exec/--script, print the whole trace
+fn parse_depth(raw: &str) -> Result<PixelDepthKind, String> {
+	match raw {
+		"8" => Ok(PixelDepthKind::U8),
+		"16" => Ok(PixelDepthKind::U16),
+		"32" => Ok(PixelDepthKind::F32),
+		other => Err(format!("'{other}' is not 8, 16 or 32")),
+	}
+}
 
-`focus <text>` in --exec prints the diagnosis of the newest matching call
-(e.g. --exec \"render; focus checkout\"); `report` prints the analysis then,
-`clear` forgets the trace so far, `quit` stops reading. `:help` in the TUI
-lists the commands; docs/inspect.md describes them and every JSON event.
-
-";
+fn parse_level(raw: &str) -> Result<ObserveLevel, String> {
+	match raw {
+		"args" => Ok(ObserveLevel::Arguments),
+		"calls" => Ok(ObserveLevel::Calls),
+		"commands" => Ok(ObserveLevel::Commands),
+		other => Err(format!("'{other}' is not args, calls or commands")),
+	}
+}
 
 /// Default input size when no `--input` or `--size` is given.
 const DEFAULT_SIZE: (u32, u32) = (640, 360);
 
-pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
-	let mut plugin: Option<String> = None;
-	let mut input = InputArgs::default();
-	let mut size: Option<(u32, u32)> = None;
-	let mut depth = PixelDepthKind::U8;
-	let mut level = ObserveLevel::Arguments;
-	let mut strict = Strict::default();
-	let mut serial = false;
-	let mut script: Option<Script> = None;
-	let mut print_trace = false;
-	let mut format = Format::Human;
-
-	let mut args = args.peekable();
-	while let Some(arg) = args.next() {
-		match arg.as_str() {
-			"-i" | "--input" => input.png = Some(PathBuf::from(crate::args::next_value(&mut args, &arg)?)),
-			"--text" => input.text = Some(crate::args::next_value(&mut args, &arg)?.replace("\\n", "\n")),
-			"--font" => input.font = Some(PathBuf::from(crate::args::next_value(&mut args, &arg)?)),
-			"--size" => {
-				let raw = crate::args::next_value(&mut args, &arg)?;
-				let (w, h) = raw.split_once('x').context("--size expects <W>x<H>")?;
-				size = Some((
-					w.parse().context("--size expects <W>x<H>")?,
-					h.parse().context("--size expects <W>x<H>")?,
-				));
-			}
-			"--depth" => {
-				depth = match crate::args::next_value(&mut args, &arg)?.as_str() {
-					"8" => PixelDepthKind::U8,
-					"16" => PixelDepthKind::U16,
-					"32" => PixelDepthKind::F32,
-					other => bail!("--depth expects 8, 16 or 32, got '{other}'"),
-				}
-			}
-			"--level" => {
-				level = match crate::args::next_value(&mut args, &arg)?.as_str() {
-					"args" => ObserveLevel::Arguments,
-					"calls" => ObserveLevel::Calls,
-					"commands" => ObserveLevel::Commands,
-					other => bail!("--level expects args, calls or commands, got '{other}'"),
-				}
-			}
-			"--strict" => strict = Strict::all(),
-			"--serial" => serial = true,
-			"--exec" | "--script" if script.is_some() => bail!("give either --exec or --script, once"),
-			"--exec" => {
-				script = Some(Script::Parsed(command::parse_script(&crate::args::next_value(
-					&mut args, &arg,
-				)?)?))
-			}
-			"--script" => {
-				let path = crate::args::next_value(&mut args, &arg)?;
-				script = Some(if path == "-" {
-					Script::Stdin
-				} else {
-					let text = std::fs::read_to_string(&path).with_context(|| format!("reading {path}"))?;
-					Script::Parsed(command::parse_script(&text)?)
-				});
-			}
-			"--trace" => print_trace = true,
-			"--format" => {
-				format = match crate::args::next_value(&mut args, &arg)?.as_str() {
-					"human" => Format::Human,
-					"json" => Format::Json,
-					other => bail!("--format expects human or json, got '{other}'"),
-				}
-			}
-			other if other.starts_with('-') => bail!("unknown option '{other}'"),
-			_ => {
-				if plugin.replace(arg).is_some() {
-					bail!("inspect: expected a single <plugin>");
-				}
-			}
+pub fn run(args: InspectArgs) -> Result<()> {
+	let InspectArgs {
+		plugin,
+		input,
+		text,
+		font,
+		size,
+		depth,
+		level,
+		strict,
+		serial,
+		exec,
+		script,
+		format,
+		trace: print_trace,
+	} = args;
+	let input = InputArgs {
+		png: input,
+		text: text.map(|text| text.replace("\\n", "\n")),
+		font,
+	};
+	let strict = if strict { Strict::all() } else { Strict::default() };
+	let script = match (exec, script) {
+		(Some(exec), _) => Some(Script::Parsed(command::parse_script(&exec)?)),
+		(None, Some(path)) if path == "-" => Some(Script::Stdin),
+		(None, Some(path)) => {
+			let text = std::fs::read_to_string(&path).with_context(|| format!("reading {path}"))?;
+			Some(Script::Parsed(command::parse_script(&text)?))
 		}
-	}
-	let plugin = plugin.context("inspect: missing <plugin>")?;
+		(None, None) => None,
+	};
 	let Some(script) = script else {
-		if print_trace {
-			bail!("--trace only applies to --exec and --script");
-		}
-		if format != Format::Human {
-			bail!("--format only applies to --exec and --script");
-		}
 		return tui(prepare(&plugin, &input, size, depth, level, strict, serial)?);
 	};
 	let setup = match prepare(&plugin, &input, size, depth, level, strict, serial) {
@@ -296,8 +282,9 @@ fn batch(setup: Setup, script: Script, print_trace: bool, format: Format) -> Res
 }
 
 /// `--format`: the text `--exec` prints, or NDJSON (see [`json`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
 enum Format {
+	#[default]
 	Human,
 	Json,
 }

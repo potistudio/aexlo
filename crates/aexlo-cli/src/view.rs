@@ -6,7 +6,7 @@
 //! `#[aexlo_test::preview]`, which overwrites the PNG, to get a live preview that
 //! keeps the in-process (debuggable) render path.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -14,17 +14,14 @@ use anyhow::{Context, Result, anyhow};
 use minifb::{Key, ScaleMode, Window, WindowOptions};
 use notify::{RecursiveMode, Watcher};
 
-pub const HELP: &str = "\
-Usage: aexlo view <png>
+#[derive(clap::Args)]
+pub struct ViewArgs {
+	/// The PNG to show
+	png: PathBuf,
+}
 
-Show a PNG in a window and reload it whenever it changes. A `dev`-driven
-#[aexlo_test::preview] opens one by itself; pair it with your own re-runner
-otherwise.
-";
-
-pub fn cmd(mut args: impl Iterator<Item = String>) -> Result<()> {
-	let path = args.next().context("view: missing <png> path")?;
-	run(Path::new(&path))
+pub fn cmd(args: ViewArgs) -> Result<()> {
+	run(&args.png)
 }
 
 /// Debounce so a non-atomic PNG write isn't read back half-finished.

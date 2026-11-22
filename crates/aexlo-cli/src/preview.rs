@@ -15,73 +15,52 @@ use aexlo::{Depth8, Layer};
 use anyhow::{Context, Result, bail};
 use notify::{RecursiveMode, Watcher};
 
-use crate::args;
 use crate::session::Session;
 use crate::viewer::{self, Viewer};
 
-pub const HELP: &str = "\
-Usage: aexlo preview <plugin> [OPTIONS]
+#[derive(clap::Args)]
+pub struct PreviewArgs {
+	/// The built plugin
+	plugin: String,
+	/// Feed a PNG as the effect's input layer [default: the plugin's
+	/// built-in test frame]
+	#[arg(short, long, value_name = "PNG")]
+	input: Option<PathBuf>,
+	/// Reload the plugin when the file changes on disk (e.g. rebuilt by
+	/// another toolchain)
+	#[arg(long)]
+	watch: bool,
+	/// Port to serve on [default: OS-assigned]
+	#[arg(long, value_name = "N")]
+	port: Option<u16>,
+	/// Start on a manifest preset (or a variant id); the viewer's picker
+	/// lists them all, compares against goldens, depths and render paths, and
+	/// `Save as preset` appends to the manifest
+	#[arg(long, value_name = "NAME")]
+	preset: Option<String>,
+	/// The manifest [default: the nearest aexlo.toml]
+	#[arg(long, value_name = "PATH")]
+	manifest: Option<PathBuf>,
+	/// Poison and guard the output while previewing
+	#[arg(long)]
+	strict: bool,
+	/// Don't open a browser tab
+	#[arg(long)]
+	no_open: bool,
+}
 
-Preview a built plugin (.plugin, .aex, .dll) in the browser, with its
-parameters as live controls. No compiler in the loop: this is the `preview`
-to `dev`'s watch loop.
-
-Options:
-  -i, --input <png>       Feed a PNG as the effect's input layer
-                          [default: the plugin's built-in test frame]
-      --watch             Reload the plugin when the file changes on disk
-                          (e.g. rebuilt by another toolchain)
-      --port <n>          Port to serve on  [default: OS-assigned]
-      --preset <name>     Start on a manifest preset (or a variant id); the
-                          viewer's picker lists them all, compares against
-                          goldens, depths and render paths, and `Save as
-                          preset` appends to the manifest
-      --manifest <path>   The manifest  [default: the nearest aexlo.toml]
-      --strict            Poison and guard the output while previewing
-      --no-open           Don't open a browser tab
-";
-
-pub fn cmd(args: impl Iterator<Item = String>) -> Result<()> {
-	let mut plugin: Option<String> = None;
-	let mut input: Option<PathBuf> = None;
-	let mut port: u16 = 0;
-	let mut watch = false;
-	let mut preset: Option<String> = None;
-	let mut manifest: Option<PathBuf> = None;
-	let mut strict = false;
-	let mut no_open = false;
-
-	let mut args = args.peekable();
-	while let Some(arg) = args.next() {
-		match arg.as_str() {
-			"-i" | "--input" => input = Some(PathBuf::from(args::next_value(&mut args, &arg)?)),
-			"--watch" => watch = true,
-			"--preset" => preset = Some(args::next_value(&mut args, &arg)?),
-			"--manifest" => manifest = Some(PathBuf::from(args::next_value(&mut args, &arg)?)),
-			"--strict" => strict = true,
-			"--no-open" => no_open = true,
-			"--port" => port = args::port(&mut args, &arg)?,
-			other if other.starts_with('-') => bail!("unknown option '{other}'"),
-			_ => {
-				if plugin.replace(arg).is_some() {
-					bail!("preview: expected a single <plugin>");
-				}
-			}
-		}
-	}
-
-	let plugin = plugin.context("preview: missing <plugin>")?;
-	let path = args::resolve_plugin(&plugin);
+pub fn cmd(args: PreviewArgs) -> Result<()> {
+	let path = crate::args::resolve_plugin(&args.plugin);
 	run(
 		&path,
 		Options {
-			input: input.as_deref(),
-			port,
-			watch,
-			manifest: manifest.as_deref(),
-			preset: preset.as_deref(),
-			strict,
-			no_open,
+			input: args.input.as_deref(),
+			port: args.port.unwrap_or(0),
+			watch: args.watch,
+			manifest: args.manifest.as_deref(),
+			preset: args.preset.as_deref(),
+			strict: args.strict,
+			no_open: args.no_open,
 		},
 	)
 }

@@ -26,30 +26,34 @@ use toml::Value;
 
 use crate::toolkit::{self, Format};
 
-pub const HELP: &str = "\
-Usage: aexlo compat <plugin|dir>... [OPTIONS]
-
-How far aexlo can drive each plugin: load it, render every path and depth,
-other inputs, sizes and times, and each parameter set to other values, each
-in a worker. Effects that render a text layer differently from the same
-pixels on an AV layer go through it all again on a text layer (text:*).
-Reports ok, partial (ran, but asked for something aexlo does not do), n/a,
-error, crash or timeout per scenario, and the missing suites, stubs and
-declined calls behind them. A directory means every plugin in it.
-
-Options:
-      --only <text>           Only scenarios whose id contains <text>
-      --jobs <n>              Workers at once  [default: half the CPUs]
-      --timeout <s>           Seconds per scenario  [default: 20]
-      --all                   List every scenario on its own, not only the
-                              ones that were not ok, grouped by how they went
-      --format json           Print the report as JSON
-      --save-baseline <file>  Write each scenario's status to <file>
-      --baseline <file>       Compare with <file>; exit 1 when a scenario got
-                              worse
-
-See docs/compat.md.
-";
+#[derive(clap::Args)]
+pub struct CompatArgs {
+	/// Plugins to drive; a directory means every plugin in it
+	#[arg(value_name = "PLUGIN|DIR", required = true)]
+	paths: Vec<String>,
+	/// Only scenarios whose id contains <TEXT>
+	#[arg(long, value_name = "TEXT")]
+	only: Option<String>,
+	/// Workers at once [default: half the CPUs]
+	#[arg(long, value_name = "N")]
+	jobs: Option<usize>,
+	/// Seconds per scenario
+	#[arg(long, value_name = "S", default_value_t = 20.0)]
+	timeout: f64,
+	/// List every scenario on its own, not only the ones that were not ok,
+	/// grouped by how they went
+	#[arg(long)]
+	all: bool,
+	/// How to print the report
+	#[arg(long, value_enum, value_name = "F", default_value_t)]
+	format: Format,
+	/// Write each scenario's status to <FILE>
+	#[arg(long, value_name = "FILE")]
+	save_baseline: Option<PathBuf>,
+	/// Compare with <FILE>; exit 1 when a scenario got worse
+	#[arg(long, value_name = "FILE")]
+	baseline: Option<PathBuf>,
+}
 
 /// The render size of every scenario that is not about size.
 const SIZE: [u32; 2] = [128, 96];
@@ -869,53 +873,24 @@ fn expand(arg: &str) -> Result<Vec<PathBuf>, Error> {
 	Err(Error::invalid(format!("no plugin at {arg}")))
 }
 
-pub fn cmd_compat(args: impl Iterator<Item = String>) -> ExitCode {
+pub fn cmd(args: CompatArgs) -> ExitCode {
 	match compat(args) {
 		Ok(code) => code,
 		Err(err) => toolkit::fail(&err),
 	}
 }
 
-fn compat(args: impl Iterator<Item = String>) -> Result<ExitCode, Error> {
+fn compat(args: CompatArgs) -> Result<ExitCode, Error> {
 	let mut paths = Vec::new();
-	let mut only = None;
-	let mut jobs = std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).max(1));
-	let mut timeout = 20.0;
-	let mut all = false;
-	let mut format = Format::Human;
-	let mut save = None;
-	let mut baseline = None;
-	let mut args = args.peekable();
-	let value = |args: &mut std::iter::Peekable<_>, flag: &str| -> Result<String, Error> {
-		Iterator::next(args).ok_or_else(|| Error::invalid(format!("option '{flag}' needs a value")))
-	};
-	while let Some(arg) = args.next() {
-		match arg.as_str() {
-			"--only" => only = Some(value(&mut args, &arg)?),
-			"--jobs" => {
-				jobs = value(&mut args, &arg)?
-					.parse()
-					.map_err(|_| Error::invalid("--jobs takes a number"))?
-			}
-			"--timeout" => {
-				timeout = value(&mut args, &arg)?
-					.parse()
-					.map_err(|_| Error::invalid("--timeout takes seconds"))?
-			}
-			"--all" => all = true,
-			"--format" => {
-				format = match value(&mut args, &arg)?.as_str() {
-					"json" => Format::Json,
-					"human" | "text" => Format::Human,
-					other => return Err(Error::invalid(format!("unknown --format '{other}'"))),
-				}
-			}
-			"--save-baseline" => save = Some(PathBuf::from(value(&mut args, &arg)?)),
-			"--baseline" => baseline = Some(PathBuf::from(value(&mut args, &arg)?)),
-			flag if flag.starts_with('-') => return Err(Error::invalid(format!("unknown option '{flag}'"))),
-			plugin => paths.extend(expand(plugin)?),
-		}
+	for plugin in &args.paths {
+		paths.extend(expand(plugin)?);
 	}
+	let only = args.only;
+	let jobs = args
+		.jobs
+		.unwrap_or_else(|| std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).max(1)));
+	let (timeout, all, format) = (args.timeout, args.all, args.format);
+	let (save, baseline) = (args.save_baseline, args.baseline);
 	if paths.is_empty() {
 		return Err(Error::invalid("name at least one plugin or directory of plugins"));
 	}

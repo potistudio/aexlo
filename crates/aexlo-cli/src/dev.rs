@@ -1,6 +1,6 @@
 //! `aexlo dev [filter] [-p <package>]` - rerun a `#[aexlo_test::preview]` test on save.
 //!
-//! [`cmd`] reads the flags and hands `--bin` to [`crate::watch`] and
+//! [`cmd`] hands `--bin` to [`crate::watch`] and
 //! `--bin --web` to [`crate::web`].
 //!
 //! Built-in replacement for pairing `bacon` with `#[aexlo_test::preview]`: watches
@@ -16,88 +16,67 @@ use std::process::{Child, Command};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use notify::{RecursiveMode, Watcher};
 
 use crate::args;
 
-pub const HELP: &str = "\
-Usage: aexlo dev [filter] [OPTIONS]
+#[derive(clap::Args)]
+pub struct DevArgs {
+	/// Only the tests whose name contains this
+	#[arg(conflicts_with = "bin")]
+	filter: Option<String>,
+	/// Preview this workspace member instead of the crate in the current
+	/// directory
+	#[arg(short, long, value_name = "NAME")]
+	package: Option<String>,
+	/// Skip the test harness: rebuild the crate's cdylib and load and render
+	/// it directly on save (faster, but no println!/dbg!/debugger, and no
+	/// filter)
+	#[arg(long)]
+	bin: bool,
+	/// Preview in the browser instead of a native window, streaming the frame
+	/// into a <canvas>. Good for headless or remote hosts
+	#[arg(long, requires = "bin")]
+	web: bool,
+	/// Port to serve on [default: OS-assigned]
+	#[arg(long, value_name = "N", requires = "web")]
+	port: Option<u16>,
+	/// Start the viewer on a manifest preset; its picker lists them all
+	#[arg(long, value_name = "NAME", requires = "web")]
+	preset: Option<String>,
+	/// The manifest [default: the nearest aexlo.toml]
+	#[arg(long, value_name = "PATH", requires = "web")]
+	manifest: Option<PathBuf>,
+	/// Poison and guard the output, showing unwritten pixels and overwritten
+	/// guard bands
+	#[arg(long, requires = "web")]
+	strict: bool,
+	/// Don't open a browser tab
+	#[arg(long, requires = "web")]
+	no_open: bool,
+}
 
-Rerun a #[aexlo_test::preview] test on every save and show its frame in a
-live viewer (a built-in `bacon` replacement; [filter] picks the tests). Like
-`cargo build`, it works on the crate in the current directory unless -p
-names another.
-
-Options:
-  -p, --package <name>    Preview this workspace member instead
-      --bin               Skip the test harness: rebuild the crate's cdylib
-                          and load and render it directly on save (faster,
-                          but no println!/dbg!/debugger, and no filter)
-      --web               Preview in the browser instead of a native window,
-                          streaming the frame into a <canvas>; requires
-                          --bin. Good for headless or remote hosts
-      --port <n>          (--web) Port to serve on  [default: OS-assigned]
-      --preset <name>     (--web) Start the viewer on a manifest preset; its
-                          picker lists them all
-      --manifest <path>   (--web) The manifest
-                          [default: the nearest aexlo.toml]
-      --strict            (--web) Poison and guard the output, showing
-                          unwritten pixels and overwritten guard bands
-      --no-open           (--web) Don't open a browser tab
-";
-
-pub fn cmd(args: impl Iterator<Item = String>) -> Result<()> {
-	let mut package: Option<String> = None;
-	let mut filter: Option<String> = None;
-	let mut bin_mode = false;
-	let mut web_mode = false;
-	let mut port: u16 = 0;
-	let mut preset: Option<String> = None;
-	let mut manifest_path: Option<PathBuf> = None;
-	let mut strict = false;
-	let mut no_open = false;
-
-	let mut args = args.peekable();
-
-	while let Some(arg) = args.next() {
-		match arg.as_str() {
-			"--bin" => bin_mode = true,
-			"--web" => web_mode = true,
-			"--preset" => preset = Some(args::next_value(&mut args, &arg)?),
-			"--manifest" => manifest_path = Some(PathBuf::from(args::next_value(&mut args, &arg)?)),
-			"--strict" => strict = true,
-			"--no-open" => no_open = true,
-			"--port" => port = args::port(&mut args, &arg)?,
-			"-p" | "--package" => package = Some(args::next_value(&mut args, &arg)?),
-			other if other.starts_with('-') => bail!("unknown option '{other}'"),
-			_ if filter.is_none() => filter = Some(arg),
-			_ => bail!("dev: expected [filter] [-p <package>] [--bin] [--web] [--port <n>]"),
-		}
-	}
-
-	if web_mode && !bin_mode {
-		bail!("dev --web requires --bin (the browser preview uses the cdylib render path)");
-	}
-	if port != 0 && !web_mode {
-		bail!("--port only applies to --web");
-	}
-	if (preset.is_some() || manifest_path.is_some() || strict || no_open) && !web_mode {
-		bail!("--preset, --manifest, --strict and --no-open drive the browser viewer: add --bin --web");
-	}
-
+pub fn cmd(args: DevArgs) -> Result<()> {
+	let DevArgs {
+		filter,
+		package,
+		bin: bin_mode,
+		web: web_mode,
+		port,
+		preset,
+		manifest: manifest_path,
+		strict,
+		no_open,
+	} = args;
 	let manifest = args::cargo_package(package.as_deref())?;
 
 	if bin_mode {
-		if filter.is_some() {
-			bail!("dev --bin: no test filter - it doesn't run the test harness");
-		}
-
 		if web_mode {
 			crate::web::run(
 				&manifest,
 				crate::web::Options {
-					port,
+					port: port.unwrap_or(0),
 					manifest: manifest_path.as_deref(),
 					preset: preset.as_deref(),
 					strict,

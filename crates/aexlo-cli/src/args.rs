@@ -1,22 +1,10 @@
-//! What the commands share in reading their arguments: flag values, ports,
-//! and turning a `<plugin>` argument into something loadable.
+//! What the commands share in reading their arguments: turning a `<plugin>`
+//! argument into something loadable, and `-p <package>` into a crate.
 
 use std::path::PathBuf;
 
 use aexlo::PluginInstance;
 use anyhow::{Context, Result};
-
-/// Pull the value that follows a flag like `--output`, erroring if it's missing.
-pub fn next_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String> {
-	args.next().with_context(|| format!("option '{flag}' needs a value"))
-}
-
-/// The value of a `--port` flag.
-pub fn port(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<u16> {
-	next_value(args, flag)?
-		.parse()
-		.with_context(|| format!("{flag} expects a number 0-65535"))
-}
 
 /// Resolve a user-supplied plugin argument to a loadable path.
 ///

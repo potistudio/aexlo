@@ -17,68 +17,153 @@ use aexlo_bench::report::{
 	Measurement, print_leaderboard, print_speedups, sort_by_throughput, to_csv, to_json, write_file,
 };
 use aexlo_bench::{MeasureOptions, ParamConfig, RenderMode, Resolution, bench_modes, measure, param_config_label};
+use aexlo_harness::Error;
 use anyhow::{Context, Result, bail};
 
-use crate::args::{next_value, resolve_artifact};
+use crate::args::resolve_artifact;
 use crate::toolkit;
 
-pub const HELP: &str = "\
-Usage: aexlo bench <plugin>... [OPTIONS]
-       aexlo bench [filter] [PRESET OPTIONS]
-
-With plugins: time each one and rank them by throughput (megapixels per
-second), then optionally export the numbers. Same measurements as
-`cargo bench -p aexlo-bench`, driven by flags instead of AEXLO_BENCH_*
-variables.
-
-Options:
-  -r, --resolution <spec> Frame size: a name (512, 720p, 1080p, 4k) or <W>x<H>.
-                          Repeatable, or comma-separated  [default: 1080p]
-  -n, --samples <n>       Timed renders per measurement  [default: 30]
-      --warmup <n>        Untimed renders first, to pay setup costs
-                          [default: 5]
-      --mode <m>          Force a render path: auto, cpu or gpu
-                          [default: cpu and gpu for GPU-capable plugins]
-  -s, --set <p>=<v>       Set parameter <p> (name or index) to a number
-                          before timing (repeatable)
-  -i, --input <png>       Input frame, resized to each resolution
-                          [default: a synthetic gradient]
-      --csv <path>        Write the results as CSV
-      --json <path>       Write the results as JSON
-
-Without plugins: time the manifest's presets (each preset's `bench` samples
-and warmup), one at a time, with a phase breakdown (pre-render, render, GPU,
-host overhead).
-
-Options:
-      --save-baseline <name>  Store the timings in .aexlo/baselines/
-      --baseline <name>       Compare with them; a variant whose median and
-                              min are both slower than --threshold regresses
-                              (exit 1)
-      --threshold <p>         [default: 5%]
-";
-
-/// `aexlo bench`: the plugins named, else the manifest's presets.
-pub fn cmd(args: impl Iterator<Item = String>) -> ExitCode {
-	let args: Vec<String> = args.collect();
-	let is_plugin = |arg: &str| crate::args::resolve_plugin(arg).exists() || resolve_fixture(arg).is_some();
-	if !toolkit::bench_names_plugins(&args, is_plugin) {
-		return toolkit::cmd_bench(args.into_iter());
-	}
-	crate::report(bench_plugins(args.into_iter()))
+#[derive(clap::Args)]
+pub struct BenchArgs {
+	/// Plugins (or crate directories) to time, or else one filter over the
+	/// manifest's variants
+	#[arg(value_name = "PLUGIN|FILTER")]
+	targets: Vec<String>,
+	#[command(flatten)]
+	plugin: PluginArgs,
+	#[command(flatten)]
+	own: toolkit::BenchPresetArgs,
+	#[command(flatten)]
+	preset: toolkit::PresetArgs,
 }
 
-fn bench_plugins(args: impl Iterator<Item = String>) -> Result<()> {
-	let options = parse_args(args, |spec| {
-		let path = resolve_artifact(spec)?;
-		if path.exists() {
-			return Ok(path);
+/// The flags for timing plugins.
+#[derive(clap::Args)]
+#[command(next_help_heading = "Plugin options")]
+struct PluginArgs {
+	/// Frame size: a name (512, 720p, 1080p, 4k) or <W>x<H>. Repeatable, or
+	/// comma-separated [default: 1080p]
+	#[arg(short, long, value_name = "SPEC", value_delimiter = ',', value_parser = parse_resolution)]
+	resolution: Vec<Resolution>,
+	/// Timed renders per measurement [default: 30]
+	#[arg(short = 'n', long, value_name = "N", value_parser = parse_samples)]
+	samples: Option<usize>,
+	/// Untimed renders first, to pay setup costs [default: 5]
+	#[arg(long, value_name = "N")]
+	warmup: Option<usize>,
+	/// Force a render path: auto, cpu or gpu [default: cpu and gpu for
+	/// GPU-capable plugins]
+	#[arg(long, value_name = "M", value_parser = parse_mode)]
+	mode: Option<RenderMode>,
+	/// Set parameter <P> (name or index) to a number before timing
+	/// (repeatable)
+	#[arg(short, long = "set", value_name = "P=V", value_parser = parse_set, allow_hyphen_values = true)]
+	sets: Vec<(String, f64)>,
+	/// Input frame, resized to each resolution [default: a synthetic
+	/// gradient]
+	#[arg(short, long, value_name = "PNG")]
+	input: Option<PathBuf>,
+	/// Write the results as CSV
+	#[arg(long, value_name = "PATH")]
+	csv: Option<PathBuf>,
+	/// Write the results as JSON
+	#[arg(long, value_name = "PATH")]
+	json: Option<PathBuf>,
+}
+
+impl PluginArgs {
+	fn is_given(&self) -> bool {
+		!self.resolution.is_empty()
+			|| self.samples.is_some()
+			|| self.warmup.is_some()
+			|| self.mode.is_some()
+			|| !self.sets.is_empty()
+			|| self.input.is_some()
+			|| self.csv.is_some()
+			|| self.json.is_some()
+	}
+}
+
+/// `aexlo bench`: the plugins named, else the manifest's presets. The first
+/// argument names a plugin when it exists on disk or as a fixture, and no
+/// flag only presets take is given.
+pub fn cmd(args: BenchArgs) -> ExitCode {
+	let BenchArgs {
+		mut targets,
+		plugin,
+		own,
+		preset,
+	} = args;
+	let is_plugin = |arg: &str| crate::args::resolve_plugin(arg).exists() || resolve_fixture(arg).is_some();
+	let names_plugins =
+		!own.is_given() && !preset.names_presets() && targets.first().is_some_and(|first| is_plugin(first));
+	if names_plugins {
+		if preset.is_given() {
+			return toolkit::fail(&Error::invalid(
+				"--isolate, --jobs, --strict, --format and --junit only apply to timing presets",
+			));
 		}
-		// Last resort: a bare name may be one of the bundled bench fixtures, so
-		// `aexlo bench SDK_Noise` works like the `cargo bench` harness does.
-		resolve_fixture(spec).with_context(|| format!("no plugin found for '{spec}'"))
-	})?;
-	run(options)
+		return crate::report(bench_plugins(&targets, plugin));
+	}
+	if plugin.is_given() {
+		let why = match targets.first() {
+			Some(first) => format!("no plugin at '{first}'"),
+			None => "no plugin named".to_string(),
+		};
+		return toolkit::fail(&Error::invalid(format!(
+			"the plugin options only apply to timing plugins ({why})"
+		)));
+	}
+	if targets.len() > 1 {
+		return toolkit::fail(&Error::invalid(format!(
+			"no plugin at '{}', and presets take one filter",
+			targets[0]
+		)));
+	}
+	toolkit::cmd_bench(targets.pop(), own, preset)
+}
+
+fn bench_plugins(specs: &[String], args: PluginArgs) -> Result<()> {
+	let mut resolutions = args.resolution;
+	if resolutions.is_empty() {
+		// One mid-size frame by default: enough work to be meaningful, quick
+		// enough that a bare `aexlo bench <plugin>` returns promptly.
+		resolutions.push(aexlo_bench::parse_resolution("1080p").map_err(anyhow::Error::msg)?);
+	}
+	if let Some(path) = &args.input
+		&& !path.exists()
+	{
+		bail!("input {} does not exist", path.display());
+	}
+
+	let mut plugins = Vec::with_capacity(specs.len());
+	for spec in specs {
+		let path = resolve_artifact(spec)?;
+		let path = if path.exists() {
+			path
+		} else {
+			// Last resort: a bare name may be one of the bundled bench fixtures, so
+			// `aexlo bench SDK_Noise` works like the `cargo bench` harness does.
+			resolve_fixture(spec).with_context(|| format!("no plugin found for '{spec}'"))?
+		};
+		let label = path
+			.file_stem()
+			.map(|s| s.to_string_lossy().into_owned())
+			.unwrap_or_else(|| spec.clone());
+		plugins.push((label, path));
+	}
+
+	run(Options {
+		plugins,
+		resolutions,
+		config: args.sets,
+		input: args.input,
+		samples: args.samples.unwrap_or(30),
+		warmup: args.warmup.unwrap_or(5),
+		mode: args.mode,
+		csv: args.csv,
+		json: args.json,
+	})
 }
 
 /// Everything `bench` needs, resolved from the command line.
@@ -184,95 +269,25 @@ fn run(options: Options) -> Result<()> {
 
 /// Parse `bench`'s arguments. `resolve` turns a plugin argument into an artifact
 /// path (building a crate directory when needed), matching `render`'s behavior.
-fn parse_args(args: impl Iterator<Item = String>, resolve: impl Fn(&str) -> Result<PathBuf>) -> Result<Options> {
-	let mut specs: Vec<String> = Vec::new();
-	let mut resolutions: Vec<Resolution> = Vec::new();
-	let mut config: ParamConfig = Vec::new();
-	let mut input: Option<PathBuf> = None;
-	let mut samples: usize = 30;
-	let mut warmup: usize = 5;
-	let mut mode: Option<RenderMode> = None;
-	let mut csv: Option<PathBuf> = None;
-	let mut json: Option<PathBuf> = None;
-
-	let mut args = args.peekable();
-	while let Some(arg) = args.next() {
-		match arg.as_str() {
-			"-r" | "--resolution" => {
-				let raw = next_value(&mut args, &arg)?;
-				for spec in raw.split(',').filter(|s| !s.trim().is_empty()) {
-					let resolution = aexlo_bench::parse_resolution(spec).map_err(anyhow::Error::msg)?;
-					resolutions.push(resolution);
-				}
-			}
-			"-n" | "--samples" => samples = parse_count(&next_value(&mut args, &arg)?, &arg)?,
-			"--warmup" => {
-				warmup = next_value(&mut args, &arg)?
-					.parse()
-					.with_context(|| format!("option '{arg}' expects a number"))?;
-			}
-			"-s" | "--set" => config.push(parse_set(&next_value(&mut args, &arg)?)?),
-			"-i" | "--input" => input = Some(PathBuf::from(next_value(&mut args, &arg)?)),
-			"--mode" => mode = Some(parse_mode(&next_value(&mut args, &arg)?)?),
-			"--csv" => csv = Some(PathBuf::from(next_value(&mut args, &arg)?)),
-			"--json" => json = Some(PathBuf::from(next_value(&mut args, &arg)?)),
-			other if other.starts_with('-') => bail!("unknown option '{other}'"),
-			_ => specs.push(arg),
-		}
-	}
-
-	if specs.is_empty() {
-		bail!("bench: missing <plugin> (pass one or more plugin paths or crate directories)");
-	}
-	if samples == 0 {
-		bail!("--samples must be at least 1");
-	}
-	if resolutions.is_empty() {
-		// One mid-size frame by default: enough work to be meaningful, quick
-		// enough that a bare `aexlo bench <plugin>` returns promptly.
-		resolutions.push(aexlo_bench::parse_resolution("1080p").map_err(anyhow::Error::msg)?);
-	}
-	if let Some(path) = &input
-		&& !path.exists()
-	{
-		bail!("input {} does not exist", path.display());
-	}
-
-	let mut plugins = Vec::with_capacity(specs.len());
-	for spec in &specs {
-		let path = resolve(spec)?;
-		let label = path
-			.file_stem()
-			.map(|s| s.to_string_lossy().into_owned())
-			.unwrap_or_else(|| spec.clone());
-		plugins.push((label, path));
-	}
-
-	Ok(Options {
-		plugins,
-		resolutions,
-		config,
-		input,
-		samples,
-		warmup,
-		mode,
-		csv,
-		json,
-	})
+fn parse_resolution(raw: &str) -> Result<Resolution, String> {
+	aexlo_bench::parse_resolution(raw)
 }
 
-fn parse_mode(raw: &str) -> Result<RenderMode> {
+fn parse_samples(raw: &str) -> Result<usize, String> {
+	match raw.parse() {
+		Ok(0) => Err("must be at least 1".to_string()),
+		Ok(n) => Ok(n),
+		Err(_) => Err(format!("expects a number, got '{raw}'")),
+	}
+}
+
+fn parse_mode(raw: &str) -> Result<RenderMode, String> {
 	match raw.trim().to_ascii_lowercase().as_str() {
 		"auto" => Ok(RenderMode::Auto),
 		"cpu" => Ok(RenderMode::Cpu),
 		"gpu" => Ok(RenderMode::Gpu),
-		other => bail!("unknown --mode '{other}' (expected auto, cpu, or gpu)"),
+		other => Err(format!("'{other}' is not auto, cpu or gpu")),
 	}
-}
-
-fn parse_count(raw: &str, flag: &str) -> Result<usize> {
-	raw.parse()
-		.with_context(|| format!("option '{flag}' expects a number, got '{raw}'"))
 }
 
 /// Split a `--set` argument of the form `<name|index>=<number>`.

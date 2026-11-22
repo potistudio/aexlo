@@ -343,5 +343,6 @@ fn help_and_conflicting_scripts() {
 
 	let out = common::aexlo(&["inspect", "x", "--exec", "about", "--script", "-"], &dir);
 	assert!(!out.status.success());
-	assert!(String::from_utf8_lossy(&out.stderr).contains("either --exec or --script"));
+	assert_eq!(out.status.code(), Some(2));
+	assert!(String::from_utf8_lossy(&out.stderr).contains("cannot be used with"));
 }

@@ -5,65 +5,57 @@ use std::path::{Path, PathBuf};
 use aexlo::RenderPath;
 use anyhow::{Context, Result, bail};
 
-use crate::args::{next_value, resolve_artifact};
+use crate::args::resolve_artifact;
 use crate::{param, toolkit};
 
-pub const HELP: &str = "\
-Usage: aexlo render [<plugin>] [OPTIONS]
+#[derive(clap::Args)]
+pub struct RenderArgs {
+	/// The plugin, or a crate directory to build
+	#[arg(required_unless_present = "preset")]
+	plugin: Option<String>,
+	/// Start from a preset (or one variant's id) of the manifest; <PLUGIN> is
+	/// then optional and the flags below override the preset
+	#[arg(long, value_name = "NAME")]
+	preset: Option<String>,
+	/// The manifest [default: the nearest aexlo.toml]
+	#[arg(long, value_name = "PATH", requires = "preset")]
+	manifest: Option<PathBuf>,
+	/// Feed a PNG as the effect's input layer
+	#[arg(short, long, value_name = "PNG")]
+	input: Option<PathBuf>,
+	/// Where to write the frame (.exr keeps 32 bpc; 16 bpc writes a 16-bit
+	/// PNG)
+	#[arg(short, long, value_name = "FILE", default_value = "out.png")]
+	output: PathBuf,
+	/// Set parameter <P> (index, #index or name) to <V> before rendering
+	/// (repeatable)
+	#[arg(short, long = "set", value_name = "P=V", value_parser = param::parse_set, allow_hyphen_values = true)]
+	sets: Vec<(String, String)>,
+	/// Force the smart-render path
+	#[arg(long, conflicts_with = "legacy")]
+	smart: bool,
+	/// Force the legacy render path
+	#[arg(long)]
+	legacy: bool,
+	/// Run the plugin's iterate callbacks on one thread (for plugins whose
+	/// pixel callbacks call suites, e.g. ones built on the Rust
+	/// after-effects crate)
+	#[arg(long)]
+	serial_iterate: bool,
+}
 
-Render a frame and write it to a PNG or EXR.
-
-Options:
-      --preset <name>     Start from a preset (or one variant's id) of the
-                          manifest; <plugin> is then optional and the flags
-                          below override the preset
-      --manifest <path>   The manifest  [default: the nearest aexlo.toml]
-  -i, --input <png>       Feed a PNG as the effect's input layer
-  -o, --output <file>     Where to write the frame  [default: out.png]
-                          (.exr keeps 32 bpc; 16 bpc writes a 16-bit PNG)
-  -s, --set <p>=<v>       Set parameter <p> (index, #index or name) to <v>
-                          before rendering (repeatable)
-      --smart             Force the smart-render path
-      --legacy            Force the legacy render path
-      --serial-iterate    Run the plugin's iterate callbacks on one thread
-                          (for plugins whose pixel callbacks call suites,
-                          e.g. ones built on the Rust after-effects crate)
-";
-
-pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
-	let mut plugin: Option<String> = None;
-	let mut input: Option<PathBuf> = None;
-	let mut output = PathBuf::from("out.png");
-	let mut sets: Vec<(String, String)> = Vec::new();
-	let mut force_smart = false;
-	let mut force_legacy = false;
-	let mut serial_iterate = false;
-	let mut preset: Option<String> = None;
-	let mut manifest: Option<PathBuf> = None;
-
-	let mut args = args.peekable();
-	while let Some(arg) = args.next() {
-		match arg.as_str() {
-			"-i" | "--input" => input = Some(PathBuf::from(next_value(&mut args, &arg)?)),
-			"-o" | "--output" => output = PathBuf::from(next_value(&mut args, &arg)?),
-			"-s" | "--set" => sets.push(param::parse_set(&next_value(&mut args, &arg)?)?),
-			"--smart" => force_smart = true,
-			"--legacy" => force_legacy = true,
-			"--serial-iterate" => serial_iterate = true,
-			"--preset" => preset = Some(next_value(&mut args, &arg)?),
-			"--manifest" => manifest = Some(PathBuf::from(next_value(&mut args, &arg)?)),
-			other if other.starts_with('-') => bail!("unknown option '{other}'"),
-			_ => {
-				if plugin.replace(arg).is_some() {
-					bail!("render: expected a single <plugin>");
-				}
-			}
-		}
-	}
-
-	if force_smart && force_legacy {
-		bail!("--smart and --legacy are mutually exclusive");
-	}
+pub fn run(args: RenderArgs) -> Result<()> {
+	let RenderArgs {
+		plugin,
+		preset,
+		manifest,
+		input,
+		output,
+		sets,
+		smart: force_smart,
+		legacy: force_legacy,
+		serial_iterate,
+	} = args;
 
 	// A preset sets the stage (plugin, input, size, time, params, depth,
 	// render path); the flags below then override it.

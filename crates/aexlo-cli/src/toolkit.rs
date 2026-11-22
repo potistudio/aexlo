@@ -12,14 +12,15 @@ use aexlo_harness::worker::WorkerCommand;
 use aexlo_harness::{Error, PluginRef, PluginSource, RenderMode, Variant};
 
 /// How results are printed.
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[derive(clap::ValueEnum, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Format {
 	#[default]
+	#[value(alias = "text")]
 	Human,
 	Json,
 }
 
-/// Flags every preset-driven command takes.
+/// Flags every preset-driven command takes, resolved.
 #[derive(Default, Clone)]
 pub struct Common {
 	pub manifest: Option<PathBuf>,
@@ -33,79 +34,95 @@ pub struct Common {
 	pub filter: Option<String>,
 }
 
-/// Arguments left after [`Common`] took its own.
-pub struct Parsed {
-	pub common: Common,
-	/// Command-specific flags with their values, in order.
-	pub rest: Vec<(String, Option<String>)>,
+/// The flags every preset-driven command takes.
+#[derive(clap::Args, Default)]
+#[command(next_help_heading = "Preset options")]
+pub struct PresetArgs {
+	/// The manifest [default: the nearest aexlo.toml]
+	#[arg(long, value_name = "PATH")]
+	pub manifest: Option<PathBuf>,
+	/// Narrow the matrix to these depths (8, 16, 32)
+	#[arg(long, value_name = "DEPTHS", value_delimiter = ',', value_parser = parse_depth)]
+	pub depth: Option<Vec<u32>>,
+	/// Narrow the matrix to these render paths (e.g. smart,legacy)
+	#[arg(long, value_name = "PATHS", value_delimiter = ',', value_parser = parse_render)]
+	pub render: Option<Vec<RenderMode>>,
+	/// preset (one worker per preset, default), variant, or none (in this
+	/// process; debugging only)
+	#[arg(long, value_name = "HOW", value_parser = parse_isolate)]
+	pub isolate: Option<Isolate>,
+	/// Workers at once [default: 1]
+	#[arg(short, long, value_name = "N", value_parser = parse_jobs)]
+	pub jobs: Option<usize>,
+	/// Every strict check (bounds, allocations, checkouts, flags) on every
+	/// variant
+	#[arg(long)]
+	pub strict: bool,
+	/// How to print the results
+	#[arg(long, value_enum, value_name = "F", default_value_t)]
+	pub format: Format,
+	/// Also write a JUnit XML report
+	#[arg(long, value_name = "PATH")]
+	pub junit: Option<PathBuf>,
 }
 
-/// Parse `args` into common flags, the filter, and the flags listed in
-/// `own` (with whether each takes a value).
-pub fn parse(args: impl Iterator<Item = String>, own: &[(&str, bool)]) -> Result<Parsed, Error> {
-	let mut common = Common {
-		jobs: 1,
-		..Common::default()
-	};
-	let mut rest = Vec::new();
-	let mut args = args.peekable();
-	let value = |args: &mut std::iter::Peekable<_>, flag: &str| -> Result<String, Error> {
-		Iterator::next(args).ok_or_else(|| Error::invalid(format!("option '{flag}' needs a value")))
-	};
-	while let Some(arg) = args.next() {
-		match arg.as_str() {
-			"--manifest" => common.manifest = Some(PathBuf::from(value(&mut args, &arg)?)),
-			"--depth" => {
-				let list = value(&mut args, &arg)?
-					.split(',')
-					.map(|d| {
-						d.trim()
-							.parse::<u32>()
-							.ok()
-							.filter(|d| [8, 16, 32].contains(d))
-							.ok_or_else(|| Error::invalid(format!("--depth: '{d}' is not 8, 16 or 32")))
-					})
-					.collect::<Result<_, _>>()?;
-				common.depth = Some(list);
-			}
-			"--render" => {
-				let list = value(&mut args, &arg)?
-					.split(',')
-					.map(RenderMode::parse)
-					.collect::<Result<_, _>>()?;
-				common.render = Some(list);
-			}
-			"--isolate" => common.isolate = Isolate::parse(&value(&mut args, &arg)?)?,
-			"--jobs" | "-j" => {
-				let raw = value(&mut args, &arg)?;
-				common.jobs = raw
-					.parse()
-					.ok()
-					.filter(|j| *j > 0)
-					.ok_or_else(|| Error::invalid(format!("--jobs expects a positive number, got '{raw}'")))?;
-			}
-			"--strict" => common.strict = true,
-			"--format" => {
-				common.format = match value(&mut args, &arg)?.as_str() {
-					"human" => Format::Human,
-					"json" => Format::Json,
-					other => return Err(Error::invalid(format!("--format: '{other}' is not human or json"))),
-				}
-			}
-			"--junit" => common.junit = Some(PathBuf::from(value(&mut args, &arg)?)),
-			flag if flag.starts_with('-') => match own.iter().find(|(name, _)| *name == flag) {
-				Some((_, true)) => {
-					let v = value(&mut args, flag)?;
-					rest.push((arg, Some(v)));
-				}
-				Some((_, false)) => rest.push((arg, None)),
-				None => return Err(Error::invalid(format!("unknown option '{flag}'"))),
-			},
-			_ if common.filter.is_none() => common.filter = Some(arg),
-			_ => return Err(Error::invalid(format!("unexpected argument '{arg}'"))),
+impl PresetArgs {
+	/// With the variant filter.
+	pub fn common(self, filter: Option<String>) -> Common {
+		Common {
+			manifest: self.manifest,
+			depth: self.depth,
+			render: self.render,
+			isolate: self.isolate.unwrap_or_default(),
+			jobs: self.jobs.unwrap_or(1),
+			strict: self.strict,
+			format: self.format,
+			junit: self.junit,
+			filter,
 		}
 	}
-	Ok(Parsed { common, rest })
+}
+
+/// What `[FILTER]` means and what the exit codes are, under each
+/// preset-driven command's help.
+pub const EXIT_CODES: &str = "\
+[FILTER] matches variant ids by substring, or as a glob when it has `*`.
+
+Exit codes: 0 all passed or skipped, 1 the plugin was judged bad, 2 invalid \
+manifest or flags, 3 harness error (no verdict reached).";
+
+fn parse_depth(raw: &str) -> Result<u32, String> {
+	raw.trim()
+		.parse::<u32>()
+		.ok()
+		.filter(|d| [8, 16, 32].contains(d))
+		.ok_or_else(|| format!("'{raw}' is not 8, 16 or 32"))
+}
+
+fn parse_render(raw: &str) -> Result<RenderMode, String> {
+	RenderMode::parse(raw).map_err(|e| e.to_string())
+}
+
+fn parse_isolate(raw: &str) -> Result<Isolate, String> {
+	Isolate::parse(raw).map_err(|e| e.to_string())
+}
+
+fn parse_jobs(raw: &str) -> Result<usize, String> {
+	raw.parse()
+		.ok()
+		.filter(|j| *j > 0)
+		.ok_or_else(|| format!("expects a positive number, got '{raw}'"))
+}
+
+/// A `--baseline` or `--save-baseline` name.
+pub fn parse_baseline_name(raw: &str) -> Result<String, String> {
+	aexlo_harness::bench::validate_name(raw).map_err(|e| e.to_string())?;
+	Ok(raw.to_string())
+}
+
+/// A `--threshold`: `5%` or `0.05`.
+pub fn parse_threshold(raw: &str) -> Result<f64, String> {
+	aexlo_harness::bench::parse_threshold(raw).map_err(|e| e.to_string())
 }
 
 /// The manifest named by `--manifest`, else the nearest `aexlo.toml`.
@@ -211,72 +228,22 @@ pub fn fail(err: &Error) -> ExitCode {
 	ExitCode::from(err.exit_code())
 }
 
-//==== Help ==============================================================
-
-pub const PRESETS_HELP: &str = "\
-Usage: aexlo presets [filter] [PRESET OPTIONS]
-
-List the variants the manifest's presets expand to.
-";
-
-pub const TEST_HELP: &str = "\
-Usage: aexlo test [filter] [OPTIONS] [PRESET OPTIONS]
-
-Run each variant in a worker, check it and compare it with its golden;
-report pass, fail, error, crash, timeout or skipped.
-
-Options:
-      --bless             Write missing or changed goldens (never ones
-                          rendered by After Effects)
-      --save-frames <dir> Also write each variant's frame to <dir>
-      --fuzz <n>          Instead, render n cases per preset with parameters
-                          drawn from their declared ranges; failing cases
-                          print as [[preset]] blocks
-      --seed <s>          The fuzzing seed  [default: time-based, printed]
-";
-
-pub const CHECK_HELP: &str = "\
-Usage: aexlo check [filter] [OPTIONS] [PRESET OPTIONS]
-
-What CI gates on: `test --strict`, then `bench --baseline` when a baseline
-is configured. Parity failures against After Effects goldens are listed
-apart from regressions.
-
-Options:
-      --baseline <name>   The baseline to compare with
-                          [default: main, if .aexlo/baselines/main.json exists]
-      --threshold <p>     [default: 5%]
-";
-
-/// The flags [`parse`] takes for every preset-driven command, and what
-/// their exit codes mean.
-pub const PRESET_OPTIONS: &str = "
-Preset options:
-      --manifest <path>   The manifest  [default: the nearest aexlo.toml]
-      --depth 8,16        Narrow the matrix to these depths
-      --render smart      Narrow the matrix to these render paths
-      --isolate <how>     preset (one worker per preset, default), variant,
-                          or none (in this process; debugging only)
-  -j, --jobs <n>          Workers at once  [default: 1; bench runs one]
-      --strict            Every strict check (bounds, allocations,
-                          checkouts, flags) on every variant (check always
-                          does; bench never does)
-      --format <f>        human or json  [default: human]
-      --junit <path>      Also write a JUnit XML report
-
-[filter] matches variant ids by substring, or as a glob when it has `*`.
-Exit codes: 0 all passed or skipped, 1 the plugin was judged bad, 2 invalid
-manifest or flags, 3 harness error (no verdict reached).
-";
-
 //==== aexlo presets ====================================================
 
-pub fn cmd_presets(args: impl Iterator<Item = String>) -> ExitCode {
+#[derive(clap::Args)]
+pub struct PresetsArgs {
+	/// Only the variants this matches
+	filter: Option<String>,
+	#[command(flatten)]
+	preset: PresetArgs,
+}
+
+pub fn cmd_presets(args: PresetsArgs) -> ExitCode {
 	let run = || -> Result<(), Error> {
-		let parsed = parse(args, &[])?;
-		let manifest = load_manifest(parsed.common.manifest.as_deref())?;
-		let variants = select(&manifest, &parsed.common)?;
-		if parsed.common.format == Format::Json {
+		let common = args.preset.common(args.filter);
+		let manifest = load_manifest(common.manifest.as_deref())?;
+		let variants = select(&manifest, &common)?;
+		if common.format == Format::Json {
 			let ids: Vec<_> = variants.iter().map(|v| &v.id).collect();
 			println!("{}", serde_json::to_string_pretty(&ids).unwrap_or_default());
 			return Ok(());
@@ -501,49 +468,42 @@ fn plugin_info(config: &RunnerConfig, plugin: &PluginRef) -> Result<aexlo_harnes
 	})
 }
 
-pub fn cmd_test(args: impl Iterator<Item = String>) -> ExitCode {
+#[derive(clap::Args)]
+pub struct TestArgs {
+	/// Only the variants this matches
+	filter: Option<String>,
+	/// Write missing or changed goldens (never ones rendered by After
+	/// Effects)
+	#[arg(long, conflicts_with = "fuzz")]
+	bless: bool,
+	/// Also write each variant's frame to <DIR>
+	#[arg(long, value_name = "DIR")]
+	save_frames: Option<PathBuf>,
+	/// Instead, render <N> cases per preset with parameters drawn from their
+	/// declared ranges; failing cases print as [[preset]] blocks
+	#[arg(long, value_name = "N")]
+	fuzz: Option<u64>,
+	/// The fuzzing seed [default: time-based, printed]
+	#[arg(long, value_name = "S", requires = "fuzz")]
+	seed: Option<u64>,
+	#[command(flatten)]
+	preset: PresetArgs,
+}
+
+pub fn cmd_test(args: TestArgs) -> ExitCode {
 	let setup = || -> Result<(Common, TestFlags, Manifest, Vec<Variant>, RunnerConfig), Error> {
-		let parsed = parse(
-			args,
-			&[
-				("--save-frames", true),
-				("--bless", false),
-				("--fuzz", true),
-				("--seed", true),
-			],
-		)?;
-		let mut flags = TestFlags {
-			bless: false,
-			save_frames: None,
-			fuzz: None,
-			seed: None,
+		let common = args.preset.common(args.filter);
+		let flags = TestFlags {
+			bless: args.bless,
+			save_frames: args.save_frames,
+			fuzz: args.fuzz.map(|n| n.max(1) as usize),
+			seed: args.seed,
 		};
-		for (flag, value) in parsed.rest {
-			let value = value.unwrap_or_default();
-			let number = |what: &str| {
-				value
-					.parse::<u64>()
-					.map_err(|_| Error::invalid(format!("{what} expects a number, got '{value}'")))
-			};
-			match flag.as_str() {
-				"--save-frames" => flags.save_frames = Some(PathBuf::from(&value)),
-				"--bless" => flags.bless = true,
-				"--fuzz" => flags.fuzz = Some(number("--fuzz")?.max(1) as usize),
-				"--seed" => flags.seed = Some(number("--seed")?),
-				_ => {}
-			}
-		}
-		if flags.fuzz.is_some() && flags.bless {
-			return Err(Error::invalid("--fuzz has no goldens to bless"));
-		}
-		if flags.seed.is_some() && flags.fuzz.is_none() {
-			return Err(Error::invalid("--seed only applies to --fuzz"));
-		}
-		let manifest = load_manifest(parsed.common.manifest.as_deref())?;
-		let variants = select(&manifest, &parsed.common)?;
+		let manifest = load_manifest(common.manifest.as_deref())?;
+		let variants = select(&manifest, &common)?;
 		let artifacts = artifacts(&variants)?;
-		let config = runner_config(&parsed.common, artifacts)?;
-		Ok((parsed.common, flags, manifest, variants, config))
+		let config = runner_config(&common, artifacts)?;
+		Ok((common, flags, manifest, variants, config))
 	};
 	let (common, flags, manifest, variants, config) = match setup() {
 		Ok(setup) => setup,
@@ -652,57 +612,6 @@ fn test_runs(
 
 //==== aexlo bench (presets) ============================================
 
-/// Whether `aexlo bench`'s arguments name plugins (the flag-driven front-end)
-/// rather than a manifest's presets: the first positional argument exists
-/// on disk or as a fixture, and no preset-only flag is given.
-pub fn bench_names_plugins(args: &[String], is_plugin: impl Fn(&str) -> bool) -> bool {
-	const PRESET_FLAGS: &[&str] = &[
-		"--manifest",
-		"--baseline",
-		"--save-baseline",
-		"--threshold",
-		"--depth",
-		"--render",
-	];
-	const VALUED: &[&str] = &[
-		"-r",
-		"--resolution",
-		"-n",
-		"--samples",
-		"--warmup",
-		"--mode",
-		"-s",
-		"--set",
-		"-i",
-		"--input",
-		"--csv",
-		"--json",
-		"--manifest",
-		"--depth",
-		"--render",
-		"--isolate",
-		"--jobs",
-		"-j",
-		"--format",
-		"--junit",
-		"--baseline",
-		"--save-baseline",
-		"--threshold",
-	];
-	if args.iter().any(|a| PRESET_FLAGS.contains(&a.as_str())) {
-		return false;
-	}
-	let mut iter = args.iter();
-	while let Some(arg) = iter.next() {
-		if VALUED.contains(&arg.as_str()) {
-			iter.next();
-		} else if !arg.starts_with('-') {
-			return is_plugin(arg);
-		}
-	}
-	false
-}
-
 fn ms(seconds: f64) -> String {
 	format!("{:.3}", seconds * 1e3)
 }
@@ -714,54 +623,70 @@ struct BenchFlags {
 	threshold: f64,
 }
 
-pub fn cmd_bench(args: impl Iterator<Item = String>) -> ExitCode {
+/// The flags `aexlo bench` takes for presets, on top of [`PresetArgs`].
+#[derive(clap::Args, Default)]
+#[command(next_help_heading = "Preset options")]
+pub struct BenchPresetArgs {
+	/// Store the timings in .aexlo/baselines/
+	#[arg(long, value_name = "NAME", value_parser = parse_baseline_name)]
+	pub save_baseline: Option<String>,
+	/// Compare with them; a variant whose median and min are both slower than
+	/// --threshold regresses (exit 1)
+	#[arg(long, value_name = "NAME", value_parser = parse_baseline_name)]
+	pub baseline: Option<String>,
+	/// How much slower regresses [default: 5%]
+	#[arg(long, value_name = "P", value_parser = parse_threshold, requires = "baseline")]
+	pub threshold: Option<f64>,
+}
+
+impl BenchPresetArgs {
+	pub fn is_given(&self) -> bool {
+		self.save_baseline.is_some() || self.baseline.is_some() || self.threshold.is_some()
+	}
+}
+
+impl PresetArgs {
+	/// Whether a flag only presets take is given, so `aexlo bench` times
+	/// presets.
+	pub fn names_presets(&self) -> bool {
+		self.manifest.is_some() || self.depth.is_some() || self.render.is_some()
+	}
+
+	/// Whether any of these flags is given.
+	pub fn is_given(&self) -> bool {
+		self.names_presets()
+			|| self.isolate.is_some()
+			|| self.jobs.is_some()
+			|| self.strict
+			|| self.format != Format::Human
+			|| self.junit.is_some()
+	}
+}
+
+/// `aexlo bench [filter]`: time the manifest's presets.
+pub fn cmd_bench(filter: Option<String>, own: BenchPresetArgs, preset: PresetArgs) -> ExitCode {
 	let setup = || -> Result<(Common, BenchFlags, Manifest, Vec<Variant>, RunnerConfig), Error> {
-		let parsed = parse(
-			args,
-			&[("--save-baseline", true), ("--baseline", true), ("--threshold", true)],
-		)?;
-		let mut flags = BenchFlags {
-			save: None,
-			baseline: None,
-			threshold: 0.05,
+		let common = preset.common(filter);
+		let flags = BenchFlags {
+			save: own.save_baseline,
+			baseline: own.baseline,
+			threshold: own.threshold.unwrap_or(0.05),
 		};
-		let mut threshold_given = false;
-		for (flag, value) in parsed.rest {
-			let value = value.unwrap_or_default();
-			match flag.as_str() {
-				"--save-baseline" => {
-					aexlo_harness::bench::validate_name(&value)?;
-					flags.save = Some(value);
-				}
-				"--baseline" => {
-					aexlo_harness::bench::validate_name(&value)?;
-					flags.baseline = Some(value);
-				}
-				"--threshold" => {
-					flags.threshold = aexlo_harness::bench::parse_threshold(&value)?;
-					threshold_given = true;
-				}
-				_ => {}
-			}
-		}
-		if threshold_given && flags.baseline.is_none() {
-			return Err(Error::invalid("--threshold only applies with --baseline"));
-		}
-		if parsed.common.jobs > 1 {
+		if common.jobs > 1 {
 			eprintln!("aexlo bench: benches always run one at a time; ignoring --jobs");
 		}
-		if parsed.common.strict {
+		if common.strict {
 			return Err(Error::invalid("benches run with strict mode off; drop --strict"));
 		}
-		let manifest = load_manifest(parsed.common.manifest.as_deref())?;
-		let variants: Vec<Variant> = select(&manifest, &parsed.common)?
+		let manifest = load_manifest(common.manifest.as_deref())?;
+		let variants: Vec<Variant> = select(&manifest, &common)?
 			.into_iter()
 			.filter(|v| v.bench.is_some())
 			.collect();
 		let artifacts = artifacts(&variants)?;
-		let mut config = runner_config(&parsed.common, artifacts)?;
+		let mut config = runner_config(&common, artifacts)?;
 		config.jobs = 1;
-		Ok((parsed.common, flags, manifest, variants, config))
+		Ok((common, flags, manifest, variants, config))
 	};
 	let (common, flags, manifest, variants, config) = match setup() {
 		Ok(setup) => setup,
@@ -946,26 +871,29 @@ pub const DEFAULT_BASELINE: &str = "main";
 /// every strict check, then `bench` against a baseline when one is
 /// configured. Parity failures (against After Effects goldens) are reported
 /// apart from regressions.
-pub fn cmd_check(args: impl Iterator<Item = String>) -> ExitCode {
+#[derive(clap::Args)]
+pub struct CheckArgs {
+	/// Only the variants this matches
+	filter: Option<String>,
+	/// The bench baseline to compare with [default: main, if
+	/// .aexlo/baselines/main.json exists]
+	#[arg(long, value_name = "NAME", value_parser = parse_baseline_name)]
+	baseline: Option<String>,
+	/// How much slower regresses [default: 5%]
+	#[arg(long, value_name = "P", value_parser = parse_threshold)]
+	threshold: Option<f64>,
+	#[command(flatten)]
+	preset: PresetArgs,
+}
+
+pub fn cmd_check(args: CheckArgs) -> ExitCode {
 	/// The flags, the baseline and its threshold, and what to run.
 	type Setup = (Common, Option<String>, f64, Manifest, Vec<Variant>, RunnerConfig);
 	let setup = || -> Result<Setup, Error> {
-		let parsed = parse(args, &[("--baseline", true), ("--threshold", true)])?;
-		let mut common = parsed.common;
+		let mut common = args.preset.common(args.filter);
 		common.strict = true;
-		let mut baseline = None;
-		let mut threshold = 0.05;
-		for (flag, value) in parsed.rest {
-			let value = value.unwrap_or_default();
-			match flag.as_str() {
-				"--baseline" => {
-					aexlo_harness::bench::validate_name(&value)?;
-					baseline = Some(value);
-				}
-				"--threshold" => threshold = aexlo_harness::bench::parse_threshold(&value)?,
-				_ => {}
-			}
-		}
+		let mut baseline = args.baseline;
+		let threshold = args.threshold.unwrap_or(0.05);
 		let manifest = load_manifest(common.manifest.as_deref())?;
 		if baseline.is_none() && aexlo_harness::bench::baseline_path(&manifest.dir, DEFAULT_BASELINE).exists() {
 			baseline = Some(DEFAULT_BASELINE.to_string());
