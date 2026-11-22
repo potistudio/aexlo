@@ -203,8 +203,8 @@ during `PF_Event_DRAW`. The CLI never sends `PF_Cmd_EVENT`; an embedder does.
 | △ Light        | ○ Persistent Data | △ Render               | × Camera               |
 | △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
 | △ PF Interface | × Mask Outline    | △ Layer Render Options | × Math                 |
-| × Proj         | × Text Document   | × Composite            | × Compute Cache        |
-| × Footage      | × Text Layer      | × Canvas               | × Hash                 |
+| × Proj         | × Text Document   | × Composite            | △ Compute Cache        |
+| × Footage      | × Text Layer      | × Canvas               | △ Hash                 |
 | × Collection   |                   | × Sound Data           | × Render Async Manager |
 | × Marker       |                   |                        |                        |
 
@@ -213,6 +213,9 @@ during `PF_Event_DRAW`. The CLI never sends `PF_Cmd_EVENT`; an embedder does.
 △ Color Settings: the working space is sRGB, with no colour management.
 △ Register: idle hooks are recorded and never called.
 △ Utility: `AEGP_ExecuteScript` does not run the script.
+△ Compute Cache: entries persist until class unregistration or plugin teardown;
+memory-pressure eviction is not implemented. △ Hash: deterministic host-local
+hashes are provided, but their values are not guaranteed to match After Effects.
 
 ### Drawbot
 

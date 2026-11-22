@@ -818,6 +818,7 @@ impl PluginInstance {
 		// The entry point is missing only when `load` failed to resolve it,
 		// in which case the plugin was never set up.
 		if self.entry_point.is_none() || self.torn_down {
+			crate::suites::compute_cache::remove_owner(self.aegp_owner);
 			crate::suites::register::remove_owner(self.aegp_owner);
 			return;
 		}
@@ -847,6 +848,7 @@ impl PluginInstance {
 				log::warn!("PF_Cmd_GLOBAL_SETDOWN failed during drop: {err:?}");
 			}
 		}
+		crate::suites::compute_cache::remove_owner(self.aegp_owner);
 		crate::suites::register::remove_owner(self.aegp_owner);
 		if let Ok(mut tracker) = self.tracker.lock() {
 			tracker.torn_down();

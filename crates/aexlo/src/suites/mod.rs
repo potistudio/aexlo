@@ -54,6 +54,7 @@ pub mod color_callbacks;
 mod color_param;
 mod color_settings;
 mod comp;
+pub(crate) mod compute_cache;
 pub(crate) mod drawbot;
 mod dynamic_stream;
 mod effect;
@@ -62,6 +63,7 @@ mod ffi;
 pub mod fill_matte;
 pub mod gpu_device;
 pub mod handle;
+mod hash;
 mod helper;
 pub mod interface;
 pub mod iterate;
@@ -86,6 +88,7 @@ pub mod world;
 use crate::core::diagnostics::diag;
 use crate::sys::*;
 static COMP_SUITE_4: AEGP_CompSuite4 = comp::create_comp_suite_4();
+static AEGP_LAYER_RENDER_OPTIONS_1: AEGP_LayerRenderOptionsSuite1 = aegp_render::layer_render_options_suite_1();
 static COMP_SUITE_11: AEGP_CompSuite11 = comp::create_comp_suite_11();
 static AEGP_WORLD_1: AEGP_WorldSuite1 = aegp_world::suite_1();
 static AEGP_WORLD_2: AEGP_WorldSuite2 = aegp_world::suite_2();
@@ -452,6 +455,10 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			unsafe { *suite = &AEGP_ITEM_9 as *const _ as *const c_void };
 			PF_Err_NONE as PF_Err
 		}
+		("AEGP Layer Render Options Suite", v) if v == kAEGPLayerRenderOptionsSuiteVersion1 as i32 => {
+			unsafe { *suite = &AEGP_LAYER_RENDER_OPTIONS_1 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("AEGP Layer Render Options Suite", v) if v == kAEGPLayerRenderOptionsSuiteVersion2 as i32 => {
 			unsafe { *suite = &AEGP_LAYER_RENDER_OPTIONS_2 as *const _ as *const c_void };
 			PF_Err_NONE
@@ -537,6 +544,14 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			// SAFETY: `suite` was null-checked at the top of this function.
 			unsafe { *suite = utility::aegp_utility_suite(version) };
 			log::debug!("Acquired {} v{}", suite_name, version);
+			PF_Err_NONE
+		}
+		("AEGP Compute Cache", 1) => {
+			unsafe { *suite = &compute_cache::SUITE as *const _ as *const c_void };
+			PF_Err_NONE
+		}
+		("AEGP Hash Suite", 1) => {
+			unsafe { *suite = &hash::SUITE as *const _ as *const c_void };
 			PF_Err_NONE
 		}
 		_ => {
@@ -651,6 +666,9 @@ mod tests {
 			("AEGP Item Suite", 14),
 			("AEGP Utility Suite", 11),
 			("AEGP Utility Suite", 13),
+			("AEGP Compute Cache", 1),
+			("AEGP Hash Suite", 1),
+			("AEGP Layer Render Options Suite", 1),
 			("AEGP Layer Render Options Suite", 2),
 			("AEGP Render Options Suite", 4),
 			("AEGP Render Suite", 8),

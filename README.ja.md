@@ -184,8 +184,8 @@ aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
 | △ Light        | ○ Persistent Data | △ Render               | × Camera               |
 | △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
 | △ PF Interface | × Mask Outline    | △ Layer Render Options | × Math                 |
-| × Proj         | × Text Document   | × Composite            | × Compute Cache        |
-| × Footage      | × Text Layer      | × Canvas               | × Hash                 |
+| × Proj         | × Text Document   | × Composite            | △ Compute Cache        |
+| × Footage      | × Text Layer      | × Canvas               | △ Hash                 |
 | × Collection   |                   | × Sound Data           | × Render Async Manager |
 | × Marker       |                   |                        |                        |
 
@@ -194,6 +194,8 @@ aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
 △ Color Settings：作業用スペースは sRGB で、カラーマネジメントはしません。
 △ Register：アイドルフックは記録しますが、呼びません。
 △ Utility：`AEGP_ExecuteScript` はスクリプトを実行しません。
+△ Compute Cache：値はクラス登録の解除またはプラグイン終了まで保持し、メモリー不足時の退避は未実装です。
+△ Hash：決定的なホスト内ハッシュを提供しますが、After Effects と同じ値は保証しません。
 
 ### Drawbot
 
