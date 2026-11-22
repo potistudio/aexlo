@@ -155,3 +155,6 @@ was renamed.
 Most plugin fixtures are local to each machine (`fixtures/plugins/.gitignore`),
 so keep a baseline next to them rather than in the repository. Save one
 before a change to aexlo, then compare after it.
+
+The whole loop, from picking a gap to committing the fix, is in
+[compat-workflow.md](compat-workflow.md).

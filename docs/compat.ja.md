@@ -124,3 +124,5 @@ Asked for, but not done by aexlo (plugins that asked):
 プラグインのフィクスチャはほとんどがマシンごとのローカルなもの（`fixtures/plugins/.gitignore`）です。
 そのため、ベースラインはリポジトリではなくフィクスチャのそばに置いてください。
 aexlo を変更する前に保存し、変更後に比べます。
+
+不足を選んでから修正をコミットするまでの一連の手順は [compat-workflow.ja.md](compat-workflow.ja.md) にあります。

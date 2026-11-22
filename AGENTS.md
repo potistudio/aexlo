@@ -23,3 +23,6 @@ ask for that aexlo does not do, use
 `aexlo compat fixtures/plugins/<platform> --format json`. Save a baseline
 before changing aexlo and pass it back with `--baseline` afterwards; exit 1
 means a scenario got worse. See [docs/compat.md](docs/compat.md).
+
+To close a gap that `compat` reports, follow the loop in
+[docs/compat-workflow.md](docs/compat-workflow.md).
