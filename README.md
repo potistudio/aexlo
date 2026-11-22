@@ -227,7 +227,7 @@ during `PF_Event_DRAW`. The CLI never sends `PF_Cmd_EVENT`; an embedder does.
 △ Render / Render Options / Layer Render Options: checkout returns the effect's own input.
 △ Color Settings: the working space is sRGB, with no colour management.
 △ Register: idle hooks are recorded and never called.
-△ Utility: `AEGP_ExecuteScript` does not run the script.
+△ Utility: there is no script engine (`AEGP_IsScriptingAvailable` says so and `AEGP_ExecuteScript` does nothing), no undo history and no palette UI. `AEGP_GetPluginPlatformRef` gives no bundle on macOS.
 
 ### Drawbot
 

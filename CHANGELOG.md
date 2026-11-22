@@ -49,6 +49,17 @@ may break the API, and every breaking change is listed below.
 
 ### Fixed
 
+- "AEGP Utility Suite" serves each version at its own layout: v3–7
+  (`AEGP_UtilitySuite1`–`3`), v10–11 (`4`–`5`) and v13 (`6`). One table
+  served every version from 1 to 18, so a v11 plugin calling
+  `AEGP_RegisterWithAEGP` reached `AEGP_EndUndoGroup`, and a v13 plugin
+  calling `AEGP_StartUndoGroup` reached `AEGP_RegisterWithAEGP`. Every
+  other slot returned success without doing anything; the calls now do
+  what the SDK says (versions, quiet errors, palette colours, HSF ratios,
+  `AEGP_GetSuppressInteractiveUI` from `AppHost::is_render_engine`, the
+  `APP` path of `AEGP_GetPluginPaths`). `AEGP_IsScriptingAvailable` answers
+  false, since aexlo runs no scripts. Versions the SDK never defined are
+  refused.
 - An arbitrary-data parameter starts as a copy of its default
   (`PF_Arbitrary_COPY_FUNC` of `dephault`), as in After Effects, and falls back
   to `PF_Arbitrary_NEW_FUNC` only without a default or when the copy fails.

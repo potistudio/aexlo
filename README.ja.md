@@ -205,7 +205,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 △ Render / Render Options / Layer Render Options：チェックアウトはエフェクト自身の入力を返します。
 △ Color Settings：作業用スペースは sRGB で、カラーマネジメントはしません。
 △ Register：アイドルフックは記録しますが、呼びません。
-△ Utility：`AEGP_ExecuteScript` はスクリプトを実行しません。
+△ Utility：スクリプトエンジンはありません（`AEGP_IsScriptingAvailable` はそう答え、`AEGP_ExecuteScript` は何もしません）。取り消し履歴とパレットの UI もありません。macOS の `AEGP_GetPluginPlatformRef` はバンドルを返しません。
 
 ### Drawbot
 
