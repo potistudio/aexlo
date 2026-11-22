@@ -85,6 +85,7 @@ had. Those are reported once, on `load`.
 | `--timeout <s>` | `20` | Seconds per scenario |
 | `--all` | | List every plugin and every scenario. Without it, only plugins and scenarios with problems are listed (see [Output](#4-output)) |
 | `--json` | text | The report as one JSON document |
+| `--color <auto\|always\|never>` | `auto` | Color the text report, with symbols and bars. `auto` colors it on a terminal unless `NO_COLOR` is set |
 | `--save-baseline <file>` | | Write each scenario's status |
 | `--baseline <file>` | | Compare with a saved baseline |
 
@@ -125,6 +126,14 @@ Everything ok or n/a (25):
 Asked for, but not done by aexlo (plugins that asked):
     1  missing-suite PF Effect Sequence Data Suite v1  [RainyDay]
 ```
+
+On a terminal, the report is in color: each status has its color and a
+symbol (`✓` ok, `◐` partial, `○` n/a, `?` invalid, `✗` error and crash,
+`◷` timeout), and the totals and each plugin get a bar split between their
+statuses. While it runs, a progress line on stderr shows the phase
+(loading, AV layer, text layer) and how many scenarios are done. Piped or
+redirected, the report is the plain text above and there is no progress
+line.
 
 With `--all`, every plugin gets a block, `ok` and `n/a` scenarios are
 grouped too, and each group names all of its scenarios.

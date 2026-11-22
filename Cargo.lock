@@ -175,6 +175,8 @@ dependencies = [
  "aexlo",
  "aexlo-bench",
  "aexlo-harness",
+ "anstream",
+ "anstyle",
  "anyhow",
  "cargo_metadata",
  "clap",

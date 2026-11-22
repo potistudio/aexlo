@@ -84,6 +84,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 | `--timeout <s>` | `20` | シナリオごとの秒数 |
 | `--all` | | すべてのプラグインとシナリオを表示する。指定しない場合は、問題のあったものだけを表示する（[出力](#4-出力)） |
 | `--json` | テキスト | レポートを1つの JSON で出力する |
+| `--color <auto\|always\|never>` | `auto` | テキストのレポートに色、記号、バーを付ける。`auto` は端末に出すときだけ付ける（`NO_COLOR` があれば付けない） |
 | `--save-baseline <file>` | | 各シナリオのステータスを書き出す |
 | `--baseline <file>` | | 保存したベースラインと比べる |
 
@@ -124,6 +125,11 @@ Everything ok or n/a (25):
 Asked for, but not done by aexlo (plugins that asked):
     1  missing-suite PF Effect Sequence Data Suite v1  [RainyDay]
 ```
+
+端末に出すときは色が付きます。
+ステータスごとの色と記号（`✓` ok、`◐` partial、`○` n/a、`?` invalid、`✗` error と crash、`◷` timeout）を表示し、合計と各プラグインには、ステータスの割合を示すバーを付けます。
+実行中は stderr に進捗の行を表示し、段階（読み込み、AV レイヤー、テキストレイヤー）と終わったシナリオの数を示します。
+パイプやリダイレクトに出すときは上のプレーンテキストになり、進捗の行も出ません。
 
 `--all` を付けると、すべてのプラグインを個別に表示し、`ok` と `n/a` のシナリオもまとめて、各グループのシナリオをすべて示します。
 

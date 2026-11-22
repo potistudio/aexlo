@@ -28,6 +28,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 # `aexlo compat` reads and writes its scenarios' presets.
 toml = { workspace = true }
+# `aexlo compat`'s colored report and progress bar (already in the tree
+# through clap): styles, and a stdout that drops them off a terminal.
+anstream = "1.0.0"
+anstyle = "1.0.14"
 
 # `aexlo bench`: the timing loop, plugin/resolution resolution, and reporting are
 # shared with `cargo bench -p aexlo-bench` so both front-ends measure identically.
