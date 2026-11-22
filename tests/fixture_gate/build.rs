@@ -7,6 +7,7 @@
 //! timestamp, as a copy that keeps times makes. The tests stay ignored until
 //! `cargo clean -p aexlo_fixture_gate`; they never pass unrun.
 
+use std::io::Read;
 use std::path::Path;
 
 fn main() {
@@ -34,13 +35,24 @@ fn main() {
 		.flatten()
 		.flatten()
 		.map(|entry| entry.path())
-		// `exists` follows links: a link to an absent plugin is no fixture.
-		.filter(|path| path.extension().is_some_and(|e| e == extension) && path.exists())
+		.filter(|path| path.extension().is_some_and(|e| e == extension) && is_plugin(path))
 		.filter_map(|path| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
 		.collect();
 	present.sort();
 	println!("cargo::rustc-env=FIXTURE_GATE_PRESENT={}", present.join("|"));
 	println!("cargo::rustc-env=FIXTURE_GATE_GPU={}", has_gpu());
+}
+
+/// Whether `path` is a plugin, and not only a name for one: a link to an
+/// absent plugin, or the text file git writes for a link in a checkout
+/// without symlinks, is none.
+fn is_plugin(path: &Path) -> bool {
+	if cfg!(windows) {
+		let mut magic = [0u8; 2];
+		std::fs::File::open(path).is_ok_and(|mut file| file.read_exact(&mut magic).is_ok() && magic == *b"MZ")
+	} else {
+		path.is_dir()
+	}
 }
 
 /// Whether aexlo's GPU path can have a device here: Metal on macOS, the

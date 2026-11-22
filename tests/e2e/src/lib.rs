@@ -1,4 +1,17 @@
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
+/// Whether `path` is a plugin, and not only a name for one: a link to an
+/// absent plugin, or the text file git writes for a link in a checkout
+/// without symlinks, is none.
+fn is_plugin(path: &Path) -> bool {
+	if cfg!(windows) {
+		let mut magic = [0u8; 2];
+		std::fs::File::open(path).is_ok_and(|mut file| file.read_exact(&mut magic).is_ok() && magic == *b"MZ")
+	} else {
+		path.is_dir()
+	}
+}
 
 /// A bundled plugin fixture by file stem (e.g. `"nothing"`, `"FillColor"`).
 ///
@@ -28,7 +41,7 @@ pub fn find_fixture(stem: &str) -> Option<PathBuf> {
 		.join(platform_dir)
 		.join(format!("{stem}.{extension}"));
 
-	path.exists().then_some(path)
+	is_plugin(&path).then_some(path)
 }
 
 /// Absolute path to the workspace's shared `fixtures/input.png`, used as a realistic

@@ -5,6 +5,20 @@
 mod common;
 
 use common::*;
+use std::io::Read;
+use std::path::Path;
+
+/// Whether `path` is a plugin, and not only a name for one: a link to an
+/// absent plugin, or the text file git writes for a link in a checkout
+/// without symlinks, is none.
+fn is_plugin(path: &Path) -> bool {
+	if cfg!(windows) {
+		let mut magic = [0u8; 2];
+		std::fs::File::open(path).is_ok_and(|mut file| file.read_exact(&mut magic).is_ok() && magic == *b"MZ")
+	} else {
+		path.is_dir()
+	}
+}
 
 /// Fixtures whose pixel callbacks must run on the thread that called
 /// iterate: they acquire suites in the callback through the Rust
@@ -30,7 +44,7 @@ fn all_fixtures_render() {
 	// one whose target is absent on this machine is left out. The checked-in
 	// Windows fixture is such a symlink: with nothing else to render, as on
 	// a CI runner without After Effects, `needs_fixture` ignores the test.
-	let mut plugins: Vec<_> = candidates.into_iter().filter(|path| path.exists()).collect();
+	let mut plugins: Vec<_> = candidates.into_iter().filter(|path| is_plugin(path)).collect();
 	assert!(
 		!plugins.is_empty(),
 		"every fixture in {} is a symlink to an absent plugin",
