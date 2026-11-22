@@ -124,6 +124,8 @@ are recorded under a *step*, which is the command line you sent.
 | `about` | | `PF_Cmd_ABOUT`; the message is the plugin's text |
 | `render [auto\|smart\|legacy\|gpu]` | `r` | Render a frame through that path. `auto` picks GPU, then smart, then legacy, falling back when one fails. |
 | `set <param> <value>` | | Set a parameter; see [Setting parameters](#setting-parameters) |
+| `key <param> <frame> <value>` | | Add a linear keyframe at a frame of the current rate. Quote a name with spaces in it. `set` replaces a parameter's keyframes with its value. |
+| `mask <rect\|ellipse\|triangle\|ring\|none>` | | Replace the layer's masks with that figure |
 | `changed <param>` | | `PF_Cmd_USER_CHANGED_PARAM` (and `UPDATE_PARAMS_UI` if the plugin asks for it). `<param>` is the rest of the line, quotes optional. |
 | `press <button>` | | Press a button: `changed` for a button parameter, named by index, `#index`, name, or the text on it (ignoring case). The message lists the values the plugin changed, as in `pressed #88 "Reset Tint"; #84 = 255, 0, 0, 255, #87 = 100`. A button the plugin hid or disabled is refused; `changed` sends it anyway. In the TUI, Enter on a button in the Params tab presses it. |
 | `updateui` | `update-ui` | `PF_Cmd_UPDATE_PARAMS_UI` |
@@ -133,6 +135,7 @@ are recorded under a *step*, which is the command line you sent.
 | `input <png>` | | Replace the input layer with a PNG, converted to the current depth. The rest of the line is the path; quotes are optional. |
 | `input <black\|white\|gradient> [w h]` | | Replace the input layer with a generated one, at the given size or the current one |
 | `input text <string>` | | Make the effect's layer a text layer showing `<string>` at the current size; `\n` breaks lines, quotes are optional. See [Text layers](#text-layers). |
+| `input shape <rect\|ellipse\|triangle\|ring>` | | Make the effect's layer a shape layer showing that figure at the current size. See [Shape layers](#shape-layers). |
 | `depth <8\|16\|32>` | | Convert the input (project) depth. Fails if the plugin does not declare that depth. |
 | `reload` | | Tear the plugin down and load it again. A crate is rebuilt first. |
 | `level <commands\|calls\|args>` | `cmd`, `call`, `arguments` | Change what is recorded |
@@ -228,6 +231,20 @@ layer again.
 
 ```bash
 aexlo inspect TextGrad --text "TextGrad" --exec "render; save text.png"
+```
+
+### Shape layers
+
+`input shape <figure>` puts the effect on a shape layer in a project of one
+comp. The plugin finds the figure's paths in the layer's streams
+(`ADBE Root Vectors Group` down to `ADBE Vector Shape`) and reads them through
+the AEGP Mask Outline Suite. The input is the figure, white on transparent.
+The figure sits left of and above the middle, so paths read in the wrong
+space show. `mask <figure>` gives the same figure as masks instead.
+
+```bash
+aexlo inspect Extrude --exec "input shape ring; render smart; save ring.png"
+aexlo inspect Extrude --exec "input shape ring; key 27 0 0; key 27 30 200; time 15; render smart; save half.png"
 ```
 
 ### Dialogs

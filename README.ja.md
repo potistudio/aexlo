@@ -196,13 +196,17 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 | △ Item         | △ Keyframe        | ○ Iterate              | △ Utility              |
 | △ Light        | ○ Persistent Data | △ Render               | × Camera               |
 | △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
-| △ PF Interface | × Mask Outline    | △ Layer Render Options | × Math                 |
-| △ Proj         | × Text Document   | × Composite            | △ Compute Cache        |
+| △ PF Interface | △ Mask Outline    | △ Layer Render Options | △ Math                 |
+| △ Proj         | △ Text Document   | × Composite            | △ Compute Cache        |
 | × Footage      | ○ Text Layer      | × Canvas               | △ Hash                 |
 | × Collection   |                   | × Sound Data           | × Render Async Manager |
 | × Marker       |                   |                        |                        |
 
-△ Layer / Comp / Item / Light / Effect / PF Interface / Stream / Dynamic Stream / Keyframe：コンポジションそのものである固定の 1 レイヤーを返し、キーフレームはありません。
+△ Layer / Comp / Item / Light / Effect / PF Interface / Stream / Dynamic Stream / Keyframe：`set_project` で渡されたプロジェクト、渡されなければエフェクトのレイヤー 1 枚のコンポジションを読み取り専用で返します。
+キーフレームは線形か停止のみで、ベジェのイージング、空間接線、エクスプレッションはありません。checkout で別の時刻を指定しても、レイヤーの画素は変わりません。
+△ Mask Outline / Text Document：シェイプのパスとソーステキストの文字列を読めます。書き込みはできず、レイヤーマスクはストリームにしていません（Path Query で読みます）。
+シェイプレイヤーのストリームはパス、グループ、塗り、パスの結合で、線とパラメトリックシェイプはありません。
+△ Math：`AEGP_MatrixDecompose4` の角度の規約は After Effects と照合していません。
 このレイヤーにはホスト中のエフェクトが 1 つあり、入力画像を表す仮想フッテージアイテムが対応します。
 Effect Suite はロード中のプラグインが申告した識別情報を返し、システムにインストールされた全エフェクトは列挙しません。
 △ Proj：未保存の仮想プロジェクトを 1 つ公開します。編集、保存、ルートフォルダー、時間表示設定は未実装です。

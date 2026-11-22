@@ -218,13 +218,17 @@ Legacy Gaussian-kernel generation uses approximate coefficients that have not be
 | △ Item         | △ Keyframe        | ○ Iterate              | △ Utility              |
 | △ Light        | ○ Persistent Data | △ Render               | × Camera               |
 | △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
-| △ PF Interface | × Mask Outline    | △ Layer Render Options | × Math                 |
-| △ Proj         | × Text Document   | × Composite            | △ Compute Cache        |
+| △ PF Interface | △ Mask Outline    | △ Layer Render Options | △ Math                 |
+| △ Proj         | △ Text Document   | × Composite            | △ Compute Cache        |
 | × Footage      | ○ Text Layer      | × Canvas               | △ Hash                 |
 | × Collection   |                   | × Sound Data           | × Render Async Manager |
 | × Marker       |                   |                        |                        |
 
-△ Layer / Comp / Item / Light / Effect / PF Interface / Stream / Dynamic Stream / Keyframe: the project is aexlo's fixed one-layer comp, with no keyframes.
+△ Layer / Comp / Item / Light / Effect / PF Interface / Stream / Dynamic Stream / Keyframe: read-only, from the project the embedder gives with `set_project`, or else a comp of the effect's one layer.
+Keyframes are linear or held: there are no bezier eases, spatial tangents or expressions, and layer pixels do not follow the time a checkout asks for.
+△ Mask Outline / Text Document: shape paths and source strings are read; nothing is written, and layer masks are not streams (read them through Path Query).
+Shape layers have paths, groups, fills and Merge Paths as streams, without strokes or parametric shapes.
+△ Math: the angle convention of `AEGP_MatrixDecompose4` has not been checked against After Effects.
 The layer has one hosted effect and a synthetic footage item representing its input.
 The Effect Suite exposes identities reported by loaded plugins; it does not enumerate the system's installed effects.
 △ Proj: one unsaved synthetic project is exposed; project editing, persistence, root folders and time-display settings are not implemented.

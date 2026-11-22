@@ -48,6 +48,23 @@ may break the API, and every breaking change is listed below.
   calls to the observer, so `aexlo inspect` and `aexlo compat` see them.
   `AEGP_ExecuteScript`, and `AEGP_GetPluginPlatformRef` on macOS, report
   themselves as stubs.
+- A read-only project around the effect: `PluginInstance::set_project` takes
+  a `Project` of a `Comp` and `ProjectLayer`s (footage, null, text, shape),
+  with ids, names, spans, stretch, parents and transforms. The Layer, Comp,
+  Item, PF Interface, Stream and Dynamic Stream suites answer from it, and the
+  handle of a layer that left is refused. Without a project the effect is
+  still alone on a layer that fills its comp.
+- Shape layers' paths and text layers' source text are streams: "AEGP Mask
+  Outline Suite" (2, 3, 5) and "AEGP Text Document Suite" v1 read them, and
+  `AEGP_GetLayerStreamValue` reads the transform. Extrude draws shape layers
+  and Discotext text layers through them.
+- Time: `TimePoint` is exact, and `Track`s of `Keyframe`s interpolate linearly
+  or hold. `PluginInstance::set_param_track` keyframes a parameter; the
+  `params` array, `PF_CHECKOUT_PARAM`, streams, the Keyframe Suite and PF Param
+  Utils all read that track, at the time each is asked about. With a project,
+  `set_time` is the effect layer's time.
+- "AEGP Comp Suite" v19 and "AEGP Math Suite" v1.
+- `aexlo inspect` takes `input shape`, `mask` and `key`.
 - `AEGP_SetStreamValue` sets an effect parameter's value, clamped to its valid
   range (a color keeps its alpha), and `AEGP_SetDynamicStreamFlag` hides and
   disables parameters (`PF_PUI_INVISIBLE`, `PF_PUI_DISABLED`), which
@@ -57,6 +74,10 @@ may break the API, and every breaking change is listed below.
 
 ### Fixed
 
+- `PF_PathVertexInfo` gives a mask's tangents as points in layer space, as
+  the SDK guide describes them and as it already did for text outlines, not
+  as offsets from the vertex. `MaskPath` still takes offsets. Extrude pulled
+  masks towards the origin.
 - "AEGP Utility Suite" serves each version at its own layout: v3–7
   (`AEGP_UtilitySuite1`–`3`), v10–11 (`4`–`5`) and v13 (`6`). One table
   served every version from 1 to 18, so a v11 plugin calling
