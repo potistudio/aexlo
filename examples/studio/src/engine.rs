@@ -774,10 +774,10 @@ impl Worker {
 		ctx: &Frame,
 	) -> Result<Image, String> {
 		// Effects see the layers, text and shapes as such, not only pixels.
-		let project = crate::bridge::project(&ctx.project, layer, &effect.layers, ctx.frame, &mut self.fonts)
+		let project = crate::bridge::project(ctx.project, layer, &effect.layers, ctx.frame, &mut self.fonts)
 			.inspect_err(|e| log::warn!("{}: no project for its effects: {e}", layer.name))
 			.ok();
-		let clock = crate::bridge::Clock::of(layer, &ctx.project);
+		let clock = crate::bridge::Clock::of(layer, ctx.project);
 		let slot = self.slots.get_mut(&effect.id).ok_or("not loaded")?;
 		let info = slot.info.clone();
 		let fx = slot.instance.as_mut().map_err(|e| format!("failed to load: {e}"))?;
