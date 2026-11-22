@@ -2,12 +2,15 @@
 //! (`AEGP_DynamicStreamSuite1` to `4`). `kAEGPDynamicStreamSuiteVersion4` is 5,
 //! so there is no wire version 4.
 //!
-//! aexlo has one 2D AV layer and one effect. The layer root (`ADBE AV Layer`)
-//! contains the transform group, the effect parade and an empty mask parade.
-//! The parade's only child is the hosted effect, and that effect's children are
-//! its parameters (the same handles the Stream Suite samples). The effect
-//! group's match name is parameter 0's name, which After Effects uses as the
-//! effect's display name, or `ADBE Effect` when that name is empty.
+//! A layer's root (`ADBE AV Layer`, `ADBE Text Layer` or `ADBE Vector Layer`)
+//! contains the transform group, the effect parade, an empty mask parade and,
+//! on a text or shape layer, its contents (`ADBE Text Properties`, `ADBE Root
+//! Vectors Group`), which are found by match name as plugins find them. Only
+//! the effect's own layer has an effect in its parade: the hosted one, whose
+//! children are its parameters (the same handles the Stream Suite samples).
+//! The effect group's match name is parameter 0's name, which After Effects
+//! uses as the effect's display name, or `ADBE Effect` when that name is
+//! empty.
 //!
 //! Nothing in the tree can be added, removed, renamed or separated. Those calls
 //! return `A_Err_GENERIC`. `AEGP_SetDynamicStreamFlag` hides or disables a
@@ -17,9 +20,11 @@
 
 use crate::sys::*;
 
-use super::stream::{Node, Stream, new_stream_handle, stream_of};
+use super::layer::{Kind, Timeline, with_contents};
+use super::stream::{EFFECT_LAYER, Node, Stream, new_stream_handle, stream_of};
 use crate::PluginInstance;
 use crate::core::diagnostics::diag;
+use crate::project::Grouping;
 use crate::suites::effect::with_param;
 
 const NAME_CAP: usize = AEGP_MAX_STREAM_MATCH_NAME_SIZE as usize;
@@ -37,7 +42,11 @@ fn missing() -> A_Err {
 }
 
 fn refuse(name: &str) -> A_Err {
-	log::warn!("AEGP_DynamicStreamSuite/{name}: aexlo's streams are fixed");
+	crate::observe::unsupported(
+		crate::observe::UnsupportedKind::Declined,
+		format!("AEGP_DynamicStreamSuite/{name}"),
+		"the project is read-only",
+	);
 	A_Err_GENERIC
 }
 
@@ -53,13 +62,27 @@ fn param_count(effect_ref: PF_ProgPtr) -> Option<usize> {
 	Some(unsafe { instance.as_ref() }.params().len())
 }
 
+/// The root of the layer's contents, when it has any.
+fn contents(stream: Stream) -> Option<Stream> {
+	let timeline = stream.timeline()?;
+	with_contents(&timeline, |tree, revision| {
+		(!tree.nodes.is_empty()).then_some(Stream {
+			index: 3,
+			node: Node::Property(0),
+			revision,
+			..stream
+		})
+	})?
+}
+
 fn num_children(stream: Stream) -> Option<usize> {
 	Some(match stream.node {
-		Node::Layer => 3,
+		Node::Layer => 3 + contents(stream).is_some() as usize,
 		Node::Transform => 5,
-		Node::Effects => 1,
+		Node::Effects => (stream.layer == EFFECT_LAYER) as usize,
 		Node::Masks => 0,
 		Node::Effect => param_count(stream.effect_ref)?,
+		Node::Property(_) => stream.property(|node| node.children.len())?,
 		_ => 0,
 	})
 }
@@ -70,6 +93,7 @@ fn child_at(parent: Stream, index: usize) -> Option<Stream> {
 			0 => Node::Transform,
 			1 => Node::Effects,
 			2 => Node::Masks,
+			3 => return contents(parent),
 			_ => return None,
 		},
 		Node::Transform => match index {
@@ -80,25 +104,18 @@ fn child_at(parent: Stream, index: usize) -> Option<Stream> {
 			4 => Node::Opacity,
 			_ => return None,
 		},
-		Node::Effects if index == 0 => Node::Effect,
+		Node::Effects if index == 0 && parent.layer == EFFECT_LAYER => Node::Effect,
 		Node::Effect => {
 			let count = param_count(parent.effect_ref)?;
 			if index >= count {
 				return None;
 			}
-			return Some(Stream {
-				effect_ref: parent.effect_ref,
-				index,
-				node: Node::Param,
-			});
+			Node::Param
 		}
+		Node::Property(_) => Node::Property(parent.property(|node| node.children.get(index).copied())??),
 		_ => return None,
 	};
-	Some(Stream {
-		effect_ref: parent.effect_ref,
-		index,
-		node,
-	})
+	Some(Stream { index, node, ..parent })
 }
 
 fn parent_of(stream: Stream) -> Option<Stream> {
@@ -108,27 +125,41 @@ fn parent_of(stream: Stream) -> Option<Stream> {
 		Node::Anchor | Node::Position | Node::Scale | Node::Rotation | Node::Opacity => (Node::Transform, 0),
 		Node::Effect => (Node::Effects, 1),
 		Node::Param => (Node::Effect, 0),
+		Node::Property(_) => match stream.property(|node| node.parent)? {
+			None => (Node::Layer, 0),
+			Some(parent) => {
+				let up = Stream {
+					node: Node::Property(parent),
+					..stream
+				};
+				let index = up.property(|node| node.parent.map_or(3, |_| node.index))?;
+				(up.node, index)
+			}
+		},
 	};
-	Some(Stream {
-		effect_ref: stream.effect_ref,
-		index,
-		node,
-	})
+	Some(Stream { index, node, ..stream })
 }
 
-fn depth(node: Node) -> A_long {
-	match node {
+fn depth(stream: Stream) -> A_long {
+	match stream.node {
 		Node::Layer => 0,
 		Node::Transform | Node::Effects | Node::Masks => 1,
 		Node::Anchor | Node::Position | Node::Scale | Node::Rotation | Node::Opacity | Node::Effect => 2,
 		Node::Param => 3,
+		Node::Property(_) => parent_of(stream).map_or(1, |parent| depth(parent) + 1),
 	}
 }
 
-fn grouping(node: Node) -> AEGP_StreamGroupingType {
-	(match node {
+fn grouping(stream: Stream) -> AEGP_StreamGroupingType {
+	(match stream.node {
 		Node::Layer | Node::Transform | Node::Effect => AEGP_StreamGroupingType_NAMED_GROUP,
 		Node::Effects | Node::Masks => AEGP_StreamGroupingType_INDEXED_GROUP,
+		Node::Property(_) => match stream.property(|node| node.grouping) {
+			Some(Grouping::Named) => AEGP_StreamGroupingType_NAMED_GROUP,
+			Some(Grouping::Indexed) => AEGP_StreamGroupingType_INDEXED_GROUP,
+			Some(Grouping::Leaf) => AEGP_StreamGroupingType_LEAF,
+			None => AEGP_StreamGroupingType_NONE,
+		},
 		_ => AEGP_StreamGroupingType_LEAF,
 	}) as AEGP_StreamGroupingType
 }
@@ -140,7 +171,11 @@ fn is_leader(node: Node) -> bool {
 /// The match name, without a trailing NUL. At most [`NAME_CAP`] - 1 bytes.
 fn name_bytes(stream: Stream) -> Vec<u8> {
 	let fixed: &[u8] = match stream.node {
-		Node::Layer => b"ADBE AV Layer",
+		Node::Layer => match stream.timeline().map(|timeline| timeline.kind) {
+			Some(Kind::Text) => b"ADBE Text Layer",
+			Some(Kind::Shape) => b"ADBE Vector Layer",
+			_ => b"ADBE AV Layer",
+		},
 		Node::Transform => b"ADBE Transform Group",
 		Node::Anchor => b"ADBE Anchor Point",
 		Node::Position => b"ADBE Position",
@@ -157,6 +192,11 @@ fn name_bytes(stream: Stream) -> Vec<u8> {
 			return from_param;
 		}
 		Node::Param => return param_name(stream.effect_ref, stream.index),
+		Node::Property(_) => {
+			return stream
+				.property(|node| node.match_name.as_bytes().to_vec())
+				.unwrap_or_default();
+		}
 	};
 	fixed.to_vec()
 }
@@ -231,18 +271,11 @@ unsafe extern "C" fn get_new_stream_ref_for_layer(
 	crate::core::ffi::guard("get_new_stream_ref_for_layer", || {
 		diag!("AEGP_DynamicStreamSuite/AEGP_GetNewStreamRefForLayer", "layerH" => format!("{:#x}", layerH as usize));
 
-		if super::layer::Timeline::of(layerH as _).is_none() {
+		let Some(timeline) = Timeline::of(layerH as _) else {
 			clear_stream(streamPH);
 			return bad();
-		}
-		publish(
-			streamPH,
-			Stream {
-				effect_ref: layerH as PF_ProgPtr,
-				index: 0,
-				node: Node::Layer,
-			},
-		)
+		};
+		publish(streamPH, Stream::root(&timeline))
 	})
 }
 
@@ -267,7 +300,7 @@ unsafe extern "C" fn get_stream_depth(streamH: AEGP_StreamRefH, depthPL: *mut A_
 		let Some(out) = (unsafe { depthPL.as_mut() }) else {
 			return bad();
 		};
-		*out = depth(stream.node);
+		*out = depth(stream);
 		none()
 	})
 }
@@ -284,7 +317,7 @@ unsafe extern "C" fn get_stream_grouping_type(
 		let Some(out) = (unsafe { group_typeP.as_mut() }) else {
 			return bad();
 		};
-		*out = grouping(stream.node);
+		*out = grouping(stream);
 		none()
 	})
 }
@@ -789,11 +822,7 @@ mod tests {
 	}
 
 	fn layer() -> AEGP_StreamRefH {
-		new_stream_handle(Stream {
-			effect_ref: std::ptr::null_mut(),
-			index: 0,
-			node: Node::Layer,
-		})
+		new_stream_handle(Stream::own(std::ptr::null_mut(), 0, Node::Layer))
 	}
 
 	#[test]

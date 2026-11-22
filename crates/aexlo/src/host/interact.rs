@@ -21,9 +21,9 @@ const TRAILING_PARAMS: usize = 2;
 unsafe extern "C" fn checkout_param_stub(
 	effect_ref: PF_ProgPtr,
 	index: PF_ParamIndex,
-	_what_time: A_long,
+	what_time: A_long,
 	_time_step: A_long,
-	_time_scale: A_u_long,
+	time_scale: A_u_long,
 	param: *mut PF_ParamDef,
 ) -> PF_Err {
 	crate::core::ffi::guard("checkout_param_stub", || {
@@ -78,9 +78,12 @@ unsafe extern "C" fn checkout_param_stub(
 			return PF_Err_INVALID_INDEX;
 		}
 
-		let src_param = instance.param_by_index(index).unwrap();
-		// SAFETY: `param` is non-null (checked above), and `src_param` is a live parameter of this instance.
-		unsafe { *param = *src_param };
+		// The value at the time asked for; a zero scale names no time, so now.
+		let src_param = instance
+			.param_at(index, crate::TimePoint::new(what_time, time_scale))
+			.expect("index checked above");
+		// SAFETY: `param` is non-null (checked above) and points at the plugin's `PF_ParamDef` slot.
+		unsafe { *param = src_param };
 		// Checking a param back in matters for layer params (their pixels).
 		if src_param.param_type == PF_Param_LAYER as PF_ParamType {
 			crate::strict::checkout(crate::CheckoutKind::CheckoutParam, index as i32, param as usize);
@@ -89,9 +92,9 @@ unsafe extern "C" fn checkout_param_stub(
 		diag!("InteractCallbacks/checkout_param",
 			"effect_ref" => format!("{:#x}", effect_ref as usize),
 			"index" => index,
-			"what_time" => _what_time,
+			"what_time" => what_time,
 			"time_step" => _time_step,
-			"time_scale" => _time_scale,
+			"time_scale" => time_scale,
 			"param (out)" => format!("{:#x}", param as usize);
 			result: format!("param is set to {:#x}", param as usize),
 		);

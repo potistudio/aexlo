@@ -40,12 +40,19 @@ impl PluginInstance {
 			});
 		}
 
-		let target = &mut self.params[index];
+		self.check_kind(index, &value)?;
+		// SAFETY: the kind was just checked.
+		unsafe { write_value(&mut self.params[index], value) };
+		// A value replaces the keyframes there were.
+		self.param_tracks.remove(&index);
+		Ok(())
+	}
 
-		// Reject a value whose variant doesn't match the parameter's declared type,
-		// so we never write the wrong union member.
+	/// Reject a value whose variant does not match the parameter's declared
+	/// type, so the wrong union member is never written.
+	fn check_kind(&self, index: usize, value: &ParamValue) -> Result<()> {
 		let expected = value.kind();
-		let actual = crate::ParamKind::from_sys(target.param_type);
+		let actual = crate::ParamKind::from_sys(self.params[index].param_type);
 		if actual != expected {
 			return Err(AexloError::ParamTypeMismatch {
 				index,
@@ -53,43 +60,83 @@ impl PluginInstance {
 				actual,
 			});
 		}
+		Ok(())
+	}
 
-		// SAFETY: the union variant was verified against `param_type` above.
-		match value {
-			ParamValue::Float(v) => target.u.fs_d.value = v,
-			// `PF_FixedSliderDef::value` is a `PF_Fixed` (16.16 fixed point), the
-			// same encoding as ANGLE/POINT — not Q31.
-			ParamValue::Fixed(v) => target.u.fd.value = utils::f32_to_fixed16(v),
-			ParamValue::Slider(v) => target.u.sd.value = v,
-			ParamValue::Checkbox(v) => target.u.bd.value = v as i32,
-			ParamValue::Popup(v) => target.u.pd.value = v,
-			ParamValue::Angle(deg) => target.u.ad.value = utils::f32_to_fixed16(deg),
-			ParamValue::Point { x, y } => {
-				target.u.td.x_value = utils::f32_to_fixed16(x);
-				target.u.td.y_value = utils::f32_to_fixed16(y);
-			}
-			ParamValue::Color {
-				red,
-				green,
-				blue,
-				alpha,
-			} => {
-				target.u.cd.value = crate::sys::PF_Pixel {
-					alpha,
-					red,
-					green,
-					blue,
-				};
-			}
-			ParamValue::Path(id) => target.u.path_d.path_id = id,
-			ParamValue::Point3D { x, y, z } => {
-				target.u.point3d_d.x_value = x;
-				target.u.point3d_d.y_value = y;
-				target.u.point3d_d.z_value = z;
+	/// Keyframe the parameter at `index`, or with a constant track just set
+	/// it. The times are the effect layer's.
+	///
+	/// Every way a plugin reads the parameter then follows the track: the
+	/// `params` array at the [current time](Self::set_time), checkouts at the
+	/// time they ask for, streams, and keyframe queries. [`Self::set_param`]
+	/// replaces the keyframes.
+	///
+	/// ```no_run
+	/// use aexlo::{Keyframe, ParamValue, Time, TimePoint, Track};
+	///
+	/// # let mut fx = aexlo::Host::get().load("Glow.aex")?;
+	/// let radius = Track::keyed(vec![
+	///     Keyframe::linear(TimePoint::frame(0, 30), ParamValue::Float(0.0)),
+	///     Keyframe::linear(TimePoint::frame(30, 30), ParamValue::Float(50.0)),
+	/// ]);
+	/// fx.set_param_track(1, radius.expect("two different times"))?;
+	/// fx.set_time(Time::frame(15, 30));
+	/// assert_eq!(fx.get_param(1), Some(ParamValue::Float(25.0)));
+	/// # Ok::<(), aexlo::AexloError>(())
+	/// ```
+	///
+	/// # Errors
+	/// As [`Self::set_param`], for any of the track's values.
+	pub fn set_param_track(&mut self, index: usize, track: crate::Track<ParamValue>) -> Result<()> {
+		let now = track.at(self.time());
+		if track.keys().is_empty() {
+			return self.set_param(index, now);
+		}
+		if index == 0 || index >= self.params.len() {
+			return Err(AexloError::ParamIndexOutOfBounds {
+				index,
+				max: self.params.len().saturating_sub(1),
+			});
+		}
+		for key in track.keys() {
+			self.check_kind(index, &key.value)?;
+		}
+		// SAFETY: every key was checked, and `now` has a key's kind.
+		unsafe { write_value(&mut self.params[index], now) };
+		self.param_tracks.insert(index, track);
+		Ok(())
+	}
+
+	/// The keyframes of the parameter at `index`
+	/// (see [`Self::set_param_track`]), or `None` when it has none.
+	pub fn param_track(&self, index: usize) -> Option<&crate::Track<ParamValue>> {
+		self.param_tracks.get(&index)
+	}
+
+	/// Bring `params` to the current time.
+	pub(super) fn apply_param_tracks(&mut self) {
+		let time = self.time();
+		for (&index, track) in &self.param_tracks {
+			if let Some(def) = self.params.get_mut(index)
+				&& crate::ParamKind::from_sys(def.param_type) == track.keys()[0].value.kind()
+			{
+				// SAFETY: the kind was just compared.
+				unsafe { write_value(def, track.at(time)) };
 			}
 		}
+	}
 
-		Ok(())
+	/// The parameter at `index` as it is at `time` in layer time, or now: the
+	/// one place checkouts, streams and keyframe queries read values from.
+	pub(crate) fn param_at(&self, index: usize, time: Option<crate::TimePoint>) -> Option<PF_ParamDef> {
+		let mut def = *self.params.get(index)?;
+		if let (Some(time), Some(track)) = (time, self.param_tracks.get(&index))
+			&& crate::ParamKind::from_sys(def.param_type) == track.keys()[0].value.kind()
+		{
+			// SAFETY: the kind was just compared.
+			unsafe { write_value(&mut def, track.at(time)) };
+		}
+		Some(def)
 	}
 
 	/// Notify the plugin that the user changed the parameter at `index`
@@ -481,5 +528,45 @@ impl PluginInstance {
 		self.param_labels.clear();
 		self.params_dirty = true;
 		log::debug!("PluginInstance: cleared all instance params");
+	}
+}
+
+/// Write `value` into the union of `target`.
+///
+/// # Safety
+/// `target`'s type must be `value.kind()`.
+unsafe fn write_value(target: &mut PF_ParamDef, value: ParamValue) {
+	match value {
+		ParamValue::Float(v) => target.u.fs_d.value = v,
+		// `PF_FixedSliderDef::value` is a `PF_Fixed` (16.16 fixed point), the
+		// same encoding as ANGLE/POINT — not Q31.
+		ParamValue::Fixed(v) => target.u.fd.value = utils::f32_to_fixed16(v),
+		ParamValue::Slider(v) => target.u.sd.value = v,
+		ParamValue::Checkbox(v) => target.u.bd.value = v as i32,
+		ParamValue::Popup(v) => target.u.pd.value = v,
+		ParamValue::Angle(deg) => target.u.ad.value = utils::f32_to_fixed16(deg),
+		ParamValue::Point { x, y } => {
+			target.u.td.x_value = utils::f32_to_fixed16(x);
+			target.u.td.y_value = utils::f32_to_fixed16(y);
+		}
+		ParamValue::Color {
+			red,
+			green,
+			blue,
+			alpha,
+		} => {
+			target.u.cd.value = crate::sys::PF_Pixel {
+				alpha,
+				red,
+				green,
+				blue,
+			};
+		}
+		ParamValue::Path(id) => target.u.path_d.path_id = id,
+		ParamValue::Point3D { x, y, z } => {
+			target.u.point3d_d.x_value = x;
+			target.u.point3d_d.y_value = y;
+			target.u.point3d_d.z_value = z;
+		}
 	}
 }

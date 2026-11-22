@@ -403,6 +403,7 @@ impl PluginInstance {
 				mask_paths: Vec::new(),
 				text_layer: None,
 				project: None,
+				param_tracks: std::collections::BTreeMap::new(),
 				linked_layers: HashMap::new(),
 				layer_checkouts: HashMap::new(),
 				parallel_iterate: true,

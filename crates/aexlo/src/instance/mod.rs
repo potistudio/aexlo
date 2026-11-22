@@ -80,6 +80,8 @@ mod project_tests;
 mod render;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod time_tests;
 
 pub use load::Loader;
 pub use render::RenderPath;
@@ -292,6 +294,10 @@ pub struct PluginInstance {
 	/// The text when the effect's layer is a text layer, served through the
 	/// Text Layer Suite.
 	text_layer: Option<crate::TextLayer>,
+
+	/// Keyframed parameters, by index. `params` holds their values at the
+	/// current time.
+	param_tracks: std::collections::BTreeMap<usize, crate::Track<crate::ParamValue>>,
 
 	/// The project around the effect, when the embedder described one.
 	project: Option<crate::project::ProjectState>,

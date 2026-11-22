@@ -23,9 +23,9 @@ unsafe extern "C" fn checkout_layer_stub(
 	index: PF_ParamIndex,
 	checkout_idL: A_long,
 	req: *const crate::sys::PF_RenderRequest,
-	_what_time: A_long,
+	what_time: A_long,
 	_time_step: A_long,
-	_time_scale: A_u_long,
+	time_scale: A_u_long,
 	checkout_result: *mut crate::sys::PF_CheckoutResult,
 ) -> PF_Err {
 	crate::core::ffi::guard("checkout_layer_stub", || {
@@ -65,6 +65,17 @@ unsafe extern "C" fn checkout_layer_stub(
 					return PF_Err_INVALID_INDEX;
 				}
 				instance.record_layer_checkout(checkout_idL, index);
+				// A layer's pixels are one picture, whatever the time asked for.
+				if instance.project().is_some()
+					&& let Some(asked) = crate::TimePoint::new(what_time, time_scale)
+					&& asked != crate::TimePoint::from(instance.time())
+				{
+					crate::observe::unsupported(
+						crate::observe::UnsupportedKind::Declined,
+						"PF_PreRenderCallbacks/checkout_layer",
+						"layer pixels at another time; the pixels of the current time were given",
+					);
+				}
 				instance.layer_param_size(index).unwrap_or((0, 0))
 			}
 			None => (WIDTH as i32, HEIGHT as i32),
@@ -109,9 +120,9 @@ unsafe extern "C" fn checkout_layer_stub(
 			"effect_ref" => format!("{:#x}", effect_ref as usize),
 			"index" => index,
 			"checkout_idL" => checkout_idL,
-			"what_time" => _what_time,
+			"what_time" => what_time,
 			"time_step" => _time_step,
-			"time_scale" => _time_scale;
+			"time_scale" => time_scale;
 			result: format!("{:?}", result),
 		);
 

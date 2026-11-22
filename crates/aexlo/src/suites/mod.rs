@@ -70,6 +70,7 @@ pub mod iterate;
 mod keyframe;
 pub(crate) mod layer;
 pub(crate) use layer::enter_effect;
+mod mask_outline;
 mod math;
 pub mod param_utils;
 mod path;
@@ -82,6 +83,7 @@ mod project;
 pub(crate) mod register;
 pub mod sampling;
 pub(crate) mod stream;
+mod text_document;
 mod text_layer;
 pub mod transform;
 pub mod utility;
@@ -89,7 +91,20 @@ pub mod world;
 
 use crate::core::diagnostics::diag;
 use crate::sys::*;
+
+/// A handle for a value a suite keeps in a registry: a number, never an
+/// address, and never given out twice. `AEGP_DisposeStreamValue` sees only a
+/// union's first word, so the top bits make it a signalling NaN, which no
+/// layer id, pointer or finite number in that union can be.
+fn value_handle() -> usize {
+	static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+	0x7FF5 << 48 | NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
 static AEGP_MATH_1: AEGP_MathSuite1 = math::suite_1();
+static AEGP_MASK_OUTLINE_1: AEGP_MaskOutlineSuite1 = mask_outline::suite_1();
+static AEGP_MASK_OUTLINE_2: AEGP_MaskOutlineSuite2 = mask_outline::suite_2();
+static AEGP_MASK_OUTLINE_3: AEGP_MaskOutlineSuite3 = mask_outline::suite_3();
+static AEGP_TEXT_DOCUMENT_1: AEGP_TextDocumentSuite1 = text_document::suite_1();
 static COMP_SUITE_4: AEGP_CompSuite4 = comp::create_comp_suite_4();
 static PF_WORLD_1: PF_WorldSuite1 = world::create_world_suite_1();
 static AEGP_LAYER_RENDER_OPTIONS_1: AEGP_LayerRenderOptionsSuite1 = aegp_render::layer_render_options_suite_1();
@@ -495,6 +510,22 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		("AEGP Light Suite", 1) => dispatch_static!(suite, suite_name, version, light),
 		("AEGP Text Layer Suite", 1) => dispatch_static!(suite, suite_name, version, text_layer),
+		("AEGP Mask Outline Suite", v) if v == kAEGPMaskOutlineSuiteVersion1 as i32 => {
+			unsafe { *suite = &AEGP_MASK_OUTLINE_1 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
+		("AEGP Mask Outline Suite", v) if v == kAEGPMaskOutlineSuiteVersion2 as i32 => {
+			unsafe { *suite = &AEGP_MASK_OUTLINE_2 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
+		("AEGP Mask Outline Suite", v) if v == kAEGPMaskOutlineSuiteVersion3 as i32 => {
+			unsafe { *suite = &AEGP_MASK_OUTLINE_3 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
+		("AEGP Text Document Suite", 1) => {
+			unsafe { *suite = &AEGP_TEXT_DOCUMENT_1 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("AEGP Math Suite", 1) => {
 			unsafe { *suite = &AEGP_MATH_1 as *const _ as *const c_void };
 			PF_Err_NONE
@@ -679,6 +710,10 @@ mod tests {
 			("PF Path Data Suite", 1),
 			("AEGP Text Layer Suite", 1),
 			("AEGP Math Suite", 1),
+			("AEGP Mask Outline Suite", 2),
+			("AEGP Mask Outline Suite", 3),
+			("AEGP Mask Outline Suite", 5),
+			("AEGP Text Document Suite", 1),
 			("PF AE Adv App Suite", 1),
 			("PF AE Adv App Suite", 2),
 			("PF AE Adv Item Suite", 1),

@@ -1,9 +1,11 @@
-//! `AEGP Keyframe Suite` (versions 4 and 5) over the effect parameter streams of the
+//! `AEGP Keyframe Suite` (versions 4 and 5) over the streams of the
 //! [Stream Suite](super::stream).
 //!
-//! aexlo has no timeline, so every stream has zero keyframes: the queries
-//! answer accordingly, anything addressing a keyframe by index gets
-//! `PF_Err_INVALID_INDEX`, and adding keyframes is refused with `A_Err_GENERIC`.
+//! Keyframes are the embedder's (`PluginInstance::set_param_track`, and the
+//! tracks of a project) and read-only here: an index there is no keyframe at
+//! gets `PF_Err_INVALID_INDEX`, and adding or changing one is refused with
+//! `A_Err_GENERIC`. They are linear or held, so bezier eases and spatial
+//! tangents, which are not known, are refused rather than answered with zeros.
 //! Version 5 appends the keyframe label colour calls, which address a keyframe
 //! by index too.
 
@@ -14,20 +16,42 @@ use crate::sys::{
 	PF_Err_INVALID_INDEX, PF_Err_NONE,
 };
 
+use crate::animation::{Interpolation, TimePoint};
 use crate::core::diagnostics::diag;
-use crate::suites::stream::{StreamValue, stream_value};
+use crate::suites::stream::{Stream, StreamValue, stream_of, stream_value};
 
-fn no_such_keyframe(name: &'static str, streamH: AEGP_StreamRefH) -> A_Err {
-	diag!(name, "streamH" => format!("{:#x}", streamH as usize));
-	if unsafe { stream_value(streamH) }.is_none() {
-		return PF_Err_BAD_CALLBACK_PARAM;
+/// A stream, the index of one of its keyframes, and all of them.
+type Key = (Stream, usize, Vec<(TimePoint, Interpolation)>);
+
+/// The stream and its keyframe `index`, or the error to give.
+fn key(name: &'static str, streamH: AEGP_StreamRefH, index: AEGP_KeyframeIndex) -> Result<Key, A_Err> {
+	diag!(name, "streamH" => format!("{:#x}", streamH as usize), "key_index" => index);
+	let stream = unsafe { stream_of(streamH) }.ok_or(PF_Err_BAD_CALLBACK_PARAM)?;
+	if stream.value(None).is_none() {
+		return Err(PF_Err_BAD_CALLBACK_PARAM);
 	}
-	PF_Err_INVALID_INDEX
+	let keys = stream.keys();
+	match usize::try_from(index).ok().filter(|&at| at < keys.len()) {
+		Some(at) => Ok((stream, at, keys)),
+		None => Err(PF_Err_INVALID_INDEX),
+	}
+}
+
+/// A call aexlo refuses for the keyframes there are.
+fn refuse_key(name: &'static str, streamH: AEGP_StreamRefH, index: AEGP_KeyframeIndex) -> A_Err {
+	match key(name, streamH, index) {
+		Ok(_) => unsupported(name),
+		Err(err) => err,
+	}
 }
 
 fn unsupported(name: &'static str) -> A_Err {
 	diag!(name);
-	log::warn!("{name}: aexlo has no timeline to add keyframes to");
+	crate::observe::unsupported(
+		crate::observe::UnsupportedKind::Declined,
+		name,
+		"keyframes are read-only, linear or held",
+	);
 	A_Err_GENERIC
 }
 
@@ -44,7 +68,8 @@ unsafe extern "C" fn get_stream_num_kfs(streamH: AEGP_StreamRefH, num_kfsPL: *mu
 		*out = if value == StreamValue::NoData {
 			AEGP_NumKF_NO_DATA as A_long
 		} else {
-			0
+			// SAFETY: `stream_value` found the handle good.
+			unsafe { stream_of(streamH) }.map_or(0, |stream| stream.keys().len() as A_long)
 		};
 		PF_Err_NONE
 	})
@@ -52,12 +77,24 @@ unsafe extern "C" fn get_stream_num_kfs(streamH: AEGP_StreamRefH, num_kfsPL: *mu
 
 unsafe extern "C" fn get_keyframe_time(
 	streamH: AEGP_StreamRefH,
-	_key_index: AEGP_KeyframeIndex,
-	_time_mode: AEGP_LTimeMode,
-	_timePT: *mut A_Time,
+	key_index: AEGP_KeyframeIndex,
+	time_mode: AEGP_LTimeMode,
+	timePT: *mut A_Time,
 ) -> A_Err {
 	crate::core::ffi::guard("get_keyframe_time", || {
-		no_such_keyframe("AEGP_KeyframeSuite4/AEGP_GetKeyframeTime", streamH)
+		let (stream, at, keys) = match key("AEGP_KeyframeSuite4/AEGP_GetKeyframeTime", streamH, key_index) {
+			Ok(found) => found,
+			Err(err) => return err,
+		};
+		let Some(out) = (unsafe { timePT.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		*out = match stream.timeline() {
+			Some(timeline) => timeline.told_in(keys[at].0, time_mode),
+			None => keys[at].0,
+		}
+		.to_sys();
+		PF_Err_NONE
 	})
 }
 
@@ -72,30 +109,34 @@ unsafe extern "C" fn insert_keyframe(
 	})
 }
 
-unsafe extern "C" fn delete_keyframe(streamH: AEGP_StreamRefH, _key_index: AEGP_KeyframeIndex) -> A_Err {
+unsafe extern "C" fn delete_keyframe(streamH: AEGP_StreamRefH, key_index: AEGP_KeyframeIndex) -> A_Err {
 	crate::core::ffi::guard("delete_keyframe", || {
-		no_such_keyframe("AEGP_KeyframeSuite4/AEGP_DeleteKeyframe", streamH)
+		refuse_key("AEGP_KeyframeSuite4/AEGP_DeleteKeyframe", streamH, key_index)
 	})
 }
 
 unsafe extern "C" fn get_new_keyframe_value(
 	_aegp_plugin_id: AEGP_PluginID,
 	streamH: AEGP_StreamRefH,
-	_key_index: AEGP_KeyframeIndex,
-	_valueP: *mut AEGP_StreamValue2,
+	key_index: AEGP_KeyframeIndex,
+	valueP: *mut AEGP_StreamValue2,
 ) -> A_Err {
 	crate::core::ffi::guard("get_new_keyframe_value", || {
-		no_such_keyframe("AEGP_KeyframeSuite4/AEGP_GetNewKeyframeValue", streamH)
+		let (_, at, keys) = match key("AEGP_KeyframeSuite4/AEGP_GetNewKeyframeValue", streamH, key_index) {
+			Ok(found) => found,
+			Err(err) => return err,
+		};
+		crate::suites::stream::keyframe_value(streamH, keys[at].0, valueP)
 	})
 }
 
 unsafe extern "C" fn set_keyframe_value(
 	streamH: AEGP_StreamRefH,
-	_key_index: AEGP_KeyframeIndex,
+	key_index: AEGP_KeyframeIndex,
 	_valueP: *const AEGP_StreamValue2,
 ) -> A_Err {
 	crate::core::ffi::guard("set_keyframe_value", || {
-		no_such_keyframe("AEGP_KeyframeSuite4/AEGP_SetKeyframeValue", streamH)
+		refuse_key("AEGP_KeyframeSuite4/AEGP_SetKeyframeValue", streamH, key_index)
 	})
 }
 
@@ -135,90 +176,122 @@ unsafe extern "C" fn get_stream_temporal_dimensionality(
 unsafe extern "C" fn get_new_keyframe_spatial_tangents(
 	_aegp_plugin_id: AEGP_PluginID,
 	streamH: AEGP_StreamRefH,
-	_key_index: AEGP_KeyframeIndex,
+	key_index: AEGP_KeyframeIndex,
 	_in_tanP0: *mut AEGP_StreamValue2,
 	_out_tanP0: *mut AEGP_StreamValue2,
 ) -> A_Err {
 	crate::core::ffi::guard("get_new_keyframe_spatial_tangents", || {
-		no_such_keyframe("AEGP_KeyframeSuite4/AEGP_GetNewKeyframeSpatialTangents", streamH)
+		refuse_key(
+			"AEGP_KeyframeSuite4/AEGP_GetNewKeyframeSpatialTangents",
+			streamH,
+			key_index,
+		)
 	})
 }
 
 unsafe extern "C" fn set_keyframe_spatial_tangents(
 	streamH: AEGP_StreamRefH,
-	_key_index: AEGP_KeyframeIndex,
+	key_index: AEGP_KeyframeIndex,
 	_in_tanP0: *const AEGP_StreamValue2,
 	_out_tanP0: *const AEGP_StreamValue2,
 ) -> A_Err {
 	crate::core::ffi::guard("set_keyframe_spatial_tangents", || {
-		no_such_keyframe("AEGP_KeyframeSuite4/AEGP_SetKeyframeSpatialTangents", streamH)
+		refuse_key(
+			"AEGP_KeyframeSuite4/AEGP_SetKeyframeSpatialTangents",
+			streamH,
+			key_index,
+		)
 	})
 }
 
 unsafe extern "C" fn get_keyframe_temporal_ease(
 	streamH: AEGP_StreamRefH,
-	_key_index: AEGP_KeyframeIndex,
+	key_index: AEGP_KeyframeIndex,
 	_dimensionL: A_long,
 	_in_easeP0: *mut AEGP_KeyframeEase,
 	_out_easeP0: *mut AEGP_KeyframeEase,
 ) -> A_Err {
 	crate::core::ffi::guard("get_keyframe_temporal_ease", || {
-		no_such_keyframe("AEGP_KeyframeSuite4/AEGP_GetKeyframeTemporalEase", streamH)
+		refuse_key("AEGP_KeyframeSuite4/AEGP_GetKeyframeTemporalEase", streamH, key_index)
 	})
 }
 
 unsafe extern "C" fn set_keyframe_temporal_ease(
 	streamH: AEGP_StreamRefH,
-	_key_index: AEGP_KeyframeIndex,
+	key_index: AEGP_KeyframeIndex,
 	_dimensionL: A_long,
 	_in_easeP0: *const AEGP_KeyframeEase,
 	_out_easeP0: *const AEGP_KeyframeEase,
 ) -> A_Err {
 	crate::core::ffi::guard("set_keyframe_temporal_ease", || {
-		no_such_keyframe("AEGP_KeyframeSuite4/AEGP_SetKeyframeTemporalEase", streamH)
+		refuse_key("AEGP_KeyframeSuite4/AEGP_SetKeyframeTemporalEase", streamH, key_index)
 	})
 }
 
 unsafe extern "C" fn get_keyframe_flags(
 	streamH: AEGP_StreamRefH,
-	_key_index: AEGP_KeyframeIndex,
-	_flagsP: *mut AEGP_KeyframeFlags,
+	key_index: AEGP_KeyframeIndex,
+	flagsP: *mut AEGP_KeyframeFlags,
 ) -> A_Err {
 	crate::core::ffi::guard("get_keyframe_flags", || {
-		no_such_keyframe("AEGP_KeyframeSuite4/AEGP_GetKeyframeFlags", streamH)
+		if let Err(err) = key("AEGP_KeyframeSuite4/AEGP_GetKeyframeFlags", streamH, key_index) {
+			return err;
+		}
+		let Some(out) = (unsafe { flagsP.as_mut() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		*out = 0;
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn set_keyframe_flag(
 	streamH: AEGP_StreamRefH,
-	_key_index: AEGP_KeyframeIndex,
+	key_index: AEGP_KeyframeIndex,
 	_flag: AEGP_KeyframeFlags,
 	_true_falseB: A_Boolean,
 ) -> A_Err {
 	crate::core::ffi::guard("set_keyframe_flag", || {
-		no_such_keyframe("AEGP_KeyframeSuite4/AEGP_SetKeyframeFlag", streamH)
+		refuse_key("AEGP_KeyframeSuite4/AEGP_SetKeyframeFlag", streamH, key_index)
 	})
 }
 
 unsafe extern "C" fn get_keyframe_interpolation(
 	streamH: AEGP_StreamRefH,
-	_key_index: AEGP_KeyframeIndex,
-	_in_interpP0: *mut AEGP_KeyframeInterpolationType,
-	_out_interpP0: *mut AEGP_KeyframeInterpolationType,
+	key_index: AEGP_KeyframeIndex,
+	in_interpP0: *mut AEGP_KeyframeInterpolationType,
+	out_interpP0: *mut AEGP_KeyframeInterpolationType,
 ) -> A_Err {
 	crate::core::ffi::guard("get_keyframe_interpolation", || {
-		no_such_keyframe("AEGP_KeyframeSuite4/AEGP_GetKeyframeInterpolation", streamH)
+		let (_, at, keys) = match key("AEGP_KeyframeSuite4/AEGP_GetKeyframeInterpolation", streamH, key_index) {
+			Ok(found) => found,
+			Err(err) => return err,
+		};
+		let told = |interpolation| match interpolation {
+			Interpolation::Linear => crate::sys::AEGP_KeyInterp_LINEAR,
+			Interpolation::Hold => crate::sys::AEGP_KeyInterp_HOLD,
+		} as AEGP_KeyframeInterpolationType;
+		unsafe {
+			if let Some(out) = in_interpP0.as_mut() {
+				// It arrives as the keyframe before it leaves.
+				*out = told(keys[at.saturating_sub(1)].1);
+			}
+			if let Some(out) = out_interpP0.as_mut() {
+				*out = told(keys[at].1);
+			}
+		}
+		PF_Err_NONE
 	})
 }
 
 unsafe extern "C" fn set_keyframe_interpolation(
 	streamH: AEGP_StreamRefH,
-	_key_index: AEGP_KeyframeIndex,
+	key_index: AEGP_KeyframeIndex,
 	_in_interp: AEGP_KeyframeInterpolationType,
 	_out_interp: AEGP_KeyframeInterpolationType,
 ) -> A_Err {
 	crate::core::ffi::guard("set_keyframe_interpolation", || {
-		no_such_keyframe("AEGP_KeyframeSuite4/AEGP_SetKeyframeInterpolation", streamH)
+		refuse_key("AEGP_KeyframeSuite4/AEGP_SetKeyframeInterpolation", streamH, key_index)
 	})
 }
 
@@ -255,21 +328,29 @@ unsafe extern "C" fn end_add_keyframes(_addB: A_Boolean, _akH: AEGP_AddKeyframes
 
 unsafe extern "C" fn get_keyframe_label_color_index(
 	streamH: AEGP_StreamRefH,
-	_key_index: AEGP_KeyframeIndex,
+	key_index: AEGP_KeyframeIndex,
 	_key_labelP: *mut A_long,
 ) -> A_Err {
 	crate::core::ffi::guard("get_keyframe_label_color_index", || {
-		no_such_keyframe("AEGP_KeyframeSuite5/AEGP_GetKeyframeLabelColorIndex", streamH)
+		refuse_key(
+			"AEGP_KeyframeSuite5/AEGP_GetKeyframeLabelColorIndex",
+			streamH,
+			key_index,
+		)
 	})
 }
 
 unsafe extern "C" fn set_keyframe_label_color_index(
 	streamH: AEGP_StreamRefH,
-	_key_index: AEGP_KeyframeIndex,
+	key_index: AEGP_KeyframeIndex,
 	_key_label: A_long,
 ) -> A_Err {
 	crate::core::ffi::guard("set_keyframe_label_color_index", || {
-		no_such_keyframe("AEGP_KeyframeSuite5/AEGP_SetKeyframeLabelColorIndex", streamH)
+		refuse_key(
+			"AEGP_KeyframeSuite5/AEGP_SetKeyframeLabelColorIndex",
+			streamH,
+			key_index,
+		)
 	})
 }
 

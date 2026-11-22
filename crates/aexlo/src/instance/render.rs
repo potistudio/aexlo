@@ -558,13 +558,17 @@ impl PluginInstance {
 	}
 
 	/// Set the time the next commands operate on (e.g. `Time::frame(n, 30)` for
-	/// frame `n` of a 30 fps comp).
+	/// frame `n` of a 30 fps comp). It is the time of the effect's layer, which
+	/// is comp time unless a [project](Self::set_project) offsets or stretches
+	/// the layer. Keyframed parameters ([`Self::set_param_track`]) take their
+	/// values at it.
 	///
 	/// The layer and comp the plugin sees through the AEGP suites run at the
 	/// same frame rate. Plugins start at [`Time::default`], frame 0 at 30 fps.
 	pub fn set_time(&mut self, time: Time) {
 		let (value, step, scale) = time.into_parts();
 		self.render_context.set_time(value, step, scale);
+		self.apply_param_tracks();
 	}
 
 	/// The time set by [`Self::set_time`].
