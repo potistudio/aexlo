@@ -53,12 +53,15 @@ fn run() -> eframe::Result<()> {
 		None => demo::project(),
 	};
 
-	let options = eframe::NativeOptions {
+	#[cfg_attr(not(windows), allow(unused_mut))]
+	let mut options = eframe::NativeOptions {
 		viewport: egui::ViewportBuilder::default()
 			.with_inner_size([1600.0, 1000.0])
 			.with_title("aexlo studio"),
 		..Default::default()
 	};
+	#[cfg(windows)]
+	keep_ui_off_vulkan(&mut options);
 	eframe::run_native(
 		"aexlo-studio",
 		options,
@@ -69,6 +72,21 @@ fn run() -> eframe::Result<()> {
 			Ok(Box::new(app::Studio::new(&cc.egui_ctx, project, file)))
 		}),
 	)
+}
+
+/// Draw the UI with DX12 (or OpenGL) unless `WGPU_BACKEND` says otherwise.
+///
+/// Plugins create Vulkan devices on the render thread. If the UI presents
+/// through Vulkan meanwhile, overlay layers (RivaTuner's, for one) can take
+/// their lock and the Vulkan loader's in opposite orders on the two threads,
+/// and then the window cannot even be closed. Plugins still use Vulkan.
+#[cfg(windows)]
+fn keep_ui_off_vulkan(options: &mut eframe::NativeOptions) {
+	use eframe::{egui_wgpu::WgpuSetup, wgpu::Backends};
+
+	if let WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
+		setup.instance_descriptor.backends = Backends::from_env().unwrap_or(Backends::DX12 | Backends::GL);
+	}
 }
 
 /// Hand the studio's HWND to the host as `PF_PlatData_MAIN_WND` and

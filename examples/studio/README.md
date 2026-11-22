@@ -78,6 +78,10 @@ plugins down (up to 10 seconds, in case one is stuck or shows a dialog). On
 Windows the process then ends without running the DLL detach of plugins
 that stay loaded, which can hang or crash, as with the `aexlo` command.
 
+On Windows the UI draws with DX12, because sharing Vulkan with the plugins
+can deadlock under overlay layers such as RivaTuner's. Plugins still use
+Vulkan; `WGPU_BACKEND` overrides the UI's choice.
+
 For scripted checks, `AEXLO_STUDIO_SCREENSHOT=out.png` saves the window once
 the first frame is shown and quits; `AEXLO_STUDIO_SELECT=<n>` selects the
 n-th layer (0 = top) first.
