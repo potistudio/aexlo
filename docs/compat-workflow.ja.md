@@ -24,8 +24,6 @@ aexlo が動かせるプラグインを増やすための手順です。
 ## 0. ベースラインを保存する
 
 aexlo に手を入れる前に CLI をビルドし、各プラグインの現状を記録します。
-どの手順でも、いまビルドした CLI（`target/debug/aexlo`）を使ってください。
-ただの `aexlo` は、`cargo install` で入れた古いものかもしれません。
 
 ```bash
 cargo fmt --all -- --check

@@ -25,8 +25,6 @@ worse, and commits.
 ## 0. Save a baseline
 
 Before touching aexlo, build the CLI and record where every plugin stands.
-Run the CLI you just built, `target/debug/aexlo`, in every step: a bare
-`aexlo` may be an older one installed with `cargo install`.
 
 ```bash
 cargo fmt --all -- --check
