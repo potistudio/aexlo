@@ -161,6 +161,21 @@ aexlo inspect MyGlow --format json --script -    # one command per line on stdin
 Every option, command and JSON field is described in
 [docs/inspect.md](https://github.com/potistudio/aexlo/blob/master/docs/inspect.md).
 
+To see how far aexlo can drive plugins you did not write, run them through
+`aexlo compat`. It loads each one and runs it on every render path and depth,
+with other inputs, sizes and times, and with each parameter set to other
+values, one scenario per worker. It reports `ok`, `partial`, `n/a`, `error`,
+`crash` or `timeout` per scenario, then lists the missing suites, stubs and
+declined calls the plugins asked for, with the most widespread first. A saved
+baseline shows which scenarios a change to aexlo made worse:
+
+```bash
+aexlo compat fixtures/plugins/macos --save-baseline compat.json
+aexlo compat fixtures/plugins/macos --baseline compat.json   # exit 1 if any got worse
+```
+
+See [docs/compat.md](https://github.com/potistudio/aexlo/blob/master/docs/compat.md).
+
 ## Implementation Progress
 
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 89% (32/36)

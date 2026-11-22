@@ -10,6 +10,7 @@
 //! ```
 
 mod bench;
+mod compat;
 mod dev;
 mod inspect;
 mod preview;
@@ -159,7 +160,7 @@ platform's extension, e.g. `SDK_Noise` -> `SDK_Noise.plugin`.
 ";
 
 fn print_usage() {
-	print!("{USAGE_HEAD}{}{USAGE_TAIL}", inspect::USAGE);
+	print!("{USAGE_HEAD}{}{}{USAGE_TAIL}", compat::USAGE, inspect::USAGE);
 }
 
 fn main() -> ExitCode {
@@ -173,6 +174,7 @@ fn main() -> ExitCode {
 		Some("test") => return toolkit::cmd_test(args),
 		Some("check") => return toolkit::cmd_check(args),
 		Some("worker") => return toolkit::cmd_worker(),
+		Some("compat") => return compat::cmd_compat(args),
 		Some("bench") => {
 			let args: Vec<String> = args.collect();
 			let is_plugin = |arg: &str| resolve_plugin(arg).exists() || bench::resolve_fixture(arg).is_some();

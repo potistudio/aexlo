@@ -142,6 +142,18 @@ aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
 
 オプション、コマンド、JSON のフィールドはすべて [docs/inspect.ja.md](docs/inspect.ja.md) で説明しています。
 
+自分で書いていないプラグインを aexlo がどこまで動かせるかは、`aexlo compat` で調べます。
+各プラグインを読み込み、すべてのレンダーパスと深度、別の入力・サイズ・時間、各パラメーターを別の値にした状態で、シナリオごとに1つのワーカーで実行します。
+シナリオごとに `ok`、`partial`、`n/a`、`error`、`crash`、`timeout` を報告し、プラグインが求めたのに aexlo が応えなかったスイート、スタブ、呼び出しを、多い順に一覧にします。
+ベースラインを保存しておけば、aexlo の変更で悪化したシナリオが分かります。
+
+```bash
+aexlo compat fixtures/plugins/macos --save-baseline compat.json
+aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれば終了コード 1
+```
+
+詳しくは [docs/compat.ja.md](docs/compat.ja.md) を参照してください。
+
 ## 実装の進捗
 
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 89% (32/36)
