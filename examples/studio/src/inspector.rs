@@ -15,6 +15,8 @@ use crate::widgets::{self, anim_row, drag_f32, drag_xy};
 #[derive(Default)]
 struct Actions {
 	press: Option<(Id, usize)>,
+	/// Effect parameters the user edited this frame.
+	edited: Vec<(Id, usize)>,
 	move_effect: Option<(usize, isize)>,
 	remove_effect: Option<usize>,
 	select_effect: Option<Id>,
@@ -140,12 +142,14 @@ pub fn show(ui: &mut egui::Ui, s: &mut Studio) {
 							self_id: id,
 							masks: &masks,
 							pressed: None,
+							edited: Vec::new(),
 						};
 						let mut index = 1;
 						block(ui, &mut cx, effect, &mut index);
 						if let Some(param) = cx.pressed {
 							actions.press = Some((effect.id, param));
 						}
+						actions.edited.extend(cx.edited.iter().map(|&param| (effect.id, param)));
 					}
 				}
 			});
@@ -157,8 +161,9 @@ pub fn show(ui: &mut egui::Ui, s: &mut Studio) {
 
 fn apply(s: &mut Studio, id: Id, actions: Actions) {
 	if let Some((effect, index)) = actions.press {
-		s.press_button(effect, index);
+		s.user_changed_param(effect, index);
 	}
+	s.edited.extend(actions.edited);
 	if let Some(effect) = actions.select_effect {
 		s.sel.effect = if s.sel.effect == Some(effect) {
 			None
@@ -520,6 +525,8 @@ struct ParamCx<'a> {
 	self_id: Id,
 	masks: &'a [(Id, String)],
 	pressed: Option<usize>,
+	/// Parameters whose value the user changed.
+	edited: Vec<usize>,
 }
 
 impl ParamCx<'_> {
@@ -600,7 +607,12 @@ fn row(ui: &mut egui::Ui, cx: &mut ParamCx, effect: &mut Effect, index: usize) {
 		match desc.kind {
 			ParamKind::Layer => {
 				ui.label(&name);
-				ui.add_enabled_ui(enabled, |ui| layer_picker(ui, cx, effect, index));
+				if ui
+					.add_enabled_ui(enabled, |ui| layer_picker(ui, cx, effect, index))
+					.inner
+				{
+					cx.edited.push(index);
+				}
 			}
 			ParamKind::Button => {
 				// After Effects shows the name to the left and the label on
@@ -644,8 +656,8 @@ fn row(ui: &mut egui::Ui, cx: &mut ParamCx, effect: &mut Effect, index: usize) {
 		RichText::new(&name).weak()
 	});
 	label.context_menu(|ui| {
-		if ui.button("Reset to default").clicked() {
-			effect.params.remove(&index);
+		if ui.button("Reset to default").clicked() && effect.params.remove(&index).is_some() {
+			cx.edited.push(index);
 		}
 	});
 	let mut value = effect.params.get(&index).map_or(default.clone(), |a| a.at(cx.frame));
@@ -658,11 +670,13 @@ fn row(ui: &mut egui::Ui, cx: &mut ParamCx, effect: &mut Effect, index: usize) {
 			.entry(index)
 			.or_insert_with(|| Anim::new(default))
 			.set(cx.frame, value);
+		cx.edited.push(index);
 	}
 	ui.end_row();
 }
 
-fn layer_picker(ui: &mut egui::Ui, cx: &ParamCx, effect: &mut Effect, index: usize) {
+/// Whether the user picked a different layer.
+fn layer_picker(ui: &mut egui::Ui, cx: &ParamCx, effect: &mut Effect, index: usize) -> bool {
 	let current = effect.layers.get(&index).copied();
 	let label = |id: Option<Id>| match id {
 		None => "None".to_string(),
@@ -686,6 +700,7 @@ fn layer_picker(ui: &mut egui::Ui, cx: &ParamCx, effect: &mut Effect, index: usi
 				}
 			}
 		});
+	effect.layers.get(&index).copied() != current
 }
 
 fn value_editor(ui: &mut egui::Ui, value: &mut PValue, desc: &ParamDesc, masks: &[(Id, String)]) -> bool {

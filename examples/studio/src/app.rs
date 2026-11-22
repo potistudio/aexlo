@@ -1,7 +1,7 @@
 //! Application state and the frame loop: menus, shortcuts, undo, playback,
 //! and the conversation with the render engine.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -100,6 +100,9 @@ pub struct Studio {
 	pub expanded: HashSet<Id>,
 	pub viewer_drag: Option<viewer::Drag>,
 	pub timeline_drag: Option<timeline::Drag>,
+	/// Effect parameters `(effect, index)` the user is editing, told to the
+	/// engine once the edit settles.
+	pub edited: BTreeSet<(Id, usize)>,
 
 	texture: Option<egui::TextureHandle>,
 	pub shown_frame: Option<i32>,
@@ -155,6 +158,7 @@ impl Studio {
 			expanded: HashSet::new(),
 			viewer_drag: None,
 			timeline_drag: None,
+			edited: BTreeSet::new(),
 			texture: None,
 			shown_frame: None,
 			sent: None,
@@ -197,11 +201,13 @@ impl Studio {
 		self.status = Some((message.into(), Instant::now()));
 	}
 
-	pub fn press_button(&mut self, effect: Id, index: usize) {
+	/// The user finished editing parameter `index` of `effect`, or pressed it
+	/// if it is a button. The engine tells the plugin if After Effects would.
+	pub fn user_changed_param(&mut self, effect: Id, index: usize) {
 		self.generation += 1;
 		let project = Arc::new(self.project.clone());
 		self.sent = Some((project.clone(), self.frame));
-		self.engine.send(Request::Button {
+		self.engine.send(Request::Changed {
 			project,
 			frame: self.frame,
 			generation: self.generation,
@@ -392,8 +398,22 @@ impl Studio {
 		self.pen = None;
 		self.viewer_drag = None;
 		self.timeline_drag = None;
+		self.edited.clear();
 		if self.sel.layer.is_some_and(|l| self.project.layer(l).is_none()) {
 			self.select_layer(None);
+		}
+	}
+
+	/// Once an edit settles (no button held, no text being typed), tell the
+	/// engine which effect parameters it changed. After Effects sends
+	/// `PF_Cmd_USER_CHANGED_PARAM` when the user lets go of a slider, not on
+	/// every step of the drag.
+	fn settle_edits(&mut self, ctx: &egui::Context) {
+		if self.edited.is_empty() || ctx.input(|i| i.pointer.any_down()) || ctx.egui_wants_keyboard_input() {
+			return;
+		}
+		for (effect, index) in std::mem::take(&mut self.edited) {
+			self.user_changed_param(effect, index);
 		}
 	}
 
@@ -418,6 +438,7 @@ impl Studio {
 		self.file = file;
 		self.undo.clear();
 		self.redo.clear();
+		self.edited.clear();
 		self.select_layer(None);
 		self.frame = 0;
 		self.playing = None;
@@ -882,6 +903,7 @@ impl eframe::App for Studio {
 			.show(ui, |ui| inspector::show(ui, self));
 		egui::CentralPanel::default().show(ui, |ui| viewer::show(ui, self));
 
+		self.settle_edits(&ctx);
 		self.commit(&ctx);
 		self.request_render();
 		self.scripted_screenshot(&ctx);

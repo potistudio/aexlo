@@ -33,8 +33,10 @@ Use `--release`: debug builds composite several times slower.
   offers the layer's masks.
 - **Effects**: any bundled fixture or any plugin on disk, stacked per layer.
   Parameters are grouped as the plugin declares them, follow its
-  `PF_UpdateParamUI` hiding/disabling, and buttons send
-  `PF_Cmd_USER_CHANGED_PARAM`. Layer parameters pick any layer in the comp,
+  `PF_UpdateParamUI` hiding/disabling. Buttons send
+  `PF_Cmd_USER_CHANGED_PARAM`, and so does finishing an edit of a
+  parameter the plugin flags `PF_ParamFlag_SUPERVISE` (on release, not
+  on every step of a drag). Layer parameters pick any layer in the comp,
   rendered with its masks and effects, even when hidden; picking the
   effect's own layer gives its source. Point parameters get handles in the
   viewer.

@@ -69,8 +69,11 @@ pub enum Request {
 		frame: i32,
 		generation: u64,
 	},
-	/// Press a button parameter (`PF_Cmd_USER_CHANGED_PARAM`), then re-render.
-	Button {
+	/// The user finished editing parameter `index`, or pressed a button.
+	/// Renders `project`, tells the plugin (`PF_Cmd_USER_CHANGED_PARAM`) if
+	/// the parameter is a button or the plugin supervises it, then renders the
+	/// values the plugin changed.
+	Changed {
 		project: Arc<Project>,
 		frame: i32,
 		generation: u64,
@@ -119,7 +122,7 @@ pub enum Event {
 		hidden: Vec<bool>,
 		disabled: Vec<bool>,
 	},
-	/// The plugin changed parameter values itself (from a button press).
+	/// The plugin changed parameter values itself (from `PF_Cmd_USER_CHANGED_PARAM`).
 	ParamsChanged {
 		effect: Id,
 		frame: i32,
@@ -233,6 +236,30 @@ impl Slot {
 		slot
 	}
 
+	/// Write the values `effect` has at `frame` that the instance does not hold
+	/// yet, with point defaults for a `self.size` input; whether any changed.
+	fn apply_values(&mut self, effect: &Effect, frame: i32) -> bool {
+		let (Some(info), Ok(fx)) = (&self.info, &mut self.instance) else {
+			return false;
+		};
+		let mut changed = false;
+		for desc in &info.params {
+			let Some(default) = info.default_value(desc.index, self.size) else {
+				continue;
+			};
+			let value = effect.params.get(&desc.index).map_or(default, |a| a.at(frame));
+			if self.applied.get(&desc.index) == Some(&value) {
+				continue;
+			}
+			if let Err(e) = fx.set_param(desc.index, (&value).into()) {
+				log::warn!("{}: set_param({}) failed: {e}", self.plugin, desc.index);
+			}
+			self.applied.insert(desc.index, value);
+			changed = true;
+		}
+		changed
+	}
+
 	/// Re-read the hidden/disabled flags; whether they changed.
 	fn refresh_ui_flags(&mut self) -> bool {
 		let Ok(fx) = &self.instance else { return false };
@@ -328,16 +355,17 @@ impl Worker {
 						let result = self.render(&project, frame, generation);
 						self.notify.send(Event::Frame(Box::new(result)));
 					}
-					Request::Button {
+					Request::Changed {
 						project,
 						frame,
 						generation,
 						effect,
 						index,
 					} => {
-						self.render(&project, frame, generation);
-						self.press_button(effect, index, frame);
-						let result = self.render(&project, frame, generation);
+						let mut result = self.render(&project, frame, generation);
+						if self.user_changed_param(&project, effect, index, frame) {
+							result = self.render(&project, frame, generation);
+						}
 						self.notify.send(Event::Frame(Box::new(result)));
 					}
 					Request::Export(job) => {
@@ -587,9 +615,8 @@ impl Worker {
 			_ => None,
 		};
 		let slot = self.slots.get_mut(&effect.id).ok_or("not loaded")?;
-		let info = slot.info.clone();
+		slot.info.as_ref().ok_or("no plugin info")?;
 		let fx = slot.instance.as_mut().map_err(|e| format!("failed to load: {e}"))?;
-		let info = info.ok_or("no plugin info")?;
 		let (w, h) = (input.width, input.height);
 
 		fx.set_input_layer(to_layer(input)?);
@@ -601,21 +628,8 @@ impl Worker {
 			slot.size = (w, h);
 		}
 
-		let mut changed = false;
-		for desc in &info.params {
-			let Some(default) = info.default_value(desc.index, (w, h)) else {
-				continue;
-			};
-			let value = effect.params.get(&desc.index).map_or(default, |a| a.at(ctx.frame));
-			if slot.applied.get(&desc.index) == Some(&value) {
-				continue;
-			}
-			if let Err(e) = fx.set_param(desc.index, (&value).into()) {
-				log::warn!("{}: set_param({}) failed: {e}", slot.plugin, desc.index);
-			}
-			slot.applied.insert(desc.index, value);
-			changed = true;
-		}
+		let changed = slot.apply_values(effect, ctx.frame);
+		let Ok(fx) = &mut slot.instance else { unreachable!() };
 
 		fx.set_mask_paths(layer.masks.iter().map(mask_path).collect());
 		fx.set_text_layer(text);
@@ -655,13 +669,32 @@ impl Worker {
 		})
 	}
 
-	fn press_button(&mut self, effect: Id, index: usize, frame: i32) {
+	/// Send `PF_Cmd_USER_CHANGED_PARAM` for parameter `index` of `effect` if
+	/// After Effects would: for a button, or a parameter the plugin declared
+	/// with `PF_ParamFlag_SUPERVISE`. Whether it was sent.
+	fn user_changed_param(&mut self, project: &Project, effect: Id, index: usize, frame: i32) -> bool {
 		let Some(slot) = self.slots.get_mut(&effect) else {
-			return;
+			return false;
 		};
-		let Ok(fx) = &mut slot.instance else { return };
+		let Ok(fx) = &slot.instance else { return false };
+		let button = fx.param_kind(index) == Some(ParamKind::Button);
+		let supervised = fx
+			.param_flags(index)
+			.is_some_and(|f| f.contains(aexlo::ParamFlags::SUPERVISE));
+		if !button && !supervised {
+			return false;
+		}
+		// The render skips disabled effects and layers outside their time,
+		// so it may not have written the new value yet.
+		if let Some((_, model)) = project.effect(effect) {
+			if slot.size == (0, 0) {
+				slot.size = slot.info.as_ref().map_or((0, 0), |i| i.load_size);
+			}
+			slot.apply_values(model, frame);
+		}
+		let Ok(fx) = &mut slot.instance else { return false };
 		if let Err(e) = fx.user_changed_param(index) {
-			log::warn!("{}: button {index} failed: {e}", slot.plugin);
+			log::warn!("{}: PF_Cmd_USER_CHANGED_PARAM({index}) failed: {e}", slot.plugin);
 		}
 		// The plugin may have changed other parameters in response.
 		let mut values = Vec::new();
@@ -685,6 +718,7 @@ impl Worker {
 		if !values.is_empty() {
 			self.notify.send(Event::ParamsChanged { effect, frame, values });
 		}
+		true
 	}
 
 	fn export(&mut self, job: ExportJob) -> Result<String, String> {
@@ -1006,6 +1040,45 @@ mod tests {
 		// 25% of 64 px: the block at x 16..32 moves to 32..48.
 		assert_eq!(at(&result.image, 40, 8), [255, 0, 0, 255]);
 		assert_eq!(at(&result.image, 20, 8)[3], 0);
+	}
+
+	/// BitonicPixelSorter supervises its Mode popup. Editing Mode reaches the
+	/// plugin, even with the effect off, and editing a parameter it does not
+	/// supervise does not.
+	#[test]
+	fn user_changed_param_follows_supervise() {
+		if !has_fixture("BitonicPixelSorter") {
+			return;
+		}
+		let mut p = project(16, 16);
+		let mut layer = solid(&mut p, "s", [1.0; 4], 16, 16);
+		let sorter = effect(&mut p, "BitonicPixelSorter", &[]);
+		let id = sorter.id;
+		layer.effects.push(sorter);
+		p.layers.push(layer);
+		let mut w = worker();
+		w.render(&p, 0, 1);
+
+		let fx = w.slots[&id].instance.as_ref().unwrap();
+		let supervised = |i: usize| {
+			fx.param_flags(i)
+				.is_some_and(|f| f.contains(aexlo::ParamFlags::SUPERVISE))
+		};
+		let has_value = |i: usize| fx.get_param(i).and_then(PValue::from_param).is_some();
+		let mode = (1..fx.param_count())
+			.find(|&i| supervised(i) && fx.param_kind(i) == Some(ParamKind::Popup))
+			.expect("a supervised popup");
+		let plain = (1..fx.param_count())
+			.find(|&i| !supervised(i) && has_value(i) && fx.param_kind(i) != Some(ParamKind::Button))
+			.expect("an unsupervised parameter");
+
+		assert!(!w.user_changed_param(&p, id, plain, 0));
+
+		p.layers[0].effects[0].enabled = false;
+		p.layers[0].effects[0].params.insert(mode, Anim::new(PValue::Popup(2)));
+		assert!(w.user_changed_param(&p, id, mode, 0));
+		let fx = w.slots[&id].instance.as_ref().unwrap();
+		assert_eq!(fx.get_param(mode).and_then(PValue::from_param), Some(PValue::Popup(2)));
 	}
 
 	#[test]
