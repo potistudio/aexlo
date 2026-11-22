@@ -38,14 +38,14 @@ plugins in `fixtures/plugins/macos`:
 | AOD_VoronoiGenerate        |  89 |  86 |  3 | 8, 16, 32 | yes | no |
 | BitonicPixelSorter         |  71 |  71 |  0 | 8, 16, 32 | yes | yes |
 | Circle-Repeater            |  56 |  53 |  3 | 8, 16, 32 | yes | no |
-| Cosmic                     | 112 | 112 |  0 | 8, 16, 32 | yes | yes |
+| Cosmic                     | 111 | 111 |  0 | 8, 16, 32 | yes | yes |
 | DisplacerPro               | 106 | 101 |  5 | 8, 32 | yes | no |
-| Falloff                    | 149 | 149 |  0 | 8, 16, 32 | yes | yes |
+| Falloff                    | 148 | 148 |  0 | 8, 16, 32 | yes | yes |
 | RXXR                       | 767 | 764 |  3 | 8, 16, 32 | yes | no |
 | SDK_Noise                  |  23 |  20 |  3 | 8, 16, 32 | yes | no |
 | TextGrad                   | 535 | 525 | 10 | 8, 32 | yes | no |
 
-That is 4,011 scenarios: 3,930 `ok` and 81 `n/a`.
+That is 4,009 scenarios: 3,928 `ok` and 81 `n/a`.
 
 ## Not on the list yet
 

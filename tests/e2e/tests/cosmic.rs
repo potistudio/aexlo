@@ -57,7 +57,7 @@ fn smart_render_matches_legacy() {
 	assert!(smart.chunks(4).any(|p| p[3] == 255 && p[2] > p[0]), "no gradient drawn");
 }
 
-/// The palette the plugin mixes into the GUID is the one it draws with.
+/// Picking another palette changes the smart-rendered frame.
 #[test]
 fn smart_render_follows_palette() {
 	let Some(cold) = render(RenderPath::Smart, &[(COLORS, ParamValue::Popup(1))]) else {
