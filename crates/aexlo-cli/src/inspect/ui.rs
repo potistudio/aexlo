@@ -10,7 +10,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Cell, Clear, Paragraph, Row, Table, TableState, Tabs, Wrap};
+use ratatui::widgets::{Block, BorderType, Cell, Clear, Paragraph, Row, Table, TableState, Tabs, Wrap};
 
 use super::command::{self, Command, HELP, MemTarget};
 use super::diagnose::{self, Tone};
@@ -506,16 +506,20 @@ impl App {
 		.areas(frame.area());
 
 		frame.render_widget(Paragraph::new(self.header_line()), header);
-		let titles = TABS
-			.iter()
-			.enumerate()
-			.map(|(i, (_, name))| Line::from(format!("{} {name}", i + 1)));
+		let counts = self.tab_counts();
+		let titles = TABS.iter().enumerate().map(|(i, (tab, name))| {
+			let mut spans = vec![Span::raw(format!("{} ", i + 1)).dark_gray(), Span::raw(*name)];
+			for (_, count, style) in counts.iter().filter(|(t, ..)| t == tab) {
+				spans.push(Span::styled(format!(" {count}"), *style));
+			}
+			Line::from(spans)
+		});
 		let selected = TABS.iter().position(|(t, _)| *t == self.tab).unwrap_or(0);
 		frame.render_widget(
 			Tabs::new(titles)
 				.select(selected)
 				.highlight_style(Style::new().reversed().bold())
-				.divider("│"),
+				.divider(Span::raw("│").dark_gray()),
 			tabs,
 		);
 
@@ -532,19 +536,16 @@ impl App {
 		frame.render_widget(Paragraph::new(self.status_line()), status);
 		let prompt_line = match &self.prompt {
 			Some(text) => Line::from(vec![Span::raw(":").bold(), Span::raw(text.clone()), Span::raw("█")]),
-			None => Line::from(
-				"  : command  / find  f focus  Enter diagnose  r render  Tab/1-7 tabs  j/k move  ? help  q quit"
-					.dark_gray(),
-			),
+			None => hints(),
 		};
 		frame.render_widget(Paragraph::new(prompt_line), prompt);
 
 		if self.help {
-			let area = centered(frame.area(), 84, 34);
+			let area = centered(frame.area(), 96, 36);
 			frame.render_widget(Clear, area);
 			frame.render_widget(
 				Paragraph::new(format!("{HELP}\nKEYS\n  Memory: ←→↑↓/hjkl move  [ ] (K J) allocation  PgUp/PgDn  g/G\n  Trace: j/k pick a line, Enter (or d) diagnoses it, J/K scroll the diagnosis, Esc closes\n  Calls: Enter focuses the newest call of that function\n  Params: Enter presses a button, or fills `set <index> `\n\n(any key closes)"))
-					.block(Block::bordered().title(" help ")),
+					.block(panel(" help ")),
 				area,
 			);
 		}
@@ -561,26 +562,76 @@ impl App {
 			.unwrap_or_default();
 		let (iw, ih, depth) = s.input;
 		let (ow, oh, _) = s.output;
-		Line::from(vec![
+		let strict = super::engine::describe_strict(s.strict);
+		let strict_style = if strict == "off" {
+			Style::new()
+		} else {
+			Style::new().yellow()
+		};
+		let mut spans = vec![
 			Span::raw(" aexlo inspect ").bold(),
 			Span::raw(name).cyan().bold(),
-			Span::raw(format!(
-				"  in {iw}x{ih} → out {ow}x{oh} @{}bpc  t={}/{}  level={:?}  strict={}  iterate={}",
-				depth.bits(),
-				s.time.value(),
-				s.time.scale(),
-				s.level,
-				super::engine::describe_strict(s.strict),
-				if s.parallel_iterate { "parallel" } else { "serial" },
-			)),
-		])
+			Span::raw("  "),
+		];
+		let fields = [
+			("", format!("{iw}x{ih} → {ow}x{oh}"), Style::new()),
+			("", format!("{} bpc", depth.bits()), Style::new()),
+			("t ", format!("{}/{}", s.time.value(), s.time.scale()), Style::new()),
+			("level ", level_name(s.level).to_string(), Style::new()),
+			("strict ", strict, strict_style),
+			(
+				"iterate ",
+				(if s.parallel_iterate { "parallel" } else { "serial" }).to_string(),
+				Style::new(),
+			),
+		];
+		for (i, (label, value, style)) in fields.into_iter().enumerate() {
+			if i > 0 {
+				spans.push(Span::raw(" · ").dark_gray());
+			}
+			spans.push(Span::raw(label).dark_gray());
+			spans.push(Span::styled(value, style));
+		}
+		Line::from(spans)
+	}
+
+	/// The count each tab shows next to its name, and how.
+	fn tab_counts(&self) -> Vec<(Tab, String, Style)> {
+		let rec = self.recorder.lock();
+		let errors: u64 = rec.commands.values().map(|c| c.errors).sum();
+		let mut counts = vec![
+			(
+				Tab::Trace,
+				compact(rec.trace.len() as u64 + rec.dropped),
+				Style::new().dark_gray(),
+			),
+			(Tab::Calls, rec.calls.len().to_string(), Style::new().dark_gray()),
+		];
+		drop(rec);
+		if let Some(s) = &self.snapshot {
+			counts.push((Tab::Params, s.params.len().to_string(), Style::new().dark_gray()));
+			if !s.findings.is_empty() {
+				counts.push((Tab::State, format!("⚠{}", s.findings.len()), Style::new().yellow()));
+			}
+			counts.push((Tab::Memory, s.allocations.len().to_string(), Style::new().dark_gray()));
+		}
+		if errors > 0 {
+			counts.push((Tab::Calls, format!("✗{errors}"), Style::new().red()));
+		}
+		let failed = self.log.iter().filter(|m| m.level == Level::Error).count();
+		if failed > 0 {
+			counts.push((Tab::Log, format!("✗{failed}"), Style::new().red()));
+		}
+		counts
 	}
 
 	fn status_line(&self) -> Line<'static> {
 		if let Some((line, started)) = &self.busy {
 			let running = self.recorder.lock().running().join(" › ");
 			return Line::from(vec![
-				Span::raw(" ● running ").yellow().bold(),
+				Span::raw(format!(" {} running ", spinner(started.elapsed())))
+					.yellow()
+					.bold(),
 				Span::raw(format!("{line}  {}  ", fmt_duration(started.elapsed()))),
 				Span::raw(if running.is_empty() {
 					String::new()
@@ -702,9 +753,8 @@ impl App {
 						.scroll((self.diag_scroll, 0))
 						.wrap(Wrap { trim: false })
 						.block(
-							Block::bordered()
+							panel(format!(" diagnosis: {title} "))
 								.border_style(Style::new().yellow())
-								.title(format!(" diagnosis: {title} ").bold())
 								.title_bottom(" J/K scroll · Esc close ".dark_gray()),
 						),
 					focus_area,
@@ -714,12 +764,12 @@ impl App {
 			drop(rec);
 			if let Some(focus_area) = focus_area {
 				frame.render_widget(
-					Paragraph::new("nothing to focus").block(Block::bordered().title(" diagnosis ")),
+					Paragraph::new("nothing to focus").block(panel(" diagnosis ")),
 					focus_area,
 				);
 			}
 		}
-		frame.render_widget(Paragraph::new(lines).block(Block::bordered().title(title + " ")), area);
+		frame.render_widget(Paragraph::new(lines).block(panel(title + " ")), area);
 	}
 
 	fn draw_calls(&mut self, frame: &mut Frame, area: Rect) {
@@ -736,21 +786,27 @@ impl App {
 		let command_rows = commands.len().min(10) as u16 + 3;
 		let [top, bottom] = Layout::vertical([Constraint::Length(command_rows), Constraint::Min(3)]).areas(area);
 
+		let slowest = commands.first().map_or(0.0, |(_, s)| s.total.as_secs_f64());
 		let rows = commands.iter().map(|(name, s)| {
 			let avg = s.total / s.count.max(1) as u32;
 			let errors = if s.errors > 0 {
-				s.errors.to_string().red()
+				s.errors.to_string().red().bold()
 			} else {
-				"0".into()
+				"0".dark_gray()
 			};
+			let name_style = if s.errors > 0 { Style::new().red() } else { Style::new() };
 			Row::new(vec![
-				Cell::from(format!("PF_Cmd_{name}")),
+				Cell::from(Line::from(vec![
+					Span::raw("PF_Cmd_").dark_gray(),
+					Span::styled(name.to_string(), name_style.bold()),
+				])),
 				Cell::from(s.count.to_string()),
 				Cell::from(errors),
 				Cell::from(fmt_duration(s.last)),
 				Cell::from(fmt_duration(avg)),
 				Cell::from(fmt_duration(s.max)),
 				Cell::from(fmt_duration(s.total)),
+				Cell::from(bar(s.total.as_secs_f64(), slowest, 16)),
 			])
 		});
 		frame.render_widget(
@@ -764,22 +820,43 @@ impl App {
 					Constraint::Length(10),
 					Constraint::Length(10),
 					Constraint::Length(10),
+					Constraint::Length(16),
 				],
 			)
-			.header(Row::new(["command", "count", "errors", "last", "avg", "max", "total"]).bold())
-			.block(Block::bordered().title(" commands ")),
+			.header(
+				Row::new([
+					"command",
+					"count",
+					"errors",
+					"last",
+					"avg",
+					"max",
+					"total",
+					"share of time",
+				])
+				.bold(),
+			)
+			.block(panel(" commands ")),
 			top,
 		);
 
 		let total: u64 = calls.iter().map(|(_, s)| s.count).sum();
+		let most = calls.first().map_or(0, |(_, s)| s.count);
 		let rows = calls.iter().map(|((suite, function), s)| {
 			let last = if s.step == step { s.in_step } else { 0 };
+			// Bright when the latest command called it.
+			let (function, last) = if last > 0 {
+				(function.to_string().bold(), last.to_string().cyan())
+			} else {
+				(function.to_string().into(), "0".dark_gray())
+			};
 			Row::new(vec![
 				Cell::from(suite.to_string()).dark_gray(),
-				Cell::from(function.to_string()),
+				Cell::from(function),
 				Cell::from(s.count.to_string()),
-				Cell::from(last.to_string()),
-				Cell::from(s.commands.join(" ")),
+				Cell::from(bar(s.count as f64, most as f64, 10)),
+				Cell::from(last),
+				Cell::from(s.commands.join(" ")).dark_gray(),
 			])
 		});
 		let title = format!(
@@ -795,16 +872,17 @@ impl App {
 			Table::new(
 				rows,
 				[
-					Constraint::Percentage(25),
-					Constraint::Percentage(30),
-					Constraint::Length(9),
-					Constraint::Length(9),
+					Constraint::Percentage(22),
+					Constraint::Percentage(26),
+					Constraint::Length(8),
+					Constraint::Length(10),
+					Constraint::Length(7),
 					Constraint::Min(10),
 				],
 			)
-			.header(Row::new(["suite", "function", "total", "last", "from"]).bold())
+			.header(Row::new(["suite", "function", "total", "", "last", "from"]).bold())
 			.row_highlight_style(Style::new().reversed())
-			.block(Block::bordered().title(title)),
+			.block(panel(title)),
 			bottom,
 			&mut self.calls,
 		);
@@ -849,7 +927,7 @@ impl App {
 			)
 			.header(Row::new(["#", "name", "kind", "value", "state", "range / choices / flags"]).bold())
 			.row_highlight_style(Style::new().reversed())
-			.block(Block::bordered().title(format!(" {} parameters (Enter: set / press) ", s.params.len()))),
+			.block(panel(format!(" {} parameters (Enter: set / press) ", s.params.len()))),
 			area,
 			&mut self.params,
 		);
@@ -858,86 +936,120 @@ impl App {
 	fn draw_state(&self, frame: &mut Frame, area: Rect) {
 		let Some(s) = &self.snapshot else { return };
 		let st = &s.state;
-		let handle = |h: Option<usize>| h.map_or("null".to_string(), |h| format!("{h:#x}"));
-		let kv = |k: &str, v: String| Line::from(vec![Span::raw(format!("{k:<22}")).dark_gray(), Span::raw(v)]);
+		let handle = |h: Option<usize>| -> Vec<Span<'static>> {
+			match h {
+				Some(h) => vec![Span::raw(format!("{h:#x}")).cyan()],
+				None => vec![Span::raw("null").dark_gray()],
+			}
+		};
+		let text = |t: String| vec![Span::raw(t)];
+		let unset = |t: &str| vec![Span::raw(t.to_string()).dark_gray()];
+		let kv = |k: &str, v: Vec<Span<'static>>| {
+			let mut spans = vec![Span::raw(format!("  {k:<22}")).dark_gray()];
+			spans.extend(v);
+			Line::from(spans)
+		};
+		let heading = |t: &str| Line::from(Span::raw(t.to_string()).cyan().bold());
 		let mut lines = vec![
-			Line::from("plugin".bold()),
-			kv("path", s.path.display().to_string()),
-			kv("out_flags", format!("{:?}", s.out_flags)),
-			kv("out_flags2", format!("{:?}", s.out_flags2)),
-			kv(
-				"render paths",
-				format!(
-					"legacy{}{}",
-					if s.smart { ", smart" } else { "" },
-					if s.gpu { ", gpu" } else { "" }
-				),
-			),
-			kv("custom UI", s.custom_ui.to_string()),
+			heading("plugin"),
+			kv("path", text(s.path.display().to_string())),
+			kv("out_flags", flag_spans(&format!("{:?}", s.out_flags))),
+			kv("out_flags2", flag_spans(&format!("{:?}", s.out_flags2))),
+			kv("render paths", {
+				let mut paths = vec![Span::raw("legacy").green()];
+				for name in [(s.smart, "smart"), (s.gpu, "gpu")]
+					.iter()
+					.filter(|(on, _)| *on)
+					.map(|(_, name)| *name)
+				{
+					paths.push(Span::raw(", ").dark_gray());
+					paths.push(Span::raw(name).green());
+				}
+				paths
+			}),
+			kv("custom UI", yes(s.custom_ui)),
 			kv(
 				"options button",
-				s.options_button.clone().unwrap_or_else(|| "(unset)".into()),
+				s.options_button.clone().map_or_else(|| unset("(unset)"), text),
 			),
 			kv(
 				"pixel formats",
 				if s.pixel_formats.is_empty() {
-					"(none registered)".into()
+					unset("(none registered)")
 				} else {
-					s.pixel_formats.join(", ")
+					text(s.pixel_formats.join(", "))
 				},
 			),
 			Line::from(""),
-			Line::from("PF_InData (next command)".bold()),
+			heading("PF_InData (next command)"),
 			kv("global_data", handle(st.global_data)),
 			kv("sequence_data", handle(st.sequence_data)),
 			kv(
 				"current_time",
-				format!(
+				text(format!(
 					"{} / time_step {} / time_scale {}  (frame {:.2})",
 					st.current_time,
 					st.time_step,
 					st.time_scale,
 					st.current_time as f64 / st.time_step.max(1) as f64
-				),
+				)),
 			),
-			kv("input", format!("{}x{} {}-bit", s.input.0, s.input.1, s.input.2.bits())),
+			kv(
+				"input",
+				text(format!("{}x{} {}-bit", s.input.0, s.input.1, s.input.2.bits())),
+			),
 			kv(
 				"output",
-				format!("{}x{} {}-bit", s.output.0, s.output.1, s.output.2.bits()),
+				text(format!("{}x{} {}-bit", s.output.0, s.output.1, s.output.2.bits())),
 			),
 			Line::from(""),
-			Line::from("PF_OutData (as the last command left it)".bold()),
-			kv("out_flags", format!("{:?}", st.last_out_flags)),
-			kv("out_flags2", format!("{:?}", st.last_out_flags2)),
+			heading("PF_OutData (as the last command left it)"),
+			kv("out_flags", flag_spans(&format!("{:?}", st.last_out_flags))),
+			kv("out_flags2", flag_spans(&format!("{:?}", st.last_out_flags2))),
 			kv(
 				"width x height",
-				format!("{} x {}", st.last_out_size.0, st.last_out_size.1),
+				text(format!("{} x {}", st.last_out_size.0, st.last_out_size.1)),
 			),
-			kv("origin", format!("{}, {}", st.last_origin.0, st.last_origin.1)),
-			kv("return_msg", st.last_message.replace(['\r', '\n'], " ⏎ ")),
+			kv("origin", text(format!("{}, {}", st.last_origin.0, st.last_origin.1))),
+			kv(
+				"return_msg",
+				if st.last_message.is_empty() {
+					unset("(empty)")
+				} else {
+					text(st.last_message.replace(['\r', '\n'], " ⏎ "))
+				},
+			),
 			Line::from(""),
-			Line::from("host".bold()),
-			kv("GPU device set up", st.gpu_device_ready.to_string()),
-			kv("torn down", st.torn_down.to_string()),
-			kv("live allocations", s.allocations.len().to_string()),
-			kv("allocated so far", self.memory_totals()),
-			kv("strict", super::engine::describe_strict(s.strict)),
+			heading("host"),
+			kv("GPU device set up", yes(st.gpu_device_ready)),
+			kv("torn down", yes(st.torn_down)),
+			kv("live allocations", text(s.allocations.len().to_string())),
+			kv("allocated so far", text(self.memory_totals())),
+			kv("strict", text(super::engine::describe_strict(s.strict).to_string())),
 		];
 		if let Some(unwritten) = s.unwritten {
-			lines.push(kv("unwritten pixels", unwritten.to_string()));
+			let count = Span::raw(unwritten.to_string());
+			lines.push(kv(
+				"unwritten pixels",
+				vec![if unwritten > 0 { count.yellow() } else { count.green() }],
+			));
 		}
 		lines.push(Line::from(""));
-		lines.push(Line::from(format!("strict findings ({})", s.findings.len()).bold()));
+		lines.push(Line::from(vec![
+			Span::raw("strict findings ").cyan().bold(),
+			Span::raw(s.findings.len().to_string()).dark_gray(),
+		]));
 		if s.findings.is_empty() {
 			lines.push(Line::from("  none".dark_gray()));
 		}
 		for finding in &s.findings {
-			lines.push(Line::from(format!("  {finding}").red()));
+			lines.push(Line::from(vec![
+				Span::raw("  ⚠ ").yellow(),
+				Span::raw(finding.clone()).red(),
+			]));
 		}
 		frame.render_widget(
-			Paragraph::new(lines)
-				.wrap(Wrap { trim: false })
-				.block(Block::bordered().title(" state ")),
+			Paragraph::new(lines).wrap(Wrap { trim: false }).block(panel(" state ")),
 			area,
 		);
 	}
@@ -969,16 +1081,20 @@ impl App {
 			} else {
 				""
 			};
+			let kind = Line::from(vec![
+				Span::raw(format!("{:?}", a.kind)).green(),
+				Span::raw(label).yellow(),
+			]);
 			let style = if i == self.mem_sel {
 				Style::new().reversed()
 			} else {
 				Style::new()
 			};
 			Row::new(vec![
-				Cell::from(format!("{:?}{label}", a.kind)),
+				Cell::from(kind),
 				Cell::from(format!("{:#x}", a.address)),
-				Cell::from(a.bytes.to_string()),
-				Cell::from(a.allocated_in),
+				Cell::from(a.bytes.to_string()).bold(),
+				Cell::from(a.allocated_in).dark_gray(),
 			])
 			.style(style)
 		});
@@ -998,7 +1114,7 @@ impl App {
 				],
 			)
 			.header(Row::new(["kind", "address", "bytes", "from"]).bold())
-			.block(Block::bordered().title(title)),
+			.block(panel(title)),
 			list,
 		);
 
@@ -1007,12 +1123,12 @@ impl App {
 			.as_ref()
 			.filter(|v| Some((v.address, v.base)) == self.watched())
 		else {
-			frame.render_widget(Paragraph::new("").block(Block::bordered().title(" memory ")), dump);
+			frame.render_widget(Paragraph::new("").block(panel(" memory ")), dump);
 			return;
 		};
 		let Some(bytes) = &view.bytes else {
 			frame.render_widget(
-				Paragraph::new("unreadable: no longer live").block(Block::bordered().title(" memory ")),
+				Paragraph::new("unreadable: no longer live").block(panel(" memory ")),
 				dump,
 			);
 			return;
@@ -1030,7 +1146,7 @@ impl App {
 			let mut spans = vec![Span::raw(format!("{:08x}  ", view.base + start)).dark_gray()];
 			for (i, b) in chunk.iter().enumerate() {
 				let offset = start + i;
-				spans.push(Span::styled(format!("{b:02x}"), byte_style(view, offset, cursor)));
+				spans.push(Span::styled(format!("{b:02x}"), byte_style(view, offset, cursor, *b)));
 				spans.push(Span::raw(if i == 7 { "  " } else { " " }));
 			}
 			spans.push(Span::raw("   ".repeat(HEX_ROW - chunk.len())));
@@ -1041,7 +1157,7 @@ impl App {
 				} else {
 					'·'
 				};
-				spans.push(Span::styled(c.to_string(), byte_style(view, start + i, cursor)));
+				spans.push(Span::styled(c.to_string(), byte_style(view, start + i, cursor, *b)));
 			}
 			lines.push(Line::from(spans));
 		}
@@ -1052,26 +1168,29 @@ impl App {
 			view.base,
 			bytes.len()
 		);
-		frame.render_widget(Paragraph::new(lines).block(Block::bordered().title(title)), hex);
+		frame.render_widget(Paragraph::new(lines).block(panel(title)), hex);
 		frame.render_widget(
 			Paragraph::new(inspect_bytes(&bytes[cursor.min(bytes.len())..]))
-				.block(Block::bordered().title(format!(" at +{:#x} ", self.mem_cursor))),
+				.block(panel(format!(" at +{:#x} ", self.mem_cursor))),
 			inspector,
 		);
 	}
 
 	fn draw_output(&self, frame: &mut Frame, area: Rect) {
 		let Some(s) = &self.snapshot else { return };
-		let block = Block::bordered().title(format!(
-			" output {}x{}  mean rgba {:.3} {:.3} {:.3} {:.3}{} ",
-			s.output.0,
-			s.output.1,
-			s.mean[0],
-			s.mean[1],
-			s.mean[2],
-			s.mean[3],
-			s.unwritten.map(|u| format!("  unwritten {u}")).unwrap_or_default()
-		));
+		let [r, g, b, a] = s.mean;
+		// The mean over black, as the output would show it.
+		let channel = |c: f32| (c.clamp(0.0, 1.0) * a.clamp(0.0, 1.0) * 255.0).round() as u8;
+		let mut title = vec![
+			Span::raw(format!(" output {}x{}  mean ", s.output.0, s.output.1)),
+			Span::raw("██").fg(Color::Rgb(channel(r), channel(g), channel(b))),
+			Span::raw(format!(" rgba {r:.3} {g:.3} {b:.3} {a:.3} ")),
+		];
+		if let Some(u) = s.unwritten {
+			let text = Span::raw(format!(" unwritten {u} "));
+			title.push(if u > 0 { text.yellow() } else { text.dark_gray() });
+		}
+		let block = panel(Line::from(title));
 		let inner = block.inner(area);
 		frame.render_widget(block, area);
 		let p = &s.preview;
@@ -1120,7 +1239,7 @@ impl App {
 			})
 			.collect();
 		frame.render_widget(
-			Paragraph::new(lines).block(Block::bordered().title(" log: results, and what the plugin printed (│) ")),
+			Paragraph::new(lines).block(panel(" log: results, and what the plugin printed (│) ")),
 			area,
 		);
 	}
@@ -1138,6 +1257,103 @@ fn sorted_calls(rec: &super::recorder::Recording, filter: &str) -> Vec<(&'static
 		.collect();
 	calls.sort_by(|a, b| b.1.count.cmp(&a.1.count).then(a.0.cmp(b.0)));
 	calls.into_iter().map(|(key, _)| *key).collect()
+}
+
+/// A bordered panel with rounded corners and a bold title.
+fn panel<'a>(title: impl Into<Line<'a>>) -> Block<'a> {
+	Block::bordered()
+		.border_type(BorderType::Rounded)
+		.border_style(Style::new().dark_gray())
+		.title_style(Style::new().bold())
+		.title(title)
+}
+
+/// `part` of `whole` as a bar `width` cells wide; anything at all shows.
+fn bar(part: f64, whole: f64, width: usize) -> Line<'static> {
+	let filled = if whole > 0.0 {
+		((part / whole * width as f64).round() as usize).clamp(usize::from(part > 0.0), width)
+	} else {
+		0
+	};
+	Line::from(vec![
+		Span::raw("━".repeat(filled)).cyan(),
+		Span::raw("─".repeat(width - filled)).dark_gray(),
+	])
+}
+
+/// The keys the prompt line offers when no command is being typed.
+fn hints() -> Line<'static> {
+	const KEYS: [(&str, &str); 10] = [
+		(":", "command"),
+		("/", "find"),
+		("f", "focus"),
+		("Enter", "diagnose"),
+		("r", "render"),
+		("Tab/1-7", "tabs"),
+		("j/k", "move"),
+		("?", "help"),
+		("q", "quit"),
+		("", ""),
+	];
+	let mut spans = vec![Span::raw(" ")];
+	for (key, what) in KEYS.iter().filter(|(k, _)| !k.is_empty()) {
+		spans.push(Span::raw(format!(" {key}")).cyan());
+		spans.push(Span::raw(format!(" {what} ")).dark_gray());
+	}
+	Line::from(spans)
+}
+
+/// `1234567` -> `1.2M`, for the tab counts.
+fn compact(n: u64) -> String {
+	match n {
+		0..1_000 => n.to_string(),
+		1_000..1_000_000 => format!("{:.1}k", n as f64 / 1e3),
+		_ => format!("{:.1}M", n as f64 / 1e6),
+	}
+}
+
+/// A spinner frame for something that has run `elapsed`.
+fn spinner(elapsed: Duration) -> char {
+	const FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+	FRAMES[(elapsed.as_millis() / 80) as usize % FRAMES.len()]
+}
+
+/// `--level`'s spelling of a level.
+fn level_name(level: aexlo::ObserveLevel) -> &'static str {
+	match level {
+		aexlo::ObserveLevel::Arguments => "args",
+		aexlo::ObserveLevel::Calls => "calls",
+		aexlo::ObserveLevel::Commands => "commands",
+		_ => "other",
+	}
+}
+
+/// `OutFlags(A | B)` as the names in cyan between dim bars, or a dim
+/// `(none)`.
+fn flag_spans(debug: &str) -> Vec<Span<'static>> {
+	let inner = debug
+		.split_once('(')
+		.map_or(debug, |(_, rest)| rest.trim_end_matches(')'));
+	if inner.is_empty() || inner == "0x0" {
+		return vec![Span::raw("(none)").dark_gray()];
+	}
+	let mut spans = Vec::new();
+	for (i, name) in inner.split(" | ").enumerate() {
+		if i > 0 {
+			spans.push(Span::raw(" | ").dark_gray());
+		}
+		spans.push(Span::raw(name.to_string()).cyan());
+	}
+	spans
+}
+
+/// A flag's state: `true` in green, `false` dim.
+fn yes(on: bool) -> Vec<Span<'static>> {
+	vec![if on {
+		Span::raw("true").green()
+	} else {
+		Span::raw("false").dark_gray()
+	}]
 }
 
 fn tone_style(tone: Tone) -> Style {
@@ -1161,8 +1377,13 @@ fn level_style(level: Level) -> Style {
 	}
 }
 
-fn byte_style(view: &MemoryView, offset: usize, cursor: usize) -> Style {
+/// A byte in the hex dump: zeros dim, what the last command changed in
+/// yellow, the cursor reversed.
+fn byte_style(view: &MemoryView, offset: usize, cursor: usize, byte: u8) -> Style {
 	let mut style = Style::new();
+	if byte == 0 {
+		style = style.fg(Color::DarkGray);
+	}
 	if view.changed.get(offset).copied().unwrap_or(false) {
 		style = style.fg(Color::Yellow).add_modifier(Modifier::BOLD);
 	}
@@ -1243,6 +1464,20 @@ mod tests {
 		// Another allocation starts clean.
 		app.memory(0x20, 0, Some(vec![1, 9, 3]), true);
 		assert!(app.memory.as_ref().unwrap().changed.is_empty());
+	}
+
+	#[test]
+	fn bars_counts_and_flags() {
+		assert_eq!(bar(1.0, 2.0, 10).to_string(), "━━━━━─────");
+		// Anything at all shows.
+		assert_eq!(bar(0.001, 100.0, 4).to_string(), "━───");
+		assert_eq!(bar(0.0, 0.0, 4).to_string(), "────");
+		assert_eq!(compact(999), "999");
+		assert_eq!(compact(12_345), "12.3k");
+		assert_eq!(compact(2_000_000), "2.0M");
+		let text = |spans: Vec<Span>| Line::from(spans).to_string();
+		assert_eq!(text(flag_spans("OutFlags(A | B)")), "A | B");
+		assert_eq!(text(flag_spans("OutFlags2(0x0)")), "(none)");
 	}
 
 	#[test]
