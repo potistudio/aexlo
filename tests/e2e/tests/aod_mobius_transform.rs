@@ -5,6 +5,7 @@
 //! Parameter indices: [1..=8] a/b/c/d (re, im), [12] Edge.
 
 use aexlo::{Depth8, Layer, ParamValue, PluginInstance};
+use aexlo_fixture_gate::needs_fixture;
 
 const B_RE: usize = 3;
 
@@ -21,11 +22,8 @@ fn pattern() -> (Vec<u8>, u32, u32) {
 	(px, w, h)
 }
 
-fn render(params: &[(usize, ParamValue)]) -> Option<Vec<u8>> {
-	let Some(path) = test_e2e::fixture("AOD_MobiusTransform") else {
-		eprintln!("skipping: fixture 'AOD_MobiusTransform' not present locally");
-		return None;
-	};
+fn render(params: &[(usize, ParamValue)]) -> Vec<u8> {
+	let path = test_e2e::fixture("AOD_MobiusTransform");
 	let mut instance: PluginInstance = aexlo::Host::get().load(&path).expect("failed to load plugin");
 	instance.set_parallel_iterate(false);
 	let (px, w, h) = pattern();
@@ -37,23 +35,23 @@ fn render(params: &[(usize, ParamValue)]) -> Option<Vec<u8>> {
 	instance.render_frame().expect("render failed");
 	let mut out = vec![0u8; (w * h * 4) as usize];
 	instance.write_output_rgba8(&mut out).unwrap();
-	Some(out)
+	out
 }
 
 /// The default coefficients (a = d = 1, b = c = 0) are the identity map.
+#[needs_fixture("AOD_MobiusTransform")]
 #[test]
 fn default_coefficients_are_the_identity() {
-	let Some(out) = render(&[]) else { return };
+	let out = render(&[]);
 	assert_eq!(out, pattern().0);
 }
 
 /// f(z) = z + b moves the image by b * scale; with Edge = None the uncovered
 /// strip is transparent.
+#[needs_fixture("AOD_MobiusTransform")]
 #[test]
 fn translation_moves_the_image() {
-	let Some(out) = render(&[(B_RE, ParamValue::Float(0.2))]) else {
-		return;
-	};
+	let out = render(&[(B_RE, ParamValue::Float(0.2))]);
 	let (input, w, h) = pattern();
 	let at = |buf: &[u8], x: u32, y: u32| -> [u8; 4] {
 		let i = ((y * w + x) * 4) as usize;

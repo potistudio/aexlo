@@ -1015,6 +1015,7 @@ fn blend_mode(mode: BlendMode) -> tiny_skia::BlendMode {
 mod tests {
 	use super::*;
 	use crate::model::{Anim, BezPath, Effect, ShapeItem};
+	use aexlo_fixture_gate::needs_fixture;
 
 	fn worker() -> Worker {
 		Worker {
@@ -1055,12 +1056,12 @@ mod tests {
 		image.pixels[i..i + 4].try_into().unwrap()
 	}
 
-	fn has_fixture(name: &str) -> bool {
-		let found = plugins::list_fixtures().iter().any(|f| f == name);
-		if !found {
-			eprintln!("skipping: fixture '{name}' not present");
-		}
-		found
+	/// For tests run with `--ignored`: they must not pass without their plugin.
+	fn require_fixture(name: &str) {
+		assert!(
+			plugins::resolve(name).exists(),
+			"fixture '{name}' is not in fixtures/plugins on this machine"
+		);
 	}
 
 	fn effect(p: &mut Project, plugin: &str, params: &[(usize, PValue)]) -> Effect {
@@ -1114,11 +1115,10 @@ mod tests {
 		assert_eq!(at(&out, 15, 5)[3], 0);
 	}
 
+	#[needs_fixture("FillColor")]
 	#[test]
 	fn plugin_effects_run_on_their_layer() {
-		if !has_fixture("FillColor") {
-			return;
-		}
+		require_fixture("FillColor");
 		let mut p = project(32, 16);
 		let mut layer = solid(&mut p, "s", [1.0; 4], 16, 16);
 		let fill = effect(
@@ -1140,11 +1140,10 @@ mod tests {
 		assert_eq!(at(&w.render(&p, 0, 2).image, 16, 8), [255, 255, 255, 255]);
 	}
 
+	#[needs_fixture("FillColor")]
 	#[test]
 	fn adjustment_layers_process_what_is_below() {
-		if !has_fixture("FillColor") {
-			return;
-		}
+		require_fixture("FillColor");
 		let mut p = project(16, 8);
 		let mut adjust = p.new_layer("adjust", LayerKind::Adjustment);
 		let fill = effect(
@@ -1199,11 +1198,10 @@ mod tests {
 
 	/// DisplacerPro reads its map from another layer, which is hidden: the
 	/// link still renders it.
+	#[needs_fixture("DisplacerPro")]
 	#[test]
 	fn layer_params_read_other_layers() {
-		if !has_fixture("DisplacerPro") {
-			return;
-		}
+		require_fixture("DisplacerPro");
 		const MAP_LAYER: usize = 1;
 		const TRANSLATE_X: usize = 15;
 		let mut p = project(64, 16);
@@ -1239,11 +1237,10 @@ mod tests {
 		assert_eq!(at(&result.image, 20, 8)[3], 0);
 	}
 
+	#[needs_fixture("DisplacerPro")]
 	#[test]
 	fn layer_link_cycles_are_cut() {
-		if !has_fixture("DisplacerPro") {
-			return;
-		}
+		require_fixture("DisplacerPro");
 		let mut p = project(16, 16);
 		let mut a = solid(&mut p, "a", [1.0; 4], 16, 16);
 		let mut b = solid(&mut p, "b", [1.0; 4], 16, 16);
@@ -1262,11 +1259,10 @@ mod tests {
 		);
 	}
 
+	#[needs_fixture("Furikake")]
 	#[test]
 	fn effects_see_layer_time() {
-		if !has_fixture("Furikake") {
-			return;
-		}
+		require_fixture("Furikake");
 		let mut p = project(320, 180);
 		let mut null = solid(&mut p, "null", [0.0; 4], 320, 180);
 		null.effects.push(p.new_effect("Furikake"));

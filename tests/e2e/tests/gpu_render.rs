@@ -2,11 +2,11 @@
 //! fixture. `supports_gpu()` reflects a capability the plugin *declared*
 //! during global setup, so it's deterministic regardless of hardware; but
 //! actually running the GPU path needs a real device (CUDA on Windows/Linux,
-//! Metal on macOS), which CI/dev machines may or may not have. When no device
-//! is available `render_gpu` fails with a clear "no GPU device" error -- this
-//! test treats that specific failure as a skip, not a bug.
+//! Metal on macOS), which CI/dev machines may or may not have. Without one
+//! the tests are ignored (see `aexlo_fixture_gate::needs_fixture`).
 
-use aexlo::{AexloError, Depth8, Layer, ParamValue, PluginInstance, RenderPath};
+use aexlo::{Depth8, Layer, ParamValue, PluginInstance, RenderPath};
+use aexlo_fixture_gate::needs_fixture;
 
 fn load_sample_input() -> Layer<Depth8> {
 	let img = image::open(test_e2e::sample_input_path())
@@ -25,21 +25,13 @@ fn read_output_rgba(instance: &PluginInstance) -> Vec<u8> {
 	buffer
 }
 
-/// `true` if `err` means the machine has no usable CUDA/Metal device -- an
-/// environment gap, not a regression.
-fn is_missing_device(err: &AexloError) -> bool {
-	matches!(err, AexloError::GpuUnavailable)
-}
-
 /// `BitonicPixelSorter.aex` declares `PF_OutFlag2_SUPPORTS_GPU_RENDER_F32`.
 /// Driving it through `render_gpu` should produce a real, non-degenerate
 /// sorted frame -- not a passthrough of the input and not a flat color.
+#[needs_fixture("BitonicPixelSorter", gpu)]
 #[test]
 fn bitonic_pixel_sorter_gpu_render_produces_real_output() {
-	let Some(plugin_path) = test_e2e::fixture("BitonicPixelSorter") else {
-		eprintln!("skipping: fixture 'BitonicPixelSorter' not present locally");
-		return;
-	};
+	let plugin_path = test_e2e::fixture("BitonicPixelSorter");
 
 	let mut instance = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 	assert!(
@@ -59,14 +51,7 @@ fn bitonic_pixel_sorter_gpu_render_produces_real_output() {
 	}
 	instance.set_input_layer(input);
 
-	match instance.render_with(RenderPath::Gpu) {
-		Ok(()) => {}
-		Err(err) if is_missing_device(&err) => {
-			eprintln!("skipping: no GPU device available on this machine ({err:?})");
-			return;
-		}
-		Err(err) => panic!("render_gpu failed: {err:?}"),
-	}
+	instance.render_with(RenderPath::Gpu).expect("render_gpu failed");
 
 	let output = read_output_rgba(&instance);
 	let first = &output[0..4];
@@ -82,24 +67,16 @@ fn bitonic_pixel_sorter_gpu_render_produces_real_output() {
 
 /// `render_frame` must prefer the GPU path automatically when the plugin
 /// supports it, and its output must match calling `render_gpu` directly.
+#[needs_fixture("BitonicPixelSorter", gpu)]
 #[test]
 fn render_frame_prefers_gpu_path_when_supported() {
-	let Some(plugin_path) = test_e2e::fixture("BitonicPixelSorter") else {
-		eprintln!("skipping: fixture 'BitonicPixelSorter' not present locally");
-		return;
-	};
+	let plugin_path = test_e2e::fixture("BitonicPixelSorter");
 
 	let mut via_gpu = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 	via_gpu.set_input_layer(load_sample_input());
 	via_gpu.set_param(4, ParamValue::Float(25.0)).unwrap();
 	via_gpu.set_param(5, ParamValue::Float(75.0)).unwrap();
-	if let Err(err) = via_gpu.render_with(RenderPath::Gpu) {
-		if is_missing_device(&err) {
-			eprintln!("skipping: no GPU device available on this machine ({err:?})");
-			return;
-		}
-		panic!("render_gpu failed: {err:?}");
-	}
+	via_gpu.render_with(RenderPath::Gpu).expect("render_gpu failed");
 	let gpu_output = read_output_rgba(&via_gpu);
 
 	let mut via_render_frame = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");

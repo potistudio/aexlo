@@ -1,6 +1,7 @@
 //! Deep-color I/O: plugins that declare 16/32 bpc render at that depth, and
 //! the output reads back as a layer of the same depth.
 
+use aexlo_fixture_gate::needs_fixture;
 use std::sync::{Arc, Mutex};
 
 use aexlo::{
@@ -19,8 +20,18 @@ fn sample_input<D: aexlo::PixelDepth>() -> Layer<D> {
 }
 
 /// Every fixture's declared depths, for the record.
+#[needs_fixture(
+	"SDK_Noise",
+	"FillColor",
+	"DeepGlow2",
+	"AnimatedNoise",
+	"RainyDay",
+	"Furikake",
+	"DisplacerPro"
+)]
 #[test]
 fn report_declared_depths() {
+	let mut reported = 0;
 	for name in [
 		"SDK_Noise",
 		"FillColor",
@@ -30,10 +41,12 @@ fn report_declared_depths() {
 		"Furikake",
 		"DisplacerPro",
 	] {
-		let Some(path) = test_e2e::fixture(name) else { continue };
-		let Ok(fx) = aexlo::Host::get().load(&path) else {
+		let Some(path) = test_e2e::find_fixture(name) else {
 			continue;
 		};
+		let fx = aexlo::Host::get()
+			.load(&path)
+			.unwrap_or_else(|err| panic!("{name}: failed to load: {err}"));
 		eprintln!(
 			"{name}: 16bpc={} 32bpc={} smart={} gpu={}",
 			fx.supports_depth(PixelDepthKind::U16),
@@ -41,17 +54,20 @@ fn report_declared_depths() {
 			fx.supports_smart_render(),
 			fx.supports_gpu(),
 		);
+		reported += 1;
 	}
+	assert!(
+		reported > 0,
+		"none of these fixtures is in fixtures/plugins on this machine"
+	);
 }
 
 /// SDK_Noise declares deep color: a 16 bpc input yields a 16 bpc output that
 /// reads back as `Layer<Depth16>` and resembles the 8 bpc render.
+#[needs_fixture("SDK_Noise")]
 #[test]
 fn sdk_noise_renders_at_16_bpc() {
-	let Some(path) = test_e2e::fixture("SDK_Noise") else {
-		eprintln!("skipping: fixture 'SDK_Noise' not present locally");
-		return;
-	};
+	let path = test_e2e::fixture("SDK_Noise");
 
 	let mut fx8 = aexlo::Host::get().load(&path).unwrap();
 	fx8.set_input_layer(sample_input::<Depth8>());
@@ -87,10 +103,13 @@ fn sdk_noise_renders_at_16_bpc() {
 }
 
 /// A 32 bpc input renders on plugins declaring float color.
+#[needs_fixture("SDK_Noise", "DeepGlow2", "AnimatedNoise")]
 #[test]
 fn float_capable_fixture_renders_at_32_bpc() {
 	for name in ["SDK_Noise", "DeepGlow2", "AnimatedNoise"] {
-		let Some(path) = test_e2e::fixture(name) else { continue };
+		let Some(path) = test_e2e::find_fixture(name) else {
+			continue;
+		};
 		let mut fx = aexlo::Host::get().load(&path).unwrap();
 		if !fx.supports_depth(PixelDepthKind::F32) {
 			continue;
@@ -108,7 +127,7 @@ fn float_capable_fixture_renders_at_32_bpc() {
 		eprintln!("{name}: rendered at 32 bpc");
 		return;
 	}
-	eprintln!("skipping: no float-capable fixture present locally");
+	panic!("none of the fixtures present renders at 32 bpc");
 }
 
 #[derive(Default)]
@@ -131,12 +150,10 @@ impl Observer for Recorder {
 }
 
 /// Command timings are observable; suite calls only at `Calls` level.
+#[needs_fixture("SDK_Noise")]
 #[test]
 fn observer_sees_command_timings() {
-	let Some(path) = test_e2e::fixture("SDK_Noise") else {
-		eprintln!("skipping: fixture 'SDK_Noise' not present locally");
-		return;
-	};
+	let path = test_e2e::fixture("SDK_Noise");
 	let mut fx = aexlo::Host::get().load(&path).unwrap();
 	let recorder = Arc::new(Recorder::default());
 	fx.set_observer(Some(recorder.clone()), ObserveLevel::Commands);
@@ -163,12 +180,10 @@ fn observer_sees_command_timings() {
 }
 
 /// FillColor at 16 and 32 bpc paints the exact color its 8-bit parameter names.
+#[needs_fixture("FillColor")]
 #[test]
 fn fill_color_is_exact_at_every_depth() {
-	let Some(path) = test_e2e::fixture("FillColor") else {
-		eprintln!("skipping: fixture 'FillColor' not present locally");
-		return;
-	};
+	let path = test_e2e::fixture("FillColor");
 	let color = aexlo::ParamValue::Color {
 		red: 10,
 		green: 200,

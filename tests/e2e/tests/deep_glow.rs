@@ -4,15 +4,13 @@
 //! Parameter indices: [24] Radius.
 
 use aexlo::{Depth8, Layer, ParamValue, PluginInstance};
+use aexlo_fixture_gate::needs_fixture;
 
 const RADIUS: usize = 24;
 
-fn load() -> Option<PluginInstance> {
-	let Some(path) = test_e2e::fixture("DeepGlow2") else {
-		eprintln!("skipping: fixture 'DeepGlow2' not present locally");
-		return None;
-	};
-	Some(aexlo::Host::get().load(&path).expect("failed to load plugin"))
+fn load() -> PluginInstance {
+	let path = test_e2e::fixture("DeepGlow2");
+	aexlo::Host::get().load(&path).expect("failed to load plugin")
 }
 
 fn render(instance: &mut PluginInstance) -> Vec<u8> {
@@ -38,9 +36,10 @@ fn dot(w: u32, h: u32, cx: u32, cy: u32) -> Layer<Depth8> {
 
 /// The frame is progressive: every scanline is processed alike. (With an
 /// interlaced field reported, odd rows came out brighter and translucent.)
+#[needs_fixture("DeepGlow2")]
 #[test]
 fn renders_every_scanline_alike() {
-	let Some(mut instance) = load() else { return };
+	let mut instance = load();
 	let img = image::open(test_e2e::sample_input_path()).unwrap().to_rgba8();
 	let (w, h) = img.dimensions();
 	instance.set_input_layer(Layer::<Depth8>::from_rgba8(img.into_raw(), w, h).unwrap());
@@ -62,11 +61,12 @@ fn renders_every_scanline_alike() {
 
 /// A glow is centred on its source and falls off evenly in every direction,
 /// with the source itself kept at full intensity.
+#[needs_fixture("DeepGlow2")]
 #[test]
 fn glow_is_centred_and_symmetric() {
 	let (w, h) = (640, 480);
 	for (cx, cy) in [(150i64, 60i64), (450, 200)] {
-		let Some(mut instance) = load() else { return };
+		let mut instance = load();
 		instance.set_input_layer(dot(w, h, cx as u32, cy as u32));
 		instance.set_render_size(w, h);
 		instance.set_param(RADIUS, ParamValue::Float(100.0)).unwrap();

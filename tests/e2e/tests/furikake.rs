@@ -10,17 +10,15 @@
 //! Parameter indices: [255] Pre Run[Sec].
 
 use aexlo::{Depth8, Layer, ParamValue, PluginInstance};
+use aexlo_fixture_gate::needs_fixture;
 
 const PRE_RUN: usize = 255;
 
 const W: u32 = 640;
 const H: u32 = 360;
 
-fn render(params: &[(usize, ParamValue)]) -> Option<Vec<u8>> {
-	let Some(path) = test_e2e::fixture("Furikake") else {
-		eprintln!("skipping: fixture 'Furikake' not present locally");
-		return None;
-	};
+fn render(params: &[(usize, ParamValue)]) -> Vec<u8> {
+	let path = test_e2e::fixture("Furikake");
 	let mut instance: PluginInstance = aexlo::Host::get().load(&path).expect("failed to load plugin");
 	instance.set_input_layer(Layer::<Depth8>::from_rgba8(vec![0; (W * H * 4) as usize], W, H).unwrap());
 	instance.set_render_size(W, H);
@@ -30,7 +28,7 @@ fn render(params: &[(usize, ParamValue)]) -> Option<Vec<u8>> {
 	instance.render_frame().expect("render failed");
 	let mut out = vec![0u8; (W * H * 4) as usize];
 	instance.write_output_rgba8(&mut out).unwrap();
-	Some(out)
+	out
 }
 
 /// Opaque white pixels (particles) in the centre of the frame.
@@ -49,9 +47,10 @@ fn particles_near_centre(out: &[u8]) -> usize {
 }
 
 /// A generator over a transparent frame; at frame 0 nothing has been emitted.
+#[needs_fixture("Furikake")]
 #[test]
 fn frame_zero_is_empty() {
-	let Some(out) = render(&[]) else { return };
+	let out = render(&[]);
 	assert_eq!(particles_near_centre(&out), 0);
 	let transparent = out.chunks(4).filter(|p| p[3] == 0).count();
 	assert!(
@@ -62,11 +61,10 @@ fn frame_zero_is_empty() {
 
 /// Pre-running the simulation fills the centre (where the emitter sits) with
 /// white particles.
+#[needs_fixture("Furikake")]
 #[test]
 fn pre_run_emits_particles() {
-	let Some(out) = render(&[(PRE_RUN, ParamValue::Float(2.0))]) else {
-		return;
-	};
+	let out = render(&[(PRE_RUN, ParamValue::Float(2.0))]);
 	let n = particles_near_centre(&out);
 	assert!(n > 100, "only {n} particle pixels near the centre");
 }

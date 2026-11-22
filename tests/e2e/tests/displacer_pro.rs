@@ -9,6 +9,7 @@
 //! Parameter indices: [1] Map Layer, [3] View Map, [15] Translate X.
 
 use aexlo::{Depth8, Layer, ParamValue, PluginInstance};
+use aexlo_fixture_gate::needs_fixture;
 
 const MAP_LAYER: usize = 1;
 const VIEW_MAP: usize = 3;
@@ -33,11 +34,8 @@ fn gray(level: u8) -> Vec<u8> {
 	[level, level, level, 255].repeat((W * H) as usize)
 }
 
-fn render(map: Option<Vec<u8>>, params: &[(usize, ParamValue)]) -> Option<Vec<u8>> {
-	let Some(path) = test_e2e::fixture("DisplacerPro") else {
-		eprintln!("skipping: fixture 'DisplacerPro' not present locally");
-		return None;
-	};
+fn render(map: Option<Vec<u8>>, params: &[(usize, ParamValue)]) -> Vec<u8> {
+	let path = test_e2e::fixture("DisplacerPro");
 	let mut instance: PluginInstance = aexlo::Host::get().load(&path).expect("failed to load plugin");
 	instance.set_input_layer(Layer::<Depth8>::from_rgba8(pattern(), W, H).unwrap());
 	instance.set_render_size(W, H);
@@ -51,7 +49,7 @@ fn render(map: Option<Vec<u8>>, params: &[(usize, ParamValue)]) -> Option<Vec<u8
 	instance.render_frame().expect("render failed");
 	let mut out = vec![0u8; (W * H * 4) as usize];
 	instance.write_output_rgba8(&mut out).unwrap();
-	Some(out)
+	out
 }
 
 fn at(buf: &[u8], x: u32, y: u32) -> [u8; 4] {
@@ -75,37 +73,33 @@ fn assert_shifted(out: &[u8], shift: f32) {
 }
 
 /// With the default (zero) transform nothing moves.
+#[needs_fixture("DisplacerPro")]
 #[test]
 fn default_parameters_leave_the_image_untouched() {
-	let Some(out) = render(Some(gray(255)), &[]) else {
-		return;
-	};
+	let out = render(Some(gray(255)), &[]);
 	assert_eq!(out, pattern());
 }
 
 /// A white map applies the full 10% (12.8 px) translation.
+#[needs_fixture("DisplacerPro")]
 #[test]
 fn white_map_translates_forward() {
-	let Some(out) = render(Some(gray(255)), &[(TRANSLATE_X, ParamValue::Float(10.0))]) else {
-		return;
-	};
+	let out = render(Some(gray(255)), &[(TRANSLATE_X, ParamValue::Float(10.0))]);
 	assert_shifted(&out, 12.8);
 }
 
 /// A black map applies the inverse translation.
+#[needs_fixture("DisplacerPro")]
 #[test]
 fn black_map_translates_backward() {
-	let Some(out) = render(Some(gray(0)), &[(TRANSLATE_X, ParamValue::Float(10.0))]) else {
-		return;
-	};
+	let out = render(Some(gray(0)), &[(TRANSLATE_X, ParamValue::Float(10.0))]);
 	assert_shifted(&out, -12.8);
 }
 
 /// "View Map" shows the map instead of the result.
+#[needs_fixture("DisplacerPro")]
 #[test]
 fn view_map_shows_the_map() {
-	let Some(out) = render(Some(gray(255)), &[(VIEW_MAP, ParamValue::Checkbox(true))]) else {
-		return;
-	};
+	let out = render(Some(gray(255)), &[(VIEW_MAP, ParamValue::Checkbox(true))]);
 	assert!(out.iter().all(|&c| c == 255));
 }

@@ -11,6 +11,7 @@ use common::*;
 /// after-effects crate's thread-local.
 const SERIAL_ITERATE: &[&str] = &["AOD_MobiusTransform"];
 
+#[aexlo_fixture_gate::needs_fixture]
 #[test]
 fn all_fixtures_render() {
 	let (platform, ext) = if cfg!(target_os = "windows") {
@@ -26,17 +27,15 @@ fn all_fixtures_render() {
 		.collect();
 	assert!(!candidates.is_empty(), "no plugin fixtures in {}", fixtures.display());
 	// Most fixtures are personal symlinks (fixtures/plugins/.gitignore);
-	// one whose target is absent on this machine is skipped, not failed.
+	// one whose target is absent on this machine is left out. The checked-in
+	// Windows fixture is such a symlink: with nothing else to render, as on
+	// a CI runner without After Effects, `needs_fixture` ignores the test.
 	let mut plugins: Vec<_> = candidates.into_iter().filter(|path| path.exists()).collect();
-	if plugins.is_empty() {
-		// The checked-in Windows fixture is such a symlink, so a CI runner
-		// without After Effects has nothing to render.
-		eprintln!(
-			"skipping: every fixture in {} is a symlink to an absent plugin",
-			fixtures.display()
-		);
-		return;
-	}
+	assert!(
+		!plugins.is_empty(),
+		"every fixture in {} is a symlink to an absent plugin",
+		fixtures.display()
+	);
 	plugins.sort();
 
 	let mut text = format!(

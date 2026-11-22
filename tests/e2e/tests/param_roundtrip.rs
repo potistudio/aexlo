@@ -3,10 +3,11 @@
 //! round-trips, type-mismatch/bounds error paths, and proof that a changed
 //! param actually reaches the render (not just instance-side storage).
 //!
-//! Fixtures are looked up by name and each test skips when its fixture isn't
-//! present locally -- see `test_e2e::fixture`.
+//! Fixtures are looked up by name and each test is ignored when its fixture
+//! isn't present locally -- see `test_e2e::fixture`.
 
 use aexlo::{AexloError, Depth8, Layer, ParamValue, PluginInstance};
+use aexlo_fixture_gate::needs_fixture;
 
 fn load_sample_input() -> Layer<Depth8> {
 	let img = image::open(test_e2e::sample_input_path())
@@ -29,12 +30,10 @@ fn render_rgba(instance: &mut PluginInstance) -> Vec<u8> {
 /// `BitonicPixelSorter.aex` leads with a small, well-typed run of params (two
 /// popups, two float sliders) -- set each to a non-default value and confirm
 /// `get_param` reflects exactly what was set.
+#[needs_fixture("BitonicPixelSorter")]
 #[test]
 fn bitonic_pixel_sorter_param_set_get_roundtrip() {
-	let Some(plugin_path) = test_e2e::fixture("BitonicPixelSorter") else {
-		eprintln!("skipping: fixture 'BitonicPixelSorter' not present locally");
-		return;
-	};
+	let plugin_path = test_e2e::fixture("BitonicPixelSorter");
 	let mut instance = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 
 	// [2] Mode (popup), [3] Order (popup), [4] Threshold Min (float), [5] Threshold Max (float).
@@ -52,12 +51,10 @@ fn bitonic_pixel_sorter_param_set_get_roundtrip() {
 /// `set_param` must reject the input-layer index, an out-of-bounds index, and
 /// a value whose variant doesn't match the parameter's declared type -- all
 /// without touching plugin state.
+#[needs_fixture("BitonicPixelSorter")]
 #[test]
 fn bitonic_pixel_sorter_set_param_rejects_invalid_calls() {
-	let Some(plugin_path) = test_e2e::fixture("BitonicPixelSorter") else {
-		eprintln!("skipping: fixture 'BitonicPixelSorter' not present locally");
-		return;
-	};
+	let plugin_path = test_e2e::fixture("BitonicPixelSorter");
 	let mut instance = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 
 	assert!(matches!(
@@ -81,12 +78,10 @@ fn bitonic_pixel_sorter_set_param_rejects_invalid_calls() {
 /// Changing `Direction` on `BitonicPixelSorter.aex` must change the rendered
 /// output -- proof the param actually reaches the render path, not just
 /// instance-side storage.
+#[needs_fixture("BitonicPixelSorter")]
 #[test]
 fn bitonic_pixel_sorter_direction_param_changes_render_output() {
-	let Some(plugin_path) = test_e2e::fixture("BitonicPixelSorter") else {
-		eprintln!("skipping: fixture 'BitonicPixelSorter' not present locally");
-		return;
-	};
+	let plugin_path = test_e2e::fixture("BitonicPixelSorter");
 
 	let mut horizontal = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 	horizontal.set_input_layer(load_sample_input());
@@ -108,12 +103,10 @@ fn bitonic_pixel_sorter_direction_param_changes_render_output() {
 /// sliders, checkboxes, popups, an angle dial, and a color) -- round-trip one
 /// of each through `set_param`/`get_param` to cover types the smaller
 /// fixtures above don't exercise.
+#[needs_fixture("DeepGlow2")]
 #[test]
 fn deep_glow_covers_remaining_param_types_roundtrip() {
-	let Some(plugin_path) = test_e2e::fixture("DeepGlow2") else {
-		eprintln!("skipping: fixture 'DeepGlow2' not present locally");
-		return;
-	};
+	let plugin_path = test_e2e::fixture("DeepGlow2");
 	let mut instance = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 
 	// [24] Radius (float), [40] Mask Invert (checkbox), [50] Iris Sampling Quality (popup),

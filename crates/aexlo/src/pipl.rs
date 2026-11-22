@@ -201,10 +201,16 @@ mod tests {
 	}
 
 	#[test]
+	#[cfg_attr(
+		not(any(
+			all(windows, target_arch = "x86_64"),
+			all(target_os = "macos", target_arch = "aarch64"),
+			all(target_os = "macos", target_arch = "x86_64"),
+		)),
+		ignore = "no PiPL entry key for this platform"
+	)]
 	fn pe_resource_yields_the_platform_entry_point() {
-		let Some(key) = platform_entry_key() else {
-			return;
-		};
+		let key = platform_entry_key().expect("a PiPL entry key for this platform");
 		let payload: Vec<u8> = if key == "8664" {
 			b"main\0".to_vec()
 		} else {
