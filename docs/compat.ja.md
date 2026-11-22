@@ -101,28 +101,28 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 
 ## 4. 出力
 
-テキストのレポートは、最初に合計を表示します。
+テキストのレポートは、最初に合計（対応率と、結果ごとのシナリオ数）を表示します。
 続いて、問題のあったプラグインを重い順（crash、timeout、error、partial、invalid）に表示します。
-各プラグインには件数と、結果ごとにまとめたシナリオが付きます。
+各プラグインには対応率と、結果ごとにまとめたシナリオが付きます。
 ステータス、メッセージの1行目、不足がすべて同じシナリオを1つのグループにまとめます。
 グループには、ステータス、シナリオの数、そうなった理由、先頭のいくつかの ID を表示します。
 すべてのシナリオが `ok` か `n/a` だったプラグインは、1つの一覧にまとめます。
 最後に、すべての不足とそれに当たったプラグインを、多い順に表示します。
 これが次に実装すべきものの一覧になります。
+同じ情報は一度しか出しません。件数は合計にだけ、何が起きたかはグループにだけ表示します。
 
 ```text
-aexlo compat: 34 plugins, 5323 scenarios: 4919 ok · 1 partial · 103 n/a · 8 error · 292 crash
-Coverage: 94.2% (4919 of the 5220 scenarios that apply ran ok)
+aexlo compat: 34 plugins, 5323 scenarios, 94.2% coverage
+4919 ok · 1 partial · 103 n/a · 8 error · 292 crash
 
-Falloff  2.6%  4 ok · 145 crash
+Falloff  2.6%
     crash     ×145  worker killed by signal 11 (SIGSEGV) during PF_Cmd_SMART_PRE_RENDER
                     render:auto@8, render:smart@8, render:smart@16, render:smart@32, … (+141)
 
 AutoFill2  did not load
     error       ×1  loading AutoFill2.plugin: Plugin not found: AutoFill2.plugin/Contents/MacOS
-                    load
 
-RainyDay  99.1%  114 ok · 1 partial
+RainyDay  99.1%
     partial     ×1  missing-suite PF Effect Sequence Data Suite v1 (in PARAMS_SETUP)
                     load
 

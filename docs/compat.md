@@ -104,28 +104,29 @@ worker that cannot be started exits 3.
 
 ## 4. Output
 
-The text report starts with the totals. Then come the plugins that had
-problems, worst first (crash, timeout, error, partial, invalid), each with
-its counts and its scenarios grouped by how they went: same status, same
-first line of the message, same gaps. A group shows its status, how many
+The text report starts with the totals: the coverage, then how many
+scenarios went each way. Then come the plugins that had problems, worst
+first (crash, timeout, error, partial, invalid), each with its coverage and
+its scenarios grouped by how they went: same status, same first line of the
+message, same gaps. A group shows its status, how many
 scenarios are in it, why they went that way, and the first few of them.
 The plugins where every scenario was `ok` or `n/a` share one list. The
 report ends with every gap and the plugins that hit it, most widespread
-first. That is the list of what to implement next.
+first. That is the list of what to implement next. Each fact is given once:
+the counts only in the totals, and what went wrong only in the groups.
 
 ```text
-aexlo compat: 34 plugins, 5323 scenarios: 4919 ok · 1 partial · 103 n/a · 8 error · 292 crash
-Coverage: 94.2% (4919 of the 5220 scenarios that apply ran ok)
+aexlo compat: 34 plugins, 5323 scenarios, 94.2% coverage
+4919 ok · 1 partial · 103 n/a · 8 error · 292 crash
 
-Falloff  2.6%  4 ok · 145 crash
+Falloff  2.6%
     crash     ×145  worker killed by signal 11 (SIGSEGV) during PF_Cmd_SMART_PRE_RENDER
                     render:auto@8, render:smart@8, render:smart@16, render:smart@32, … (+141)
 
 AutoFill2  did not load
     error       ×1  loading AutoFill2.plugin: Plugin not found: AutoFill2.plugin/Contents/MacOS
-                    load
 
-RainyDay  99.1%  114 ok · 1 partial
+RainyDay  99.1%
     partial     ×1  missing-suite PF Effect Sequence Data Suite v1 (in PARAMS_SETUP)
                     load
 

@@ -308,7 +308,9 @@ fn wrap(items: &[String], indent: &str) -> Vec<String> {
 /// ```
 ///
 /// Rich, the status has its symbol and color, and the ids are dimmed.
-fn write_group(out: &mut Vec<String>, look: Look, group: &[&Scenario], all: bool) {
+///
+/// Without `show_ids`, the scenarios are not named.
+fn write_group(out: &mut Vec<String>, look: Look, group: &[&Scenario], all: bool, show_ids: bool) {
 	let (status, message, gaps) = signature(group[0]);
 	let mut reasons: Vec<String> = Vec::new();
 	if !message.is_empty() {
@@ -328,20 +330,24 @@ fn write_group(out: &mut Vec<String>, look: Look, group: &[&Scenario], all: bool
 		ids.truncate(NAMED);
 		ids.push(format!("… (+{more})"));
 	}
-	let mut ids: Vec<String> = wrap(&ids, "")
+	let mut ids: Vec<String> = wrap(&ids, &body)
 		.into_iter()
-		.map(|line| format!("{body}{}", look.dim(&line)))
+		.map(|line| format!("{body}{}", look.dim(&line[body.len()..])))
 		.collect();
+	if !show_ids {
+		ids.clear();
+	}
 	match reasons.split_first() {
 		Some((first, rest)) => {
 			out.push(format!("{head}{first}"));
 			out.extend(rest.iter().map(|r| format!("{body}{r}")));
 		}
 		// Nothing to say why (an ok group with --all): the ids go first.
-		None => {
+		None if !ids.is_empty() => {
 			let first = ids.remove(0);
 			out.push(format!("{head}{}", first.trim_start()));
 		}
+		None => out.push(head.trim_end().to_string()),
 	}
 	out.extend(ids);
 }
@@ -352,42 +358,34 @@ fn write_group(out: &mut Vec<String>, look: Look, group: &[&Scenario], all: bool
 /// scenarios grouped by how they went; then the plugins where everything
 /// went well, on one wrapped list; then every gap, most widespread first;
 /// then what changed since the baseline. `all` lists every plugin and every
-/// scenario. Rich, the totals and each plugin get a bar of their statuses,
-/// and statuses their colors and symbols.
+/// scenario. Each fact appears once: the counts under the totals, each
+/// plugin's coverage on its line, and what went wrong in its groups. Rich,
+/// the totals and each plugin get a bar of their statuses, and statuses
+/// their colors and symbols.
 pub fn human(reports: &[PluginReport], all: bool, changes: Option<&Changes>, look: Look) -> String {
 	let mut out: Vec<String> = Vec::new();
 	let total = counts(reports.iter().flat_map(PluginReport::all));
 	let plural = |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
 	let plugins = plural(reports.len(), "plugin", "plugins");
 	let scenarios = plural(total.values().sum::<usize>(), "scenario", "scenarios");
+	// Counts appear here only: each plugin gives its coverage, and its
+	// groups the counts of what went wrong.
 	let covered = coverage(reports.iter().flat_map(PluginReport::all).map(|s| &s.status));
-	let apply: usize = total
-		.iter()
-		.filter(|(s, _)| !matches!(s, Status::NotApplicable | Status::Invalid))
-		.map(|(_, n)| n)
-		.sum();
-	let ok = total.get(&Status::Ok).copied().unwrap_or(0);
+	let coverage = |sep: &str| match covered {
+		Some(_) => format!("{sep}{} coverage", coverage_text(look, covered, 0)),
+		None => String::new(),
+	};
 	if look.rich {
-		out.push(format!("{}  {plugins} · {scenarios}", look.bold("aexlo compat")));
 		out.push(format!(
-			"{}  {} {}",
-			bar(look, &total, TOTAL_BAR),
-			coverage_text(look, covered, 0),
-			look.dim(&format!("coverage ({ok} of {apply} ok)"))
+			"{}  {plugins} · {scenarios}{}",
+			look.bold("aexlo compat"),
+			coverage(" · ")
 		));
-		out.push(counts_text(look, &total));
+		out.push(bar(look, &total, TOTAL_BAR));
 	} else {
-		out.push(format!(
-			"aexlo compat: {plugins}, {scenarios}: {}",
-			counts_text(look, &total)
-		));
-		if let Some(covered) = covered {
-			out.push(format!(
-				"Coverage: {} ({ok} of the {apply} scenarios that apply ran ok)",
-				percent(covered)
-			));
-		}
+		out.push(format!("aexlo compat: {plugins}, {scenarios}{}", coverage(", ")));
 	}
+	out.push(counts_text(look, &total));
 
 	let mut order: Vec<&PluginReport> = reports.iter().collect();
 	order.sort_by_key(|r| std::cmp::Reverse(severity(worst(r))));
@@ -397,32 +395,20 @@ pub fn human(reports: &[PluginReport], all: bool, changes: Option<&Changes>, loo
 	for report in listed {
 		out.push(String::new());
 		let loaded = matches!(report.load.status, Status::Ok | Status::Partial);
-		let worst = worst(report);
-		out.push(match (look.rich, loaded) {
-			(false, true) => format!(
-				"{}  {}  {}",
-				report.plugin,
-				coverage_text(look, plugin_coverage(report), 0),
-				counts_text(look, &counts(report.all()))
-			),
-			(false, false) => format!("{}  did not load", report.plugin),
+		let name = look.bold(&format!("{:<name_width$}", report.plugin));
+		out.push(match (loaded, look.rich) {
+			(false, _) => format!("{name}  {}", look.status(worst(report), "did not load")),
+			(true, false) => format!("{}  {}", report.plugin, coverage_text(look, plugin_coverage(report), 0)),
 			(true, true) => format!(
-				"{}{}  {}  {}  {}",
-				look.symbol(worst),
-				look.bold(&format!("{:<name_width$}", report.plugin)),
+				"{name}  {}  {}",
 				bar(look, &counts(report.all()), PLUGIN_BAR),
-				coverage_text(look, plugin_coverage(report), 6),
-				counts_text(look, &counts(report.all()))
-			),
-			(true, false) => format!(
-				"{}{}  {}",
-				look.symbol(worst),
-				look.bold(&format!("{:<name_width$}", report.plugin)),
-				look.status(worst, "did not load")
+				coverage_text(look, plugin_coverage(report), 6)
 			),
 		});
 		for group in groups(report, all) {
-			write_group(&mut out, look, &group, all);
+			// "did not load" already says which scenario.
+			let show_ids = loaded || group.iter().any(|s| s.id != report.load.id);
+			write_group(&mut out, look, &group, all, show_ids);
 		}
 	}
 	if !clean.is_empty() {
@@ -464,12 +450,13 @@ pub fn human(reports: &[PluginReport], all: bool, changes: Option<&Changes>, loo
 	}) = changes
 	{
 		out.push(String::new());
-		if let Some((was, now)) = coverage {
+		// No scenario changed, so neither did the coverage.
+		if let Some((was, now)) = coverage.filter(|_| !worse.is_empty() || !better.is_empty()) {
 			let delta = (now - was) * 100.0;
 			out.push(format!(
 				"Coverage since the baseline: {} -> {} ({}{:.1} points, on the scenarios both runs have)",
-				percent(*was),
-				coverage_text(look, Some(*now), 0),
+				percent(was),
+				coverage_text(look, Some(now), 0),
 				if delta >= 0.0 { "+" } else { "" },
 				delta
 			));
@@ -571,20 +558,19 @@ mod tests {
 	fn the_text_report_lists_problems_worst_first_and_folds_the_rest() {
 		let text = human(&reports(), false, None, Look::PLAIN);
 		let expected = "\
-aexlo compat: 4 plugins, 13 scenarios: 4 ok · 1 n/a · 2 error · 6 crash
-Coverage: 33.3% (4 of the 12 scenarios that apply ran ok)
+aexlo compat: 4 plugins, 13 scenarios, 33.3% coverage
+4 ok · 1 n/a · 2 error · 6 crash
 
-Crashing  14.2%  1 ok · 6 crash
+Crashing  14.2%
     crash       ×6  worker killed by signal 11 (SIGSEGV) during PF_Cmd_RENDER
                     size:0, size:1, size:2, size:3, … (+2)
 
-Erring  50.0%  1 ok · 1 error
+Erring  50.0%
     error       ×1  Plugin rejected Render with error code: 516
                     render:auto@8
 
 Unloaded  did not load
     error       ×1  Plugin not found: Unloaded.plugin
-                    load
 
 Everything ok or n/a (1):
     Clean
@@ -614,9 +600,7 @@ Everything ok or n/a (1):
 		let ids: Vec<(&str, Status)> = ids.iter().map(|(id, s)| (id.as_str(), *s)).collect();
 		let text = human(&[report(&ids)], true, None, Look::PLAIN);
 		assert!(
-			text.contains(
-				"Fx  100.0%  7 ok\n    ok          ×7  load, size:0, size:1, size:2, size:3, size:4, size:5\n"
-			),
+			text.contains("Fx  100.0%\n    ok          ×7  load, size:0, size:1, size:2, size:3, size:4, size:5\n"),
 			"{text}"
 		);
 		assert!(!text.contains("Everything ok"), "{text}");
