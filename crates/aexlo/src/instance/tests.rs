@@ -30,6 +30,21 @@ fn param_kind_covers_value_less_params() {
 }
 
 #[test]
+fn param_flags_read_what_the_plugin_declared() {
+	let mut fx = bare_instance();
+	let mut popup = param_of_type(crate::sys::PF_Param_POPUP as PF_ParamType);
+	popup.flags =
+		(crate::sys::PF_ParamFlag_SUPERVISE | crate::sys::PF_ParamFlag_CANNOT_TIME_VARY) as crate::sys::PF_ParamFlags;
+	fx.add_instance_param(popup);
+
+	let flags = fx.param_flags(1).unwrap();
+	assert!(flags.contains(crate::ParamFlags::SUPERVISE | crate::ParamFlags::CANNOT_TIME_VARY));
+	assert!(!flags.contains(crate::ParamFlags::CANNOT_INTERP));
+	assert_eq!(fx.param_flags(0), Some(crate::ParamFlags::empty()));
+	assert_eq!(fx.param_flags(2), None);
+}
+
+#[test]
 fn point3d_round_trips() {
 	let mut fx = bare_instance();
 	fx.add_instance_param(param_of_type(crate::sys::PF_Param_POINT_3D as PF_ParamType));

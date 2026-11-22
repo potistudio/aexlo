@@ -9,6 +9,10 @@ may break the API, and every breaking change is listed below.
 
 ### Added
 
+- `PluginInstance::param_flags` reads the `PF_ParamFlag_*` bits a parameter
+  declares, as the new `ParamFlags`. A host checks
+  `ParamFlags::SUPERVISE` to tell when to send
+  `PF_Cmd_USER_CHANGED_PARAM` (`PluginInstance::user_changed_param`).
 - `AEGP Effect Suite` v5. It is v4 plus `AEGP_GetIsInternalEffect`, which
   takes an installed-effect key and is refused like the rest of the
   installed-effect registry. Falloff needs v5 to free its effect handle in
