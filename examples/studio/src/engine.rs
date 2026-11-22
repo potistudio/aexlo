@@ -181,6 +181,50 @@ fn answer_sent_messages() {
 	unsafe { peek(&mut msg, std::ptr::null_mut(), 0, 0, 0) };
 }
 
+/// Ask the windows of `thread` to close, as their close button would: a
+/// plugin's modal dialog keeps the command that opened it from returning.
+#[cfg(windows)]
+fn close_windows(thread: &JoinHandle<()>) {
+	use std::ffi::c_void;
+	use std::os::windows::io::AsRawHandle;
+
+	const WM_CLOSE: u32 = 0x10;
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn GetThreadId(thread: *mut c_void) -> u32;
+	}
+	#[link(name = "user32")]
+	unsafe extern "system" {
+		fn EnumThreadWindows(
+			thread: u32,
+			visit: unsafe extern "system" fn(*mut c_void, isize) -> i32,
+			data: isize,
+		) -> i32;
+		fn IsWindowVisible(hwnd: *mut c_void) -> i32;
+		fn IsWindowEnabled(hwnd: *mut c_void) -> i32;
+		fn PostMessageW(hwnd: *mut c_void, message: u32, wparam: usize, lparam: isize) -> i32;
+	}
+	unsafe extern "system" fn visit(hwnd: *mut c_void, _: isize) -> i32 {
+		// SAFETY: `EnumThreadWindows` passes a window handle; these calls accept
+		// one that has since been destroyed, and posting does not wait.
+		unsafe {
+			// A disabled window is waiting for a modal one, or is an IME's.
+			if IsWindowVisible(hwnd) != 0 && IsWindowEnabled(hwnd) != 0 {
+				PostMessageW(hwnd, WM_CLOSE, 0, 0);
+			}
+		}
+		1
+	}
+	// SAFETY: the handle is live while `thread` is borrowed, and `visit`
+	// matches the callback's signature and uses no data.
+	unsafe {
+		let id = GetThreadId(thread.as_raw_handle().cast());
+		if id != 0 {
+			EnumThreadWindows(id, visit, 0);
+		}
+	}
+}
+
 #[cfg(windows)]
 fn peek_message() -> bool {
 	#[repr(C)]
@@ -282,8 +326,8 @@ impl Engine {
 	///
 	/// Call it on the main window's thread, while that window exists: plugins
 	/// parent their windows to it and send it messages as they close, so this
-	/// keeps answering those. A plugin that does not return (a modal dialog, a
-	/// stuck render) is given up on after [`SHUTDOWN_TIMEOUT`].
+	/// keeps answering those. Dialogs still open are asked to close. A plugin
+	/// that does not return is given up on after [`SHUTDOWN_TIMEOUT`].
 	pub fn shutdown(&mut self) {
 		let Some(thread) = self.thread.take() else { return };
 		self.closing.store(true, Ordering::Relaxed);
@@ -291,13 +335,22 @@ impl Engine {
 		// Wakes the thread if it is waiting for a request.
 		self.tx = None;
 		let deadline = Instant::now() + SHUTDOWN_TIMEOUT;
+		#[cfg(windows)]
+		let mut close_windows_at = Instant::now() + CLOSE_WINDOWS_EVERY;
 		while !thread.is_finished() {
 			if Instant::now() >= deadline {
 				log::warn!("a plugin is still busy after {SHUTDOWN_TIMEOUT:?}; closing without tearing it down");
 				return;
 			}
 			#[cfg(windows)]
-			answer_sent_messages();
+			{
+				answer_sent_messages();
+				// Repeated: closing one dialog can open or uncover another.
+				if Instant::now() >= close_windows_at {
+					close_windows(&thread);
+					close_windows_at = Instant::now() + CLOSE_WINDOWS_EVERY;
+				}
+			}
 			std::thread::sleep(Duration::from_millis(10));
 		}
 	}
@@ -311,6 +364,10 @@ impl Drop for Engine {
 
 /// How long closing waits for the render thread.
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How often closing asks the render thread's windows to close.
+#[cfg(windows)]
+const CLOSE_WINDOWS_EVERY: Duration = Duration::from_millis(500);
 
 struct Notify {
 	tx: Sender<Event>,
@@ -1109,6 +1166,34 @@ mod tests {
 		let out = worker().render(&p, 0, 1).image;
 		assert_eq!(at(&out, 3, 4), [0, 255, 0, 255]);
 		assert_eq!(at(&out, 12, 4), [255, 0, 0, 255]);
+	}
+
+	#[test]
+	fn shutdown_interrupts_an_export() {
+		let mut p = project(64, 64);
+		let red = solid(&mut p, "red", [1.0, 0.0, 0.0, 1.0], 64, 64);
+		p.layers.push(red);
+		let dir = std::env::temp_dir().join(format!("aexlo-studio-shutdown-{}", std::process::id()));
+		let mut engine = Engine::spawn(|| {});
+		const FRAMES: i32 = 100_000;
+		engine.send(Request::Export(ExportJob {
+			project: Arc::new(p),
+			start: 0,
+			end: FRAMES - 1,
+			kind: ExportKind::Sequence(dir.clone()),
+		}));
+		let first = engine.events.recv_timeout(Duration::from_secs(10));
+		engine.shutdown();
+		let events: Vec<Event> = engine.events.try_iter().collect();
+		let _ = std::fs::remove_dir_all(&dir);
+
+		assert!(matches!(first, Ok(Event::ExportProgress { done: 1, .. })));
+		assert!(matches!(events.last(), Some(Event::ExportFinished(Err(e))) if e == "export cancelled"));
+		// The thread is gone: it dropped its end of the channel with the plugins.
+		assert!(matches!(
+			engine.events.try_recv(),
+			Err(std::sync::mpsc::TryRecvError::Disconnected)
+		));
 	}
 
 	/// DisplacerPro reads its map from another layer, which is hidden: the

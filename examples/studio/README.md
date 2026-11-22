@@ -74,7 +74,8 @@ Per layer: source → masks → effects (each one `set_input_layer`,
 sources whose contents and masks don't change are cached across frames.
 
 Closing the window stops the render thread and waits for it to tear its
-plugins down (up to 10 seconds, in case one is stuck or shows a dialog). On
+plugins down (up to 10 seconds, in case one is stuck; on Windows, dialogs
+they left open are asked to close). On
 Windows the process then ends without running the DLL detach of plugins
 that stay loaded, which can hang or crash, as with the `aexlo` command.
 
