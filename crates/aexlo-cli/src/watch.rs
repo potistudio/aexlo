@@ -112,10 +112,8 @@ pub fn run(manifest: &Path) -> Result<()> {
 /// Build the crate's cdylib, load it, render one frame, and hand back RGBA8.
 ///
 /// One-shot: the instance is dropped and its staged copy removed before
-/// returning. Callers that need to keep the instance alive (to re-render on a
-/// parameter change without rebuilding) use [`build_and_load`] +
-/// [`render_instance`] instead.
-pub(crate) fn build_and_render(manifest: &Path, generation: u64) -> Result<(Vec<u8>, u32, u32)> {
+/// returning.
+fn build_and_render(manifest: &Path, generation: u64) -> Result<(Vec<u8>, u32, u32)> {
 	let (mut fx, staged) = build_and_load(manifest, generation)?;
 	let result = render_instance(&mut fx);
 	drop(fx);
@@ -126,7 +124,7 @@ pub(crate) fn build_and_render(manifest: &Path, generation: u64) -> Result<(Vec<
 /// Build the crate's cdylib and load it, returning the live instance plus the
 /// path of the staged copy it was loaded from (so the caller can remove that
 /// copy once it drops the instance).
-pub(crate) fn build_and_load(manifest: &Path, generation: u64) -> Result<(PluginInstance, PathBuf)> {
+fn build_and_load(manifest: &Path, generation: u64) -> Result<(PluginInstance, PathBuf)> {
 	let artifact = build_cdylib(manifest)?;
 	stage_and_load(&artifact, generation)
 }
@@ -151,11 +149,9 @@ pub(crate) fn copy_built(from: &Path, to: &Path) -> std::io::Result<u64> {
 /// instance plus the staged path (so the caller can remove the copy once it
 /// drops the instance).
 ///
-/// The unique-copy dance matters on every (re)load: reopening the same path can
-/// hand back a stale, still-mapped image instead of the current file - whether
-/// the file changed because we just rebuilt it (`aexlo dev`) or because someone
-/// else did (`aexlo preview --watch`).
-pub(crate) fn stage_and_load(artifact: &Path, generation: u64) -> Result<(PluginInstance, PathBuf)> {
+/// The unique-copy dance matters on every reload: reopening the same path can
+/// hand back a stale, still-mapped image instead of the file just rebuilt.
+fn stage_and_load(artifact: &Path, generation: u64) -> Result<(PluginInstance, PathBuf)> {
 	let ext = artifact.extension().and_then(|s| s.to_str()).unwrap_or("dylib");
 	let staged = std::env::temp_dir().join(format!("aexlo-stage-{generation}.{ext}"));
 	copy_built(artifact, &staged).with_context(|| format!("staging {}", artifact.display()))?;
@@ -165,7 +161,7 @@ pub(crate) fn stage_and_load(artifact: &Path, generation: u64) -> Result<(Plugin
 }
 
 /// Render the loaded instance's current parameters to an RGBA8 frame.
-pub(crate) fn render_instance(fx: &mut PluginInstance) -> Result<(Vec<u8>, u32, u32)> {
+fn render_instance(fx: &mut PluginInstance) -> Result<(Vec<u8>, u32, u32)> {
 	fx.render_frame().context("render failed")?;
 	let (w, h) = fx.output_size();
 	let mut rgba = vec![0u8; w as usize * h as usize * 4];
@@ -211,7 +207,8 @@ fn is_dynamic_library(path: &Path) -> bool {
 	matches!(path.extension().and_then(|s| s.to_str()), Some("dylib" | "so" | "dll"))
 }
 
-/// Only rebuild for source-ish changes, ignoring editor swap/lock files.
+/// Only rebuild (or rerun) for source-ish changes, ignoring editor swap/lock
+/// files.
 pub(crate) fn is_relevant(path: &Path) -> bool {
 	matches!(path.extension().and_then(|s| s.to_str()), Some("rs"))
 		|| path.file_name().is_some_and(|n| n == "Cargo.toml")

@@ -1,7 +1,6 @@
 //! `aexlo dev [filter] [-p <package>]` - rerun a `#[aexlo_test::preview]` test on save.
 //!
-//! [`cmd`] hands `--bin` to [`crate::watch`] and
-//! `--bin --web` to [`crate::web`].
+//! [`cmd`] hands `--bin` to [`crate::watch`].
 //!
 //! Built-in replacement for pairing `bacon` with `#[aexlo_test::preview]`: watches
 //! the crate's sources and reruns `cargo test` on every change, and shows the
@@ -21,6 +20,7 @@ use minifb::Key;
 use notify::{RecursiveMode, Watcher};
 
 use crate::args;
+use crate::watch::is_relevant;
 
 #[derive(clap::Args)]
 pub struct DevArgs {
@@ -36,59 +36,14 @@ pub struct DevArgs {
 	/// filter)
 	#[arg(long)]
 	bin: bool,
-	/// Preview in the browser instead of a native window, streaming the frame
-	/// into a <canvas>. Good for headless or remote hosts
-	#[arg(long, requires = "bin")]
-	web: bool,
-	/// Port to serve on [default: OS-assigned]
-	#[arg(long, value_name = "N", requires = "web")]
-	port: Option<u16>,
-	/// Start the viewer on a manifest preset; its picker lists them all
-	#[arg(long, value_name = "NAME", requires = "web")]
-	preset: Option<String>,
-	/// The manifest [default: the nearest aexlo.toml]
-	#[arg(long, value_name = "PATH", requires = "web")]
-	manifest: Option<PathBuf>,
-	/// Poison and guard the output, showing unwritten pixels and overwritten
-	/// guard bands
-	#[arg(long, requires = "web")]
-	strict: bool,
-	/// Don't open a browser tab
-	#[arg(long, requires = "web")]
-	no_open: bool,
 }
 
 pub fn cmd(args: DevArgs) -> Result<()> {
-	let DevArgs {
-		filter,
-		package,
-		bin: bin_mode,
-		web: web_mode,
-		port,
-		preset,
-		manifest: manifest_path,
-		strict,
-		no_open,
-	} = args;
-	let manifest = args::cargo_package(package.as_deref())?;
-
-	if bin_mode {
-		if web_mode {
-			crate::web::run(
-				&manifest,
-				crate::web::Options {
-					port: port.unwrap_or(0),
-					manifest: manifest_path.as_deref(),
-					preset: preset.as_deref(),
-					strict,
-					no_open,
-				},
-			)
-		} else {
-			crate::watch::run(&manifest)
-		}
+	let manifest = args::cargo_package(args.package.as_deref())?;
+	if args.bin {
+		crate::watch::run(&manifest)
 	} else {
-		run(&manifest, filter.as_deref())
+		run(&manifest, args.filter.as_deref())
 	}
 }
 
@@ -222,12 +177,6 @@ fn load_png(path: &Path) -> Result<(Vec<u32>, usize, usize)> {
 		.to_rgba8();
 	let (w, h) = img.dimensions();
 	Ok((crate::watch::rgba_to_argb(img.as_raw()), w as usize, h as usize))
-}
-
-/// Only rerun for source-ish changes, ignoring editor swap/lock files.
-fn is_relevant(path: &Path) -> bool {
-	matches!(path.extension().and_then(|s| s.to_str()), Some("rs"))
-		|| path.file_name().is_some_and(|n| n == "Cargo.toml")
 }
 
 #[cfg(test)]

@@ -119,7 +119,7 @@ aexlo test --bless                 # write goldens; later `aexlo test` compares
 aexlo test --strict                # + guard bands, leak and checkout tracking
 aexlo test --fuzz 100              # random parameters, failures as presets
 aexlo bench --save-baseline main   # later: aexlo bench --baseline main
-aexlo preview build/MyGlow.plugin --preset dot_glow
+aexlo render --preset dot_glow -o dot_glow.png
 aexlo check                        # what CI runs (.github/workflows/aexlo-check.yml)
 ```
 

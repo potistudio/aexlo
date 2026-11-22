@@ -13,13 +13,9 @@ mod dev;
 mod info;
 mod inspect;
 mod param;
-mod preview;
 mod render;
-mod session;
 mod toolkit;
-mod viewer;
 mod watch;
-mod web;
 
 use std::process::ExitCode;
 
@@ -93,12 +89,6 @@ enum Command {
 	/// test wrote last. Like `cargo build`, it works on the crate in the
 	/// current directory unless -p names another.
 	Dev(dev::DevArgs),
-	/// Preview a built plugin in the browser, with live controls.
-	///
-	/// Serves a finished .plugin/.aex/.dll and exposes its parameters as live
-	/// controls. No compiler in the loop: this is the `preview` to `dev`'s
-	/// watch loop.
-	Preview(preview::PreviewArgs),
 	/// What `test`, `bench` and `compat` spawn to run a plugin in.
 	#[command(hide = true)]
 	Worker,
@@ -127,7 +117,6 @@ fn main() -> ExitCode {
 		Command::Test(args) => toolkit::cmd_test(args),
 		Command::Check(args) => toolkit::cmd_check(args),
 		Command::Dev(args) => report(dev::cmd(args)),
-		Command::Preview(args) => report(preview::cmd(args)),
 		Command::Worker => toolkit::cmd_worker(),
 	}
 }

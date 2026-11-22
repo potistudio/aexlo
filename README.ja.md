@@ -111,7 +111,7 @@ aexlo test --bless                 # 参照画像を保存。以降は `aexlo te
 aexlo test --strict                # ガード領域、リーク、チェックアウトの追跡も実施
 aexlo test --fuzz 100              # パラメーターをランダム化し、失敗ケースをプリセットとして出力
 aexlo bench --save-baseline main   # 以降は aexlo bench --baseline main で比較
-aexlo preview build/MyGlow.plugin --preset dot_glow
+aexlo render --preset dot_glow -o dot_glow.png
 aexlo check                        # CI で実行するコマンド（.github/workflows/aexlo-check.yml）
 ```
 
