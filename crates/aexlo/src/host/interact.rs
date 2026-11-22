@@ -8,6 +8,16 @@ use crate::host::app::with_app_host_ffi;
 // Parameter Management
 // ============================================================================
 
+/// How many indices past the declared parameters check out successfully, as
+/// empty `PF_Param_NO_DATA` parameters.
+///
+/// The SDK does not document this; it is inferred from Red Giant Universe
+/// 2026.5. Its pre-render checks out every index up to `num_params + 1`. On an
+/// error it frees that parameter's block but keeps the pointer, and its
+/// pre-render delete callback frees it again, so the effect only works in a
+/// host where both checkouts succeed. Indices beyond these are still errors.
+const TRAILING_PARAMS: usize = 2;
+
 unsafe extern "C" fn checkout_param_stub(
 	effect_ref: PF_ProgPtr,
 	index: PF_ParamIndex,
@@ -43,11 +53,21 @@ unsafe extern "C" fn checkout_param_stub(
 		// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`).
 		let instance = unsafe { instance.as_ref() };
 
-		if index >= instance.param_count() {
-			// The plugin passed this struct uninitialized and reads it back even
-			// after the error (Universe Glow does, then frees whatever handle it
-			// finds). Handing back the stack garbage corrupts the heap, so the
-			// failed checkout reads as an empty parameter.
+		let count = instance.param_count();
+		if (count..count + TRAILING_PARAMS).contains(&index) {
+			// SAFETY: an all-zero `PF_ParamDef` is a valid value of that C struct.
+			let mut empty: PF_ParamDef = unsafe { std::mem::zeroed() };
+			empty.param_type = PF_Param_NO_DATA as PF_ParamType;
+			// SAFETY: `param` is non-null (checked above) and points at the plugin's `PF_ParamDef` slot.
+			unsafe { param.write(empty) };
+			log::debug!("checkout_param: index {index} is past the {count} declared; returning an empty parameter");
+			return PF_Err_NONE;
+		}
+
+		if index >= count {
+			// The plugin passed this struct uninitialized and may read it back
+			// even after the error, so the failed checkout reads as an empty
+			// parameter rather than stack garbage.
 			// SAFETY: `param` is non-null (checked above) and points at the plugin's `PF_ParamDef` slot; `write` doesn't read the uninitialized value.
 			unsafe { param.write(std::mem::zeroed()) };
 			log::debug!(
@@ -251,6 +271,47 @@ mod tests {
 			PF_Err_INVALID_CALLBACK
 		);
 	}
+	#[test]
+	fn checkout_param_answers_the_two_indices_past_the_declared_params() {
+		unsafe extern "C" fn entry(
+			cmd: PF_Cmd,
+			input: *mut PF_InData,
+			_: *mut PF_OutData,
+			_: PF_ParamList,
+			_: *mut PF_LayerDef,
+			_: *mut std::ffi::c_void,
+		) -> PF_Err {
+			if cmd != PF_Cmd_SMART_PRE_RENDER {
+				return PF_Err_NONE;
+			}
+			let input = unsafe { &*input };
+			let checkout = input.inter.checkout_param.unwrap();
+			// As Universe does: probe up to `num_params + 1`, and fail on an error.
+			for past in 0..3 {
+				let mut def = std::mem::MaybeUninit::<PF_ParamDef>::uninit();
+				// SAFETY: a byte fill of this frame's own slot, standing in for stack garbage.
+				unsafe { std::ptr::write_bytes(def.as_mut_ptr(), 0xa5, 1) };
+				let index = input.num_params + past;
+				let err = unsafe { checkout(input.effect_ref, index, 0, 1, 30, def.as_mut_ptr()) };
+				let expected = if past < 2 { PF_Err_NONE } else { PF_Err_INVALID_INDEX };
+				// Written either way, so it is initialised and has no stray handle.
+				let def = unsafe { def.assume_init() };
+				if err != expected || !unsafe { def.u.arb_d.value }.is_null() {
+					return PF_Err_BAD_CALLBACK_PARAM;
+				}
+				if past < 2 && def.param_type != PF_Param_NO_DATA as PF_ParamType {
+					return PF_Err_BAD_CALLBACK_PARAM;
+				}
+			}
+			PF_Err_NONE
+		}
+		let mut instance = unsafe { crate::Host::get().entry_loader(entry) }
+			.size(16, 16)
+			.load()
+			.unwrap();
+		instance.render_with(crate::RenderPath::Smart).unwrap();
+	}
+
 	use crate::host::app::{AppHost, TEST_APP_HOST};
 
 	struct Cancelling;

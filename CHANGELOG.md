@@ -25,6 +25,14 @@ may break the API, and every breaking change is listed below.
   suites, `AcquireSuite` / `ReleaseSuite` and the utility callbacks are now
   reported as suite calls too.
 
+### Fixed
+
+- `PF_CHECKOUT_PARAM` answers the two indices past a plugin's declared
+  parameters with empty parameters. Red Giant Universe effects probe them,
+  and corrupted the heap on smart renders when they failed.
+- The pre-render delete callback now runs for GPU frames too, so their
+  pre-render data no longer leaks.
+
 ## [0.2.0] - 2026-11-18
 
 ### Changed (breaking)

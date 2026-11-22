@@ -389,9 +389,8 @@ impl PluginInstance {
 			self.dispose_pre_render();
 			return Err(AexloError::GpuRenderDeclined);
 		}
-		// The plugin queues its kernels and returns. Those kernels still read the
-		// pre-render block, so it is freed only after the context has drained.
-		// Freeing it here races the GPU and corrupts the heap (Universe Glow).
+		// The plugin queues its kernels and returns. Those kernels may still read
+		// the pre-render block, so it is freed only after the context has drained.
 		let rendered = self.render_smart_gpu();
 		if let Some(ctx) = self.gpu_context.as_mut() {
 			ctx.wait_for_completion();
