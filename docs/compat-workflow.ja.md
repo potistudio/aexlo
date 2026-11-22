@@ -23,24 +23,19 @@ aexlo が動かせるプラグインを増やすための手順です。
 
 ## 0. ベースラインを保存する
 
-aexlo に手を入れる前に CLI をビルドし、各プラグインの現状を記録します。
+作業を始める前に、CLIをビルドし、各プラグインの現状を記録します。
 
 ```bash
-cargo fmt --all -- --check
 cargo build -p aexlo-cli
 mkdir -p target/compat
-target/debug/aexlo compat fixtures/plugins/macos --format json \
+aexlo compat fixtures/plugins/<macos/windows>/<plugin.ext> --format json \
   --save-baseline target/compat/base.json > target/compat/before.json
 ```
 
-フィクスチャはマシンごとにローカルなので、ベースラインもローカルに置き、リポジトリには入れません。
-`target/` は `.gitignore` で git の対象外です。`cargo clean` で消えるので、なくなっていたら保存し直してください。
+## 1. 問題を特定する
 
-## 1. 不足を選ぶ
-
-JSON レポートの `gaps`（テキストレポートでは末尾）には、`missing-suite`・`stub`・`declined` の不足が影響の広い順に並びます。
-`crash`・`timeout`・`invalid` はステータスで、`summary` と各シナリオに出ます。
-これらを合わせたものが TODO リストです。次の順に取り組みます。
+出力されたJSONレポートの `gaps`（テキストレポートでは末尾）には、`missing-suite` / `stub` / `declined` の問題が、影響の広い順に並びます。
+`crash` / `timeout` / `invalid` はステータスとして、`summary` と各シナリオに出力されます。
 
 | 順 | 対象 | 理由 |
 | -- | ---- | ---- |
@@ -51,20 +46,18 @@ JSON レポートの `gaps`（テキストレポートでは末尾）には、`m
 | 5 | `declined` | 呼び出しは提供しているが、その引数には応じない。たいてい小さい |
 | — | `invalid` | aexlo ではなく `compat` の不足。`compat` を直し、別のコミットにする |
 
-**1周で扱う不足は1つ**です。2つ同時だとベースラインの差分が読みにくくなります。
-
 ## 2. 再現し、プラグインの動きを読む
 
 その不足に当たるプラグインとシナリオに `compat` を絞ります。
 
 ```bash
-target/debug/aexlo compat fixtures/plugins/macos/RainyDay.plugin --only "param:#1" --all
+aexlo compat fixtures/plugins/macos/Example.aex --only "param:#1" --all
 ```
 
 次に [`aexlo inspect`](inspect.ja.md) でプラグインを動かし、どの呼び出しをどの引数で行い、結果をどう使うかを見ます。
 
 ```bash
-target/debug/aexlo inspect fixtures/plugins/macos/RainyDay.plugin --format json --script -
+aexlo inspect fixtures/plugins/macos/Example.aex --format json --script -
 # render / set / changed / updateui で呼び出しを起こし、focus #<seq> で掘り下げる。
 ```
 
@@ -72,14 +65,6 @@ target/debug/aexlo inspect fixtures/plugins/macos/RainyDay.plugin --format json 
 `compat` の `last_command` が、落ちた `PF_Cmd_*` を示します。
 `--strict --serial` を付け、そのコマンドの手前までのトレースを `report` と `focus` で読んでから、そのコマンドを送ります。
 TUI なら、落ちた `PF_Cmd_*` とスイート呼び出しを表示します。
-
-読むもの:
-
-- `refs/After Effects SDK - 25.2/`: SDK のヘッダーと SDK Guide の PDF。呼び出しが何をすべきかはここで決まります。
-- `refs/after-effects/after-effects-sys`: Rust の型と構造体のレイアウト。
-- `refs/` にあるプラグインのソース（`aod-AE-plugin`、`F-s-PluginsProjects_forMac`、`BitonicPixelSorterForAE`）。
-  プラグインが結果をどう使うか、つまり呼び出しのどこまでが必要かがわかります。
-- ソースがなければ、プラグインのバイナリを逆アセンブルします（`lipo`、`llvm-objdump`）。
 
 ## 3. 実装する
 
@@ -97,7 +82,7 @@ TUI なら、落ちた `PF_Cmd_*` とスイート呼び出しを表示します�
 
 ## 4. テストする
 
-- スイートの単体テストはそのそばに書きます。
+- スイートの単体テストはスイートのそばに書きます。
 - 実際のプラグインでの動作は `tests/e2e/tests/<plugin>.rs` に書きます。
   フィクスチャは `test_e2e::fixture("<stem>")` で読み込み、`None` ならスキップします。フィクスチャのほとんどはローカルだからです。
 - 呼び出しを誤用するプラグインへの耐性は `tests/misbehave` で確かめます。
@@ -119,24 +104,12 @@ target/debug/aexlo compat fixtures/plugins/macos --format json \
 echo $?
 ```
 
-- 終了コードは 0、`worse` は空でなければなりません。悪化したシナリオは何よりも先に直します。
-- 狙ったシナリオが `better` に入っているはずです。入っていなければ、埋めた不足の後ろに別の不足が隠れていました。
-  それを持って[手順 1](#1-不足を選ぶ) に戻ります。
-
-## 6. コミットする
-
-`AGENTS.md` は、変更のたびにコミットすることを求めています。
-
-- 不足1つにつき1コミットにします。例: `feat(aexlo): serve AEGP Stream Suite v11`。
-  `compat` 自体の修正は別のコミットにします。
-- 利用者から見える変更なら、`CHANGELOG.md` と、英語・日本語（`*.ja.md`）両方のドキュメントを更新します。
-- このループからリリースのタグは打ちません。タグはレビューとマージの後です。
-
-そのあとベースラインを保存し直し（手順 0）、次の不足を選びます。
+- 終了コードは0、`worse` は空でなければなりません。
+- 狙ったシナリオが `better` に入っているはずです。入っていなければ、埋めた不足の後ろに別の不足が隠れています。
 
 ## ループの回し方
 
-- **進み具合を記録する**には、毎周の不足一覧（JSON なら `gaps`、テキストならレポート末尾）を残しておきます。`summary` の件数で aexlo がどこまで来たかがわかります。
-- **並行して回す**なら、不足ごとに worktree を分け、同じスイートに触れない不足を選びます。
-  Cargo はビルドのたびに `target/` の dylib をリンクし直すので、2つのループで同じ `target/` を共有し、ビルドと読み込みを同時に行ってはいけません。
-- **Windows** のフィクスチャは `fixtures/plugins/windows` にあります。プラットフォーム固有の変更なら、`.aex` のプラグインで同じループを回します。
+- 進み具合を記録するには、毎周の不足一覧（JSONなら `gaps`、テキストならレポートの末尾）を残しておきます。`summary` の件数で、aexloがどこまで動いたかがわかります。
+- 作業を並行して回すなら、問題ごとにworktreeを分け、同じスイートに触れない問題を選びます。
+  Cargoはビルドのたびに `target/` のdylibをリンクし直すので、複数のループで同じ `target/` を共有し、ビルドと読み込みを同時に行ってはいけません。
+- Windowsのフィクスチャは `fixtures/plugins/windows` にあります。プラットフォーム固有の変更なら、`.aex` のプラグインで同じループを回します。
