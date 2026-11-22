@@ -437,7 +437,11 @@ unsafe extern "C" fn get_platform_data_impl(effect_ref: PF_ProgPtr, which: PF_Pl
 				PF_Err_NONE
 			}
 			_ => {
-				log::warn!("get_platform_data: unsupported which={}", which);
+				crate::observe::unsupported(
+					crate::observe::UnsupportedKind::Declined,
+					"get_platform_data",
+					format!("which={which}"),
+				);
 				PF_Err_NONE // Return OK for unsupported, as AE does
 			}
 		}

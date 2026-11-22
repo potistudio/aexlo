@@ -172,7 +172,11 @@ unsafe extern "C" fn new_world_of_pixel_format(
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let Some((_, depth)) = layout_of(pixelFormat) else {
-			log::warn!("NewWorldOfPixelFormat: unsupported pixel format {pixelFormat:#x}");
+			crate::observe::unsupported(
+				crate::observe::UnsupportedKind::Declined,
+				"PF_PixelFormatSuite1/NewWorldOfPixelFormat",
+				format!("pixel format {pixelFormat:#x}"),
+			);
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let clamp = |v: A_u_long| v.min(A_long::MAX as A_u_long) as A_long;

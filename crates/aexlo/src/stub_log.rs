@@ -2,7 +2,9 @@
 
 /// Simple logging stub generator
 ///
-/// Creates an FFI-compatible stub function that logs a warning and returns PF_Err_NONE.
+/// Creates an FFI-compatible stub function that reports itself as an
+/// [`UnsupportedKind::Stub`](crate::UnsupportedKind::Stub) (logged as a
+/// warning, and handed to the observer) and returns PF_Err_NONE.
 ///
 /// # Example
 /// ```ignore
@@ -17,7 +19,11 @@ macro_rules! stub_log {
         #[allow(non_snake_case)]
         #[allow(unused_variables)]
         pub unsafe extern "C" fn $fn_name( $( $arg_name : $arg_ty ),* ) -> PF_Err {
-            log::warn!("STUB: {} called", stringify!($fn_name));
+            $crate::observe::unsupported(
+                $crate::observe::UnsupportedKind::Stub,
+                stringify!($fn_name).trim_end_matches("_stub"),
+                "",
+            );
             PF_Err_NONE
         }
     };

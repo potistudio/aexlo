@@ -9,6 +9,11 @@ may break the API, and every breaking change is listed below.
 
 ### Added
 
+- `Observer::unsupported` hears about what the plugin asked for and aexlo
+  does not do (`UnsupportedEvent`, at every `ObserveLevel`): suites or
+  versions it does not serve (`UnsupportedKind::MissingSuite`), host
+  functions it only stubs (`Stub`) and calls it serves but declines for those
+  arguments (`Declined`). They are still logged as warnings.
 - `Loader::observer` installs an `Observer` before `PF_Cmd_GLOBAL_SETUP`, so
   setup commands, the suite calls they make and what they allocate are
   observed too.

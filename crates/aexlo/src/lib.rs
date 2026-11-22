@@ -176,5 +176,5 @@ pub use pixel::{AnyLayer, Depth8, Depth16, Depth32, Layer, LayerError, Pixel, Pi
 /// Observation hooks ([`PluginInstance::set_observer`]).
 pub use observe::{
 	AllocationEvent, AllocationKind, CheckoutEvent, CheckoutKind, CommandEvent, CommandPhase, LiveAllocation,
-	LogObserver, ObserveLevel, Observer, SuiteCallEvent, command_name,
+	LogObserver, ObserveLevel, Observer, SuiteCallEvent, UnsupportedEvent, UnsupportedKind, command_name,
 };

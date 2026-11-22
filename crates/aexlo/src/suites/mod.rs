@@ -532,7 +532,11 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			PF_Err_NONE
 		}
 		_ => {
-			log::warn!("Suite '{}' v{} not found.", suite_name, version);
+			crate::observe::unsupported(
+				crate::observe::UnsupportedKind::MissingSuite,
+				suite_name,
+				format!("v{version}"),
+			);
 			PF_Err_OUT_OF_MEMORY
 		}
 	}

@@ -130,6 +130,39 @@ pub enum CheckoutKind {
 	CheckinParam,
 }
 
+/// What kind of gap in aexlo an [`UnsupportedEvent`] reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum UnsupportedKind {
+	/// `AcquireSuite` for a suite, or a version of one, that aexlo does not
+	/// serve. The plugin got an error and no suite.
+	MissingSuite,
+	/// A host function aexlo only stubs: it reported success without doing
+	/// anything.
+	Stub,
+	/// A host function aexlo serves, but not for these arguments (an unknown
+	/// pixel format, a registration it cannot honor, ...).
+	Declined,
+}
+
+/// The plugin asked for something aexlo does not do: what a plugin that runs
+/// but renders wrong (or not at all) most often hit. Reported at every
+/// [`ObserveLevel`], for calls made on the thread that dispatched the
+/// command.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct UnsupportedEvent {
+	/// What kind of gap this is.
+	pub kind: UnsupportedKind,
+	/// The suite name for [`UnsupportedKind::MissingSuite`] (e.g.
+	/// `"AEGP Mask Suite"`), else the function as `"Suite/Function"` (or the
+	/// callback's name).
+	pub name: String,
+	/// Which version or argument was not served, e.g. `"v6"` or
+	/// `"which=7"`; empty when the name says it all.
+	pub detail: String,
+}
+
 /// A host allocation the plugin still holds, as listed by
 /// [`PluginInstance::allocations`](crate::PluginInstance::allocations).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,6 +194,8 @@ pub trait Observer: Send + Sync {
 	fn allocation(&self, _event: &AllocationEvent) {}
 	/// The plugin checked a layer or parameter out or in.
 	fn checkout(&self, _event: &CheckoutEvent) {}
+	/// The plugin asked for something aexlo does not do.
+	fn unsupported(&self, _event: &UnsupportedEvent) {}
 }
 
 /// An [`Observer`] that logs every event at `debug` level through the `log`
@@ -199,6 +234,10 @@ impl Observer for LogObserver {
 
 	fn checkout(&self, event: &CheckoutEvent) {
 		log::debug!("{:?} #{}", event.kind, event.id);
+	}
+
+	fn unsupported(&self, event: &UnsupportedEvent) {
+		log::debug!("unsupported ({:?}): {} {}", event.kind, event.name, event.detail);
 	}
 }
 
@@ -254,35 +293,60 @@ thread_local! {
 	/// asked for [`ObserveLevel::Calls`]: suite callbacks without an
 	/// `effect_ref` (and the ones that have one) are attributed through it.
 	static CALLS: RefCell<Option<Arc<dyn Observer>>> = const { RefCell::new(None) };
+	/// The observer of the command being dispatched on this thread, at any
+	/// level: it hears about [`UnsupportedEvent`]s.
+	static ANY: RefCell<Option<Arc<dyn Observer>>> = const { RefCell::new(None) };
 	/// Whether that observer asked for [`ObserveLevel::Arguments`].
 	static DETAILS: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Make `observer` the target of suite-call events on this thread until the
+/// Make `installed` the observer of this thread's host callbacks until the
 /// returned guard drops, restoring whatever was there (commands nest: a
-/// plugin's setup may trigger an arbitrary-data callback). `details` asks
-/// for arguments too.
-pub(crate) fn enter_calls(observer: Option<Arc<dyn Observer>>, details: bool) -> CallsGuard {
-	let details = details && observer.is_some();
-	let previous = CALLS.with(|c| std::mem::replace(&mut *c.borrow_mut(), observer));
-	let previous_details = DETAILS.with(|d| d.replace(details));
+/// plugin's setup may trigger an arbitrary-data callback). Suite calls reach
+/// it only at [`ObserveLevel::Calls`] and above.
+pub(crate) fn enter(installed: Option<&Installed>) -> CallsGuard {
+	let any = installed.map(|i| i.observer.clone());
+	let calls = installed
+		.filter(|i| i.level >= ObserveLevel::Calls)
+		.map(|i| i.observer.clone());
+	let details = installed.is_some_and(|i| i.level >= ObserveLevel::Arguments);
 	CallsGuard {
-		previous,
-		previous_details,
+		previous_any: ANY.with(|a| std::mem::replace(&mut *a.borrow_mut(), any)),
+		previous: CALLS.with(|c| std::mem::replace(&mut *c.borrow_mut(), calls)),
+		previous_details: DETAILS.with(|d| d.replace(details)),
 	}
 }
 
 pub(crate) struct CallsGuard {
+	previous_any: Option<Arc<dyn Observer>>,
 	previous: Option<Arc<dyn Observer>>,
 	previous_details: bool,
 }
 
 impl Drop for CallsGuard {
 	fn drop(&mut self) {
+		let previous_any = self.previous_any.take();
+		ANY.with(|a| *a.borrow_mut() = previous_any);
 		let previous = self.previous.take();
 		CALLS.with(|c| *c.borrow_mut() = previous);
 		DETAILS.with(|d| d.set(self.previous_details));
 	}
+}
+
+/// Report that the plugin asked for something aexlo does not do: logged as
+/// a warning, and handed to this thread's observer.
+pub(crate) fn unsupported(kind: UnsupportedKind, name: impl Into<String>, detail: impl Into<String>) {
+	let event = UnsupportedEvent {
+		kind,
+		name: name.into(),
+		detail: detail.into(),
+	};
+	log::warn!("unsupported ({:?}): {} {}", event.kind, event.name, event.detail);
+	ANY.with(|a| {
+		if let Some(observer) = a.borrow().as_ref() {
+			observer.unsupported(&event);
+		}
+	});
 }
 
 /// Whether this thread's observer wants arguments, so `diag!` should format
@@ -345,6 +409,17 @@ mod tests {
 				.unwrap()
 				.push(format!("{}::{}", event.suite, event.function));
 		}
+
+		fn unsupported(&self, event: &UnsupportedEvent) {
+			self.0
+				.lock()
+				.unwrap()
+				.push(format!("{:?} {} {}", event.kind, event.name, event.detail));
+		}
+	}
+
+	fn installed(observer: Arc<Recorder>, level: ObserveLevel) -> Installed {
+		Installed { observer, level }
 	}
 
 	#[test]
@@ -358,10 +433,10 @@ mod tests {
 		let recorder = Arc::new(Recorder::default());
 		suite_call("Ignored/Before");
 		{
-			let _guard = enter_calls(Some(recorder.clone()), false);
+			let _guard = enter(Some(&installed(recorder.clone(), ObserveLevel::Calls)));
 			suite_call("PF_WorldSuite2/PF_NewWorld");
 			{
-				let _inner = enter_calls(None, true);
+				let _inner = enter(None);
 				assert!(!wants_details(), "no observer, no details");
 				suite_call("Ignored/Nested");
 			}
@@ -371,6 +446,30 @@ mod tests {
 		assert_eq!(
 			*recorder.0.lock().unwrap(),
 			["PF_WorldSuite2::PF_NewWorld", "PF_HandleSuite1::host_new_handle"]
+		);
+	}
+
+	#[test]
+	fn unsupported_reaches_an_observer_at_every_level() {
+		let recorder = Arc::new(Recorder::default());
+		unsupported(UnsupportedKind::Stub, "Ignored/Before", "");
+		{
+			let _guard = enter(Some(&installed(recorder.clone(), ObserveLevel::Commands)));
+			suite_call("Ignored/NotAtCommands");
+			unsupported(UnsupportedKind::MissingSuite, "AEGP Mask Suite", "v6");
+			{
+				let _inner = enter(None);
+				unsupported(UnsupportedKind::Stub, "Ignored/Nested", "");
+			}
+			unsupported(UnsupportedKind::Declined, "PF_WorldSuite2/PF_NewWorld", "format=7");
+		}
+		unsupported(UnsupportedKind::Stub, "Ignored/After", "");
+		assert_eq!(
+			*recorder.0.lock().unwrap(),
+			[
+				"MissingSuite AEGP Mask Suite v6",
+				"Declined PF_WorldSuite2/PF_NewWorld format=7"
+			]
 		);
 	}
 }
