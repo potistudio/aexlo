@@ -40,15 +40,16 @@ macOS arm64、aexlo v0.3.0、2026-11-23 に
 | Circle-Repeater            |  56 |  53 |  3 | 8, 16, 32 | あり | なし |
 | Cosmic                     | 112 | 112 |  0 | 8, 16, 32 | あり | あり |
 | DisplacerPro               | 106 | 101 |  5 | 8, 32 | あり | なし |
+| Falloff                    | 149 | 149 |  0 | 8, 16, 32 | あり | あり |
 | RXXR                       | 767 | 764 |  3 | 8, 16, 32 | あり | なし |
 | SDK_Noise                  |  23 |  20 |  3 | 8, 16, 32 | あり | なし |
 | TextGrad                   | 535 | 525 | 10 | 8, 32 | あり | なし |
 
-合計 3,862 シナリオ（3,781 `ok`、81 `n/a`）です。
+合計 4,011 シナリオ（3,930 `ok`、81 `n/a`）です。
 
 ## まだ一覧にないプラグイン
 
-フィクスチャディレクトリにある残り 8 プラグインは、次のいずれかに当たります。
+フィクスチャディレクトリにある残り 7 プラグインは、次のいずれかに当たります。
 いずれも aexlo 側の不足か、インストールされていないフィクスチャによるもので、
 プラグイン自体が誤っていると分かっているわけではありません。
 
@@ -60,7 +61,6 @@ macOS arm64、aexlo v0.3.0、2026-11-23 に
 | AnimatedNoise       |  97.4% | `PF_Cmd_SMART_RENDER` で `crash` ×1 |
 | FillColor           |  96.0% | `PF_Cmd_SMART_RENDER` で `crash` ×1 |
 | AOD_MobiusTransform |  19.6% | `PF_Cmd_SMART_RENDER` と `PF_Cmd_RENDER` で `crash` ×37 |
-| Falloff             |   5.4% | `partial` ×141、`AEGP Effect Suite` v5 が不足 |
 | AutoFill2           |       — | 読み込めない: バンドルにバイナリがない |
 
 不足を 1 つずつ埋める手順は [compat-workflow.ja.md](compat-workflow.ja.md) にあります。

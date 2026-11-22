@@ -7,6 +7,13 @@ may break the API, and every breaking change is listed below.
 
 ## [Unreleased]
 
+### Added
+
+- `AEGP Effect Suite` v5. It is v4 plus `AEGP_GetIsInternalEffect`, which
+  takes an installed-effect key and is refused like the rest of the
+  installed-effect registry. Falloff needs v5 to free its effect handle in
+  `PF_Cmd_SMART_PRE_RENDER`.
+
 ### Fixed
 
 - `PF_Cmd_SMART_PRE_RENDER` hands the plugin a `GuidMixInPtr` callback in

@@ -191,6 +191,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	effect2: effect::create_effect_suite_2(),
 	effect3: effect::create_effect_suite_3(),
 	effect4: effect::create_effect_suite_4(),
+	effect5: effect::create_effect_suite_5(),
 	color_settings: color_settings::create_color_settings_suite_2(),
 	light: layer::create_light_suite_1(),
 	text_layer: text_layer::suite_1(),
@@ -267,6 +268,7 @@ pub struct SuiteContainer {
 	pub effect2: AEGP_EffectSuite2,
 	pub effect3: AEGP_EffectSuite3,
 	pub effect4: AEGP_EffectSuite4,
+	pub effect5: AEGP_EffectSuite5,
 	pub color_settings: AEGP_ColorSettingsSuite2,
 	pub light: AEGP_LightSuite1,
 	pub text_layer: AEGP_TextLayerSuite1,
@@ -427,11 +429,13 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("AEGP Keyframe Suite", 4) => dispatch_static!(suite, suite_name, version, keyframe),
 		("AEGP Keyframe Suite", 5) => dispatch_static!(suite, suite_name, version, keyframe5),
 		// Effect Suite v1 is v2 without DuplicateEffect. v3 adds the command
-		// argument to EffectCallGeneric; v4 appends the effect-mask calls.
+		// argument to EffectCallGeneric; v4 appends the effect-mask calls and
+		// v5 appends GetIsInternalEffect.
 		("AEGP Effect Suite", 1) => dispatch_static!(suite, suite_name, version, effect1),
 		("AEGP Effect Suite", 2) => dispatch_static!(suite, suite_name, version, effect2),
 		("AEGP Effect Suite", 3) => dispatch_static!(suite, suite_name, version, effect3),
 		("AEGP Effect Suite", 4) => dispatch_static!(suite, suite_name, version, effect4),
+		("AEGP Effect Suite", 5) => dispatch_static!(suite, suite_name, version, effect5),
 		("PF Color Settings Suite", v) if v == kAEGPColorSettingsSuiteVersion2 as i32 => {
 			dispatch_static!(suite, suite_name, version, color_settings)
 		}
@@ -677,6 +681,7 @@ mod tests {
 			("AEGP Effect Suite", 2),
 			("AEGP Effect Suite", 3),
 			("AEGP Effect Suite", 4),
+			("AEGP Effect Suite", 5),
 			("AEGP Iterate Suite", 1),
 			("AEGP Layer Suite", 8),
 			("AEGP Layer Suite", 11),

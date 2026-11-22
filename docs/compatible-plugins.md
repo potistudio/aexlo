@@ -40,15 +40,16 @@ plugins in `fixtures/plugins/macos`:
 | Circle-Repeater            |  56 |  53 |  3 | 8, 16, 32 | yes | no |
 | Cosmic                     | 112 | 112 |  0 | 8, 16, 32 | yes | yes |
 | DisplacerPro               | 106 | 101 |  5 | 8, 32 | yes | no |
+| Falloff                    | 149 | 149 |  0 | 8, 16, 32 | yes | yes |
 | RXXR                       | 767 | 764 |  3 | 8, 16, 32 | yes | no |
 | SDK_Noise                  |  23 |  20 |  3 | 8, 16, 32 | yes | no |
 | TextGrad                   | 535 | 525 | 10 | 8, 32 | yes | no |
 
-That is 3,862 scenarios: 3,781 `ok` and 81 `n/a`.
+That is 4,011 scenarios: 3,930 `ok` and 81 `n/a`.
 
 ## Not on the list yet
 
-The other eight plugins in the fixture directory fall short in one of these
+The other seven plugins in the fixture directory fall short in one of these
 ways. Each is a gap in aexlo, or a fixture that is not installed, not a
 plugin that is known to be wrong.
 
@@ -60,7 +61,6 @@ plugin that is known to be wrong.
 | AnimatedNoise         |  97.4% | `crash` ×1 in `PF_Cmd_SMART_RENDER` |
 | FillColor             |  96.0% | `crash` ×1 in `PF_Cmd_SMART_RENDER` |
 | AOD_MobiusTransform   |  19.6% | `crash` ×37 in `PF_Cmd_SMART_RENDER` and `PF_Cmd_RENDER` |
-| Falloff               |   5.4% | `partial` ×141, missing `AEGP Effect Suite` v5 |
 | AutoFill2             |       — | does not load: the binary is missing from the bundle |
 
 The loop that closes one of these is in
