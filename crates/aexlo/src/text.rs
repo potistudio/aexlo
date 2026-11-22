@@ -38,8 +38,10 @@ pub struct TextStyle {
 	/// Distance between baselines, in pixels. `None` uses the font's own
 	/// line spacing.
 	pub leading: Option<f32>,
-	/// Where the first line's baseline starts, in layer pixels. `None` centres
-	/// the text block on the layer.
+	/// Where the text block starts, in layer pixels: the left edge of its
+	/// widest line, on the first line's baseline. Lines are centred on the
+	/// widest, so a narrower first line starts to the right of it. `None`
+	/// centres the block on the layer.
 	pub position: Option<(f32, f32)>,
 }
 
