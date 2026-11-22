@@ -441,10 +441,12 @@ impl PluginInstance {
 	}
 
 	/// Give every arbitrary-data parameter a value, as After Effects does when
-	/// the effect is applied: the plugin allocates it through
-	/// `PF_Cmd_ARBITRARY_CALLBACK` (`PF_Arbitrary_NEW_FUNC`, or a
-	/// `PF_Arbitrary_COPY_FUNC` of the default). Plugins dereference the value
-	/// handle they check out, so leaving it null crashes them.
+	/// the effect is applied: the parameter starts at its default, so the
+	/// plugin copies `dephault` through `PF_Cmd_ARBITRARY_CALLBACK`
+	/// (`PF_Arbitrary_COPY_FUNC`). Without a default, or when the copy fails,
+	/// it allocates one through `PF_Arbitrary_NEW_FUNC`. Plugins dereference the
+	/// value handle they check out, so leaving it null crashes them; and some
+	/// (TextGrad) make `NEW_FUNC` an empty placeholder, so the default must win.
 	fn setup_arbitrary_params(&mut self) {
 		for index in 0..self.params.len() {
 			if self.params[index].param_type != PF_Param_ARBITRARY_DATA as PF_ParamType {
@@ -457,15 +459,7 @@ impl PluginInstance {
 			}
 
 			let mut value: PF_ArbitraryH = null_mut();
-			// SAFETY: `PF_ArbParamsExtra` is a plain C struct (integers, raw pointers, unions of those), for which all-zero bytes are a valid value.
-			let mut extra: PF_ArbParamsExtra = unsafe { std::mem::zeroed() };
-			extra.which_function = PF_Arbitrary_NEW_FUNC as _;
-			extra.id = arb.id;
-			extra.u.new_func_params.refconPV = arb.refconPV;
-			extra.u.new_func_params.arbPH = &mut value;
-			let created = self.call_plugin(RawCommand::ArbitraryCallback, &mut extra as *mut _ as *mut c_void);
-
-			if (created.is_err() || value.is_null()) && !arb.dephault.is_null() {
+			if !arb.dephault.is_null() {
 				// SAFETY: `PF_ArbParamsExtra` is a plain C struct (integers, raw pointers, unions of those), for which all-zero bytes are a valid value.
 				let mut extra: PF_ArbParamsExtra = unsafe { std::mem::zeroed() };
 				extra.which_function = PF_Arbitrary_COPY_FUNC as _;
@@ -475,6 +469,20 @@ impl PluginInstance {
 				extra.u.copy_func_params.dst_arbPH = &mut value;
 				if let Err(err) = self.call_plugin(RawCommand::ArbitraryCallback, &mut extra as *mut _ as *mut c_void) {
 					log::warn!("arbitrary param #{index}: copying the default failed: {err:?}");
+					value = null_mut();
+				}
+			}
+
+			if value.is_null() {
+				// SAFETY: `PF_ArbParamsExtra` is a plain C struct (integers, raw pointers, unions of those), for which all-zero bytes are a valid value.
+				let mut extra: PF_ArbParamsExtra = unsafe { std::mem::zeroed() };
+				extra.which_function = PF_Arbitrary_NEW_FUNC as _;
+				extra.id = arb.id;
+				extra.u.new_func_params.refconPV = arb.refconPV;
+				extra.u.new_func_params.arbPH = &mut value;
+				if let Err(err) = self.call_plugin(RawCommand::ArbitraryCallback, &mut extra as *mut _ as *mut c_void) {
+					log::warn!("arbitrary param #{index}: creating a value failed: {err:?}");
+					value = null_mut();
 				}
 			}
 

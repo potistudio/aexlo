@@ -25,6 +25,14 @@ may break the API, and every breaking change is listed below.
   suites, `AcquireSuite` / `ReleaseSuite` and the utility callbacks are now
   reported as suite calls too.
 
+### Fixed
+
+- An arbitrary-data parameter starts as a copy of its default
+  (`PF_Arbitrary_COPY_FUNC` of `dephault`), as in After Effects, and falls back
+  to `PF_Arbitrary_NEW_FUNC` only without a default or when the copy fails.
+  Plugins whose `NEW_FUNC` makes an empty placeholder (TextGrad's gradient)
+  rendered nothing.
+
 ## [0.2.0] - 2026-11-18
 
 ### Changed (breaking)
