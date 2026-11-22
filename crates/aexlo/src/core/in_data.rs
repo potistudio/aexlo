@@ -202,8 +202,8 @@ pub(crate) fn compose(
 	in_data.time_scale = render.time_scale;
 	// The layer is as long as the one the AEGP suites report. Plugins divide by
 	// this (transitions, for their progress), so it must not be zero.
-	in_data.total_time = A_long::try_from(i64::from(COMP_DURATION_SECONDS) * i64::from(render.time_scale))
-		.unwrap_or(A_long::MAX);
+	in_data.total_time =
+		A_long::try_from(i64::from(COMP_DURATION_SECONDS) * i64::from(render.time_scale)).unwrap_or(A_long::MAX);
 	in_data.field = render.field;
 	in_data.downsample_x = render.downsample_x;
 	in_data.downsample_y = render.downsample_y;
