@@ -374,3 +374,92 @@ fn source_text_holds_between_its_keys() {
 	});
 	assert_eq!(read, ["first", "two\rlines"]);
 }
+
+/// A legacy effect that fills its output with the slider's value: red as the
+/// `params` array has it, green as a checkout at the current time has it.
+unsafe extern "C" fn painter(
+	cmd: PF_Cmd,
+	input: *mut PF_InData,
+	_output: *mut PF_OutData,
+	params: PF_ParamList,
+	world: *mut PF_LayerDef,
+	_extra: *mut std::ffi::c_void,
+) -> PF_Err {
+	if cmd == PF_Cmd_RENDER as PF_Cmd {
+		// SAFETY: during a render the host passes its parameters and an 8-bit
+		// world of `height` rows, `rowbytes` apart.
+		unsafe {
+			let input = &*input;
+			let mut def: PF_ParamDef = std::mem::zeroed();
+			input.inter.checkout_param.unwrap()(
+				input.effect_ref,
+				SLIDER as _,
+				input.current_time,
+				input.time_step,
+				input.time_scale,
+				&mut def,
+			);
+			let in_array = (**params.add(SLIDER)).u.fs_d.value;
+			let pixel = PF_Pixel {
+				alpha: 255,
+				red: in_array.round() as u8,
+				green: def.u.fs_d.value.round() as u8,
+				blue: 0,
+			};
+			let world = &*world;
+			for y in 0..world.height as usize {
+				let row = world
+					.data
+					.cast::<u8>()
+					.add(y * world.rowbytes as usize)
+					.cast::<PF_Pixel>();
+				for x in 0..world.width as usize {
+					row.add(x).write(pixel);
+				}
+			}
+		}
+	}
+	PF_Err_NONE
+}
+
+#[test]
+fn parallel_renders_each_show_their_own_time() {
+	let start = std::sync::Arc::new(std::sync::Barrier::new(6));
+	let threads: Vec<_> = (1..=6)
+		.map(|thread| {
+			let start = start.clone();
+			std::thread::spawn(move || {
+				// SAFETY: `painter` has the effect entry point's signature.
+				let mut fx = unsafe { crate::Host::get().entry_loader(painter) }
+					.size(64, 32)
+					.load()
+					.unwrap();
+				// SAFETY: a parameter definition is plain old data.
+				let mut def: PF_ParamDef = unsafe { std::mem::zeroed() };
+				def.param_type = PF_Param_FLOAT_SLIDER as PF_ParamType;
+				fx.add_instance_param(def);
+				let end = f64::from(thread) * 40.0;
+				let track = Track::keyed(vec![
+					Keyframe::linear(at(0, 1), ParamValue::Float(0.0)),
+					Keyframe::linear(at(2, 1), ParamValue::Float(end)),
+				]);
+				fx.set_param_track(SLIDER, track.unwrap()).unwrap();
+				start.wait();
+				(0..90)
+					.map(|step| {
+						let frame = step * 37 % 80 - 10;
+						fx.set_time(Time::frame(frame, 30));
+						fx.render_with(crate::RenderPath::Legacy).unwrap();
+						let mut out = vec![0; 64 * 32 * 4];
+						fx.write_output_rgba8(&mut out).unwrap();
+						let expected = (end * f64::from(frame.clamp(0, 60)) / 60.0).round() as u8;
+						out.chunks(4).all(|pixel| pixel == [expected, expected, 0, 255])
+					})
+					.collect::<Vec<bool>>()
+			})
+		})
+		.collect();
+	for thread in threads {
+		assert_eq!(thread.join().unwrap(), [true; 90], "every render showed its own value");
+	}
+}
