@@ -25,4 +25,6 @@ The application lists plugins in `fixtures/plugins/macos/` or `fixtures/plugins/
 
 The UI exposes supported parameter types, including numeric and boolean controls. It may not expose every parameter of an arbitrary plugin. The implementation starts in [src/main.rs](src/main.rs).
 
+Closing the window tears the plugin down. On Windows the process then ends without running the DLL detach of plugins that stay loaded, which can hang or crash, as with the `aexlo` command.
+
 For multiple layers and file export, try [studio](../studio/README.md). To inspect host API responses, use the [verification playground](../../playground/README.md).
