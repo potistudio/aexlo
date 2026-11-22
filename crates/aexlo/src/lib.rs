@@ -91,6 +91,7 @@
 // crate-wide keeps the FFI surface readable without per-item annotations.
 #![allow(non_snake_case)]
 
+mod animation;
 mod core;
 mod flags;
 mod gpu;
@@ -113,6 +114,9 @@ pub(crate) mod suites;
 pub use core::error::{AexloError, Result};
 pub use instance::{CustomControlEvent, CustomControlImage, InstanceState, Loader, PluginInstance, RenderPath};
 pub use time::Time;
+
+/// Values over time: keyframes, and the evaluator every API reads them with.
+pub use animation::{Animate, Interpolation, Keyframe, TimePoint, Track};
 
 /// Window plugins should treat as After Effects' main window
 /// (`PF_PlatData_MAIN_WND`).
