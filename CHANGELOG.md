@@ -30,6 +30,8 @@ may break the API, and every breaking change is listed below.
 - `PF_CHECKOUT_PARAM` answers the two indices past a plugin's declared
   parameters with empty parameters. Red Giant Universe effects probe them,
   and corrupted the heap on smart renders when they failed.
+- `PF_InData::total_time` is the synthetic layer's duration instead of 0,
+  which made effects that divide by it render with NaNs or crash.
 - The pre-render delete callback now runs for GPU frames too, so their
   pre-render data no longer leaks.
 

@@ -68,7 +68,7 @@ mod helper;
 pub mod interface;
 pub mod iterate;
 mod keyframe;
-mod layer;
+pub(crate) mod layer;
 pub(crate) use layer::enter_effect;
 pub mod macros;
 pub mod param_utils;

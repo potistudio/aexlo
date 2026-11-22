@@ -10,6 +10,7 @@
 //! - [`RenderContext`]: the frame being processed (size, time, downsampling).
 
 use crate::core::constants::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
+use crate::suites::layer::COMP_DURATION_SECONDS;
 use crate::sys::*;
 use std::ptr::null_mut;
 
@@ -199,6 +200,10 @@ pub(crate) fn compose(
 	in_data.time_step = render.time_step;
 	in_data.local_time_step = render.local_time_step;
 	in_data.time_scale = render.time_scale;
+	// The layer is as long as the one the AEGP suites report. Plugins divide by
+	// this (transitions, for their progress), so it must not be zero.
+	in_data.total_time = A_long::try_from(i64::from(COMP_DURATION_SECONDS) * i64::from(render.time_scale))
+		.unwrap_or(A_long::MAX);
 	in_data.field = render.field;
 	in_data.downsample_x = render.downsample_x;
 	in_data.downsample_y = render.downsample_y;
@@ -210,4 +215,29 @@ pub(crate) fn compose(
 	in_data.num_params = bindings.num_params;
 
 	in_data
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn total_time_is_the_synthetic_layer_duration() {
+		let host = HostInfo::new(crate::host::interact::create_interact_callbacks());
+		let mut render = RenderContext::default();
+		let total_time = |render: &RenderContext| {
+			let bindings = CallBindings {
+				effect_ref: null_mut(),
+				utils: null_mut(),
+				pica: null_mut(),
+				num_params: 1,
+			};
+			compose(&host, &EffectState::default(), render, bindings).total_time
+		};
+		assert_eq!(total_time(&render), COMP_DURATION_SECONDS * 30);
+		render.set_time(0, 1001, 24000);
+		assert_eq!(total_time(&render), COMP_DURATION_SECONDS * 24000);
+		render.set_time(0, 1, A_long::MAX as A_u_long);
+		assert_eq!(total_time(&render), A_long::MAX, "saturates rather than wrapping");
+	}
 }
