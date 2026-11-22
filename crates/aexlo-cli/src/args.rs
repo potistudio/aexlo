@@ -3,7 +3,6 @@
 
 use std::path::PathBuf;
 
-use aexlo::PluginInstance;
 use anyhow::{Context, Result};
 
 /// Resolve a user-supplied plugin argument to a loadable path.
@@ -27,8 +26,7 @@ pub fn resolve_plugin(arg: &str) -> PathBuf {
 }
 
 /// Resolve a plugin argument to an artifact on disk, building it first when the
-/// argument is a crate directory. This is the path half of [`load`], split out
-/// for `bench`, which loads each plugin itself (once per measurement).
+/// argument is a crate directory.
 pub fn resolve_artifact(plugin_arg: &str) -> Result<PathBuf> {
 	let path = resolve_plugin(plugin_arg);
 	if path.is_dir() {
@@ -38,16 +36,6 @@ pub fn resolve_artifact(plugin_arg: &str) -> Result<PathBuf> {
 		}
 	}
 	Ok(path)
-}
-
-/// Load a plugin artifact, or - if `plugin_arg` is a crate directory - build
-/// its cdylib first. This is what lets `render`/`about`/`params` take either
-/// a prebuilt `.plugin`/`.aex`/`.dll` or a crate's source directory directly.
-pub fn load(plugin_arg: &str) -> Result<PluginInstance> {
-	let path = resolve_artifact(plugin_arg)?;
-	aexlo::Host::get()
-		.load(&path)
-		.with_context(|| format!("loading plugin {}", path.display()))
 }
 
 /// Resolve `-p <package>` (or, if absent, the crate in the current directory)

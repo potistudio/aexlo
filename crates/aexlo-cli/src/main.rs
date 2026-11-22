@@ -31,13 +31,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-	/// Print the plugin's ABOUT text.
-	About(info::PluginArgs),
-	/// List the plugin's parameters.
+	/// Show what the plugin says about itself.
 	///
-	/// Prints each one's index, name, kind and value, whether it is hidden,
-	/// and its UI flags.
-	Params(info::PluginArgs),
+	/// Its PiPL resource, its ABOUT text, the version and flags it declares at
+	/// GLOBAL_SETUP (beside the PiPL's, with the bits that differ marked) and
+	/// its parameters. With no section flag, every section; if the plugin
+	/// fails to load, the PiPL is still printed, then the error.
+	#[command(after_help = PLUGIN_ARG)]
+	Info(info::InfoArgs),
 	/// Render a frame and write it to a PNG or EXR.
 	#[command(after_help = PLUGIN_ARG)]
 	Render(render::RenderArgs),
@@ -97,9 +98,9 @@ enum Command {
 /// What a `<PLUGIN>` argument may be.
 const PLUGIN_ARG: &str = "\
 <PLUGIN> is a path to the plugin (.plugin, .aex, .dll), or a bare name the \
-platform's extension is added to (SDK_Noise -> SDK_Noise.plugin). about, \
-params, render, inspect and bench also take a crate directory (with \
-a Cargo.toml) and build its cdylib first.";
+platform's extension is added to (SDK_Noise -> SDK_Noise.plugin). info, \
+render, inspect and bench also take a crate directory (with a Cargo.toml) \
+and build its cdylib first.";
 
 fn main() -> ExitCode {
 	let _ = env_logger::try_init();
@@ -107,8 +108,7 @@ fn main() -> ExitCode {
 	let mut command = whole_descriptions(Cli::command());
 	let cli = Cli::from_arg_matches(&command.get_matches_mut()).unwrap_or_else(|err| err.format(&mut command).exit());
 	match cli.command {
-		Command::About(args) => report(info::about(args)),
-		Command::Params(args) => report(info::params(args)),
+		Command::Info(args) => report(info::run(args)),
 		Command::Render(args) => report(render::run(args)),
 		Command::Inspect(args) => report(inspect::run(args)),
 		Command::Bench(args) => bench::cmd(args),

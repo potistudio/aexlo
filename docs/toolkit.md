@@ -75,7 +75,7 @@ Today the pieces exist but do not share an input format:
 | `aexlo-harness` | `preset` (manifest model, `inherits`, matrix expansion, application), `run` (in-process and worker), `frame`, `check`, `golden`, `bench` timing loop. | new |
 | `aexlo-test`    | The single dev-dependency for Rust plugin crates: re-exports the macros plus `Frame` assertions. | new |
 | `aexlo-bench`   | criterion benches; becomes a thin layer over `aexlo_harness::bench`.                        | existing |
-| `aexlo-cli`     | `aexlo` binary: `test`, `bench`, `check`, `presets`, `compat`, `inspect`, `worker`, plus the existing `render`/`about`/`params`/`dev`. | existing |
+| `aexlo-cli`     | `aexlo` binary: `test`, `bench`, `check`, `presets`, `compat`, `inspect`, `worker`, plus the existing `render`/`info`/`dev`. | existing |
 
 Dependency direction is strictly downward: `cli → harness → aexlo`,
 `aexlo-test → harness`, `aexlo-bench → harness`. Nothing below `harness`

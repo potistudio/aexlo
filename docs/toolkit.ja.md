@@ -65,7 +65,7 @@ aexlo は、すでに実際の After Effects プラグインを AE の外で実�
 | `aexlo-harness` | `preset`（マニフェストのモデル、`inherits`、マトリクスの展開、適用）、`run`（プロセス内とワーカー）、`frame`、`check`、`golden`、`bench` の計測ループ。 | 新規 |
 | `aexlo-test` | Rust プラグインクレートに追加する唯一の開発用依存関係。マクロと `Frame` のアサーションを再エクスポートします。 | 新規 |
 | `aexlo-bench` | criterion のベンチマーク。`aexlo_harness::bench` 上の薄い層になります。 | 既存 |
-| `aexlo-cli` | `aexlo` バイナリ。`test`、`bench`、`check`、`presets`、`compat`、`inspect`、`worker` と、既存の `render` / `about` / `params` / `dev`。 | 既存 |
+| `aexlo-cli` | `aexlo` バイナリ。`test`、`bench`、`check`、`presets`、`compat`、`inspect`、`worker` と、既存の `render` / `info` / `dev`。 | 既存 |
 
 依存の向きは厳密に下方向です。`cli → harness → aexlo`、`aexlo-test → harness`、`aexlo-bench → harness` となり、`harness` より下の層はマニフェストを扱いません。
 

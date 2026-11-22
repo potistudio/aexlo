@@ -121,6 +121,16 @@ aexlo check                        # CI で実行するコマンド（.github/wo
 各バリアントはワーカープロセスで実行されるため、プラグインがクラッシュしても、その実行だけが失敗します。
 Rust プラグインでは `aexlo-test` を開発用依存関係に追加すると、フレームのアサーションを伴うプロセス内の `#[aexlo_test::test]` を利用できます。
 
+レンダリングせずにプラグインの宣言内容を見るには `info` を使います。
+
+```bash
+aexlo info MyGlow             # PiPL、ABOUT テキスト、フラグ、パラメーター
+aexlo info MyGlow --flags     # GLOBAL_SETUP のバージョンとフラグを PiPL と並べる
+```
+
+`--flags` は GLOBAL_SETUP と PiPL で食い違うビット（After Effects が警告するもの）に印を付けます。
+`--pipl` はプラグインを読み込まずにリソースだけを読みます。
+
 プラグインの動作を調べるには、ターミナル UI のプロンプトからコマンドを実行します。
 
 ```bash

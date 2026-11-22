@@ -215,6 +215,8 @@ pub struct PluginInstance {
 	global_out_flags: PF_OutFlags,
 	/// `out_flags2` as declared at `PF_Cmd_GLOBAL_SETUP`.
 	global_out_flags2: PF_OutFlags2,
+	/// `my_version` as reported at `PF_Cmd_GLOBAL_SETUP`.
+	global_version: crate::sys::A_u_long,
 
 	/// Instance-specific parameters from the host (non-global storage).
 	params: Vec<crate::sys::PF_ParamDef>,
@@ -442,6 +444,13 @@ impl PluginInstance {
 	/// `out_flags2` as the plugin declared them at `PF_Cmd_GLOBAL_SETUP`.
 	pub fn out_flags2(&self) -> crate::OutFlags2 {
 		crate::OutFlags2::from_bits(self.global_out_flags2 as u32)
+	}
+
+	/// The version the plugin reported in `my_version` at
+	/// `PF_Cmd_GLOBAL_SETUP`. After Effects warns when it differs from the
+	/// PiPL's `eVER` ([`Pipl::effect_version`](crate::Pipl::effect_version)).
+	pub fn version(&self) -> crate::EffectVersion {
+		crate::EffectVersion::from_bits(self.global_version)
 	}
 
 	/// Turn strict-mode instrumentation on or off for this instance (see

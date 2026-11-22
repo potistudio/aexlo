@@ -130,6 +130,17 @@ Every variant runs in a worker process, so a crashing plugin fails one run,
 not the suite. Rust plugins add `aexlo-test` as a dev-dependency for
 in-process `#[aexlo_test::test]`s with frame assertions.
 
+To see what a plugin declares without rendering it:
+
+```bash
+aexlo info MyGlow             # PiPL, ABOUT text, flags and parameters
+aexlo info MyGlow --flags     # GLOBAL_SETUP's version and flags beside the PiPL's
+```
+
+`--flags` marks every bit where GLOBAL_SETUP and the PiPL disagree, which
+After Effects warns about; `--pipl` reads the resource without loading the
+plugin.
+
 To see what a plugin does, drive it from a prompt in a terminal UI:
 
 ```bash

@@ -37,6 +37,14 @@ may break the API, and every breaking change is listed below.
   (`TextStyle`) and `TextLayer::rasterize` draws it as the input layer, so
   text effects such as TextGrad render. `AexloError::Font` reports a font that
   cannot be read.
+- `Pipl::read` reads a plugin's PiPL resource without loading it: from a
+  Windows binary's `PIPL` resource, a macOS bundle's `.rsrc` files, a
+  Mach-O binary's `__TEXT,__pipl` section or its resource fork. Each
+  `PiplProperty` decodes to a `PiplValue`, and `Pipl` has accessors for the
+  name, category, match name, entry point, `eVER` (`EffectVersion`) and
+  `eGLO` / `eGL2`. `AexloError::InvalidPipl` reports a malformed one.
+- `PluginInstance::version` returns the `my_version` the plugin reported at
+  `PF_Cmd_GLOBAL_SETUP`, to compare with `Pipl::effect_version`.
 - `PluginInstance::param_button_label` returns the text on a button
   parameter (`PF_ButtonDef`), which plugins often fill in place of the
   parameter's name.
@@ -57,6 +65,8 @@ may break the API, and every breaking change is listed below.
 
 ### Fixed
 
+- On macOS the loader now finds the entry point the PiPL names, as it
+  already did on Windows, before trying the usual symbol names.
 - "AEGP Utility Suite" serves each version at its own layout: v3–7
   (`AEGP_UtilitySuite1`–`3`), v10–11 (`4`–`5`) and v13 (`6`). One table
   served every version from 1 to 18, so a v11 plugin calling

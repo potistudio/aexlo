@@ -78,6 +78,8 @@ fn usage_errors_exit_2() {
 		&["render", "--no-such-flag"],
 		&["render", "x.plugin", "--smart", "--legacy"],
 		&["dev", "--web"],
+		&["about", "x.plugin"],
+		&["info", "x.plugin", "--format", "xml"],
 	] {
 		let out = common::aexlo(args, &dir);
 		assert_eq!(
