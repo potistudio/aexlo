@@ -1,4 +1,4 @@
-//! `--format json`: what `--exec` and `--script` print, as one JSON object
+//! `--json`: what `--exec` and `--script` print, as one JSON object
 //! per line (NDJSON), for agents and scripts.
 //!
 //! Every object has an `event`:

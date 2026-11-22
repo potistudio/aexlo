@@ -546,7 +546,7 @@ aexlo worker                              hidden; §6.2
 
 Common flags: `--manifest <path>`, `--depth 8,16`, `--render smart` (narrow
 the matrix), `--isolate preset|variant|none`, `--jobs <n>` (parallel workers
-for test/check; bench is always 1), `--strict`, `--format human|json`,
+for test/check; bench is always 1), `--strict`, `--json`,
 `--junit <path>`.
 
 `filter` matches variant display ids by substring, or glob when it contains

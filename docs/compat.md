@@ -84,7 +84,7 @@ had. Those are reported once, on `load`.
 | `--jobs <n>` | half the CPUs | Workers at once |
 | `--timeout <s>` | `20` | Seconds per scenario |
 | `--all` | | List every scenario on its own. Without it, only scenarios that are not `ok` or `n/a` are listed, grouped by how they went |
-| `--format json` | text | The report as one JSON document |
+| `--json` | text | The report as one JSON document |
 | `--save-baseline <file>` | | Write each scenario's status |
 | `--baseline <file>` | | Compare with a saved baseline |
 
@@ -112,7 +112,7 @@ Asked for, but not done by aexlo (plugins that asked):
    10  missing-suite AEGP Stream Suite v11  [AOD_ChannelRemap, …, RainyDay]
 ```
 
-`--format json` prints:
+`--json` prints:
 
 ```json
 {
@@ -145,7 +145,7 @@ A scenario also has `message` (why it did not pass) and, for `error`, `crash`
 and `timeout`, `last_command`. `worse` and `better` are only present with
 `--baseline`.
 
-The same gaps appear per run in `aexlo test --format json` (`unsupported`).
+The same gaps appear per run in `aexlo test --json` (`unsupported`).
 In code, they reach `Observer::unsupported` as an `UnsupportedEvent`.
 
 ## 5. Baselines

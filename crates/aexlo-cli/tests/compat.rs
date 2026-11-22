@@ -6,9 +6,9 @@ mod common;
 
 use common::*;
 
-/// `aexlo compat --format json` over `plugin`: the exit code and the report.
+/// `aexlo compat --json` over `plugin`: the exit code and the report.
 fn compat_json(plugin: &std::path::Path, extra: &[&str]) -> (i32, serde_json::Value) {
-	let mut args = vec!["compat", plugin.to_str().unwrap(), "--format", "json", "--timeout", "2"];
+	let mut args = vec!["compat", plugin.to_str().unwrap(), "--json", "--timeout", "2"];
 	args.extend_from_slice(extra);
 	let out = aexlo(&args, &workspace());
 	let stdout = String::from_utf8_lossy(&out.stdout);

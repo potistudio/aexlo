@@ -99,7 +99,7 @@ fn focus_diagnoses_a_call_and_a_failed_command() {
 	assert!(!ok, "{out}");
 }
 
-/// `aexlo inspect <plugin> --format json <args>`, with `stdin` piped in:
+/// `aexlo inspect <plugin> --json <args>`, with `stdin` piped in:
 /// the exit status and one JSON value per stdout line.
 fn inspect_json(scratch: &str, args: &[&str], stdin: &str) -> (bool, Vec<serde_json::Value>) {
 	use std::io::Write;
@@ -109,7 +109,7 @@ fn inspect_json(scratch: &str, args: &[&str], stdin: &str) -> (bool, Vec<serde_j
 		.current_dir(&dir)
 		.arg("inspect")
 		.arg(&plugin)
-		.args(["--format", "json"])
+		.args(["--json"])
 		.args(args)
 		.stdin(std::process::Stdio::piped())
 		.stdout(std::process::Stdio::piped())
@@ -223,6 +223,7 @@ fn script_from_stdin_streams_and_keeps_going_past_a_bad_line() {
 #[test]
 fn json_format_reports_a_missing_plugin_as_an_event() {
 	let dir = common::scratch("inspect_json_missing");
+	// `--format json`, the old spelling of `--json`, still works.
 	let out = common::aexlo(
 		&[
 			"inspect",
@@ -339,7 +340,8 @@ fn help_and_conflicting_scripts() {
 	let out = common::aexlo(&["inspect", "--help"], &dir);
 	assert!(out.status.success());
 	let text = String::from_utf8_lossy(&out.stdout);
-	assert!(text.contains("--format") && text.contains("PLUGIN COMMANDS"), "{text}");
+	assert!(text.contains("--json") && text.contains("PLUGIN COMMANDS"), "{text}");
+	assert!(!text.contains("--format"), "the old spelling stays hidden: {text}");
 
 	let out = common::aexlo(&["inspect", "x", "--exec", "about", "--script", "-"], &dir);
 	assert!(!out.status.success());

@@ -63,12 +63,9 @@ struct PluginArgs {
 	/// gradient]
 	#[arg(short, long, value_name = "PNG")]
 	input: Option<PathBuf>,
-	/// Write the results as CSV
+	/// Also write the results as CSV
 	#[arg(long, value_name = "PATH")]
 	csv: Option<PathBuf>,
-	/// Write the results as JSON
-	#[arg(long, value_name = "PATH")]
-	json: Option<PathBuf>,
 }
 
 impl PluginArgs {
@@ -80,7 +77,6 @@ impl PluginArgs {
 			|| !self.sets.is_empty()
 			|| self.input.is_some()
 			|| self.csv.is_some()
-			|| self.json.is_some()
 	}
 }
 
@@ -100,10 +96,11 @@ pub fn cmd(args: BenchArgs) -> ExitCode {
 	if names_plugins {
 		if preset.is_given() {
 			return toolkit::fail(&Error::invalid(
-				"--isolate, --jobs, --strict, --format and --junit only apply to timing presets",
+				"--isolate, --jobs, --strict and --junit only apply to timing presets",
 			));
 		}
-		return crate::report(bench_plugins(&targets, plugin));
+		let json = preset.format() == toolkit::Format::Json;
+		return crate::report(bench_plugins(&targets, plugin, json));
 	}
 	if plugin.is_given() {
 		let why = match targets.first() {
@@ -123,7 +120,7 @@ pub fn cmd(args: BenchArgs) -> ExitCode {
 	toolkit::cmd_bench(targets.pop(), own, preset)
 }
 
-fn bench_plugins(specs: &[String], args: PluginArgs) -> Result<()> {
+fn bench_plugins(specs: &[String], args: PluginArgs, json: bool) -> Result<()> {
 	let mut resolutions = args.resolution;
 	if resolutions.is_empty() {
 		// One mid-size frame by default: enough work to be meaningful, quick
@@ -162,7 +159,7 @@ fn bench_plugins(specs: &[String], args: PluginArgs) -> Result<()> {
 		warmup: args.warmup.unwrap_or(5),
 		mode: args.mode,
 		csv: args.csv,
-		json: args.json,
+		json,
 	})
 }
 
@@ -179,12 +176,13 @@ pub struct Options {
 	/// Explicit render path; `None` measures cpu and gpu for GPU-capable plugins.
 	pub mode: Option<RenderMode>,
 	pub csv: Option<PathBuf>,
-	pub json: Option<PathBuf>,
+	/// Print the results as JSON on stdout instead of the leaderboard.
+	pub json: bool,
 }
 
 fn run(options: Options) -> Result<()> {
 	let config_label = param_config_label(&options.config);
-	println!(
+	eprintln!(
 		"aexlo bench: {} plugin(s) x {} resolution(s), params={config_label}, {} samples ({} warmup)\n",
 		options.plugins.len(),
 		options.resolutions.len(),
@@ -251,17 +249,22 @@ fn run(options: Options) -> Result<()> {
 	}
 
 	sort_by_throughput(&mut measurements);
-	print_leaderboard(&measurements);
-	print_speedups(&measurements);
+	if options.json {
+		println!("{}", to_json(&measurements).trim_end());
+	} else {
+		print_leaderboard(&measurements);
+		print_speedups(&measurements);
+	}
 
-	if options.csv.is_some() || options.json.is_some() {
-		println!();
-	}
 	if let Some(path) = &options.csv {
-		write_file(path, &to_csv(&measurements));
-	}
-	if let Some(path) = &options.json {
-		write_file(path, &to_json(&measurements));
+		if options.json {
+			// stdout holds only the JSON.
+			std::fs::write(path, to_csv(&measurements)).with_context(|| format!("writing {}", path.display()))?;
+			eprintln!("Wrote {}", path.display());
+		} else {
+			println!();
+			write_file(path, &to_csv(&measurements));
+		}
 	}
 
 	Ok(())

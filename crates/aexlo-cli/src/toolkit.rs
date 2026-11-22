@@ -11,13 +11,21 @@ use aexlo_harness::runner::{self, Isolate, Outcome, Report, Run, RunnerConfig};
 use aexlo_harness::worker::WorkerCommand;
 use aexlo_harness::{Error, PluginRef, PluginSource, RenderMode, Variant};
 
-/// How results are printed.
+/// How results are printed: text, or JSON with `--json`.
 #[derive(clap::ValueEnum, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Format {
 	#[default]
 	#[value(alias = "text")]
 	Human,
 	Json,
+}
+
+impl Format {
+	/// The format `--json` and the hidden `--format <F>`, its old spelling,
+	/// ask for. `--json` wins.
+	pub fn from_flags(json: bool, format: Option<Format>) -> Self {
+		if json { Format::Json } else { format.unwrap_or_default() }
+	}
 }
 
 /// Flags every preset-driven command takes, resolved.
@@ -58,9 +66,12 @@ pub struct PresetArgs {
 	/// variant
 	#[arg(long)]
 	pub strict: bool,
-	/// How to print the results
-	#[arg(long, value_enum, value_name = "F", default_value_t)]
-	pub format: Format,
+	/// Print the results as JSON
+	#[arg(long)]
+	pub json: bool,
+	/// The old spelling of --json: human or json
+	#[arg(long, value_enum, value_name = "F", hide = true)]
+	pub format: Option<Format>,
 	/// Also write a JUnit XML report
 	#[arg(long, value_name = "PATH")]
 	pub junit: Option<PathBuf>,
@@ -69,6 +80,7 @@ pub struct PresetArgs {
 impl PresetArgs {
 	/// With the variant filter.
 	pub fn common(self, filter: Option<String>) -> Common {
+		let format = self.format();
 		Common {
 			manifest: self.manifest,
 			depth: self.depth,
@@ -76,7 +88,7 @@ impl PresetArgs {
 			isolate: self.isolate.unwrap_or_default(),
 			jobs: self.jobs.unwrap_or(1),
 			strict: self.strict,
-			format: self.format,
+			format,
 			junit: self.junit,
 			filter,
 		}
@@ -327,7 +339,7 @@ pub fn print_run(run: &Run) {
 	}
 }
 
-/// The report as JSON (`--format json`).
+/// The report as JSON (`--json`).
 pub fn report_json(report: &Report) -> String {
 	let runs: Vec<serde_json::Value> = report
 		.runs
@@ -652,14 +664,15 @@ impl PresetArgs {
 		self.manifest.is_some() || self.depth.is_some() || self.render.is_some()
 	}
 
-	/// Whether any of these flags is given.
+	/// Whether any of these flags but `--json`, which timing plugins take
+	/// too, is given.
 	pub fn is_given(&self) -> bool {
-		self.names_presets()
-			|| self.isolate.is_some()
-			|| self.jobs.is_some()
-			|| self.strict
-			|| self.format != Format::Human
-			|| self.junit.is_some()
+		self.names_presets() || self.isolate.is_some() || self.jobs.is_some() || self.strict || self.junit.is_some()
+	}
+
+	/// The format `--json` (or the hidden `--format`) asks for.
+	pub fn format(&self) -> Format {
+		Format::from_flags(self.json, self.format)
 	}
 }
 

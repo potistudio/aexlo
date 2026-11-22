@@ -44,9 +44,12 @@ pub struct CompatArgs {
 	/// grouped by how they went
 	#[arg(long)]
 	all: bool,
-	/// How to print the report
-	#[arg(long, value_enum, value_name = "F", default_value_t)]
-	format: Format,
+	/// Print the report as one JSON document
+	#[arg(long)]
+	json: bool,
+	/// The old spelling of --json: human or json
+	#[arg(long, value_enum, value_name = "F", hide = true)]
+	format: Option<Format>,
 	/// Write each scenario's status to <FILE>
 	#[arg(long, value_name = "FILE")]
 	save_baseline: Option<PathBuf>,
@@ -889,7 +892,8 @@ fn compat(args: CompatArgs) -> Result<ExitCode, Error> {
 	let jobs = args
 		.jobs
 		.unwrap_or_else(|| std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).max(1)));
-	let (timeout, all, format) = (args.timeout, args.all, args.format);
+	let (timeout, all) = (args.timeout, args.all);
+	let format = Format::from_flags(args.json, args.format);
 	let (save, baseline) = (args.save_baseline, args.baseline);
 	if paths.is_empty() {
 		return Err(Error::invalid("name at least one plugin or directory of plugins"));

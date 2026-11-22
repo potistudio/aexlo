@@ -450,7 +450,7 @@ aexlo worker                              非表示。§6.2
 
 `aexlo test --save-frames <dir>` は、golden の有無にかかわらず、すべてのバリアントのフレームを `<dir>/<file-safe id>.<png|exr>` にも保存します。
 
-共通フラグは `--manifest <path>`、`--depth 8,16`、`--render smart`（マトリクスを絞る）、`--isolate preset|variant|none`、`--jobs <n>`（test/check の並列ワーカー数。bench は常に 1）、`--strict`、`--format human|json`、`--junit <path>` です。
+共通フラグは `--manifest <path>`、`--depth 8,16`、`--render smart`（マトリクスを絞る）、`--isolate preset|variant|none`、`--jobs <n>`（test/check の並列ワーカー数。bench は常に 1）、`--strict`、`--json`、`--junit <path>` です。
 
 `filter` はバリアントの表示用 ID に部分文字列で一致させます。`*` を含む場合は glob として扱います。
 

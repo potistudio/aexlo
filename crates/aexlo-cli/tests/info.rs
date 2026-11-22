@@ -23,7 +23,7 @@ fn info_reports_every_section_and_compares_flags_with_the_pipl() {
 		return;
 	};
 	let dir = common::scratch("info");
-	let (code, report) = json(&["info", noise.to_str().unwrap(), "--format", "json"], &dir);
+	let (code, report) = json(&["info", noise.to_str().unwrap(), "--json"], &dir);
 	assert_eq!(code, 0, "{report}");
 	let names: Vec<&str> = report["pipl"]["properties"]
 		.as_array()
@@ -85,11 +85,11 @@ fn info_prints_the_pipl_of_a_plugin_that_does_not_load() {
 	assert!(String::from_utf8_lossy(&out.stderr).contains("loading plugin"));
 
 	// --pipl alone does not load it.
-	let (code, report) = json(&["info", "Broken.plugin", "--pipl", "--format", "json"], &dir);
+	let (code, report) = json(&["info", "Broken.plugin", "--pipl", "--json"], &dir);
 	assert_eq!(code, 0, "{report}");
 	assert!(report["pipl"]["source"].as_str().unwrap().ends_with("SDK_Noise.rsrc"));
 
-	let (code, report) = json(&["info", "Broken.plugin", "--format", "json"], &dir);
+	let (code, report) = json(&["info", "Broken.plugin", "--json"], &dir);
 	assert_eq!(code, 1);
 	assert!(report["pipl"].is_object() && report["error"].is_string(), "{report}");
 }
@@ -97,7 +97,7 @@ fn info_prints_the_pipl_of_a_plugin_that_does_not_load() {
 #[test]
 fn info_reports_a_missing_plugin_as_json() {
 	let dir = common::scratch("info_missing");
-	let (code, report) = json(&["info", "no-such.plugin", "--format", "json"], &dir);
+	let (code, report) = json(&["info", "no-such.plugin", "--json"], &dir);
 	assert_eq!(code, 1);
 	assert!(report["error"].as_str().unwrap().contains("not found"), "{report}");
 }

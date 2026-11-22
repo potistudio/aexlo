@@ -28,9 +28,12 @@ pub struct InfoArgs {
 	/// The PiPL resource, read from the file without loading the plugin
 	#[arg(long)]
 	pipl: bool,
-	/// human, or json: one object with a key per section
-	#[arg(long, value_enum, default_value_t)]
-	format: Format,
+	/// Print one JSON object with a key per section
+	#[arg(long)]
+	json: bool,
+	/// The old spelling of --json: human or json
+	#[arg(long, value_enum, value_name = "F", hide = true)]
+	format: Option<Format>,
 }
 
 /// The sections to print, in the order they are printed.
@@ -67,7 +70,8 @@ impl Sections {
 pub fn run(args: InfoArgs) -> Result<()> {
 	let sections = Sections::of(&args);
 	let path = resolve_artifact(&args.plugin)?;
-	let mut out = Output::new(args.format, &path, sections.count() > 1);
+	let format = Format::from_flags(args.json, args.format);
+	let mut out = Output::new(format, &path, sections.count() > 1);
 
 	let pipl = if sections.pipl || sections.flags {
 		match Pipl::read(&path).with_context(|| format!("reading the PiPL of {}", path.display())) {

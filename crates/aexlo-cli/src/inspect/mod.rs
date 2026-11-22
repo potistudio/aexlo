@@ -7,7 +7,7 @@
 //! memory as a hex dump (with what the last command changed) and the output.
 //!
 //! `--exec` and `--script` run commands without the TUI and print the same
-//! analysis as text, or with `--format json` as one JSON object per line for
+//! analysis as text, or with `--json` as one JSON object per line for
 //! agents and scripts (see [`json`]). `--script -` reads the commands from
 //! stdin as they arrive, answering each before reading the next.
 
@@ -77,10 +77,13 @@ pub struct InspectArgs {
 	/// come, answering each before the next, so a pipe drives one session
 	#[arg(long, value_name = "FILE", group = "script_source")]
 	script: Option<String>,
-	/// With --exec/--script: human, or json for one JSON object per line
-	/// (loaded, command, focus, report, error), for agents
-	#[arg(long, value_enum, value_name = "F", default_value_t, requires = "script_source")]
-	format: Format,
+	/// With --exec/--script, print one JSON object per line (loaded,
+	/// command, focus, report, error), for agents
+	#[arg(long, requires = "script_source")]
+	json: bool,
+	/// The old spelling of --json: human or json
+	#[arg(long, value_enum, value_name = "F", hide = true, requires = "script_source")]
+	format: Option<Format>,
 	/// With --exec/--script, print the whole trace
 	#[arg(long, requires = "script_source")]
 	trace: bool,
@@ -128,9 +131,11 @@ pub fn run(args: InspectArgs) -> Result<()> {
 		serial,
 		exec,
 		script,
+		json,
 		format,
 		trace: print_trace,
 	} = args;
+	let format = if json { Format::Json } else { format.unwrap_or_default() };
 	let input = InputArgs {
 		png: input,
 		text: text.map(|text| text.replace("\\n", "\n")),
@@ -283,7 +288,7 @@ fn batch(setup: Setup, script: Script, print_trace: bool, format: Format) -> Res
 	Ok(())
 }
 
-/// `--format`: the text `--exec` prints, or NDJSON (see [`json`]).
+/// The text `--exec` prints, or NDJSON with `--json` (see [`json`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
 enum Format {
 	#[default]
@@ -302,7 +307,7 @@ fn emit(out: &mut dyn Write, value: &serde_json::Value) {
 struct Batch {
 	engine: Engine,
 	recorder: Recorder,
-	/// `Some` for `--format json`: where the events go.
+	/// `Some` for `--json`: where the events go.
 	json: Option<Box<dyn Write>>,
 	print_trace: bool,
 	failed: usize,

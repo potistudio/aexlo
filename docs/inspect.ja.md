@@ -21,7 +21,7 @@
 | パイプ越しのセッション | `aexlo inspect <plugin> --script -` | エージェントやツール。1つ送って答えを読み、次を決める |
 
 バッチとパイプの出力は、標準ではテキストです。
-`--format json` を付けると1行に1つの JSON オブジェクトになり、プログラムでパースできます（[イベント](#4-イベント)）。
+`--json` を付けると1行に1つの JSON オブジェクトになり、プログラムでパースできます（[イベント](#4-イベント)）。
 `aexlo inspect --help` でオプションとコマンドの一覧を表示します。
 
 - [1. はじめに](#1-はじめに)
@@ -49,10 +49,10 @@ aexlo inspect build/MyGlow.plugin
 aexlo inspect MyGlow --exec "set Radius 50; render smart; focus checkout"
 
 # 同じことを JSON の行で出力する
-aexlo inspect MyGlow --format json --exec "render; render smart"
+aexlo inspect MyGlow --json --exec "render; render smart"
 
 # プラグインを読み込んだまま、stdin から1行ずつコマンドを送る
-aexlo inspect MyGlow --format json --script -
+aexlo inspect MyGlow --json --script -
 ```
 
 ### `--exec`、`--script <file>`、`--script -`
@@ -95,11 +95,11 @@ aexlo inspect MyGlow --format json --script -
 | `--serial` | iterate コールバックをプラグインのスレッドで実行し、その中のスイート呼び出しも記録する | 無効 |
 | `--exec <cmds>` | バッチ。コマンドを実行する | — |
 | `--script <file\|->` | ファイルからのバッチ。`-` なら stdin からのセッション | — |
-| `--format <human\|json>` | バッチの出力形式。テキストか [JSON の行](#4-イベント) | `human` |
+| `--json` | バッチの出力を [JSON の行](#4-イベント) にする | テキスト |
 | `--trace` | バッチで、レポートにトレース全体も含める | 無効 |
 | `-h`, `--help` | オプションとコマンドの一覧を表示する | — |
 
-`--format` と `--trace` には `--exec` か `--script` が必要です。
+`--json` と `--trace` には `--exec` か `--script` が必要です。
 
 `--level` は、スイート呼び出しをトレースに残すかを決めます。
 ステップ、`PF_Cmd_*` の開始と終了、確保、解放、チェックアウトは、どのレベルでも記録されます。
@@ -226,7 +226,7 @@ aexlo inspect TextGrad --text "TextGrad" --exec "render; save text.png"
 
 ## 4. イベント
 
-`--format json` では、stdout の各行が1つの JSON オブジェクトです。
+`--json` では、stdout の各行が1つの JSON オブジェクトです。
 `event` フィールドが行の種類を表します。
 stdout を1行ずつ読み、`event` で処理を分けてください。
 順序は必ず次のとおりです。
@@ -511,19 +511,19 @@ stdout が空で終了コードが 1 なら、stderr を読んでください。
 
 ```bash
 # 失敗したコマンド
-aexlo inspect MyGlow --format json --exec "render; render smart; render legacy" \
+aexlo inspect MyGlow --json --exec "render; render smart; render legacy" \
   | jq -c 'select(.event=="command" and .ok==false) | {line, error}'
 
 # エラーを返したすべての PF_Cmd_*（成功したコマンドの中のものも含む）
-aexlo inspect MyGlow --format json --exec "render" \
+aexlo inspect MyGlow --json --exec "render" \
   | jq -c 'select(.event=="report") | .errors[]'
 
 # リーク：strict モードの指摘。GLOBAL_SETDOWN の時点で残っていたものも含む
-aexlo inspect MyGlow --strict --format json --exec "render; render" \
+aexlo inspect MyGlow --strict --json --exec "render; render" \
   | jq 'select(.event=="report") | .findings'
 
 # 診断が見つけた問題だけ
-aexlo inspect MyGlow --format json --exec "render legacy; focus ◀ PF_Cmd_RENDER" \
+aexlo inspect MyGlow --json --exec "render legacy; focus ◀ PF_Cmd_RENDER" \
   | jq -c 'select(.event=="focus") | .diagnosis.sections[].items[] | select(.tone=="bad" or .tone=="warn")'
 ```
 
@@ -533,7 +533,7 @@ aexlo inspect MyGlow --format json --exec "render legacy; focus ◀ PF_Cmd_RENDE
 import json, subprocess
 
 p = subprocess.Popen(
-    ["aexlo", "inspect", "build/MyGlow.plugin", "--format", "json", "--script", "-"],
+    ["aexlo", "inspect", "build/MyGlow.plugin", "--json", "--script", "-"],
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
 
 def send(line):

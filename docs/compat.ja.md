@@ -83,7 +83,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 | `--jobs <n>` | CPU 数の半分 | 同時に動かすワーカーの数 |
 | `--timeout <s>` | `20` | シナリオごとの秒数 |
 | `--all` | | すべてのシナリオを1つずつ表示する。指定しない場合は `ok` と `n/a` 以外を、結果ごとにまとめて表示する |
-| `--format json` | テキスト | レポートを1つの JSON で出力する |
+| `--json` | テキスト | レポートを1つの JSON で出力する |
 | `--save-baseline <file>` | | 各シナリオのステータスを書き出す |
 | `--baseline <file>` | | 保存したベースラインと比べる |
 
@@ -110,12 +110,12 @@ Asked for, but not done by aexlo (plugins that asked):
    10  missing-suite AEGP Stream Suite v11  [AOD_ChannelRemap, …, RainyDay]
 ```
 
-`--format json` の形式は [英語版](compat.md#4-output) を参照してください。
+`--json` の形式は [英語版](compat.md#4-output) を参照してください。
 各シナリオは `id`、`status`、`message`、`unsupported` を持ちます。
 `error`、`crash`、`timeout` の場合は `last_command` も持ちます。
 全体には `summary`、`plugins`、`gaps` があり、`--baseline` を指定すると `worse` と `better` も加わります。
 
-同じ不足は `aexlo test --format json` でも実行ごとに出力されます（`unsupported`）。
+同じ不足は `aexlo test --json` でも実行ごとに出力されます（`unsupported`）。
 コードからは `Observer::unsupported` で `UnsupportedEvent` として受け取れます。
 
 ## 5. ベースライン

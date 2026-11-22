@@ -21,7 +21,7 @@ You can run it three ways:
 | Batch | `aexlo inspect <plugin> --exec "<commands>"` or `--script <file>` | Scripts and CI: run a fixed list, print the analysis |
 | Session over a pipe | `aexlo inspect <plugin> --script -` | Agents and tools: send one command, read the answer, decide the next |
 
-Batch and pipe output is text by default. Add `--format json` to get one JSON
+Batch and pipe output is text by default. Add `--json` to get one JSON
 object per line, which a program can parse ([Events](#4-events)).
 `aexlo inspect --help` prints the options and commands.
 
@@ -51,10 +51,10 @@ aexlo inspect build/MyGlow.plugin
 aexlo inspect MyGlow --exec "set Radius 50; render smart; focus checkout"
 
 # Same, as JSON lines.
-aexlo inspect MyGlow --format json --exec "render; render smart"
+aexlo inspect MyGlow --json --exec "render; render smart"
 
 # Keep the plugin loaded and feed it commands on stdin, one per line.
-aexlo inspect MyGlow --format json --script -
+aexlo inspect MyGlow --json --script -
 ```
 
 ### `--exec`, `--script <file>` and `--script -`
@@ -97,11 +97,11 @@ and the analysis is printed once more ([`report`](#report)).
 | `--serial` | Run iterate callbacks on the plugin's thread, so their suite calls are recorded too | Off |
 | `--exec <cmds>` | Batch: run the commands | — |
 | `--script <file\|->` | Batch from a file, or a session over stdin with `-` | — |
-| `--format <human\|json>` | Batch output: text, or [JSON lines](#4-events) | `human` |
+| `--json` | Batch output as [JSON lines](#4-events) instead of text | text |
 | `--trace` | In batch mode, also print the whole trace in the report | Off |
 | `-h`, `--help` | Print the options and commands | — |
 
-`--format` and `--trace` need `--exec` or `--script`.
+`--json` and `--trace` need `--exec` or `--script`.
 
 `--level` decides whether suite calls are kept in the trace. Steps,
 `PF_Cmd_*` begins and ends, allocations, frees and checkouts are recorded at
@@ -241,7 +241,7 @@ window's messages while it waits for the next command.
 
 ## 4. Events
 
-With `--format json`, every line on stdout is one JSON object. Its `event`
+With `--json`, every line on stdout is one JSON object. Its `event`
 field says what kind of line it is. Read stdout line by line and dispatch on
 `event`. The order is always:
 
@@ -544,19 +544,19 @@ crashed. Batch mode does not.)
 
 ```bash
 # The commands that failed
-aexlo inspect MyGlow --format json --exec "render; render smart; render legacy" \
+aexlo inspect MyGlow --json --exec "render; render smart; render legacy" \
   | jq -c 'select(.event=="command" and .ok==false) | {line, error}'
 
 # Every PF_Cmd_* that returned an error, even inside a command that succeeded
-aexlo inspect MyGlow --format json --exec "render" \
+aexlo inspect MyGlow --json --exec "render" \
   | jq -c 'select(.event=="report") | .errors[]'
 
 # Leaks: what strict mode found, including what was still held at GLOBAL_SETDOWN
-aexlo inspect MyGlow --strict --format json --exec "render; render" \
+aexlo inspect MyGlow --strict --json --exec "render; render" \
   | jq 'select(.event=="report") | .findings'
 
 # Only the problems the diagnosis found
-aexlo inspect MyGlow --format json --exec "render legacy; focus ◀ PF_Cmd_RENDER" \
+aexlo inspect MyGlow --json --exec "render legacy; focus ◀ PF_Cmd_RENDER" \
   | jq -c 'select(.event=="focus") | .diagnosis.sections[].items[] | select(.tone=="bad" or .tone=="warn")'
 ```
 
@@ -566,7 +566,7 @@ aexlo inspect MyGlow --format json --exec "render legacy; focus ◀ PF_Cmd_RENDE
 import json, subprocess
 
 p = subprocess.Popen(
-    ["aexlo", "inspect", "build/MyGlow.plugin", "--format", "json", "--script", "-"],
+    ["aexlo", "inspect", "build/MyGlow.plugin", "--json", "--script", "-"],
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
 
 def send(line):
