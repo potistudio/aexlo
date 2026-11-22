@@ -506,6 +506,13 @@ Some mistakes are found before any JSON is printed: a bad flag, or an unknown
 command in `--exec` or a `--script` file. These print only `error: ...` on
 stderr. If stdout is empty and the exit status is 1, read stderr.
 
+On Windows, the CLI ends as soon as it has torn the plugin down and flushed
+its output. A DLL that is still loaded then (a plugin's own threads can keep
+it so) does not get its process-exit detach, which would hang or crash once
+those threads are gone. A crash during a command, a setdown or the unload is
+still a crash. A program that embeds the `aexlo` library decides for itself
+how to exit, and meets that detach if it exits normally.
+
 A plugin that crashes takes the process down with it, and the exit status
 is the signal's. The events already printed stay valid. The command that was
 running never gets its `command` line, and there is no final `report`. (The

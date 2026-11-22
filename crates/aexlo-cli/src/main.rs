@@ -13,6 +13,7 @@ mod bench;
 mod dev;
 mod inspect;
 mod preview;
+mod process;
 mod session;
 mod toolkit;
 mod view;
@@ -21,7 +22,6 @@ mod watch;
 mod web;
 
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 
 use aexlo::{ParamValue, PluginInstance, RenderPath};
 use anyhow::{Context, Result, bail};
@@ -162,7 +162,18 @@ fn print_usage() {
 	print!("{USAGE_HEAD}{}{USAGE_TAIL}", inspect::USAGE);
 }
 
-fn main() -> ExitCode {
+fn main() {
+	// A panic has been printed by its hook and has dropped the plugins; it
+	// must still not leave through their detach (see `process`).
+	let code = std::panic::catch_unwind(dispatch).unwrap_or(PANICKED);
+	process::exit(code);
+}
+
+/// The status Rust itself exits with after a panic in `main`.
+const PANICKED: u8 = 101;
+
+/// Run the command line and return the exit status.
+fn dispatch() -> u8 {
 	let _ = env_logger::try_init();
 	let mut args = std::env::args().skip(1);
 	let command = args.next();
@@ -180,20 +191,20 @@ fn main() -> ExitCode {
 				return toolkit::cmd_bench(args.into_iter());
 			}
 			return match cmd_bench(args.into_iter()) {
-				Ok(()) => ExitCode::SUCCESS,
+				Ok(()) => 0,
 				Err(err) => {
 					eprintln!("error: {err:#}");
-					ExitCode::FAILURE
+					1
 				}
 			};
 		}
 		_ => {}
 	}
 	match run(command, args) {
-		Ok(()) => ExitCode::SUCCESS,
+		Ok(()) => 0,
 		Err(err) => {
 			eprintln!("error: {err:#}");
-			ExitCode::FAILURE
+			1
 		}
 	}
 }

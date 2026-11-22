@@ -775,7 +775,7 @@ fn tui(setup: Setup) -> Result<()> {
 		// The plugin is stuck in a command; it cannot be torn down.
 		drop(session);
 		eprintln!("aexlo inspect: left while the plugin was still running");
-		std::process::exit(130);
+		crate::process::exit(130);
 	}
 	let _ = request_tx.send(Request::Quit);
 	drop(session);
