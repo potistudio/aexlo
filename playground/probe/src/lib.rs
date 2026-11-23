@@ -227,7 +227,13 @@ unsafe fn dispatch(
 			none
 		}
 
-		ae::PF_Cmd_RENDER => unsafe { render::render(in_data, params, output) },
+		ae::PF_Cmd_RENDER => unsafe {
+			// After Effects refuses the World Transform Suite during
+			// GLOBAL_SETUP (PF_Err_INVALID_CALLBACK), so these run once, here.
+			static XFORM: std::sync::Once = std::sync::Once::new();
+			XFORM.call_once(|| checks::guarded_xform(in_data));
+			render::render(in_data, params, output)
+		},
 
 		ae::PF_Cmd_USER_CHANGED_PARAM => {
 			let index = unsafe {

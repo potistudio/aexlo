@@ -31,6 +31,11 @@ fn guarded(name: &str, run: impl FnOnce()) {
 	}
 }
 
+/// The World Transform and Batch Sampling facts, which need a render.
+pub fn guarded_xform(in_data: *mut ae::PF_InData) {
+	guarded("xform", || unsafe { crate::xform::run(in_data) });
+}
+
 pub unsafe fn run_all(in_data: *mut ae::PF_InData) {
 	guarded("var", || unsafe { variable_checks(in_data) });
 	guarded("ansi", || unsafe { ansi_checks(in_data) });
@@ -42,7 +47,6 @@ pub unsafe fn run_all(in_data: *mut ae::PF_InData) {
 	guarded("suite.handle", || unsafe { suite_handle_checks(in_data) });
 	guarded("suite.world", || unsafe { suite_world_checks(in_data) });
 	guarded("suite.iterate8", || unsafe { suite_iterate8_checks(in_data) });
-	guarded("xform", || unsafe { crate::xform::run(in_data) });
 }
 
 // ---- Variables ------------------------------------------------------------
