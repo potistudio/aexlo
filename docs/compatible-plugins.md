@@ -46,20 +46,20 @@ plugins in `fixtures/plugins/macos`:
 | FillColor                  |  28 |  25 |  3 | 8, 16, 32 | yes | no |
 | Furikake                   | 610 | 604 |  6 | 8, 16, 32 | yes | no |
 | RXXR                       | 767 | 764 |  3 | 8, 16, 32 | yes | no |
+| RainyDay                   | 115 | 115 |  0 | 8, 16, 32 | yes | yes |
 | SDK_Noise                  |  23 |  20 |  3 | 8, 16, 32 | yes | no |
 | TextGrad                   | 535 | 525 | 10 | 8, 32 | yes | no |
 
-That is 5,131 scenarios: 5,028 `ok` and 103 `n/a`.
+That is 5,246 scenarios: 5,143 `ok` and 103 `n/a`.
 
 ## Not on the list yet
 
-The other three plugins in the fixture directory fall short in one of these
+The other two plugins in the fixture directory fall short in one of these
 ways. Each is a gap in aexlo, or a fixture that is not installed, not a
 plugin that is known to be wrong.
 
 | Plugin | Coverage | What `compat` reports |
 | ------ | -------: | --------------------- |
-| RainyDay              |  99.1% | missing `PF Effect Sequence Data Suite` v1 at load |
 | AOD_MobiusTransform   |  19.6% | `crash` ×37 in `PF_Cmd_SMART_RENDER` and `PF_Cmd_RENDER` |
 | AutoFill2             |       — | does not load: the binary is missing from the bundle |
 

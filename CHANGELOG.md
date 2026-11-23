@@ -9,6 +9,11 @@ may break the API, and every breaking change is listed below.
 
 ### Added
 
+- `PF Effect Sequence Data Suite` v1. `PF_GetConstSequenceData` gives the
+  sequence data handle the plugin returned from `PF_Cmd_SEQUENCE_SETUP`, or
+  null before it. Effects built with the `after-effects` crate, such as
+  RainyDay, read their sequence data through it whenever
+  `in_data->sequence_data` is null, `PF_Cmd_PARAMS_SETUP` included.
 - `PluginInstance::param_flags` reads the `PF_ParamFlag_*` bits a parameter
   declares, as the new `ParamFlags`. A host checks
   `ParamFlags::SUPERVISE` to tell when to send

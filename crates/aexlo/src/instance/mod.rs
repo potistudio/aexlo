@@ -554,6 +554,12 @@ impl PluginInstance {
 		})
 	}
 
+	/// The `sequence_data` handle the plugin returned, or null before
+	/// `PF_Cmd_SEQUENCE_SETUP`.
+	pub(crate) fn sequence_handle(&self) -> crate::sys::PF_Handle {
+		self.effect_state.handles().1
+	}
+
 	/// The host-side state carried between commands, and what the plugin
 	/// returned in `PF_OutData` from the last one.
 	pub fn state(&self) -> InstanceState {

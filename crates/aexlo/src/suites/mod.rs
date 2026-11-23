@@ -57,6 +57,7 @@ pub(crate) mod drawbot;
 pub(crate) use drawbot::system_font;
 mod dynamic_stream;
 mod effect;
+mod effect_sequence_data;
 mod effect_ui;
 mod ffi;
 pub mod fill_matte;
@@ -136,6 +137,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 		unused_longA: [0; 1],
 	},
 	effect_ui: effect_ui::create_effect_ui_suite_1(),
+	effect_sequence_data: effect_sequence_data::create_effect_sequence_data_suite_1(),
 	effect_custom_ui1: effect_ui::create_effect_custom_ui_suite_1(),
 	effect_custom_ui2: effect_ui::create_effect_custom_ui_suite_2(),
 	overlay_theme: effect_ui::create_overlay_theme_suite_1(),
@@ -213,6 +215,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 pub struct SuiteContainer {
 	pub ansi: PF_ANSICallbacksBlock,
 	pub effect_ui: PF_EffectUISuite1,
+	pub effect_sequence_data: PF_EffectSequenceDataSuite1,
 	pub effect_custom_ui1: PF_EffectCustomUISuite1,
 	pub effect_custom_ui2: PF_EffectCustomUISuite2,
 	pub overlay_theme: PF_EffectCustomUIOverlayThemeSuite1,
@@ -322,6 +325,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		// Static suites: pointers into the shared SUITE_CONTAINER.
 		("PF ANSI Suite", 1) => dispatch_static!(suite, suite_name, version, ansi),
 		("PF Effect UI Suite", 1) => dispatch_static!(suite, suite_name, version, effect_ui),
+		("PF Effect Sequence Data Suite", 1) => dispatch_static!(suite, suite_name, version, effect_sequence_data),
 		("PF Effect Custom UI Suite", 1) => dispatch_static!(suite, suite_name, version, effect_custom_ui1),
 		("PF Effect Custom UI Suite", 2) => dispatch_static!(suite, suite_name, version, effect_custom_ui2),
 		("PF Effect Custom UI Overlay Theme Suite", 1) => {
