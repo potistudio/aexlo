@@ -268,7 +268,7 @@ fn a_still_value_has_one_state_in_every_range() {
 }
 
 #[test]
-fn wide_time_input_widens_a_range_to_the_track() {
+fn wide_time_input_covers_all_time_before_any_checkout() {
 	let (mut fx, _) = effect();
 	fx.global_out_flags2 |= PF_OutFlag2_AUTOMATIC_WIDE_TIME_INPUT as PF_OutFlags2;
 	fx.set_param_track(SLIDER as usize, ramp()).unwrap();
@@ -439,4 +439,97 @@ fn a_mask_stream_reads_the_outline_at_the_time_asked_for() {
 	});
 	assert_eq!(xs, [0.0, 5.0, 10.0]);
 	assert_eq!(keys, 2);
+}
+
+/// What the flattening effect's arbitrary value points to.
+static POINTED_TO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+/// The test effect, plus flattening its arbitrary value: the flat form is
+/// what the value points to, which its handle's bytes do not show.
+unsafe extern "C" fn flattening_entry(
+	cmd: PF_Cmd,
+	input: *mut PF_InData,
+	output: *mut PF_OutData,
+	params: PF_ParamList,
+	world: *mut PF_LayerDef,
+	extra: *mut std::ffi::c_void,
+) -> PF_Err {
+	if cmd != PF_Cmd_ARBITRARY_CALLBACK as PF_Cmd {
+		return unsafe { super::project_tests::entry(cmd, input, output, params, world, extra) };
+	}
+	let extra = unsafe { &mut *extra.cast::<PF_ArbParamsExtra>() };
+	let pointed = POINTED_TO.load(std::sync::atomic::Ordering::SeqCst).to_le_bytes();
+	unsafe {
+		if extra.which_function == PF_Arbitrary_FLAT_SIZE_FUNC as _ {
+			*extra.u.flat_size_func_params.flat_data_sizePLu = pointed.len() as A_u_long;
+		} else if extra.which_function == PF_Arbitrary_FLATTEN_FUNC as _ {
+			let out = extra.u.flatten_func_params.flat_dataPV.cast::<u8>();
+			std::ptr::copy_nonoverlapping(pointed.as_ptr(), out, pointed.len());
+		}
+	}
+	PF_Err_NONE
+}
+
+#[test]
+fn arbitrary_data_is_covered_as_the_plugin_flattens_it() {
+	// SAFETY: `flattening_entry` has the effect entry point's signature.
+	let mut fx = unsafe { crate::Host::get().entry_loader(flattening_entry) }
+		.size(64, 32)
+		.load()
+		.unwrap();
+	// SAFETY: a fresh handle of the host's, and a parameter definition is plain old data.
+	let mut def: PF_ParamDef = unsafe { std::mem::zeroed() };
+	def.param_type = PF_Param_ARBITRARY_DATA as PF_ParamType;
+	def.u.arb_d.value = unsafe { crate::suites::handle::host_new_handle_impl(4) };
+	fx.add_instance_param(def);
+	let index = fx.param_count() - 1;
+
+	// Taken in when the plugin may have changed its values.
+	fx.user_changed_param(index).unwrap();
+	assert!(fx.arb_digest(index).is_some());
+	let before = state(&mut fx, index as i32, None);
+	POINTED_TO.store(2, std::sync::atomic::Ordering::SeqCst);
+	fx.user_changed_param(index).unwrap();
+	let after = state(&mut fx, index as i32, None);
+	assert!(!identical(&mut fx, &before, &after), "what the value points to changed");
+	fx.user_changed_param(index).unwrap();
+	let again = state(&mut fx, index as i32, None);
+	assert!(identical(&mut fx, &after, &again));
+}
+
+#[test]
+fn wide_time_input_widens_a_range_by_the_checkouts_seen() {
+	let (mut fx, _) = effect();
+	fx.global_out_flags2 |= PF_OutFlag2_AUTOMATIC_WIDE_TIME_INPUT as PF_OutFlags2;
+	// At 1 s the effect checked out 10 frames back, and now.
+	fx.set_time(Time::frame(30, 30));
+	fx.record_checkout_time(at(20, 30));
+	fx.record_checkout_time(at(30, 30));
+	let with = |extra: Option<(i32, f64)>| {
+		let mut keys = vec![
+			Keyframe::hold(at(0, 1), ParamValue::Float(1.0)),
+			Keyframe::hold(at(4, 1), ParamValue::Float(1.0)),
+		];
+		keys.extend(extra.map(|(frame, value)| Keyframe::hold(at(frame, 30), ParamValue::Float(value))));
+		Track::keyed(keys).unwrap()
+	};
+	// Asked about 2 s; it needs from 10 frames before, and everything the
+	// checkouts reached, 20 frames to 1 s.
+	let covered = |fx: &mut PluginInstance, extra| {
+		fx.set_param_track(SLIDER as usize, with(extra)).unwrap();
+		state(fx, SLIDER, Some((60, 1)))
+	};
+	let plain = covered(&mut fx, None);
+	let needed = covered(&mut fx, Some((54, 7.0)));
+	let reached = covered(&mut fx, Some((25, 7.0)));
+	let unneeded = covered(&mut fx, Some((100, 7.0)));
+	assert!(
+		!identical(&mut fx, &plain, &needed),
+		"a change before the range it needs counts"
+	);
+	assert!(
+		!identical(&mut fx, &plain, &reached),
+		"so does one where a checkout reached"
+	);
+	assert!(identical(&mut fx, &plain, &unneeded), "one after the range does not");
 }

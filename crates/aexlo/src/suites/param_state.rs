@@ -9,13 +9,19 @@
 //! - a layer parameter's pixels, and for the input layer also the masks, text
 //!   and shapes on the effect's layer;
 //! - for a path parameter, the masks over the range, as for a value;
-//! - for arbitrary data, the bytes in its handle. What those point to is the
-//!   plugin's and is not followed.
+//! - for arbitrary data, the value as the plugin flattens it, taken when the
+//!   host takes a value in (after setup and after the commands in which the
+//!   plugin changes its values); for a value the plugin cannot flatten, the
+//!   bytes in its handle.
 //!
 //! A null range is all time ("NULL for both start & duration means over all of
 //! time", `AE_EffectSuites.h`). After Effects widens the range of an effect
-//! with `AUTOMATIC_WIDE_TIME_INPUT` to the times that range needs. aexlo does
-//! not track those, so there a change anywhere on the track counts as well.
+//! with `AUTOMATIC_WIDE_TIME_INPUT` to the times that range needs. aexlo
+//! takes those from the checkouts the effect has made so far: the range
+//! moves out by the furthest any checkout reached before and after the time
+//! it was made at, and takes in every time a checkout reached, so it covers
+//! a simulation that runs from the start. Before any checkout it is all of
+//! time.
 //!
 //! The host has one picture of each layer, the current one, so a state cannot
 //! tell that a layer is unchanged in the past: a picture set for a new frame
@@ -102,19 +108,27 @@ pub(super) fn of(
 			Some((start.min(end), start.max(end)))
 		}
 	};
-	let widened = instance
-		.out_flags2()
-		.contains(crate::OutFlags2::AUTOMATIC_WIDE_TIME_INPUT);
+	// Before any checkout, the range asked about and all of time.
+	let (range, all_time) = match range {
+		Some(asked)
+			if instance
+				.out_flags2()
+				.contains(crate::OutFlags2::AUTOMATIC_WIDE_TIME_INPUT) =>
+		{
+			match instance.widened_range(asked) {
+				Some(widened) => (Some(widened), false),
+				None => (Some(asked), true),
+			}
+		}
+		range => (range, false),
+	};
 
 	let mut receipt = Receipt::new();
 	for index in indices(instance, param_index)? {
 		index.hash(&mut receipt);
 		cover(instance, index, range, &mut receipt);
-		if widened
-			&& range.is_some()
-			&& let Some(track) = instance.param_track(index)
-		{
-			cover_track(track, None, &mut receipt);
+		if all_time {
+			cover(instance, index, None, &mut receipt);
 		}
 	}
 	Some(receipt.state())
@@ -141,6 +155,10 @@ fn cover(instance: &PluginInstance, index: usize, range: Option<(TimePoint, Time
 		return;
 	}
 	if def.param_type == PF_Param_ARBITRARY_DATA as PF_ParamType {
+		if let Some(digest) = instance.arb_digest(index) {
+			("flat", digest).hash(receipt);
+			return;
+		}
 		// SAFETY: the union member of an arbitrary-data parameter.
 		let handle = unsafe { def.u.arb_d.value };
 		match super::handle::owned_bytes(handle) {

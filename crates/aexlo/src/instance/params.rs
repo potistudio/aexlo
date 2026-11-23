@@ -341,6 +341,54 @@ impl PluginInstance {
 		self.arb_streams_live
 	}
 
+	/// Note that the plugin checked something out at `at`, while the instance
+	/// is at its current time.
+	pub(crate) fn record_checkout_time(&self, at: crate::TimePoint) {
+		let now: crate::TimePoint = self.time().into();
+		let offset = at.since(now);
+		let mut span = self
+			.checkout_span
+			.lock()
+			.unwrap_or_else(std::sync::PoisonError::into_inner);
+		*span = Some(match *span {
+			None => super::CheckoutSpan {
+				before: offset.min(crate::TimePoint::ZERO),
+				after: offset.max(crate::TimePoint::ZERO),
+				earliest: at,
+				latest: at,
+			},
+			Some(seen) => super::CheckoutSpan {
+				before: seen.before.min(offset),
+				after: seen.after.max(offset),
+				earliest: seen.earliest.min(at),
+				latest: seen.latest.max(at),
+			},
+		});
+	}
+
+	/// The times producing `from..=to` can need, from the checkouts seen so
+	/// far: the range moved by how far before and after its time any
+	/// checkout reached, joined with the span of every checkout. `None`, all
+	/// of time, before any checkout.
+	pub(crate) fn widened_range(
+		&self,
+		(from, to): (crate::TimePoint, crate::TimePoint),
+	) -> Option<(crate::TimePoint, crate::TimePoint)> {
+		let span = (*self
+			.checkout_span
+			.lock()
+			.unwrap_or_else(std::sync::PoisonError::into_inner))?;
+		let start = from.plus(span.before).min(span.earliest);
+		let end = to.plus(span.after).max(span.latest);
+		Some((start, end))
+	}
+
+	/// The hash of arbitrary-data parameter `index` as the plugin last
+	/// flattened it, if it could.
+	pub(crate) fn arb_digest(&self, index: usize) -> Option<u64> {
+		self.arb_digests.get(&index).copied()
+	}
+
 	pub(crate) fn param_by_index(&self, index: usize) -> Option<&PF_ParamDef> {
 		self.params.get(index)
 	}

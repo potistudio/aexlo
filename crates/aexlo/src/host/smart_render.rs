@@ -54,6 +54,9 @@ unsafe extern "C" fn checkout_layer_stub(
 					return PF_Err_INVALID_INDEX;
 				}
 				instance.record_layer_checkout(checkout_idL, index);
+				if let Some(at) = crate::TimePoint::new(what_time, time_scale) {
+					instance.record_checkout_time(at);
+				}
 				// A layer's pixels are one picture, whatever the time asked for.
 				if instance.project().is_some()
 					&& let Some(asked) = crate::TimePoint::new(what_time, time_scale)

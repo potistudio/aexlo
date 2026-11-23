@@ -78,6 +78,9 @@ unsafe extern "C" fn checkout_param_stub(
 			return PF_Err_INVALID_INDEX;
 		}
 
+		if let Some(at) = crate::TimePoint::new(what_time, time_scale) {
+			instance.record_checkout_time(at);
+		}
 		// The value at the time asked for; a zero scale names no time, so now.
 		let src_param = instance
 			.param_at(index, crate::TimePoint::new(what_time, time_scale))

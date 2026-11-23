@@ -274,7 +274,7 @@ The plugins that pass every scenario are listed in
 
 ## Implementation Progress
 
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀ 81% (30/37)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀ 84% (31/37)
 
 > ○ fully implemented / △ only partially implemented / × not implemented
 
@@ -286,7 +286,7 @@ The plugins that pass every scenario are listed in
 | ○ Color16          | △ Effect Custom UI Overlay Theme |                   | ○ Plugin Helper   |
 | ○ ColorFloat       | △ Effect Custom UI               |                   | ○ Plugin Helper 2 |
 | ○ Fill Matte       | ○ Effect UI                      |                   | × PF Utility      |
-| ○ Handle           | △ Param Utils                    |                   |                   |
+| ○ Handle           | ○ Param Utils                    |                   |                   |
 | ○ Iterate8         | ○ Path Data                      |                   |                   |
 | ○ Iterate16        | ○ Path Query                     |                   |                   |
 | ○ IterateFloat     | ○ PointParam                     |                   |                   |
@@ -302,11 +302,12 @@ The plugins that pass every scenario are listed in
 during `PF_Event_DRAW`. The CLI never sends `PF_Cmd_EVENT`; an embedder does.
 △ Batch Sampling: no batch functions are provided (the SDK withdrew them in
 After Effects 7.0); the per-pixel samplers work.
-△ Param Utils: states cover values over the range asked about, the pixels of
-layers, masks and arbitrary data's bytes (not what those point to). The host
-has only each layer's current pixels, so a picture set for another frame reads
-as a change; ranges of `AUTOMATIC_WIDE_TIME_INPUT` effects count the whole
-track, as what they need is not tracked.
+○ Param Utils: states cover values over the range asked about, the pixels of
+layers, masks over that range, and arbitrary data as the plugin flattens it
+whenever the host takes a value in (after setup, and after the commands in
+which a plugin changes its values). An `AUTOMATIC_WIDE_TIME_INPUT` effect's
+range widens by the times its checkouts have reached. A layer has one picture,
+so a picture an embedder sets for another frame reads as a change.
 △ World Transform: 8, 16 and 32 bpc, one depth per call. Dissolve, the
 alpha-multiply modes and the quality setting are approximated or ignored,
 non-additive blend modes are not extended to HDR, and no result has been

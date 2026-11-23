@@ -239,7 +239,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 
 ## 実装の進捗
 
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀ 81% (30/37)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀ 84% (31/37)
 
 > ○ 実装済み / △ 一部実装 / × 未実装
 
@@ -251,7 +251,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 | ○ Color16          | △ Effect Custom UI Overlay Theme |                   | ○ Plugin Helper   |
 | ○ ColorFloat       | △ Effect Custom UI               |                   | ○ Plugin Helper 2 |
 | ○ Fill Matte       | ○ Effect UI                      |                   | × PF Utility      |
-| ○ Handle           | △ Param Utils                    |                   |                   |
+| ○ Handle           | ○ Param Utils                    |                   |                   |
 | ○ Iterate8         | ○ Path Data                      |                   |                   |
 | ○ Iterate16        | ○ Path Query                     |                   |                   |
 | ○ IterateFloat     | ○ PointParam                     |                   |                   |
@@ -266,7 +266,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 △ Effect Custom UI / Overlay Theme：テーマの値は返します。Drawbot は `PF_Event_DRAW` のあいだ描画します。CLI は `PF_Cmd_EVENT` を送らず、埋め込み側が送ります。
 
 △ Batch Sampling：一括処理用の関数は提供しません（SDK では After Effects 7.0 で廃止）。画素単位のサンプラーは使えます。
-△ Param Utils：状態は、指定された範囲の値、レイヤーの画素、マスク、任意データのバイト列（その先のポインターは除く）を対象にします。ホストは各レイヤーの現在の画素しか持たないので、別フレーム用の画像を設定すると変化として扱います。`AUTOMATIC_WIDE_TIME_INPUT` のエフェクトは必要な時刻を追跡しないため、トラック全体の変化も対象にします。
+○ Param Utils：状態は、指定された範囲の値、レイヤーの画素、その範囲のマスク、任意データを対象にします。任意データは、ホストが値を受け取るとき（セットアップ後と、プラグインが値を変えるコマンドの後）にプラグインが flatten した内容で比べます。`AUTOMATIC_WIDE_TIME_INPUT` のエフェクトでは、それまでのチェックアウトが届いた時刻まで範囲を広げます。レイヤーの画像は 1 枚なので、埋め込み側が別フレーム用の画像を設定すると変化として扱います。
 △ World Transform：8・16・32 bpc に対応し、1 回の呼び出しの深度は揃っている必要があります。ディザ合成、アルファ乗算系のモード、品質指定は近似または無視です。加算系以外の描画モードは HDR に拡張していません。After Effects との比較は未実施です。
 × PF Utility：AEGP Utility とは別のスイートです。取得はできますが、関数はすべてエラーを返すスタブです。
 △ Channel：レイヤーは通常の 2D 画像であり、補助チャンネルはないものとして応答します。

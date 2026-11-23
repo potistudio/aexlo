@@ -72,6 +72,16 @@ impl RawCommand {
 	}
 }
 
+/// The checkouts seen so far: how far before and after the time it was
+/// called at each reached, and the earliest and latest time any reached.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CheckoutSpan {
+	before: crate::TimePoint,
+	after: crate::TimePoint,
+	earliest: crate::TimePoint,
+	latest: crate::TimePoint,
+}
+
 mod layers;
 mod load;
 mod params;
@@ -333,6 +343,15 @@ pub struct PluginInstance {
 	/// Whether [`Self::setup_arbitrary_params`] has run since the last
 	/// `PF_Cmd_PARAMS_SETUP`; arbitrary streams read `NO_DATA` until it has.
 	arb_streams_live: bool,
+
+	/// A hash of each arbitrary-data value as the plugin flattens it, taken
+	/// when the host takes a value in: after setup, and after the commands in
+	/// which a plugin changes its values. States cover these.
+	arb_digests: HashMap<usize, u64>,
+
+	/// The times the plugin has checked parameters and layers out at, for
+	/// widening a state's range (`PF_OutFlag2_AUTOMATIC_WIDE_TIME_INPUT`).
+	checkout_span: std::sync::Mutex<Option<CheckoutSpan>>,
 
 	/// Who is told about commands and calls (see [`Self::set_observer`]).
 	observer: Option<Installed>,

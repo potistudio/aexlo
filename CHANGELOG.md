@@ -101,6 +101,15 @@ plugin renders or returns.
 
 ### Fixed
 
+- `PF_GetCurrentState` covers arbitrary data as the plugin flattens it
+  (`PF_Arbitrary_FLAT_SIZE_FUNC` and `PF_Arbitrary_FLATTEN_FUNC`), so a change
+  in what a value points to is no longer called unchanged. The host flattens
+  between commands: after setup, and after `PF_Cmd_USER_CHANGED_PARAM`,
+  `PF_Cmd_UPDATE_PARAMS_UI`, `PF_Cmd_EVENT` and `PF_Cmd_DO_DIALOG`; a value the
+  plugin cannot flatten is covered by its handle's bytes as before. For an
+  `AUTOMATIC_WIDE_TIME_INPUT` effect the range widens by how far its checkouts
+  have reached before and after their time, and takes in every time one
+  reached, instead of covering the whole track once any checkout is seen.
 - `PF_GetCurrentState` changes when what it covers does, so that
   `PF_AreStatesIdentical` no longer calls a changed input unchanged: a
   value over the time range asked about, the pixels of the input and of

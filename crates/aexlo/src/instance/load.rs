@@ -412,6 +412,8 @@ impl PluginInstance {
 				parallel_iterate: true,
 				owned_arb_values: Vec::new(),
 				arb_streams_live: false,
+				arb_digests: HashMap::new(),
+				checkout_span: std::sync::Mutex::new(None),
 				observer: None,
 				strict: crate::Strict::default(),
 				tracker: Default::default(),
@@ -521,6 +523,63 @@ impl PluginInstance {
 			self.owned_arb_values.push(index);
 		}
 		self.arb_streams_live = true;
+		self.digest_arbitrary();
+	}
+
+	/// Hash each arbitrary-data value as the plugin flattens it
+	/// (`PF_Arbitrary_FLAT_SIZE_FUNC`, then `PF_Arbitrary_FLATTEN_FUNC`), so a
+	/// state covers what the value points to as well. Only between commands:
+	/// the plugin is never asked while another of its commands runs. A value
+	/// the plugin cannot flatten has no digest, and a state falls back to the
+	/// bytes of its handle.
+	pub(super) fn digest_arbitrary(&mut self) {
+		use std::hash::{DefaultHasher, Hash, Hasher};
+		self.arb_digests.clear();
+		if !self.arb_streams_live {
+			return;
+		}
+		for index in 0..self.params.len() {
+			if self.params[index].param_type != PF_Param_ARBITRARY_DATA as PF_ParamType {
+				continue;
+			}
+			// SAFETY: the parameter was verified to be arbitrary data above.
+			let arb = unsafe { self.params[index].u.arb_d };
+			if arb.value.is_null() {
+				continue;
+			}
+			let mut size: crate::sys::A_u_long = 0;
+			// SAFETY: `PF_ArbParamsExtra` is a plain C struct (integers, raw pointers, unions of those), for which all-zero bytes are a valid value.
+			let mut extra: PF_ArbParamsExtra = unsafe { std::mem::zeroed() };
+			extra.which_function = crate::sys::PF_Arbitrary_FLAT_SIZE_FUNC as _;
+			extra.id = arb.id;
+			extra.u.flat_size_func_params.refconPV = arb.refconPV;
+			extra.u.flat_size_func_params.arbH = arb.value;
+			extra.u.flat_size_func_params.flat_data_sizePLu = &mut size;
+			if let Err(err) = self.call_plugin(RawCommand::ArbitraryCallback, &mut extra as *mut _ as *mut c_void) {
+				log::debug!("arbitrary param #{index}: the plugin gave no flat size: {err:?}");
+				continue;
+			}
+			// A size beyond reason is a value the plugin did not write.
+			if size == 0 || size > 1 << 28 {
+				continue;
+			}
+			let mut flat = vec![0u8; size as usize];
+			// SAFETY: as above.
+			let mut extra: PF_ArbParamsExtra = unsafe { std::mem::zeroed() };
+			extra.which_function = crate::sys::PF_Arbitrary_FLATTEN_FUNC as _;
+			extra.id = arb.id;
+			extra.u.flatten_func_params.refconPV = arb.refconPV;
+			extra.u.flatten_func_params.arbH = arb.value;
+			extra.u.flatten_func_params.buf_sizeLu = size;
+			extra.u.flatten_func_params.flat_dataPV = flat.as_mut_ptr().cast();
+			if let Err(err) = self.call_plugin(RawCommand::ArbitraryCallback, &mut extra as *mut _ as *mut c_void) {
+				log::debug!("arbitrary param #{index}: the plugin did not flatten its value: {err:?}");
+				continue;
+			}
+			let mut hasher = DefaultHasher::new();
+			flat.hash(&mut hasher);
+			self.arb_digests.insert(index, hasher.finish());
+		}
 	}
 
 	/// Hand the arbitrary-data values created by [`Self::setup_arbitrary_params`]
@@ -837,6 +896,20 @@ impl PluginInstance {
 				log::debug!(
 					"Executed command '{command:?}' successfully ({entry_point_name} exited with code {result})."
 				);
+				// The commands in which a plugin changes its own values.
+				if matches!(
+					command,
+					RawCommand::UserChangedParam
+						| RawCommand::UpdateParamsUi
+						| RawCommand::Event
+						| RawCommand::DoDialog
+				) && self
+					.params
+					.iter()
+					.any(|param| param.param_type == PF_Param_ARBITRARY_DATA as PF_ParamType)
+				{
+					self.digest_arbitrary();
+				}
 			}
 			code => {
 				// The format! only runs on the failure path, never per frame.
