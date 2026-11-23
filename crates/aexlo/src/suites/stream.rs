@@ -123,8 +123,12 @@ pub(crate) enum StreamValue {
 		green: f64,
 		blue: f64,
 	},
-	/// The layer chosen in a layer parameter; aexlo has no layer ids, so 0.
-	LayerId,
+	/// The layer chosen in a layer parameter. aexlo's comp has one layer, so
+	/// a linked parameter names it (its `AEGP_GetLayerID`) and an unlinked
+	/// one ("None") is 0, as in After Effects.
+	LayerId {
+		linked: bool,
+	},
 	/// An arbitrary-data parameter. The handle is the parameter's own value,
 	/// not a copy, so disposing the stream value must not free it.
 	Arb(PF_ArbitraryH),
@@ -141,7 +145,10 @@ impl StreamValue {
 		// SAFETY: every union read is selected by `param_type`.
 		unsafe {
 			match def.param_type {
-				t if t == PF_Param_LAYER as PF_ParamType => Self::LayerId,
+				// A linked layer's `PF_LayerDef` holds its pixels; "None" has none.
+				t if t == PF_Param_LAYER as PF_ParamType => Self::LayerId {
+					linked: !def.u.ld.data.is_null(),
+				},
 				t if t == PF_Param_SLIDER as PF_ParamType => Self::OneD(def.u.sd.value as f64),
 				t if t == PF_Param_FIX_SLIDER as PF_ParamType => {
 					Self::OneD(utils::fixed16_to_f32(def.u.fd.value) as f64)
@@ -192,7 +199,7 @@ impl StreamValue {
 			Self::ThreeD { spatial: true, .. } => AEGP_StreamType_ThreeD_SPATIAL,
 			Self::ThreeD { .. } => AEGP_StreamType_ThreeD,
 			Self::Color { .. } => AEGP_StreamType_COLOR,
-			Self::LayerId => AEGP_StreamType_LAYER_ID,
+			Self::LayerId { .. } => AEGP_StreamType_LAYER_ID,
 			Self::Arb(_) => AEGP_StreamType_ARB,
 			Self::Mask { .. } => AEGP_StreamType_MASK,
 		}) as AEGP_StreamType
@@ -202,7 +209,7 @@ impl StreamValue {
 	pub(crate) fn dimensionality(self) -> A_short {
 		match self {
 			Self::NoData => 0,
-			Self::OneD(_) | Self::LayerId | Self::Arb(_) | Self::Mask { .. } => 1,
+			Self::OneD(_) | Self::LayerId { .. } | Self::Arb(_) | Self::Mask { .. } => 1,
 			Self::TwoD { .. } => 2,
 			Self::ThreeD { .. } => 3,
 			Self::Color { .. } => 4,
@@ -242,7 +249,7 @@ macro_rules! write_val {
 					blueF: blue,
 				}
 			}
-			StreamValue::LayerId => out.layer_id = 0,
+			StreamValue::LayerId { linked } => out.layer_id = if linked { crate::suites::layer::LAYER_ID } else { 0 },
 			// `arbH` is bound as `A_Handle` (`*mut c_void`); the parameter stores
 			// a `PF_Handle` (`*mut *mut c_void`). The bit pattern is what the
 			// plugin casts back.
@@ -348,7 +355,7 @@ unsafe extern "C" fn get_valid_interpolations(
 		};
 		*out = match value {
 			StreamValue::NoData => AEGP_KeyInterpMask_NONE,
-			StreamValue::LayerId | StreamValue::Arb(_) => AEGP_KeyInterpMask_HOLD,
+			StreamValue::LayerId { .. } | StreamValue::Arb(_) => AEGP_KeyInterpMask_HOLD,
 			_ => AEGP_KeyInterpMask_LINEAR | AEGP_KeyInterpMask_BEZIER | AEGP_KeyInterpMask_HOLD,
 		} as AEGP_KeyInterpolationMask;
 		PF_Err_NONE
@@ -1234,6 +1241,23 @@ mod tests {
 			assert_eq!((v1.two_d.x, v1.two_d.y), (3.0, 4.0));
 			assert_eq!((v2.two_d.x, v2.two_d.y), (3.0, 4.0));
 		}
+	}
+
+	#[test]
+	fn a_layer_parameter_names_the_layer_only_when_linked() {
+		let mut layer: PF_ParamDef = unsafe { std::mem::zeroed() };
+		layer.param_type = PF_Param_LAYER as PF_ParamType;
+		let value = |def: &PF_ParamDef| {
+			let mut out: AEGP_StreamVal2 = unsafe { std::mem::zeroed() };
+			out.layer_id = 99;
+			write_val!(StreamValue::of(def, false), &mut out);
+			unsafe { out.layer_id }
+		};
+		assert_eq!(value(&layer), 0, "None");
+
+		let mut pixels = [0u8; 4];
+		layer.u.ld.data = pixels.as_mut_ptr().cast();
+		assert_eq!(value(&layer), crate::suites::layer::LAYER_ID);
 	}
 
 	#[test]

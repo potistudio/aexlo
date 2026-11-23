@@ -7,10 +7,13 @@
 //! The fixture is unregistered, so it overlays a red X and "DEMO" labels; the
 //! checks below look only at the centre of the frame, between the labels.
 //!
-//! Parameter indices: [255] Pre Run[Sec].
+//! Parameter indices: [248] Z Buffer Layer, [251] Occlusion Layer,
+//! [255] Pre Run[Sec].
 
-use aexlo::{Depth8, Layer, ParamValue, PluginInstance};
+use aexlo::{Depth8, Layer, ParamValue, PluginInstance, RenderPath};
 
+const Z_BUFFER_LAYER: usize = 248;
+const OCCLUSION_LAYER: usize = 251;
 const PRE_RUN: usize = 255;
 
 const W: u32 = 640;
@@ -69,4 +72,25 @@ fn pre_run_emits_particles() {
 	};
 	let n = particles_near_centre(&out);
 	assert!(n > 100, "only {n} particle pixels near the centre");
+}
+
+/// A linked Z buffer or occlusion layer is looked up by the layer id in its
+/// stream value (`AEGP_GetLayerFromLayerID`) for its transform. With the id
+/// of "None" (0) the plugin passed a null layer on and gave up.
+#[test]
+fn renders_with_a_linked_depth_layer() {
+	for index in [Z_BUFFER_LAYER, OCCLUSION_LAYER] {
+		let Some(path) = test_e2e::fixture("Furikake") else {
+			eprintln!("skipping: fixture 'Furikake' not present locally");
+			return;
+		};
+		let mut instance = aexlo::Host::get().load(&path).expect("failed to load plugin");
+		instance.set_input_layer(Layer::<Depth8>::from_rgba8(vec![0; (W * H * 4) as usize], W, H).unwrap());
+		instance.set_render_size(W, H);
+		let depth = Layer::<Depth8>::from_rgba8(vec![128; (W * H * 4) as usize], W, H).unwrap();
+		instance.set_layer_param(index, Some(depth)).unwrap();
+		instance
+			.render_with(RenderPath::Smart)
+			.unwrap_or_else(|e| panic!("smart render with #{index} linked: {e}"));
+	}
 }

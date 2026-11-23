@@ -56,7 +56,7 @@ plugin that is known to be wrong.
 
 | Plugin | Coverage | What `compat` reports |
 | ------ | -------: | --------------------- |
-| Furikake              |  99.2% | `error` ×5, Render rejected with error 516 |
+| Furikake              |  99.5% | `error` ×3, `PF_Cmd_RENDER` rejected with error 516: it renders only through smart render |
 | RainyDay              |  99.1% | missing `PF Effect Sequence Data Suite` v1 at load |
 | AnimatedNoise         |  97.4% | `crash` ×1 in `PF_Cmd_SMART_RENDER` |
 | FillColor             |  96.0% | `crash` ×1 in `PF_Cmd_SMART_RENDER` |

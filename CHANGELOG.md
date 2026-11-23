@@ -20,6 +20,11 @@ may break the API, and every breaking change is listed below.
 
 ### Fixed
 
+- The stream value of a layer parameter (`AEGP_GetNewStreamValue`) names the
+  layer when one is linked, with the id `AEGP_GetLayerID` gives aexlo's one
+  layer, and is 0 only for "None". It was always 0, so Furikake, which looks
+  a linked Z buffer or occlusion layer up by that id for its transform,
+  failed its smart pre-render.
 - `PF_WorldTransformSuite1` composites, transfers, transforms, blends and
   copies 16 and 32 bpc worlds, not only 8 bpc; so do `composite_rect`,
   `transfer_rect` and `transform_world` in `PF_UtilCallbacks`, which share

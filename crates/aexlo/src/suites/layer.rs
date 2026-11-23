@@ -48,8 +48,9 @@ pub(crate) fn current_effect() -> PF_ProgPtr {
 /// Length of aexlo's comp, and of the layer that fills it.
 pub(crate) const COMP_DURATION_SECONDS: A_long = 30;
 
-/// The id of the one layer (`AEGP_GetLayerID`).
-const LAYER_ID: AEGP_LayerIDVal = 1;
+/// The id of the one layer (`AEGP_GetLayerID`), which every linked layer
+/// parameter names too (`AEGP_GetNewStreamValue`).
+pub(crate) const LAYER_ID: AEGP_LayerIDVal = 1;
 
 /// The layer handle for the effect behind `effect_ref`.
 pub(crate) fn layer_handle(effect_ref: PF_ProgPtr) -> AEGP_LayerH {

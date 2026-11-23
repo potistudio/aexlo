@@ -56,7 +56,7 @@ macOS arm64、aexlo v0.3.0、2026-11-23 に
 
 | プラグイン | カバレッジ | `compat` の報告 |
 | ---------- | ---------: | ---------------- |
-| Furikake            |  99.2% | `error` ×5、Render がエラー 516 で拒否 |
+| Furikake            |  99.5% | `error` ×3、`PF_Cmd_RENDER` がエラー 516 で拒否（smart render でしか描画しない） |
 | RainyDay            |  99.1% | 読み込み時に `PF Effect Sequence Data Suite` v1 が不足 |
 | AnimatedNoise       |  97.4% | `PF_Cmd_SMART_RENDER` で `crash` ×1 |
 | FillColor           |  96.0% | `PF_Cmd_SMART_RENDER` で `crash` ×1 |
