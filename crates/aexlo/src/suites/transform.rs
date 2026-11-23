@@ -1,3 +1,5 @@
+use super::pixel_norm::NormalizedPixel;
+use crate::core::diagnostics::diag;
 use crate::sys::*;
 use rayon::prelude::*;
 use std::os::raw::c_void;
@@ -13,6 +15,12 @@ pub unsafe extern "C" fn Copy_sys(
 	dst_r: *mut PF_Rect,
 ) -> PF_Err {
 	crate::core::ffi::guard("Copy_sys", || {
+		diag!("PF_WorldTransformSuite1/copy",
+			"src" => format!("{:?}", src),
+			"dst" => format!("{:?}", dst),
+			"src_r" => format!("{:?}", src_r),
+			"dst_r" => format!("{:?}", dst_r),
+		);
 		// Handle null source/dest pointers gracefully
 		if src.is_null() || dst.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
@@ -26,6 +34,18 @@ pub unsafe extern "C" fn Copy_sys(
 
 		let src_world = &mut unsafe { *src };
 		let dst_world = &mut unsafe { *dst };
+
+		// Rows are copied byte for byte, so both worlds must share a layout.
+		let pixel_size = match (Depth::of(src_world), Depth::of(dst_world)) {
+			(Some(a), Some(b)) if a == b => a.bytes(),
+			(Some(_), Some(_)) => return decline("PF_WorldTransformSuite1/copy", "worlds of different depths"),
+			_ => {
+				return decline(
+					"PF_WorldTransformSuite1/copy",
+					"a world that is not ARGB32, ARGB64 or ARGB128",
+				);
+			}
+		};
 
 		// Calculate buffer addresses for overlap detection
 		// Buffers overlap if: src_addr <= dst_addr + dst_size && dst_addr <= src_addr + src_size
@@ -104,11 +124,6 @@ pub unsafe extern "C" fn Copy_sys(
 		let dst_buffer_addr = dst_world.data as usize;
 		let dst_rowbytes = dst_world.rowbytes as isize;
 
-		// Size of a pixel in bytes. PF_EffectWorld usually PF_Pixel8 (4 bytes).
-		// But strictly it depends on deep color.
-		// For now assuming PF_Pixel8 (ARGB 8-bit).
-		let pixel_size = std::mem::size_of::<PF_Pixel8>();
-
 		// Parallel Copy
 		(0..final_height).into_par_iter().for_each(|y| {
 			let current_src_y = actual_src_top + y;
@@ -141,12 +156,56 @@ pub unsafe extern "C" fn Copy_sys(
 // ============================================================================
 // Shared pixel-access / compositing helpers
 //
-// Every function below assumes `PF_Pixel8` (straight-alpha 8-bit ARGB), like
-// the rest of this crate's suites (see `iterate.rs`, `world.rs`). Deep-color
-// (16-bit / float) worlds are not handled.
+// Pixels are read and written as normalized `[alpha, red, green, blue]`
+// channels (see `pixel_norm.rs`), so the compositing math below runs once for
+// 8 bpc `ARGB32`, 16 bpc `ARGB64` and 32 bpc `ARGB128` worlds. Integer depths
+// clamp on the way back; float keeps values outside 0..1. `convolve` still
+// works on 8 bpc only and reads through `read8`.
 // ============================================================================
 
-const PIXEL_SIZE: isize = std::mem::size_of::<PF_Pixel8>() as isize;
+/// The pixel layout of a world these entry points can read and write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Depth {
+	Eight,
+	Sixteen,
+	Float,
+}
+
+impl Depth {
+	/// `world`'s layout: its recorded pixel format, or 16 bpc for an untagged
+	/// world flagged `PF_WorldFlag_DEEP`. `None` for GPU and other formats.
+	fn of(world: &PF_EffectWorld) -> Option<Self> {
+		let format = unsafe { super::world::world_pixel_format(world) };
+		if format == PF_PixelFormat_ARGB32 as u32 {
+			Some(if world.world_flags & PF_WorldFlag_DEEP != 0 {
+				Self::Sixteen
+			} else {
+				Self::Eight
+			})
+		} else if format == PF_PixelFormat_ARGB64 as u32 {
+			Some(Self::Sixteen)
+		} else if format == PF_PixelFormat_ARGB128 as u32 {
+			Some(Self::Float)
+		} else {
+			None
+		}
+	}
+
+	fn bytes(self) -> usize {
+		match self {
+			Self::Eight => std::mem::size_of::<PF_Pixel8>(),
+			Self::Sixteen => std::mem::size_of::<PF_Pixel16>(),
+			Self::Float => std::mem::size_of::<PF_PixelFloat>(),
+		}
+	}
+}
+
+/// Records that `name` was handed a world it cannot read and returns the
+/// error the call reports.
+fn decline(name: &str, detail: impl Into<String>) -> PF_Err {
+	crate::observe::unsupported(crate::observe::UnsupportedKind::Declined, name, detail);
+	PF_Err_BAD_CALLBACK_PARAM
+}
 
 /// A `Copy`/`Send`/`Sync` view of a `PF_EffectWorld`'s pixel buffer, addressed
 /// by raw `usize` rather than a borrowed reference. Mirrors the pattern
@@ -160,24 +219,69 @@ struct RawWorld {
 	rowbytes: isize,
 	width: i32,
 	height: i32,
+	depth: Depth,
 }
 
 impl RawWorld {
-	fn from(world: &PF_EffectWorld) -> Self {
-		Self {
+	/// A view of `world`, or `None` when its pixel format is not one of the
+	/// three CPU layouts.
+	fn from(world: &PF_EffectWorld) -> Option<Self> {
+		Some(Self {
 			addr: world.data as usize,
 			rowbytes: world.rowbytes as isize,
 			width: world.width,
 			height: world.height,
+			depth: Depth::of(world)?,
+		})
+	}
+
+	#[inline]
+	fn contains(&self, x: i32, y: i32) -> bool {
+		self.addr != 0 && x >= 0 && y >= 0 && x < self.width && y < self.height
+	}
+
+	#[inline]
+	fn pixel_ptr(&self, x: i32, y: i32) -> *mut u8 {
+		(self.addr as *mut u8).wrapping_offset(y as isize * self.rowbytes + x as isize * self.depth.bytes() as isize)
+	}
+
+	/// Reads the pixel at `(x, y)` as normalized `[a, r, g, b]`, or
+	/// transparent black if it falls outside the buffer (off-screen
+	/// mask/transform samples fall through to that).
+	#[inline]
+	unsafe fn read(&self, x: i32, y: i32) -> [f64; 4] {
+		if !self.contains(x, y) {
+			return [0.0; 4];
+		}
+		let ptr = self.pixel_ptr(x, y);
+		match self.depth {
+			Depth::Eight => unsafe { *(ptr as *const PF_Pixel) }.to_norm(),
+			Depth::Sixteen => unsafe { *(ptr as *const PF_Pixel16) }.to_norm(),
+			Depth::Float => unsafe { *(ptr as *const PF_PixelFloat) }.to_norm(),
 		}
 	}
 
-	/// Reads the pixel at `(x, y)`, or transparent black if it falls outside
-	/// the buffer (this is what gives `convolve`'s "transparent borders" mode
-	/// and off-screen mask/transform samples their fall-through behavior).
+	/// Writes normalized `[a, r, g, b]` at `(x, y)`; outside the buffer it
+	/// does nothing.
 	#[inline]
-	unsafe fn read(&self, x: i32, y: i32) -> PF_Pixel8 {
-		if self.addr == 0 || x < 0 || y < 0 || x >= self.width || y >= self.height {
+	unsafe fn write(&self, x: i32, y: i32, argb: [f64; 4]) {
+		if !self.contains(x, y) {
+			return;
+		}
+		let ptr = self.pixel_ptr(x, y);
+		match self.depth {
+			Depth::Eight => unsafe { *(ptr as *mut PF_Pixel) = PF_Pixel::from_norm(argb) },
+			Depth::Sixteen => unsafe { *(ptr as *mut PF_Pixel16) = PF_Pixel16::from_norm(argb) },
+			Depth::Float => unsafe { *(ptr as *mut PF_PixelFloat) = PF_PixelFloat::from_norm(argb) },
+		}
+	}
+
+	/// Reads an 8 bpc pixel, or transparent black outside the buffer (this
+	/// gives `convolve`'s "transparent borders" mode). Only for worlds whose
+	/// depth is [`Depth::Eight`].
+	#[inline]
+	unsafe fn read8(&self, x: i32, y: i32) -> PF_Pixel8 {
+		if !self.contains(x, y) {
 			return PF_Pixel8 {
 				alpha: 0,
 				red: 0,
@@ -185,40 +289,37 @@ impl RawWorld {
 				blue: 0,
 			};
 		}
-		let ptr = (self.addr as *const u8).wrapping_offset(y as isize * self.rowbytes + x as isize * PIXEL_SIZE)
-			as *const PF_Pixel8;
-		unsafe { *ptr }
+		unsafe { *(self.pixel_ptr(x, y) as *const PF_Pixel8) }
 	}
 
-	/// Like [`read`](Self::read), but clamps out-of-range coordinates to the
-	/// nearest edge pixel instead of returning transparent black, for
+	/// Like [`read8`](Self::read8), but clamps out-of-range coordinates to
+	/// the nearest edge pixel instead of returning transparent black, for
 	/// `PF_KernelFlag_REPLICATE_BORDERS`.
 	#[inline]
-	unsafe fn read_edge(&self, x: i32, y: i32, replicate: bool) -> PF_Pixel8 {
+	unsafe fn read8_edge(&self, x: i32, y: i32, replicate: bool) -> PF_Pixel8 {
 		if replicate {
 			let cx = x.clamp(0, (self.width - 1).max(0));
 			let cy = y.clamp(0, (self.height - 1).max(0));
-			unsafe { self.read(cx, cy) }
+			unsafe { self.read8(cx, cy) }
 		} else {
-			unsafe { self.read(x, y) }
+			unsafe { self.read8(x, y) }
 		}
 	}
 
 	#[inline]
-	unsafe fn write(&self, x: i32, y: i32, pixel: PF_Pixel8) {
-		if self.addr == 0 || x < 0 || y < 0 || x >= self.width || y >= self.height {
+	unsafe fn write8(&self, x: i32, y: i32, pixel: PF_Pixel8) {
+		if !self.contains(x, y) {
 			return;
 		}
-		let ptr = (self.addr as *mut u8).wrapping_offset(y as isize * self.rowbytes + x as isize * PIXEL_SIZE)
-			as *mut PF_Pixel8;
-		unsafe { *ptr = pixel };
+		unsafe { *(self.pixel_ptr(x, y) as *mut PF_Pixel8) = pixel };
 	}
 
 	/// Bilinear sample at continuous coordinate `(x, y)`, where integer
-	/// coordinates land exactly on pixel centers. Returns `(a, r, g, b)` on a
-	/// 0..255 scale. Taps that fall outside the buffer contribute transparent
-	/// black, so sampling near an edge fades out rather than reading garbage.
-	unsafe fn sample_bilinear(&self, x: f64, y: f64) -> (f64, f64, f64, f64) {
+	/// coordinates land exactly on pixel centers. Returns normalized
+	/// `[a, r, g, b]`. Taps that fall outside the buffer contribute
+	/// transparent black, so sampling near an edge fades out rather than
+	/// reading garbage.
+	unsafe fn sample_bilinear(&self, x: f64, y: f64) -> [f64; 4] {
 		let x0 = x.floor();
 		let y0 = y.floor();
 		let fx = x - x0;
@@ -228,17 +329,11 @@ impl RawWorld {
 		let p10 = unsafe { self.read(x0i + 1, y0i) };
 		let p01 = unsafe { self.read(x0i, y0i + 1) };
 		let p11 = unsafe { self.read(x0i + 1, y0i + 1) };
-		let mix = |c00: u8, c10: u8, c01: u8, c11: u8| {
-			let top = c00 as f64 + (c10 as f64 - c00 as f64) * fx;
-			let bottom = c01 as f64 + (c11 as f64 - c01 as f64) * fx;
+		std::array::from_fn(|i| {
+			let top = p00[i] + (p10[i] - p00[i]) * fx;
+			let bottom = p01[i] + (p11[i] - p01[i]) * fx;
 			top + (bottom - top) * fy
-		};
-		(
-			mix(p00.alpha, p10.alpha, p01.alpha, p11.alpha),
-			mix(p00.red, p10.red, p01.red, p11.red),
-			mix(p00.green, p10.green, p01.green, p11.green),
-			mix(p00.blue, p10.blue, p01.blue, p11.blue),
-		)
+		})
 	}
 }
 
@@ -256,34 +351,38 @@ fn skip_row_for_field(y: i32, field: PF_Field) -> bool {
 	}
 }
 
-/// Unpacks a stored pixel into (alpha, [r, g, b]) on a 0..1 scale. When
-/// `premultiplied` is set (`PF_MF_Alpha_PREMUL`), the stored channels are
-/// divided back out by alpha so the rest of the compositing math can always
-/// work in straight alpha, matching how the rest of this crate stores worlds.
+/// Splits a normalized pixel into (alpha, [r, g, b]). When `premultiplied`
+/// is set (`PF_MF_Alpha_PREMUL`), the stored channels are divided back out by
+/// alpha so the rest of the compositing math can always work in straight
+/// alpha, matching how the rest of this crate stores worlds.
 #[inline]
-fn to_straight(p: PF_Pixel8, premultiplied: bool) -> (f64, [f64; 3]) {
-	let a = p.alpha as f64 / 255.0;
-	let raw = [p.red as f64 / 255.0, p.green as f64 / 255.0, p.blue as f64 / 255.0];
+fn to_straight([a, r, g, b]: [f64; 4], premultiplied: bool) -> (f64, [f64; 3]) {
 	let c = if premultiplied {
-		if a > 1e-6 {
-			[raw[0] / a, raw[1] / a, raw[2] / a]
-		} else {
-			[0.0; 3]
-		}
+		if a > 1e-6 { [r / a, g / a, b / a] } else { [0.0; 3] }
 	} else {
-		raw
+		[r, g, b]
 	};
 	(a, c)
 }
 
+/// Joins straight alpha and color back into a normalized pixel. Alpha is
+/// clamped to 0..1; color is left to the destination depth, so float keeps
+/// values above 1.
 #[inline]
-fn from_straight(a: f64, c: [f64; 3]) -> PF_Pixel8 {
-	let to_u8 = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-	PF_Pixel8 {
-		alpha: to_u8(a),
-		red: to_u8(c[0]),
-		green: to_u8(c[1]),
-		blue: to_u8(c[2]),
+fn from_straight(a: f64, c: [f64; 3]) -> [f64; 4] {
+	[a.clamp(0.0, 1.0), c[0], c[1], c[2]]
+}
+
+/// A `PF_CompositeMode`'s opacity on a 0..1 scale. The SDK documents
+/// `opacitySu` (0 to `PF_MAX_CHAN16`) as the one for deep color, so a 16 or
+/// 32 bpc destination takes it, except when it is 0 and `opacity` (0 to 255)
+/// is not: plugins that fill in only `opacity`, such as DeepGlow2, render at
+/// 32 bpc in After Effects. An 8 bpc destination takes `opacity`.
+fn mode_opacity(mode: &PF_CompositeMode, dst: Depth) -> f64 {
+	if dst == Depth::Eight || (mode.opacitySu == 0 && mode.opacity != 0) {
+		mode.opacity as f64 / PF_MAX_CHAN8 as f64
+	} else {
+		(mode.opacitySu as f64 / PF_MAX_CHAN16 as f64).min(1.0)
 	}
 }
 
@@ -488,11 +587,7 @@ fn composite_over(top_a: f64, top_c: [f64; 3], bottom_a: f64, bottom_c: [f64; 3]
 		let premul = top_c[i] * top_a * (1.0 - bottom_a)
 			+ bottom_c[i] * bottom_a * (1.0 - top_a)
 			+ blended[i] * top_a * bottom_a;
-		out_c[i] = if out_a > 1e-6 {
-			(premul / out_a).clamp(0.0, 1.0)
-		} else {
-			0.0
-		};
+		out_c[i] = if out_a > 1e-6 { premul / out_a } else { 0.0 };
 	}
 	(out_a, out_c)
 }
@@ -519,11 +614,11 @@ fn composite_pixel(src_a: f64, src_c: [f64; 3], dst_a: f64, dst_c: [f64; 3], mod
 /// `PF_MaskFlag_INVERTED`.
 #[allow(non_upper_case_globals)]
 fn mask_value(mask: RawWorld, offset: PF_Point, what_is_mask: PF_MaskFlags, x: i32, y: i32) -> f64 {
-	let p = unsafe { mask.read(x - offset.h, y - offset.v) };
+	let [a, r, g, b] = unsafe { mask.read(x - offset.h, y - offset.v) };
 	let v = if what_is_mask & PF_MaskFlag_LUMINANCE != 0 {
-		(0.3 * p.red as f64 + 0.59 * p.green as f64 + 0.11 * p.blue as f64) / 255.0
+		0.3 * r + 0.59 * g + 0.11 * b
 	} else {
-		p.alpha as f64 / 255.0
+		a
 	};
 	if what_is_mask & PF_MaskFlag_INVERTED != 0 {
 		1.0 - v
@@ -571,17 +666,28 @@ fn invert3(m: Mat3) -> Option<Mat3> {
 	])
 }
 
+/// A `PF_CompositeMode` for the trace: its fields, or `null`.
+fn describe_mode(mode: *const PF_CompositeMode) -> String {
+	match unsafe { mode.as_ref() } {
+		Some(m) => format!(
+			"xfer={} opacity={} opacitySu={} rgb_only={}",
+			m.xfer, m.opacity, m.opacitySu, m.rgb_only
+		),
+		None => "null".to_owned(),
+	}
+}
+
+/// A `PF_Rect` for the trace: its edges, or `null`.
+fn describe_rect(rect: *const PF_Rect) -> String {
+	match unsafe { rect.as_ref() } {
+		Some(r) => format!("({}, {})-({}, {})", r.left, r.top, r.right, r.bottom),
+		None => "null".to_owned(),
+	}
+}
+
 // ============================================================================
 // Suite entry points
 // ============================================================================
-
-/// Whether `world` holds 8 bpc `ARGB32` pixels, the only layout the
-/// composite and transform paths here read and write. A 16 or 32 bpc world
-/// would be walked four bytes at a time and come back corrupted.
-fn is_8bpc(world: &PF_EffectWorld) -> bool {
-	world.world_flags & PF_WorldFlag_DEEP == 0
-		&& unsafe { super::world::world_pixel_format(world) } == PF_PixelFormat_ARGB32 as u32
-}
 
 /// Composites `source_wld`'s `src_rect` onto `dest_wld` at `(dest_x,
 /// dest_y)`, scaled by `src_opacity` (0..255) and blended per `xfer_mode`.
@@ -597,6 +703,16 @@ pub(crate) unsafe extern "C" fn composite_rect_sys(
 	dest_wld: *mut PF_EffectWorld,
 ) -> PF_Err {
 	crate::core::ffi::guard("composite_rect_sys", || {
+		diag!("PF_WorldTransformSuite1/composite_rect",
+			"src_rect" => format!("{:?}", src_rect),
+			"src_opacity" => src_opacity,
+			"source_wld" => format!("{:?}", source_wld),
+			"dest_x" => dest_x,
+			"dest_y" => dest_y,
+			"field_rdr" => field_rdr,
+			"xfer_mode" => xfer_mode,
+			"dest_wld" => format!("{:?}", dest_wld),
+		);
 		if source_wld.is_null() || dest_wld.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
@@ -605,10 +721,12 @@ pub(crate) unsafe extern "C" fn composite_rect_sys(
 		if src.data.is_null() || dst.data.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		if !is_8bpc(src) || !is_8bpc(dst) {
-			log::warn!("composite_rect: only 8 bpc worlds are supported");
-			return PF_Err_BAD_CALLBACK_PARAM;
-		}
+		let (Some(src_raw), Some(dst_raw)) = (RawWorld::from(src), RawWorld::from(dst)) else {
+			return decline(
+				"PF_WorldTransformSuite1/composite_rect",
+				"a world that is not ARGB32, ARGB64 or ARGB128",
+			);
+		};
 
 		let rect = if !src_rect.is_null() {
 			unsafe { *src_rect }
@@ -629,8 +747,6 @@ pub(crate) unsafe extern "C" fn composite_rect_sys(
 		}
 
 		let opacity = src_opacity.clamp(0, 255) as f64 / 255.0;
-		let src_raw = RawWorld::from(src);
-		let dst_raw = RawWorld::from(dst);
 
 		(0..height).into_par_iter().for_each(|row| {
 			let dy = dest_y + row;
@@ -666,6 +782,12 @@ unsafe extern "C" fn blend_sys(
 	dst: *mut PF_EffectWorld,
 ) -> PF_Err {
 	crate::core::ffi::guard("blend_sys", || {
+		diag!("PF_WorldTransformSuite1/blend",
+			"src1" => format!("{:?}", src1),
+			"src2" => format!("{:?}", src2),
+			"ratio" => ratio,
+			"dst" => format!("{:?}", dst),
+		);
 		if src1.is_null() || src2.is_null() || dst.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
@@ -683,21 +805,18 @@ unsafe extern "C" fn blend_sys(
 			return PF_Err_NONE;
 		}
 
-		let r1 = RawWorld::from(s1);
-		let r2 = RawWorld::from(s2);
-		let rd = RawWorld::from(d);
+		let (Some(r1), Some(r2), Some(rd)) = (RawWorld::from(s1), RawWorld::from(s2), RawWorld::from(d)) else {
+			return decline(
+				"PF_WorldTransformSuite1/blend",
+				"a world that is not ARGB32, ARGB64 or ARGB128",
+			);
+		};
 
 		(0..height).into_par_iter().for_each(|y| {
 			for x in 0..width {
 				let p1 = unsafe { r1.read(x, y) };
 				let p2 = unsafe { r2.read(x, y) };
-				let lerp8 = |a: u8, b: u8| ((a as f64) + (b as f64 - a as f64) * t).round().clamp(0.0, 255.0) as u8;
-				let out = PF_Pixel8 {
-					alpha: lerp8(p1.alpha, p2.alpha),
-					red: lerp8(p1.red, p2.red),
-					green: lerp8(p1.green, p2.green),
-					blue: lerp8(p1.blue, p2.blue),
-				};
+				let out = std::array::from_fn(|i| p1[i] + (p2[i] - p1[i]) * t);
 				unsafe { rd.write(x, y, out) };
 			}
 		});
@@ -739,7 +858,7 @@ fn convolve_value(
 		if w == 0.0 {
 			continue;
 		}
-		let px = unsafe { ctx.world.read_edge(x + ox, y + oy, ctx.replicate) };
+		let px = unsafe { ctx.world.read8_edge(x + ox, y + oy, ctx.replicate) };
 		acc += w * extract(px);
 	}
 	if ctx.normalized || sum.abs() < 1e-9 {
@@ -768,7 +887,7 @@ fn convolve_value_alpha_weighted(
 		if w == 0.0 {
 			continue;
 		}
-		let px = unsafe { ctx.world.read_edge(x + ox, y + oy, ctx.replicate) };
+		let px = unsafe { ctx.world.read8_edge(x + ox, y + oy, ctx.replicate) };
 		let a = px.alpha as f64 / 255.0;
 		num += w * extract(px) * a;
 		den += w * a;
@@ -794,6 +913,13 @@ unsafe extern "C" fn convolve_sys(
 	dst: *mut PF_EffectWorld,
 ) -> PF_Err {
 	crate::core::ffi::guard("convolve_sys", || {
+		diag!("PF_WorldTransformSuite1/convolve",
+			"src" => format!("{:?}", src),
+			"area" => format!("{:?}", area),
+			"flags" => flags,
+			"kernel_size" => kernel_size,
+			"dst" => format!("{:?}", dst),
+		);
 		if src.is_null() || dst.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
@@ -874,8 +1000,15 @@ unsafe extern "C" fn convolve_sys(
 		let ch_g = build_channel(g_kernel);
 		let ch_b = build_channel(b_kernel);
 
-		let src_raw = RawWorld::from(s);
-		let dst_raw = RawWorld::from(d);
+		let (Some(src_raw), Some(dst_raw)) = (RawWorld::from(s), RawWorld::from(d)) else {
+			return decline(
+				"PF_WorldTransformSuite1/convolve",
+				"a world that is not ARGB32, ARGB64 or ARGB128",
+			);
+		};
+		if src_raw.depth != Depth::Eight || dst_raw.depth != Depth::Eight {
+			return decline("PF_WorldTransformSuite1/convolve", "a 16 or 32 bpc world");
+		}
 		let ctx = ConvolveCtx {
 			world: src_raw,
 			taps: &taps[..],
@@ -887,7 +1020,7 @@ unsafe extern "C" fn convolve_sys(
 			let y = top + row;
 			for col in 0..width {
 				let x = left + col;
-				let here = unsafe { src_raw.read(x, y) };
+				let here = unsafe { src_raw.read8(x, y) };
 
 				let conv = |ch: &Option<Channel>, extract: fn(PF_Pixel8) -> f64, fallback: u8| -> u8 {
 					match ch {
@@ -909,7 +1042,7 @@ unsafe extern "C" fn convolve_sys(
 					green: conv(&ch_g, |p| p.green as f64, here.green),
 					blue: conv(&ch_b, |p| p.blue as f64, here.blue),
 				};
-				unsafe { dst_raw.write(x, y, out) };
+				unsafe { dst_raw.write8(x, y, out) };
 			}
 		});
 
@@ -928,6 +1061,12 @@ unsafe extern "C" fn copy_hq_sys(
 	dst_r: *mut PF_Rect,
 ) -> PF_Err {
 	crate::core::ffi::guard("copy_hq_sys", || {
+		diag!("PF_WorldTransformSuite1/copy_hq",
+			"src" => format!("{:?}", src),
+			"dst" => format!("{:?}", dst),
+			"src_r" => format!("{:?}", src_r),
+			"dst_r" => format!("{:?}", dst_r),
+		);
 		if src.is_null() || dst.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
@@ -970,8 +1109,12 @@ unsafe extern "C" fn copy_hq_sys(
 
 		let scale_x = src_w as f64 / dst_w as f64;
 		let scale_y = src_h as f64 / dst_h as f64;
-		let src_raw = RawWorld::from(s);
-		let dst_raw = RawWorld::from(d);
+		let (Some(src_raw), Some(dst_raw)) = (RawWorld::from(s), RawWorld::from(d)) else {
+			return decline(
+				"PF_WorldTransformSuite1/copy_hq",
+				"a world that is not ARGB32, ARGB64 or ARGB128",
+			);
+		};
 
 		(0..dst_h).into_par_iter().for_each(|row| {
 			let dy = dst_top + row;
@@ -979,14 +1122,7 @@ unsafe extern "C" fn copy_hq_sys(
 			for col in 0..dst_w {
 				let dx = dst_left + col;
 				let sx = src_rect.left as f64 + (col as f64 + 0.5) * scale_x - 0.5;
-				let (a, r, g, b) = unsafe { src_raw.sample_bilinear(sx, sy) };
-				let to_u8 = |v: f64| v.round().clamp(0.0, 255.0) as u8;
-				let px = PF_Pixel8 {
-					alpha: to_u8(a),
-					red: to_u8(r),
-					green: to_u8(g),
-					blue: to_u8(b),
-				};
+				let px = unsafe { src_raw.sample_bilinear(sx, sy) };
 				unsafe { dst_raw.write(dx, dy, px) };
 			}
 		});
@@ -1017,6 +1153,17 @@ pub(crate) unsafe extern "C" fn transfer_rect_sys(
 	dst_world: *mut PF_EffectWorld,
 ) -> PF_Err {
 	crate::core::ffi::guard("transfer_rect_sys", || {
+		diag!("PF_WorldTransformSuite1/transfer_rect",
+			"m_flags" => m_flags,
+			"field" => field,
+			"src_rec" => describe_rect(src_rec),
+			"src_world" => format!("{:?}", src_world),
+			"comp_mode" => describe_mode(comp_mode),
+			"mask_world0" => format!("{:?}", mask_world0),
+			"dest_x" => dest_x,
+			"dest_y" => dest_y,
+			"dst_world" => format!("{:?}", dst_world),
+		);
 		if src_world.is_null() || dst_world.is_null() || comp_mode.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
@@ -1025,10 +1172,12 @@ pub(crate) unsafe extern "C" fn transfer_rect_sys(
 		if src.data.is_null() || dst.data.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		if !is_8bpc(src) || !is_8bpc(dst) {
-			log::warn!("transfer_rect: only 8 bpc worlds are supported");
-			return PF_Err_BAD_CALLBACK_PARAM;
-		}
+		let (Some(src_raw), Some(dst_raw)) = (RawWorld::from(src), RawWorld::from(dst)) else {
+			return decline(
+				"PF_WorldTransformSuite1/transfer_rect",
+				"a world that is not ARGB32, ARGB64 or ARGB128",
+			);
+		};
 		let mode = unsafe { &*comp_mode };
 
 		let rect = if !src_rec.is_null() {
@@ -1049,14 +1198,23 @@ pub(crate) unsafe extern "C" fn transfer_rect_sys(
 			return PF_Err_NONE;
 		}
 
-		let opacity = mode.opacity as f64 / 255.0;
+		let opacity = mode_opacity(mode, dst_raw.depth);
 		let premultiplied = m_flags & PF_MF_Alpha_STRAIGHT == 0;
 		let rgb_only = mode.rgb_only != 0;
 		let xfer = mode.xfer;
 
-		let src_raw = RawWorld::from(src);
-		let dst_raw = RawWorld::from(dst);
-		let mask_raw = unsafe { mask_world0.as_ref() }.map(|m| (RawWorld::from(&m.mask), m.offset, m.what_is_mask));
+		let mask_raw = match unsafe { mask_world0.as_ref() } {
+			None => None,
+			Some(m) => match RawWorld::from(&m.mask) {
+				Some(raw) => Some((raw, m.offset, m.what_is_mask)),
+				None => {
+					return decline(
+						"PF_WorldTransformSuite1/transfer_rect",
+						"a mask world that is not ARGB32, ARGB64 or ARGB128",
+					);
+				}
+			},
+		};
 
 		(0..height).into_par_iter().for_each(|row| {
 			let dy = dest_y + row;
@@ -1108,6 +1266,17 @@ pub(crate) unsafe extern "C" fn transform_world_sys(
 	dst_world: *mut PF_EffectWorld,
 ) -> PF_Err {
 	crate::core::ffi::guard("transform_world_sys", || {
+		diag!("PF_WorldTransformSuite1/transform_world",
+			"m_flags" => m_flags,
+			"field" => field,
+			"src_world" => format!("{:?}", src_world),
+			"comp_mode" => describe_mode(comp_mode),
+			"mask_world0" => format!("{:?}", mask_world0),
+			"num_matrices" => num_matrices,
+			"src2dst_matrix" => src2dst_matrix,
+			"dest_rect" => describe_rect(dest_rect),
+			"dst_world" => format!("{:?}", dst_world),
+		);
 		if src_world.is_null() || dst_world.is_null() || comp_mode.is_null() || matrices.is_null() || num_matrices <= 0
 		{
 			return PF_Err_BAD_CALLBACK_PARAM;
@@ -1117,10 +1286,12 @@ pub(crate) unsafe extern "C" fn transform_world_sys(
 		if src.data.is_null() || dst.data.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		if !is_8bpc(src) || !is_8bpc(dst) {
-			log::warn!("transform_world: only 8 bpc worlds are supported");
-			return PF_Err_BAD_CALLBACK_PARAM;
-		}
+		let (Some(src_raw), Some(dst_raw)) = (RawWorld::from(src), RawWorld::from(dst)) else {
+			return decline(
+				"PF_WorldTransformSuite1/transform_world",
+				"a world that is not ARGB32, ARGB64 or ARGB128",
+			);
+		};
 		let mode = unsafe { &*comp_mode };
 
 		let rect = if !dest_rect.is_null() {
@@ -1154,14 +1325,23 @@ pub(crate) unsafe extern "C" fn transform_world_sys(
 			})
 			.collect();
 
-		let opacity = mode.opacity as f64 / 255.0;
+		let opacity = mode_opacity(mode, dst_raw.depth);
 		let premultiplied = m_flags & PF_MF_Alpha_STRAIGHT == 0;
 		let rgb_only = mode.rgb_only != 0;
 		let xfer = mode.xfer;
 
-		let src_raw = RawWorld::from(src);
-		let dst_raw = RawWorld::from(dst);
-		let mask_raw = unsafe { mask_world0.as_ref() }.map(|m| (RawWorld::from(&m.mask), m.offset, m.what_is_mask));
+		let mask_raw = match unsafe { mask_world0.as_ref() } {
+			None => None,
+			Some(m) => match RawWorld::from(&m.mask) {
+				Some(raw) => Some((raw, m.offset, m.what_is_mask)),
+				None => {
+					return decline(
+						"PF_WorldTransformSuite1/transform_world",
+						"a mask world that is not ARGB32, ARGB64 or ARGB128",
+					);
+				}
+			},
+		};
 		let mats = &mats[..];
 
 		(0..height).into_par_iter().for_each(|row| {
@@ -1176,12 +1356,11 @@ pub(crate) unsafe extern "C" fn transform_world_sys(
 				let mut acc_c = [0.0; 3];
 				for mat in mats {
 					let (sx, sy) = apply_matrix(mat, dx as f64 + 0.5, dy as f64 + 0.5);
-					let (a, r, g, b) = unsafe { src_raw.sample_bilinear(sx - 0.5, sy - 0.5) };
-					let a_n = a / 255.0;
+					let [a_n, r, g, b] = unsafe { src_raw.sample_bilinear(sx - 0.5, sy - 0.5) };
 					let (rp, gp, bp) = if premultiplied {
-						(r / 255.0, g / 255.0, b / 255.0)
+						(r, g, b)
 					} else {
-						(r / 255.0 * a_n, g / 255.0 * a_n, b / 255.0 * a_n)
+						(r * a_n, g * a_n, b * a_n)
 					};
 					acc_a += a_n;
 					acc_c[0] += rp;
@@ -1235,10 +1414,44 @@ pub const fn create_world_transform_suite_1() -> PF_WorldTransformSuite1 {
 mod tests {
 	use super::*;
 
+	const PIXEL_SIZE: isize = std::mem::size_of::<PF_Pixel8>() as isize;
+
+	/// A `width` x `height` host world of `format`, every pixel set to `argb`
+	/// (normalized). Free it with `free_world`.
+	fn deep_world(width: i32, height: i32, format: PF_PixelFormat, argb: [f64; 4]) -> PF_EffectWorld {
+		let bytes = match format as u32 {
+			f if f == PF_PixelFormat_ARGB64 as u32 => 8,
+			f if f == PF_PixelFormat_ARGB128 as u32 => 16,
+			_ => 4,
+		};
+		let world = super::super::world::alloc_world(width, height, bytes, format as u32);
+		let raw = RawWorld::from(&world).expect("a CPU world");
+		for y in 0..height {
+			for x in 0..width {
+				unsafe { raw.write(x, y, argb) };
+			}
+		}
+		world
+	}
+
+	fn read_at(world: &PF_EffectWorld, x: i32, y: i32) -> [f64; 4] {
+		unsafe { RawWorld::from(world).expect("a CPU world").read(x, y) }
+	}
+
+	fn copy_mode(opacity: u8, opacity_su: u16) -> PF_CompositeMode {
+		PF_CompositeMode {
+			xfer: PF_Xfer_COPY,
+			rand_seed: 0,
+			opacity,
+			rgb_only: 0,
+			opacitySu: opacity_su,
+		}
+	}
+
 	#[test]
-	fn composite_rect_rejects_a_deep_world() {
-		let mut src = super::super::world::alloc_world(2, 2, 8, PF_PixelFormat_ARGB64 as u32);
-		let mut dst = super::super::world::alloc_world(2, 2, 4, PF_PixelFormat_ARGB32 as u32);
+	fn composite_rect_composites_a_16bpc_world() {
+		let mut src = deep_world(2, 2, PF_PixelFormat_ARGB64, [1.0, 0.25, 0.5, 0.75]);
+		let mut dst = deep_world(2, 2, PF_PixelFormat_ARGB64, [1.0, 0.0, 0.0, 0.0]);
 		let err = unsafe {
 			composite_rect_sys(
 				std::ptr::null_mut(),
@@ -1248,7 +1461,165 @@ mod tests {
 				0,
 				0,
 				PF_Field_FRAME,
-				PF_Xfer_IN_FRONT as PF_XferMode,
+				PF_Xfer_COPY,
+				&mut dst,
+			)
+		};
+		assert_eq!(err, PF_Err_NONE);
+		let px = read_at(&dst, 1, 1);
+		for (got, want) in px.iter().zip([1.0, 0.25, 0.5, 0.75]) {
+			assert!((got - want).abs() < 1e-4, "{px:?}");
+		}
+		unsafe {
+			super::super::world::free_world(&mut src);
+			super::super::world::free_world(&mut dst);
+		}
+	}
+
+	#[test]
+	fn transfer_rect_keeps_float_values_above_one() {
+		let mut src = deep_world(3, 2, PF_PixelFormat_ARGB128, [1.0, 2.5, 0.5, 0.0]);
+		let mut dst = deep_world(3, 2, PF_PixelFormat_ARGB128, [0.0; 4]);
+		let mode = copy_mode(255, PF_MAX_CHAN16 as u16);
+		let err = unsafe {
+			transfer_rect_sys(
+				std::ptr::null_mut(),
+				PF_Quality_HI,
+				PF_MF_Alpha_STRAIGHT,
+				PF_Field_FRAME,
+				std::ptr::null(),
+				&src,
+				&mode,
+				std::ptr::null(),
+				0,
+				0,
+				&mut dst,
+			)
+		};
+		assert_eq!(err, PF_Err_NONE);
+		assert_eq!(read_at(&dst, 2, 1), [1.0, 2.5, 0.5, 0.0]);
+		unsafe {
+			super::super::world::free_world(&mut src);
+			super::super::world::free_world(&mut dst);
+		}
+	}
+
+	#[test]
+	fn transfer_rect_takes_a_deep_opacity_from_opacity_su() {
+		let mut src = deep_world(1, 1, PF_PixelFormat_ARGB128, [1.0, 1.0, 1.0, 1.0]);
+		let mut dst = deep_world(1, 1, PF_PixelFormat_ARGB128, [0.0; 4]);
+		// `opacity` says opaque; at 32 bpc only `opacitySu` counts.
+		let mode = copy_mode(255, (PF_MAX_CHAN16 / 2) as u16);
+		let err = unsafe {
+			transfer_rect_sys(
+				std::ptr::null_mut(),
+				PF_Quality_HI,
+				PF_MF_Alpha_STRAIGHT,
+				PF_Field_FRAME,
+				std::ptr::null(),
+				&src,
+				&mode,
+				std::ptr::null(),
+				0,
+				0,
+				&mut dst,
+			)
+		};
+		assert_eq!(err, PF_Err_NONE);
+		assert!((read_at(&dst, 0, 0)[0] - 0.5).abs() < 1e-6);
+		unsafe {
+			super::super::world::free_world(&mut src);
+			super::super::world::free_world(&mut dst);
+		}
+	}
+
+	#[test]
+	fn transfer_rect_takes_opacity_when_opacity_su_is_zero() {
+		let mut src = deep_world(1, 1, PF_PixelFormat_ARGB128, [1.0, 1.0, 1.0, 1.0]);
+		let mut dst = deep_world(1, 1, PF_PixelFormat_ARGB128, [0.0; 4]);
+		// What DeepGlow2 passes at 32 bpc.
+		let mode = copy_mode(255, 0);
+		let err = unsafe {
+			transfer_rect_sys(
+				std::ptr::null_mut(),
+				PF_Quality_HI,
+				PF_MF_Alpha_STRAIGHT,
+				PF_Field_FRAME,
+				std::ptr::null(),
+				&src,
+				&mode,
+				std::ptr::null(),
+				0,
+				0,
+				&mut dst,
+			)
+		};
+		assert_eq!(err, PF_Err_NONE);
+		assert_eq!(read_at(&dst, 0, 0), [1.0; 4]);
+		unsafe {
+			super::super::world::free_world(&mut src);
+			super::super::world::free_world(&mut dst);
+		}
+	}
+
+	#[test]
+	fn copy_moves_whole_float_pixels() {
+		let mut src = deep_world(4, 2, PF_PixelFormat_ARGB128, [1.0, 0.1, 0.2, 3.0]);
+		let mut dst = deep_world(4, 2, PF_PixelFormat_ARGB128, [0.0; 4]);
+		let err = unsafe {
+			Copy_sys(
+				std::ptr::null_mut(),
+				&mut src,
+				&mut dst,
+				std::ptr::null_mut(),
+				std::ptr::null_mut(),
+			)
+		};
+		assert_eq!(err, PF_Err_NONE);
+		// An 8 bpc pixel size would have copied only the first pixel of each row.
+		assert_eq!(read_at(&dst, 3, 1), read_at(&src, 3, 1));
+		unsafe {
+			super::super::world::free_world(&mut src);
+			super::super::world::free_world(&mut dst);
+		}
+	}
+
+	#[test]
+	fn copy_declines_worlds_of_different_depths() {
+		let mut src = deep_world(2, 2, PF_PixelFormat_ARGB128, [1.0; 4]);
+		let mut dst = deep_world(2, 2, PF_PixelFormat_ARGB32, [0.0; 4]);
+		let err = unsafe {
+			Copy_sys(
+				std::ptr::null_mut(),
+				&mut src,
+				&mut dst,
+				std::ptr::null_mut(),
+				std::ptr::null_mut(),
+			)
+		};
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
+		unsafe {
+			super::super::world::free_world(&mut src);
+			super::super::world::free_world(&mut dst);
+		}
+	}
+
+	#[test]
+	fn convolve_declines_a_deep_world() {
+		let mut src = deep_world(2, 2, PF_PixelFormat_ARGB64, [1.0; 4]);
+		let mut dst = deep_world(2, 2, PF_PixelFormat_ARGB64, [0.0; 4]);
+		let kernel = [1i32];
+		let err = unsafe {
+			convolve_sys(
+				std::ptr::null_mut(),
+				&mut src,
+				std::ptr::null(),
+				PF_KernelFlag_NORMALIZED,
+				1,
+				std::ptr::null_mut(),
+				std::ptr::null_mut(),
+				std::ptr::null_mut(),
+				kernel.as_ptr() as *mut c_void,
 				&mut dst,
 			)
 		};

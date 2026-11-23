@@ -20,6 +20,17 @@ may break the API, and every breaking change is listed below.
 
 ### Fixed
 
+- `PF_WorldTransformSuite1` composites, transfers, transforms, blends and
+  copies 16 and 32 bpc worlds, not only 8 bpc; so do `composite_rect`,
+  `transfer_rect` and `transform_world` in `PF_UtilCallbacks`, which share
+  the code. `transfer_rect`, `composite_rect` and `transform_world` refused deep
+  worlds with `PF_Err_BAD_CALLBACK_PARAM`, so DeepGlow2 failed to smart
+  render at 32 bpc; `copy`, `copy_hq` and `blend` walked them four bytes at a
+  time. Float worlds keep values above 1. A deep destination takes its
+  opacity from `opacitySu`, or from `opacity` when `opacitySu` is 0, as
+  DeepGlow2 sends it. `convolve` still works at 8 bpc only, and every call
+  it, or the others, cannot handle is reported as `declined`. The suite's
+  calls now show in the trace.
 - `PF_Event_DRAG` hands the plugin back the `continue_refcon` that its click
   (or the drag before it) left, as After Effects does, instead of zeros.
   Curve editors that keep the point being dragged there, such as Falloff's

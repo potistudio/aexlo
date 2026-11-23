@@ -39,23 +39,23 @@ plugins in `fixtures/plugins/macos`:
 | BitonicPixelSorter         |  71 |  71 |  0 | 8, 16, 32 | yes | yes |
 | Circle-Repeater            |  56 |  53 |  3 | 8, 16, 32 | yes | no |
 | Cosmic                     | 111 | 111 |  0 | 8, 16, 32 | yes | yes |
+| DeepGlow2                  | 442 | 432 | 10 | 8, 32 | yes | no |
 | DisplacerPro               | 106 | 101 |  5 | 8, 32 | yes | no |
 | Falloff                    | 148 | 148 |  0 | 8, 16, 32 | yes | yes |
 | RXXR                       | 767 | 764 |  3 | 8, 16, 32 | yes | no |
 | SDK_Noise                  |  23 |  20 |  3 | 8, 16, 32 | yes | no |
 | TextGrad                   | 535 | 525 | 10 | 8, 32 | yes | no |
 
-That is 4,009 scenarios: 3,928 `ok` and 81 `n/a`.
+That is 4,451 scenarios: 4,360 `ok` and 91 `n/a`.
 
 ## Not on the list yet
 
-The other seven plugins in the fixture directory fall short in one of these
+The other six plugins in the fixture directory fall short in one of these
 ways. Each is a gap in aexlo, or a fixture that is not installed, not a
 plugin that is known to be wrong.
 
 | Plugin | Coverage | What `compat` reports |
 | ------ | -------: | --------------------- |
-| DeepGlow2             |  99.5% | `error` ×2, SmartRender rejected with error 516 |
 | Furikake              |  99.2% | `error` ×5, Render rejected with error 516 |
 | RainyDay              |  99.1% | missing `PF Effect Sequence Data Suite` v1 at load |
 | AnimatedNoise         |  97.4% | `crash` ×1 in `PF_Cmd_SMART_RENDER` |
