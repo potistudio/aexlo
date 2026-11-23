@@ -9,9 +9,10 @@
 //! its `AEGP_MaskStream_OUTLINE` stream ([`super::stream`]): an
 //! `AEGP_MaskOutlineValH` holding a copy of the path, read through
 //! [`super::mask_outline`] and freed with the stream value, as a shape
-//! path's is. Masks are static here, so times are ignored, and nothing can
-//! change them: every setter, and creating, deleting or duplicating a mask,
-//! is declined. Only the effect's own layer has masks; any other layer of a
+//! path's is, at the time asked for. What this suite reads (mode,
+//! inversion, colour) is the mask at the current time. Nothing can change a
+//! mask: every setter, and creating, deleting or duplicating a mask, is
+//! declined. Only the effect's own layer has masks; any other layer of a
 //! project has none.
 //!
 //! Mask refs are kept in a list of the ones handed out: a plugin that bails
@@ -94,11 +95,6 @@ pub(crate) fn mask_ref(mask_refH: AEGP_MaskRefH) -> Option<MaskRef> {
 fn mask<'a>(mask_refH: AEGP_MaskRefH) -> Option<&'a MaskPath> {
 	let mask = mask_ref(mask_refH)?;
 	masks(mask.effect_ref)?.get(mask.index)
-}
-
-/// A copy of the mask at `index` on the layer of `effect_ref`.
-pub(crate) fn mask_path(effect_ref: PF_ProgPtr, index: usize) -> Option<MaskPath> {
-	masks(effect_ref)?.get(index).cloned()
 }
 
 /// The effect behind a layer handle and the masks on that layer: the

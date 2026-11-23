@@ -577,6 +577,7 @@ impl PluginInstance {
 		let (value, step, scale) = time.into_parts();
 		self.render_context.set_time(value, step, scale);
 		self.apply_param_tracks();
+		self.apply_mask_tracks();
 	}
 
 	/// The time set by [`Self::set_time`].

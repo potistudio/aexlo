@@ -84,7 +84,7 @@ fn main() -> aexlo::Result<()> {
 > [!NOTE]
 > この節の API は 0.2.0 より新しいものです。[Unreleased](CHANGELOG.md) を参照してください。
 
-プロジェクトを渡さない場合、エフェクトはコンポジションと同じ大きさのレイヤー 1 枚の上にあります。`set_text_layer` でそのレイヤーをテキストレイヤーにし、`set_mask_paths` でマスクを渡せます。
+プロジェクトを渡さない場合、エフェクトはコンポジションと同じ大きさのレイヤー 1 枚の上にあります。`set_text_layer` でそのレイヤーをテキストレイヤーにし、`set_mask_paths` でマスクを渡せます（時間で動くマスクは `set_mask_tracks`）。
 コンポジション全体は `set_project` で渡します。エフェクトにシェイプレイヤーのパスを読ませるにはこれを使います。
 
 ```rust,no_run
@@ -239,7 +239,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 
 ## 実装の進捗
 
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀ 78% (29/37)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀ 81% (30/37)
 
 > ○ 実装済み / △ 一部実装 / × 未実装
 
@@ -253,7 +253,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 | ○ Fill Matte       | ○ Effect UI                      |                   | × PF Utility      |
 | ○ Handle           | △ Param Utils                    |                   |                   |
 | ○ Iterate8         | ○ Path Data                      |                   |                   |
-| ○ Iterate16        | △ Path Query                     |                   |                   |
+| ○ Iterate16        | ○ Path Query                     |                   |                   |
 | ○ IterateFloat     | ○ PointParam                     |                   |                   |
 | ○ Pixel Data       | ○ Effect Sequence Data           |                   |                   |
 | ○ Pixel Format     |                                  |                   |                   |
@@ -268,7 +268,6 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 △ Batch Sampling：一括処理用の関数は提供しません（SDK では After Effects 7.0 で廃止）。画素単位のサンプラーは使えます。
 △ Param Utils：状態は、指定された範囲の値、レイヤーの画素、マスク、任意データのバイト列（その先のポインターは除く）を対象にします。ホストは各レイヤーの現在の画素しか持たないので、別フレーム用の画像を設定すると変化として扱います。`AUTOMATIC_WIDE_TIME_INPUT` のエフェクトは必要な時刻を追跡しないため、トラック全体の変化も対象にします。
 △ World Transform：8・16・32 bpc に対応し、1 回の呼び出しの深度は揃っている必要があります。ディザ合成、アルファ乗算系のモード、品質指定は近似または無視です。加算系以外の描画モードは HDR に拡張していません。After Effects との比較は未実施です。
-△ Path Query：マスクは読み取り専用で、どの時刻でも同じです。
 × PF Utility：AEGP Utility とは別のスイートです。取得はできますが、関数はすべてエラーを返すスタブです。
 △ Channel：レイヤーは通常の 2D 画像であり、補助チャンネルはないものとして応答します。
 未実装のコールバックは、成功を装わずエラーを返します。
@@ -298,7 +297,7 @@ Effect Suite が扱うエフェクトはホスト中の 1 つと、ロード中�
 △ Stream / Dynamic Stream：トランスフォーム、エフェクトのパラメーター、ソーステキスト、シェイプの内容（パス、グループ、塗り、パスの結合）を、指定された時刻で返します。
 レイヤーマスクのアウトライン、不透明度、ぼかし、拡張もストリームです（キーフレームなし）。線、パラメトリックシェイプ、エクスプレッションはストリームにしていません。プラグインはパラメーターの非表示・無効化と、キーフレームのないパラメーター（レイヤーと任意データを除く）への値の設定ができます。ほかの書き込みは拒否します。
 △ Keyframe：読み取りのみで、線形か停止です。ベジェのイージングと空間接線はありません。別の時刻でチェックアウトしたレイヤーの画素は、現在時刻のものです。
-△ Mask：埋め込み側が `set_mask_paths` でエフェクトのレイヤーに付けたマスクを読み取ります。マスクは変更できず、ほかのレイヤーにはマスクがありません。
+△ Mask：埋め込み側が `set_mask_paths` か `set_mask_tracks` でエフェクトのレイヤーに付けたマスクを読み取ります。マスクは変更できず、ほかのレイヤーにはマスクがありません。
 △ Mask Outline / Text Document：レイヤーマスクのアウトライン、シェイプのパス、ソーステキストの文字列を読めます。書き込みはできません。
 △ Camera：v2 のみです。プロジェクトにカメラとライトのレイヤーはないため、カメラは「なし」と答え、既定カメラの距離を返します。
 △ Math：`AEGP_MatrixDecompose4` の角度の規約は After Effects と照合していません。

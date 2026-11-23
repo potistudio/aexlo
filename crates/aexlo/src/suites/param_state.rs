@@ -8,7 +8,7 @@
 //!   state in every range and a moving one a different state;
 //! - a layer parameter's pixels, and for the input layer also the masks, text
 //!   and shapes on the effect's layer;
-//! - for a path parameter, the masks;
+//! - for a path parameter, the masks over the range, as for a value;
 //! - for arbitrary data, the bytes in its handle. What those point to is the
 //!   plugin's and is not followed.
 //!
@@ -23,9 +23,9 @@
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
+use crate::PluginInstance;
 use crate::animation::{Interpolation, TimePoint, Track};
 use crate::sys::*;
-use crate::{ParamValue, PluginInstance};
 
 /// Two hashes with different seeds, for the 128 bits of a `PF_State`.
 struct Receipt(DefaultHasher, DefaultHasher);
@@ -129,7 +129,8 @@ fn cover(instance: &PluginInstance, index: usize, range: Option<(TimePoint, Time
 		let project = instance.project();
 		project.and_then(|project| project.param_layer(index)).hash(receipt);
 		if index == 0 {
-			format!("{:?}{:?}", instance.mask_paths(), instance.text_layer()).hash(receipt);
+			cover_masks(instance, range, receipt);
+			format!("{:?}", instance.text_layer()).hash(receipt);
 			if let Some(layer) = project.map(|project| project.effect_layer()) {
 				format!("{:?}", layer.content).hash(receipt);
 				// Contents move without changing.
@@ -150,7 +151,7 @@ fn cover(instance: &PluginInstance, index: usize, range: Option<(TimePoint, Time
 		return;
 	}
 	if def.param_type == PF_Param_PATH as PF_ParamType {
-		format!("{:?}", instance.mask_paths()).hash(receipt);
+		cover_masks(instance, range, receipt);
 	}
 	match instance.param_track(index) {
 		Some(track) => cover_track(track, range, receipt),
@@ -162,12 +163,24 @@ fn cover(instance: &PluginInstance, index: usize, range: Option<(TimePoint, Time
 	}
 }
 
+/// The masks on the effect's layer over the range.
+fn cover_masks(instance: &PluginInstance, range: Option<(TimePoint, TimePoint)>, receipt: &mut Receipt) {
+	("masks", instance.mask_tracks().len()).hash(receipt);
+	for track in instance.mask_tracks() {
+		cover_track(track, range, receipt);
+	}
+}
+
 /// A value that does not move over the range.
-fn still(value: &ParamValue, receipt: &mut Receipt) {
+fn still<T: std::fmt::Debug>(value: &T, receipt: &mut Receipt) {
 	("still", format!("{value:?}")).hash(receipt);
 }
 
-fn cover_track(track: &Track<ParamValue>, range: Option<(TimePoint, TimePoint)>, receipt: &mut Receipt) {
+fn cover_track<T: crate::animation::Animate + PartialEq + std::fmt::Debug>(
+	track: &Track<T>,
+	range: Option<(TimePoint, TimePoint)>,
+	receipt: &mut Receipt,
+) {
 	let keys = track.keys();
 	let Some((from, to)) = range else {
 		match keys {

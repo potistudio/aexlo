@@ -37,6 +37,13 @@ plugin renders or returns.
 
 ### Added
 
+- Masks that move over time: `PluginInstance::set_mask_tracks` takes a
+  `Track<MaskPath>` per mask, keyed in layer time, and `mask_tracks` gives
+  them back; `mask_paths` is the masks at the current time. `PF_CheckoutPath`
+  reads a mask at its `what_time` (a path checked out at another time is held
+  until `PF_CheckinPath`), as do mask outline streams and their keyframes,
+  `PF_GetCurrentState` over a range and `PF_IsIdenticalCheckout` for path
+  parameters and the input layer.
 - A read-only project around the effect: `PluginInstance::set_project` takes
   a `Project` of a `Comp` and `ProjectLayer`s (footage, null, text, shape),
   with ids, names, spans, stretch, parents and transforms. The Layer, Comp,

@@ -2,8 +2,11 @@
 //! masks, which embedders attach with
 //! [`PluginInstance::set_mask_paths`](crate::PluginInstance::set_mask_paths).
 //!
-//! A checked-out `PF_PathOutlinePtr` points at the instance's [`MaskPath`]
-//! (paths are static, so `what_time` is ignored). Segment-length preps are boxed
+//! A checked-out `PF_PathOutlinePtr` points at the mask at `what_time`: the
+//! instance's current [`MaskPath`] when that is now, else a copy evaluated
+//! from its track that the instance holds until `PF_CheckinPath`. The suites
+//! have no call that changes a path, so `changedB` has nothing to report.
+//! Segment-length preps are boxed
 //! [`ArcTable`]s owned by the plugin until `PF_PathCleanupSegLength`; calls
 //! without a prep build a temporary one.
 //!
@@ -123,18 +126,37 @@ unsafe extern "C" fn checkout_path(
 			"time_step" => time_step,
 			"time_scale" => time_scale,
 		);
-		let _ = (what_time, time_step, time_scale);
+		let _ = time_step;
 
 		let Some(out) = (unsafe { pathPP.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		*out = unsafe { mask_by_id(effect_ref, unique_id) }
-			.map_or(std::ptr::null_mut(), |m| m as *const MaskPath as PF_PathOutlinePtr);
+		*out = std::ptr::null_mut();
+		let Some(instance) = PluginInstance::get_instance_ptr(effect_ref) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		// SAFETY: a non-null effect ref that reached a suite call is the live instance.
+		let instance = unsafe { instance.as_ref() };
+		let Some(index) = instance.mask_paths().iter().position(|m| m.id == unique_id) else {
+			return PF_Err_NONE;
+		};
+		let now: crate::TimePoint = instance.time().into();
+		let at = crate::TimePoint::new(what_time, time_scale).unwrap_or(now);
+		let path = if at == now {
+			&instance.mask_paths()[index] as *const MaskPath
+		} else {
+			match instance.mask_at(index, at) {
+				Some(path) => instance.check_out_path(path),
+				None => return PF_Err_NONE,
+			}
+		};
+		*out = path as PF_PathOutlinePtr;
 		PF_Err_NONE
 	})
 }
 
-/// Paths are read-only to plugins here; `changedB` is ignored.
+/// Frees a path checked out at another time. No call can change a path, so
+/// `changedB` changes nothing.
 unsafe extern "C" fn checkin_path(
 	effect_ref: PF_ProgPtr,
 	unique_id: PF_PathID,
@@ -148,7 +170,11 @@ unsafe extern "C" fn checkin_path(
 			"changedB" => changedB,
 			"pathP" => format!("{:#x}", pathP as usize),
 		);
-		let _ = (effect_ref, unique_id, changedB, pathP);
+		let _ = (unique_id, changedB);
+		if let Some(instance) = PluginInstance::get_instance_ptr(effect_ref) {
+			// SAFETY: a non-null effect ref that reached a suite call is the live instance.
+			unsafe { instance.as_ref() }.check_in_path(pathP as *const MaskPath);
+		}
 		PF_Err_NONE
 	})
 }

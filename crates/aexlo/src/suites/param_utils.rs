@@ -136,9 +136,10 @@ unsafe extern "C" fn are_states_identical(
 }
 
 /// "TRUE if a parameter's value is the same at the two passed times"; what is
-/// between them does not count. A value without keyframes, and a layer's or a
-/// mask's, is the same at every time here. The negative indices ask about all
-/// the parameters they stand for.
+/// between them does not count. A value without keyframes, and a layer's
+/// pixels, are the same at every time here; a path parameter, and the input
+/// layer, also compare the masks at the two times. The negative indices ask
+/// about all the parameters they stand for.
 unsafe extern "C" fn is_identical_checkout(
 	effect_ref: PF_ProgPtr,
 	param_index: PF_ParamIndex,
@@ -165,10 +166,19 @@ unsafe extern "C" fn is_identical_checkout(
 		// A time without a scale is now, as it is to a checkout.
 		let time = |value, scale| TimePoint::new(value, scale).unwrap_or_else(|| instance.time().into());
 		let (a, b) = (time(what_time1, time_scale1), time(what_time2, time_scale2));
-		let same = indices
-			.into_iter()
-			.filter_map(|index| instance.param_track(index))
-			.all(|track| track.at(a) == track.at(b));
+		let masks_same = || instance.mask_tracks().iter().all(|track| track.at(a) == track.at(b));
+		let reads_masks = |index: usize| {
+			index == 0
+				|| instance
+					.param_by_index(index)
+					.is_some_and(|def| def.param_type == PF_Param_PATH as PF_ParamType)
+		};
+		let same = indices.into_iter().all(|index| {
+			instance
+				.param_track(index)
+				.is_none_or(|track| track.at(a) == track.at(b))
+				&& (!reads_masks(index) || masks_same())
+		});
 		unsafe { *identicalPB = same as PF_Boolean };
 		PF_Err_NONE
 	})

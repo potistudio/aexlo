@@ -111,16 +111,72 @@ impl PluginInstance {
 		}
 	}
 
-	/// The masks on the effect's layer (see [`Self::set_mask_paths`]).
+	/// The masks on the effect's layer at the current time (see
+	/// [`Self::set_mask_paths`] and [`Self::set_mask_tracks`]).
 	pub fn mask_paths(&self) -> &[crate::MaskPath] {
 		&self.mask_paths
 	}
 
-	/// Replace the masks on the effect's layer. Plugins see them through the
-	/// "PF Path Query Suite" / "PF Path Data Suite" (e.g. for `PF_Param_PATH`
-	/// parameters, which reference a mask by [`MaskPath::id`](crate::MaskPath::id)).
+	/// Replace the masks on the effect's layer with ones that do not change
+	/// over time. Plugins see them through the "PF Path Query Suite" / "PF
+	/// Path Data Suite" (e.g. for `PF_Param_PATH` parameters, which reference
+	/// a mask by [`MaskPath::id`](crate::MaskPath::id)), the "AEGP Layer Mask
+	/// Suite" and mask streams.
 	pub fn set_mask_paths(&mut self, paths: Vec<crate::MaskPath>) {
-		self.mask_paths = paths;
+		self.set_mask_tracks(paths.into_iter().map(crate::Track::new).collect());
+	}
+
+	/// Replace the masks on the effect's layer with ones that may change over
+	/// time, keyed in layer time as [`Self::set_param_track`] is. A path
+	/// morphs between keyframes with as many vertices and holds otherwise.
+	/// `PF_CheckoutPath`, mask streams, their keyframes and
+	/// `PF_GetCurrentState` read a mask at the time asked for; the rest of a
+	/// mask (its id, mode, inversion and name) is its value at the current
+	/// time, so keep the id the same on every keyframe.
+	pub fn set_mask_tracks(&mut self, tracks: Vec<crate::Track<crate::MaskPath>>) {
+		self.masks = tracks;
+		self.apply_mask_tracks();
+	}
+
+	/// The masks on the effect's layer over time.
+	pub fn mask_tracks(&self) -> &[crate::Track<crate::MaskPath>] {
+		&self.masks
+	}
+
+	/// Mask `index` at `time` in layer time.
+	pub(crate) fn mask_at(&self, index: usize, time: crate::TimePoint) -> Option<crate::MaskPath> {
+		self.masks.get(index).map(|track| track.at(time))
+	}
+
+	/// Hold `path` until [`Self::check_in_path`]: a mask read at a time of its
+	/// own. The pointer stays valid while it is held.
+	pub(crate) fn check_out_path(&self, path: crate::MaskPath) -> *const crate::MaskPath {
+		let held = Box::new(path);
+		let at: *const crate::MaskPath = &*held;
+		self.checked_out_paths
+			.lock()
+			.unwrap_or_else(std::sync::PoisonError::into_inner)
+			.push(held);
+		at
+	}
+
+	/// Drop a path [`Self::check_out_path`] holds; `false` if it is not one.
+	pub(crate) fn check_in_path(&self, path: *const crate::MaskPath) -> bool {
+		let mut held = self
+			.checked_out_paths
+			.lock()
+			.unwrap_or_else(std::sync::PoisonError::into_inner);
+		let Some(at) = held.iter().position(|p| std::ptr::eq(&**p, path)) else {
+			return false;
+		};
+		held.swap_remove(at);
+		true
+	}
+
+	/// Evaluate the mask tracks at the current time.
+	pub(super) fn apply_mask_tracks(&mut self) {
+		let now: crate::TimePoint = self.time().into();
+		self.mask_paths = self.masks.iter().map(|track| track.at(now)).collect();
 	}
 
 	/// The text on the effect's layer, when it is a text layer (see

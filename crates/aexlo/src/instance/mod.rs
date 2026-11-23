@@ -292,8 +292,16 @@ pub struct PluginInstance {
 	/// Pixel formats (FourCCs) registered through the "PF Pixel Format Suite".
 	supported_pixel_formats: Vec<crate::PixelFormat>,
 
-	/// Masks on the effect's layer, served through the Path Query/Data suites.
+	/// Masks on the effect's layer over time, served through the Path
+	/// Query/Data suites, the Layer Mask Suite and mask streams.
+	masks: Vec<crate::Track<crate::MaskPath>>,
+	/// `masks` at the current time.
 	mask_paths: Vec<crate::MaskPath>,
+	/// Paths checked out at a time of their own (`PF_CheckoutPath`), until
+	/// checked in or the instance goes. Boxed: the plugin holds their
+	/// addresses while the list grows.
+	#[allow(clippy::vec_box)]
+	checked_out_paths: std::sync::Mutex<Vec<Box<crate::MaskPath>>>,
 
 	/// The text when the effect's layer is a text layer, served through the
 	/// Text Layer Suite.

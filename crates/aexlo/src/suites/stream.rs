@@ -162,7 +162,7 @@ impl Stream {
 			{
 				None
 			}
-			// Masks do not animate here.
+			// A mask's outline is its track; the rest of a mask holds.
 			Node::MaskOutline => Some(StreamValue::Outline),
 			Node::MaskOpacity => Some(StreamValue::OneD(100.0)),
 			Node::MaskFeather => Some(StreamValue::TwoD {
@@ -248,6 +248,10 @@ impl Stream {
 					_ => keys_of(&t.opacity),
 				})
 			})(),
+			Node::MaskOutline => self
+				.instance()
+				.and_then(|instance| instance.mask_tracks().get(self.index))
+				.map(keys_of),
 			Node::Property(_) => self.property(|node| match &node.value {
 				Property::Group => Vec::new(),
 				Property::OneD(track) => keys_of(track),
@@ -267,7 +271,9 @@ impl Stream {
 
 	fn outline(self, time: Option<TimePoint>) -> Option<crate::MaskPath> {
 		if self.node == Node::MaskOutline {
-			return super::layer_mask::mask_path(self.effect_ref, self.index);
+			let instance = self.instance()?;
+			let at = time.unwrap_or_else(|| instance.time().into());
+			return instance.mask_at(self.index, at);
 		}
 		let at = time.unwrap_or(self.timeline()?.layer_time);
 		self.property(|node| match &node.value {

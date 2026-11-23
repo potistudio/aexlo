@@ -98,7 +98,8 @@ A plugin is native code that runs inside your process; see the crate docs on
 > [Unreleased](https://github.com/potistudio/aexlo/blob/master/CHANGELOG.md).
 
 Without a project, an effect is alone on a layer that fills its comp.
-`set_text_layer` makes that a text layer and `set_mask_paths` gives it masks.
+`set_text_layer` makes that a text layer, and `set_mask_paths` gives it masks
+(`set_mask_tracks`, masks that move over time).
 `set_project` describes a whole comp instead, which is how an effect gets the
 paths of a shape layer:
 
@@ -273,7 +274,7 @@ The plugins that pass every scenario are listed in
 
 ## Implementation Progress
 
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀ 78% (29/37)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀ 81% (30/37)
 
 > ○ fully implemented / △ only partially implemented / × not implemented
 
@@ -287,7 +288,7 @@ The plugins that pass every scenario are listed in
 | ○ Fill Matte       | ○ Effect UI                      |                   | × PF Utility      |
 | ○ Handle           | △ Param Utils                    |                   |                   |
 | ○ Iterate8         | ○ Path Data                      |                   |                   |
-| ○ Iterate16        | △ Path Query                     |                   |                   |
+| ○ Iterate16        | ○ Path Query                     |                   |                   |
 | ○ IterateFloat     | ○ PointParam                     |                   |                   |
 | ○ Pixel Data       | ○ Effect Sequence Data           |                   |                   |
 | ○ Pixel Format     |                                  |                   |                   |
@@ -310,7 +311,6 @@ track, as what they need is not tracked.
 alpha-multiply modes and the quality setting are approximated or ignored,
 non-additive blend modes are not extended to HDR, and no result has been
 compared with After Effects.
-△ Path Query: masks are read-only and the same at every time.
 × PF Utility: not to be confused with AEGP Utility. The suite can be acquired,
 but each of its functions is a stub that returns an error.
 △ Channel: layers are plain 2D images and report no auxiliary channels.
@@ -341,7 +341,7 @@ The Effect Suite knows one effect, the hosted one, and the identities reported b
 △ Stream / Dynamic Stream: transforms, effect parameters, source text and shape contents (paths, groups, fills and Merge Paths) at the time asked for.
 A layer mask's outline, opacity, feather and expansion are streams too, without keyframes. Strokes, parametric shapes and expressions are not streams. A plugin can hide or disable parameters, and set those without keyframes other than layers and arbitrary data; other writes are refused.
 △ Keyframe: reads only, linear or held; no bezier eases or spatial tangents. A layer checked out at another time has the current pixels.
-△ Mask: reads the masks an embedder puts on the effect's layer with `set_mask_paths`; they cannot be changed, and other layers have none.
+△ Mask: reads the masks an embedder puts on the effect's layer with `set_mask_paths` or `set_mask_tracks`; they cannot be changed, and other layers have none.
 △ Mask Outline / Text Document: layer mask outlines, shape paths and source strings are read; nothing is written.
 △ Camera: v2 only. A project has no camera or light layers: no camera is found, and the default one gives its distance.
 △ Math: the angle convention of `AEGP_MatrixDecompose4` has not been checked against After Effects.

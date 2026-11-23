@@ -335,3 +335,108 @@ fn what_cannot_be_answered_is_not_called_identical() {
 	assert_eq!((null, unknown), (PF_Err_BAD_CALLBACK_PARAM, PF_Err_BAD_CALLBACK_PARAM));
 	assert_eq!(same, 0);
 }
+
+/// A mask that moves from x = 0 at 0 s to x = 10 at 1 s.
+fn moving_mask() -> Track<MaskPath> {
+	Track::keyed(vec![
+		Keyframe::linear(at(0, 1), mask(0.0)),
+		Keyframe::linear(at(1, 1), mask(10.0)),
+	])
+	.unwrap()
+}
+
+#[test]
+fn moving_masks_are_covered_over_the_range_and_compared_at_two_times() {
+	let (mut fx, _) = effect();
+	fx.set_mask_tracks(vec![moving_mask()]);
+	assert_eq!(fx.mask_paths()[0].vertices[0].x, 0.0, "the mask now, at 0 s");
+
+	// Over a range the mask moves in, the path parameter and the input change
+	// with where the range is; over one after the last key they do not.
+	for index in [PATH, 0] {
+		let (early, later) = (state(&mut fx, index, Some((0, 3))), state(&mut fx, index, Some((6, 3))));
+		assert!(!identical(&mut fx, &early, &later), "{index}");
+		let (after, after_too) = (
+			state(&mut fx, index, Some((40, 3))),
+			state(&mut fx, index, Some((50, 3))),
+		);
+		assert!(identical(&mut fx, &after, &after_too), "{index}");
+	}
+
+	let seen = during(&mut fx, |p| unsafe {
+		let utils: &PF_ParamUtilsSuite3 = p.suite(c"PF Param Utils Suite", 3);
+		// 0 s against 0.5 s, and 1 s against 2 s.
+		[(PATH, 0, 15), (PATH, 30, 60), (0, 0, 15), (SLIDER, 0, 15)].map(|(index, t1, t2)| {
+			let mut same = 0;
+			utils.PF_IsIdenticalCheckout.unwrap()(p.effect, index as _, t1, 1, 30, t2, 1, 30, &mut same);
+			same != 0
+		})
+	});
+	assert_eq!(seen, [false, true, false, true]);
+}
+
+#[test]
+fn a_path_is_checked_out_at_the_time_asked_for() {
+	let (mut fx, _) = effect();
+	fx.set_mask_tracks(vec![moving_mask()]);
+	let (now, half) = during(&mut fx, |p| unsafe {
+		let query: &PF_PathQuerySuite1 = p.suite(c"PF Path Query Suite", 1);
+		let data: &PF_PathDataSuite1 = p.suite(c"PF Path Data Suite", 1);
+		let first_x = |path: PF_PathOutlinePtr| {
+			let mut vertex: PF_PathVertex = std::mem::zeroed();
+			data.PF_PathVertexInfo.unwrap()(p.effect, path, 0, &mut vertex);
+			vertex.x
+		};
+		let mut path = std::ptr::null_mut();
+		query.PF_CheckoutPath.unwrap()(p.effect, 1, 0, 1, 30, &mut path);
+		let now = first_x(path);
+		query.PF_CheckinPath.unwrap()(p.effect, 1, 0, path);
+		query.PF_CheckoutPath.unwrap()(p.effect, 1, 15, 1, 30, &mut path);
+		let half = first_x(path);
+		query.PF_CheckinPath.unwrap()(p.effect, 1, 0, path);
+		(now, half)
+	});
+	assert_eq!((now, half), (0.0, 5.0));
+	assert!(
+		fx.checked_out_paths.lock().unwrap().is_empty(),
+		"a checked-in path is freed"
+	);
+
+	fx.set_time(Time::frame(30, 30));
+	assert_eq!(fx.mask_paths()[0].vertices[0].x, 10.0, "the mask follows the time");
+}
+
+#[test]
+fn a_mask_stream_reads_the_outline_at_the_time_asked_for() {
+	let (mut fx, _) = effect();
+	fx.set_mask_tracks(vec![moving_mask()]);
+	let (xs, keys) = during(&mut fx, |p| unsafe {
+		let masks: &AEGP_MaskSuite6 = p.suite(c"AEGP Layer Mask Suite", kAEGPMaskSuiteVersion6);
+		let streams: &AEGP_StreamSuite6 = p.suite(c"AEGP Stream Suite", kAEGPStreamSuiteVersion6);
+		let outlines: &AEGP_MaskOutlineSuite3 = p.suite(c"AEGP Mask Outline Suite", kAEGPMaskOutlineSuiteVersion3);
+		let keyframes: &AEGP_KeyframeSuite5 = p.suite(c"AEGP Keyframe Suite", kAEGPKeyframeSuiteVersion5);
+		let mut mask = std::ptr::null_mut();
+		masks.AEGP_GetLayerMaskByIndex.unwrap()(p.effect as AEGP_LayerH, 0, &mut mask);
+		let mut stream = std::ptr::null_mut();
+		streams.AEGP_GetNewMaskStream.unwrap()(0, mask, AEGP_MaskStream_OUTLINE, &mut stream);
+		let xs = [0, 15, 30].map(|frame| {
+			let time = A_Time {
+				value: frame,
+				scale: 30,
+			};
+			let mut value: AEGP_StreamValue2 = std::mem::zeroed();
+			streams.AEGP_GetNewStreamValue.unwrap()(0, stream, AEGP_LTimeMode_LayerTime as _, &time, 0, &mut value);
+			let mut vertex: AEGP_MaskVertex = std::mem::zeroed();
+			outlines.AEGP_GetMaskOutlineVertexInfo.unwrap()(value.val.mask, 0, &mut vertex);
+			streams.AEGP_DisposeStreamValue.unwrap()(&mut value);
+			vertex.x
+		});
+		let mut keys = 0;
+		keyframes.AEGP_GetStreamNumKFs.unwrap()(stream, &mut keys);
+		streams.AEGP_DisposeStream.unwrap()(stream);
+		masks.AEGP_DisposeMask.unwrap()(mask);
+		(xs, keys)
+	});
+	assert_eq!(xs, [0.0, 5.0, 10.0]);
+	assert_eq!(keys, 2);
+}
