@@ -374,6 +374,7 @@ impl PluginInstance {
 				out_data: crate::core::helpers::OutDataBuilder::new().build(),
 				global_out_flags: 0,
 				global_out_flags2: 0,
+				global_version: 0,
 				params: Vec::new(),
 				param_labels: Vec::new(),
 				params_dirty: false,
@@ -453,6 +454,7 @@ impl PluginInstance {
 		// them (the SDK samples set `out_flags2` in GPU device setup), so it
 		// must not be consulted afterwards.
 		self.global_out_flags2 = self.out_data.out_flags2;
+		self.global_version = self.out_data.my_version;
 		Ok(())
 	}
 
@@ -597,9 +599,13 @@ impl PluginInstance {
 		binary: &Path,
 	) -> Result<(PluginEntryPoint, String, Option<crate::suites::effect::EffectMetadata>)> {
 		let declared = Self::query_declared_entry_point(lib, pica);
-		let from_pipl = std::fs::read(binary)
-			.ok()
-			.and_then(|bytes| crate::pipl::entry_point_name(&bytes));
+		let from_pipl = match crate::Pipl::read(binary) {
+			Ok(pipl) => pipl.and_then(|pipl| pipl.entry_point()),
+			Err(err) => {
+				log::debug!("PiPL not read: {err}");
+				None
+			}
+		};
 		if let Some(name) = &from_pipl {
 			log::debug!("PiPL entry point '{name}'.");
 		}

@@ -553,13 +553,65 @@ fn with_active<R>(f: impl FnOnce(&mut Tracker) -> R) -> Option<R> {
 	})
 }
 
+/// Live host memory by address: its kind, the size it was allocated at, and
+/// the [`Tracker`] that heard about it (see [`owner`]).
+type HostMemory = std::collections::BTreeMap<usize, (crate::AllocationKind, usize, usize)>;
+
+/// Every handle and world the host has handed out and not had back, whichever
+/// thread got or freed it. A [`Tracker`] hears only about the thread
+/// dispatching its instance's command, so memory freed on an iterate worker
+/// stays live there; this says whether its address still is.
+static HOST_MEMORY: std::sync::Mutex<HostMemory> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+fn host_memory() -> std::sync::MutexGuard<'static, HostMemory> {
+	HOST_MEMORY.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Who a piece of host memory belongs to: the address of the tracker active
+/// on the allocating thread, or 0 when none was. A tracker stays alive while
+/// its instance asks about its memory, so its address names only it.
+fn owner(tracker: &SharedTracker) -> usize {
+	std::sync::Arc::as_ptr(tracker) as usize
+}
+
+fn active_owner() -> usize {
+	ACTIVE.with(|a| a.borrow().as_ref().map_or(0, owner))
+}
+
+/// Run `f` with the size the host memory of `kind` at `address` was
+/// allocated at, if it is still live and `tracker` heard about its
+/// allocation, holding off its disposal until `f` returns. Memory freed on
+/// another thread and handed out again at the same address, to another
+/// instance or a worker, is not `tracker`'s.
+pub(crate) fn with_host_memory<R>(
+	tracker: &SharedTracker,
+	kind: crate::AllocationKind,
+	address: usize,
+	f: impl FnOnce(usize) -> Option<R>,
+) -> Option<R> {
+	let memory = host_memory();
+	match memory.get(&address) {
+		Some(&(live_kind, bytes, by)) if live_kind == kind && by == owner(tracker) => f(bytes),
+		_ => None,
+	}
+}
+
+/// Whether the host memory of `kind` at `address` is still live and
+/// `tracker`'s.
+pub(crate) fn is_host_memory(tracker: &SharedTracker, kind: crate::AllocationKind, address: usize) -> bool {
+	with_host_memory(tracker, kind, address, |_| Some(())).is_some()
+}
+
 /// The plugin got memory from the host.
 pub(crate) fn allocated(kind: crate::AllocationKind, address: usize, bytes: usize) {
+	host_memory().insert(address, (kind, bytes, active_owner()));
 	with_active(|t| t.allocated(kind, address, bytes));
 }
 
-/// The plugin gave memory back.
+/// The plugin gives memory back. Call before freeing it, so a reader in
+/// [`with_host_memory`] is done with it first.
 pub(crate) fn disposed(kind: crate::AllocationKind, address: usize) {
+	host_memory().remove(&address);
 	with_active(|t| t.disposed(kind, address));
 }
 
@@ -673,6 +725,45 @@ mod tests {
 		);
 		let leaks: Vec<(usize, &str)> = t.report.leaks.iter().map(|l| (l.address, l.scope)).collect();
 		assert_eq!(leaks, [(0x100, "SMART_RENDER"), (0x200, "GLOBAL_SETDOWN")]);
+	}
+
+	#[test]
+	fn a_handle_freed_on_another_thread_is_no_longer_host_memory() {
+		use crate::AllocationKind;
+		use crate::suites::handle::{host_dispose_handle_impl, host_new_handle_impl};
+		let tracker: SharedTracker = Default::default();
+		tracker.lock().unwrap().strict = Strict::all();
+		let _guard = enter(Some(tracker.clone()));
+		let kept = unsafe { host_new_handle_impl(8) };
+		let freed = unsafe { host_new_handle_impl(8) };
+		// An iterate worker: no tracker is active on it.
+		let address = freed as usize;
+		std::thread::spawn(move || unsafe { host_dispose_handle_impl(address as crate::sys::PF_Handle) })
+			.join()
+			.unwrap();
+
+		let t = tracker.lock().unwrap();
+		assert!(t.find_live(freed as usize).is_some(), "the tracker missed the free");
+		assert!(!is_host_memory(&tracker, AllocationKind::Handle, freed as usize));
+		assert!(is_host_memory(&tracker, AllocationKind::Handle, kept as usize));
+		assert!(
+			!is_host_memory(&tracker, AllocationKind::World, kept as usize),
+			"a handle is not a world"
+		);
+		drop(t);
+		unsafe { host_dispose_handle_impl(kept) };
+		assert!(!is_host_memory(&tracker, AllocationKind::Handle, kept as usize));
+
+		// Another instance gets a handle at the freed address: it is not the
+		// first instance's, though the first one's tracker still lists it.
+		let other: SharedTracker = Default::default();
+		{
+			let _other = enter(Some(other.clone()));
+			allocated(AllocationKind::Handle, address, 16);
+		}
+		assert!(!is_host_memory(&tracker, AllocationKind::Handle, address));
+		assert!(is_host_memory(&other, AllocationKind::Handle, address));
+		disposed(AllocationKind::Handle, address);
 	}
 
 	#[test]

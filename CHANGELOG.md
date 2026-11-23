@@ -12,7 +12,6 @@ may break the API, and every breaking change is listed below.
 No public item was removed, but these can break a build or change what a
 plugin renders or returns.
 
-- Rust 1.100.0 is the minimum supported version, up from 1.99.0.
 - `PF_PathVertexInfo` gives a mask's tangents as points in layer space, as
   the SDK guide describes them, not as offsets from the vertex. `MaskPath`
   still takes offsets. Every effect that reads mask paths sees different
@@ -38,45 +37,6 @@ plugin renders or returns.
 
 ### Added
 
-- `Observer::unsupported` hears about what the plugin asked for and aexlo
-  does not do (`UnsupportedEvent`, at every `ObserveLevel`): suites or
-  versions it does not serve (`UnsupportedKind::MissingSuite`), host
-  functions it only stubs (`Stub`) and calls it serves but declines for those
-  arguments (`Declined`). They are still logged as warnings.
-- `Loader::observer` installs an `Observer` before `PF_Cmd_GLOBAL_SETUP`, so
-  setup commands, the suite calls they make and what they allocate are
-  observed too.
-- `PluginInstance::allocations` lists the handles and worlds the plugin holds
-  (`LiveAllocation`) while an observer is installed or allocation tracking is
-  on, and `PluginInstance::read_allocation` copies their bytes between
-  commands.
-- `PluginInstance::state` returns an `InstanceState`: the `global_data` and
-  `sequence_data` handles, the next command's time, and the `PF_OutData` the
-  last command left.
-- `ObserveLevel::Arguments` hands each suite call's arguments and result to
-  the observer (`SuiteCallEvent::args`, `SuiteCallEvent::result`); the lower
-  levels leave them empty and pay nothing for them. The Handle and Iterate
-  suites, `AcquireSuite` / `ReleaseSuite` and the utility callbacks are now
-  reported as suite calls too.
-- Text layers: `PluginInstance::set_text_layer` puts a `TextLayer` on the
-  effect's layer. `AEGP_GetLayerObjectType` then answers
-  `AEGP_ObjectType_TEXT`, and the new "AEGP Text Layer Suite" v1 hands out its
-  glyph outlines, which the PF Path Data Suite reads with absolute tangents as
-  After Effects gives them. `TextLayer::layout` sets a string in a font
-  (`TextStyle`) and `TextLayer::rasterize` draws it as the input layer, so
-  text effects such as TextGrad render. `AexloError::Font` reports a font that
-  cannot be read.
-- `PluginInstance::param_button_label` returns the text on a button
-  parameter (`PF_ButtonDef`), which plugins often fill in place of the
-  parameter's name.
-- "AEGP Stream Suite" v11 (`AEGP_GetUniqueStreamID`) and "AEGP Keyframe
-  Suite" v5 (keyframe label colours). RXXR applies its Preset popup through
-  them, and ten more fixtures that asked for Stream Suite v11 (the AOD
-  effects, Circle-Repeater, RainyDay) no longer report it missing.
-- The AEGP Utility, Persistent Data and PF Param Utils suites report their
-  calls to the observer, so `aexlo inspect` and `aexlo compat` see them.
-  `AEGP_ExecuteScript`, and `AEGP_GetPluginPlatformRef` on macOS, report
-  themselves as stubs.
 - A read-only project around the effect: `PluginInstance::set_project` takes
   a `Project` of a `Comp` and `ProjectLayer`s (footage, null, text, shape),
   with ids, names, spans, stretch, parents and transforms. The Layer, Comp,
@@ -87,8 +47,9 @@ plugin renders or returns.
   which layer a layer parameter shows, and `AexloError::InvalidProject`
   reports a project that does not hold together.
 - Shape layers' paths and text layers' source text are streams: "AEGP Mask
-  Outline Suite" v2, v3 and v5 and "AEGP Text Document Suite" v1 read them,
-  and `AEGP_GetLayerStreamValue` reads the transform. Extrude draws shape
+  Outline Suite" (now also v2) reads a shape path as it reads a layer mask's
+  outline, "AEGP Text Document Suite" v1 reads source text, and
+  `AEGP_GetLayerStreamValue` reads the transform. Extrude draws shape
   layers and Discotext text layers through them.
 - Time: `TimePoint` is exact, and `Track`s of `Keyframe`s interpolate linearly
   or hold. `PluginInstance::set_param_track` keyframes a parameter; the
@@ -111,12 +72,6 @@ plugin renders or returns.
 - The legacy utility callbacks blend, convolve, generate Gaussian kernels
   (approximate coefficients) and resolve `get_callback_addr`.
 - Smart pre-renders have a `GuidMixInPtr`. No frames are cached by GUID.
-- `AEGP_SetStreamValue` sets an effect parameter's value, clamped to its valid
-  range (a colour keeps its alpha), and `AEGP_SetDynamicStreamFlag` hides and
-  disables parameters (`PF_PUI_INVISIBLE`, `PF_PUI_DISABLED`), which
-  `AEGP_GetDynamicStreamFlags` now reports. Deep Glow's and TextGrad's Reset
-  and Swap buttons work through them, and Deep Glow's
-  `PF_Cmd_UPDATE_PARAMS_UI` no longer fails.
 
 ### Fixed
 
@@ -139,6 +94,104 @@ plugin renders or returns.
   left the alpha of three quarters of a 32 bpc frame wrong.
 - `PF_GetPixelFormat` knows the depth of a world that a plugin made over part
   of one of the host's.
+- `PF_CHECKOUT_PARAM` answers the two indices past a plugin's declared
+  parameters with empty parameters. Red Giant Universe effects probe them,
+  and corrupted the heap on smart renders when they failed.
+- `PF_InData::total_time` is the layer's duration (the project's, or 30
+  seconds without one) instead of 0, which made effects that divide by it
+  render with NaNs or crash.
+- The pre-render delete callback now runs for GPU frames too, so their
+  pre-render data no longer leaks.
+- Teardown sends `PF_Cmd_SEQUENCE_SETDOWN` and `PF_Cmd_GLOBAL_SETDOWN` only
+  after the matching setup succeeded.
+- `PF_DisposeWorld` frees the allocation the host made, whatever the plugin
+  wrote into the world since, and refuses pixels it did not allocate.
+  Disposing a handle the host did not make is ignored instead of freed.
+- New handles are zeroed.
+- Pre-render data that is a host handle without a delete callback is freed
+  instead of leaked.
+- `PF_KernelFlag_USE_CHAR` kernels are read as unsigned bytes.
+
+## [0.3.0] - 2026-11-23
+
+### Added
+
+- `Observer::unsupported` hears about what the plugin asked for and aexlo
+  does not do (`UnsupportedEvent`, at every `ObserveLevel`): suites or
+  versions it does not serve (`UnsupportedKind::MissingSuite`), host
+  functions it only stubs (`Stub`) and calls it serves but declines for those
+  arguments (`Declined`). They are still logged as warnings.
+- `Loader::observer` installs an `Observer` before `PF_Cmd_GLOBAL_SETUP`, so
+  setup commands, the suite calls they make and what they allocate are
+  observed too.
+- `PluginInstance::allocations` lists the handles and worlds the plugin holds
+  (`LiveAllocation`) while an observer is installed or allocation tracking is
+  on, and `PluginInstance::read_allocation` copies their bytes between
+  commands. Memory the plugin freed on another thread, such as an iterate
+  worker, is neither listed nor read.
+- `PluginInstance::state` returns an `InstanceState`: the `global_data` and
+  `sequence_data` handles, the next command's time, and the `PF_OutData` the
+  last command left.
+- `ObserveLevel::Arguments` hands each suite call's arguments and result to
+  the observer (`SuiteCallEvent::args`, `SuiteCallEvent::result`); the lower
+  levels leave them empty and pay nothing for them. The Handle and Iterate
+  suites, `AcquireSuite` / `ReleaseSuite` and the utility callbacks are now
+  reported as suite calls too.
+- Text layers: `PluginInstance::set_text_layer` puts a `TextLayer` on the
+  effect's layer. `AEGP_GetLayerObjectType` then answers
+  `AEGP_ObjectType_TEXT`, and the new "AEGP Text Layer Suite" v1 hands out its
+  glyph outlines, which the PF Path Data Suite reads with absolute tangents as
+  After Effects gives them. `TextLayer::layout` sets a string in a font
+  (`TextStyle`) and `TextLayer::rasterize` draws it as the input layer, so
+  text effects such as TextGrad render. `AexloError::Font` reports a font that
+  cannot be read.
+- `Pipl::read` reads a plugin's PiPL resource without loading it: from a
+  Windows binary's `PIPL` resource, a macOS bundle's `.rsrc` files (in their
+  data or resource fork), a Mach-O binary's `__TEXT,__pipl` section or its
+  resource fork; a `.rsrc` or `__pipl` section it cannot read is passed over
+  for the next place. Each
+  `PiplProperty` decodes to a `PiplValue`, and `Pipl` has accessors for the
+  name, category, match name, entry point, `eVER` (`EffectVersion`) and
+  `eGLO` / `eGL2`. `AexloError::InvalidPipl` reports a malformed one.
+- `PluginInstance::version` returns the `my_version` the plugin reported at
+  `PF_Cmd_GLOBAL_SETUP`, to compare with `Pipl::effect_version`.
+- `PluginInstance::param_button_label` returns the text on a button
+  parameter (`PF_ButtonDef`), which plugins often fill in place of the
+  parameter's name.
+- "AEGP Stream Suite" v11 (`AEGP_GetUniqueStreamID`) and "AEGP Keyframe
+  Suite" v5 (keyframe label colours). RXXR applies its Preset popup through
+  them, and ten more fixtures that asked for Stream Suite v11 (the AOD
+  effects, Circle-Repeater, RainyDay) no longer report it missing.
+- The AEGP Utility, Persistent Data and PF Param Utils suites report their
+  calls to the observer, so `aexlo inspect` and `aexlo compat` see them.
+  `AEGP_ExecuteScript`, and `AEGP_GetPluginPlatformRef` on macOS, report
+  themselves as stubs.
+- "AEGP Layer Mask Suite" v6 and v7 and "AEGP Mask Outline Suite" v3 and v5
+  read the masks `PluginInstance::set_mask_paths` puts on the layer, and
+  `AEGP_GetNewMaskStream` gives a mask's outline, opacity, feather and
+  expansion streams. Changing a mask is declined. BitonicPixelSorter, which
+  reads its Path through them once it is registered with AEGP, renders with
+  masks on the layer.
+- `AEGP_SetStreamValue` sets an effect parameter's value, clamped to its valid
+  range (a color keeps its alpha), and `AEGP_SetDynamicStreamFlag` hides and
+  disables parameters (`PF_PUI_INVISIBLE`, `PF_PUI_DISABLED`), which
+  `AEGP_GetDynamicStreamFlags` now reports. Deep Glow's and TextGrad's Reset
+  and Swap buttons work through them, and Deep Glow's
+  `PF_Cmd_UPDATE_PARAMS_UI` no longer fails.
+
+### Fixed
+
+- The published crate includes the MIT license text.
+- The text a plugin reports (`PF_Cmd_ABOUT`, a dialog's message, an error)
+  comes back whole. Line breaks are `\n` instead of After Effects' `\r`, which
+  made each line overwrite the one before in a terminal, and text that is not
+  UTF-8 is read as Latin-1, so a `©` stays one. The ANSI suite's `sprintf`
+  formats with the C library's `vsnprintf` (at most 256 bytes) instead of
+  knowing only `%d` and `%s`: a format that was not UTF-8 (Deep Glow 2,
+  TextGrad, Displacer Pro) wrote nothing, and `%.120s` (Cosmic) was printed
+  as is.
+- On macOS the loader now finds the entry point the PiPL names, as it
+  already did on Windows, before trying the usual symbol names.
 - "AEGP Utility Suite" serves each version at its own layout: v3–7
   (`AEGP_UtilitySuite1`–`3`), v10–11 (`4`–`5`) and v13 (`6`). One table
   served every version from 1 to 18, so a v11 plugin calling
@@ -160,23 +213,6 @@ plugin renders or returns.
 - `AEGP_DisposeColorProfile` refuses a pointer it did not hand out instead of
   freeing it. A plugin that bailed out of a failed call disposed an
   uninitialised profile, which aborted the process.
-- `PF_CHECKOUT_PARAM` answers the two indices past a plugin's declared
-  parameters with empty parameters. Red Giant Universe effects probe them,
-  and corrupted the heap on smart renders when they failed.
-- `PF_InData::total_time` is the layer's duration (the project's, or 30
-  seconds without one) instead of 0, which made effects that divide by it
-  render with NaNs or crash.
-- The pre-render delete callback now runs for GPU frames too, so their
-  pre-render data no longer leaks.
-- Teardown sends `PF_Cmd_SEQUENCE_SETDOWN` and `PF_Cmd_GLOBAL_SETDOWN` only
-  after the matching setup succeeded.
-- `PF_DisposeWorld` frees the allocation the host made, whatever the plugin
-  wrote into the world since, and refuses pixels it did not allocate.
-  Disposing a handle the host did not make is ignored instead of freed.
-- New handles are zeroed.
-- Pre-render data that is a host handle without a delete callback is freed
-  instead of leaked.
-- `PF_KernelFlag_USE_CHAR` kernels are read as unsigned bytes.
 
 ## [0.2.0] - 2026-11-18
 
@@ -247,6 +283,7 @@ and legacy paths. See the README for which SDK suites are implemented.
   `PF_Err_INTERNAL_STRUCT_DAMAGED`. An access violation crashes the process
   as on macOS instead of being reported as a failed command.
 
-[Unreleased]: https://github.com/potistudio/aexlo/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/potistudio/aexlo/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/potistudio/aexlo/releases/tag/v0.3.0
 [0.2.0]: https://github.com/potistudio/aexlo/releases/tag/v0.2.0
 [0.1.0]: https://github.com/potistudio/aexlo/releases/tag/v0.1.0

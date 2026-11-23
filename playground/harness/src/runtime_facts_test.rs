@@ -13,7 +13,7 @@
 //! - Implemented suites/callbacks: asserted against independently-derived
 //!   expected values (std math, the documented premultiply formula, plain
 //!   pixel-rect arithmetic) -- never copied from a previous run's output.
-//! - Callback and ANSI behaviour: checked against the current supported
+//! - Callback behaviour: checked against the current supported
 //!   semantics, including approximate Gaussian weights.
 
 use std::sync::LazyLock;
@@ -146,9 +146,26 @@ fn probe_facts_match_known_correct_values() {
 	assert_eq!(premultiply["px(0,0)"]["r"], round_to_u8(255.0));
 	assert_eq!(premultiply["px(0,0)"]["g"], round_to_u8(64.0));
 	assert_eq!(premultiply["px(0,0)"]["b"], round_to_u8(1.0));
+
+	// ---- ANSI sprintf: what C's printf gives for each format ----
+	// The 7.21.6.1 rules: `%5d` right-aligns in 5, `%-5d` left-aligns, `%05d`
+	// zero-pads, `%f` keeps 6 decimals, `%e` keeps 6 and a 2-digit exponent,
+	// `%g` keeps 6 significant digits. Only the text is checked: aexlo returns
+	// `PF_Err_NONE`, not the length C's sprintf would.
+	for (name, expected) in [
+		("ansi.sprintf.int", "42|   42|42   |00042|+42"),
+		("ansi.sprintf.uint", "255|ff|FF|377"),
+		("ansi.sprintf.float", "3.141593|3.14|     3.142|3.1       |"),
+		("ansi.sprintf.exp", "1.234568e+04|1.234568E+04|12345.7"),
+		("ansi.sprintf.str", "[ae][      ae][ae      ]"),
+		("ansi.sprintf.char", "A%"),
+		("suite.ansi.sprintf", "7/x/1.50"),
+	] {
+		assert_eq!(fact_json(summary, name)["out"], expected, "{name}");
+	}
 }
 
-/// Exercise callback output and the current ANSI formatting behaviour.
+/// Exercise callback output.
 #[test]
 fn probe_facts_document_known_runtime_gaps() {
 	let summary = &*FACTS;
@@ -163,16 +180,4 @@ fn probe_facts_document_known_runtime_gaps() {
 	assert_eq!(kernel["err"], 0);
 	assert_eq!(kernel["diameter"], 5);
 	assert!((kernel["sum"].as_i64().unwrap() - 65536).abs() <= 25);
-
-	// sprintf: only a bare first `%d`/`%s` (no flags/width) gets substituted;
-	// everything else in a multi-specifier format is left untouched, and
-	// `%u`/`%x`/`%X`/`%o`/`%f`/`%e`/`%E`/`%g`/`%c` are not substituted at all.
-	assert_eq!(fact_json(summary, "ansi.sprintf.int")["out"], "42|%5d|%-5d|%05d|%+d");
-	assert_eq!(fact_json(summary, "ansi.sprintf.uint")["out"], "%u|%x|%X|%o");
-	assert_eq!(
-		fact_json(summary, "ansi.sprintf.float")["out"],
-		"%f|%.2f|%10.3f|%-10.1f|"
-	);
-	assert_eq!(fact_json(summary, "ansi.sprintf.str")["out"], "[ae][%8s][%-8s]");
-	assert_eq!(fact_json(summary, "suite.ansi.sprintf")["out"], "7/x/%.2f");
 }

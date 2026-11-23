@@ -57,117 +57,50 @@ impl_math_sys!(tan_sys, tan, "x", "InData/utils/ansi/tan");
 impl_math_sys!(asin_sys, asin, "x", "InData/utils/ansi/asin");
 impl_math_sys!(acos_sys, acos, "x", "InData/utils/ansi/acos");
 
-/// Emulates `sprintf()` function
+/// The buffer `sprintf` writes into is assumed to hold this many bytes, the
+/// size of `PF_OutData::return_msg` (`PF_MAX_EFFECT_MSG_LEN + 1`).
+const SPRINTF_BUFFER_SIZE: usize = 256;
+
+// The platform's own `vsnprintf`. The UCRT defines it inline in its headers;
+// `legacy_stdio_definitions` is the library that exports it.
+#[cfg_attr(windows, link(name = "legacy_stdio_definitions"))]
+unsafe extern "C" {
+	fn vsnprintf(
+		buffer: *mut std::ffi::c_char,
+		size: usize,
+		format: *const std::ffi::c_char,
+		args: std::ffi::VaList,
+	) -> std::ffi::c_int;
+}
+
+/// `sprintf()`, formatted by the C library's `vsnprintf`, so every
+/// conversion, flag, width, precision and length modifier works as it does in
+/// After Effects, and the format may be in any 8-bit encoding.
 ///
 /// # Safety
 ///
-/// This function is unsafe because:
-/// 1. It handles raw pointers (`arg1`, `arg2`, and variadic arguments) which must be valid.
-/// 2. `arg1` is assumed to be a pointer to a mutable buffer of at least 256 bytes.
-///    The function will strictly write no more than 256 bytes (including null terminator),
-///    but the caller is responsible for ensuring the buffer allocation.
-/// 3. `arg2` must be a valid, null-terminated C-string.
-/// 4. Variadic arguments must correspond exactly to the format specifiers in `arg2`.
-///    Mismatching arguments (e.g. passing a float for `%d`) leads to undefined behavior.
-/// 5. Only `%d` and `%s` format specifiers are actively supported.
-pub(crate) unsafe extern "C" fn sprintf_sys(arg1: *mut A_char, arg2: *const A_char, mut args: ...) -> PF_Err {
+/// 1. `arg1` points to a buffer of at least 256 bytes. At most 256 bytes are
+///    written, the null terminator included, cutting the text if needed.
+/// 2. `arg2` is a valid, null-terminated C string.
+/// 3. The variadic arguments match the format's conversions, as for any
+///    `sprintf`.
+pub(crate) unsafe extern "C" fn sprintf_sys(arg1: *mut A_char, arg2: *const A_char, args: ...) -> PF_Err {
 	crate::core::ffi::guard("sprintf_sys", || {
-		const SPRINTF_BUFFER_SIZE: usize = 256;
-
 		if arg1.is_null() || arg2.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 
-		let format_str = match unsafe { CStr::from_ptr(arg2) }.to_str() {
-			Ok(s) => s,
-			Err(_) => {
-				return PF_Err_INTERNAL_STRUCT_DAMAGED;
-			}
-		};
+		let written = unsafe { vsnprintf(arg1, SPRINTF_BUFFER_SIZE, arg2, args) };
+		if written < 0 {
+			return PF_Err_INTERNAL_STRUCT_DAMAGED;
+		}
 
-		// Raw implementation to handle %d and %s format specifiers
-		let mut result = String::new();
-		let mut chars = format_str.chars().peekable();
-
-		// Built incrementally as variadic args are pulled, so it can't be a single
-		// trailing `diag!`; the cfg-gated statements keep it zero-cost otherwise.
 		#[cfg(feature = "diagnostics")]
-		let mut diagnostics = DiagnosticBuilder::new();
-		#[cfg(feature = "diagnostics")]
-		diagnostics
+		DiagnosticBuilder::new()
 			.set_name("UtilityCallbacks/ansi/sprintf")
-			.add_arg("format", format!("{:?}", format_str));
-
-		while let Some(c) = chars.next() {
-			if c == '%' {
-				if let Some(next) = chars.next() {
-					match next {
-						'd' => {
-							// Get an integer argument
-							let arg = unsafe { args.next_arg::<i32>() };
-
-							#[cfg(feature = "diagnostics")]
-							diagnostics.add_arg("arg_int", format!("{:?}", arg));
-							result.push_str(&arg.to_string());
-						}
-						's' => {
-							// Get a string argument
-							let ptr = unsafe { args.next_arg::<*const i8>() };
-
-							if !ptr.is_null() {
-								match unsafe { CStr::from_ptr(ptr) }.to_str() {
-									Ok(s) => {
-										result.push_str(s);
-										#[cfg(feature = "diagnostics")]
-										diagnostics.add_arg("arg_str", format!("{:?}", s));
-									}
-									Err(_) => result.push_str("(invalid)"),
-								}
-							} else {
-								result.push_str("(null)");
-							}
-						}
-						'%' => {
-							result.push('%');
-						}
-						_ => {
-							// Unsupported format specifier, just include it as-is
-							result.push('%');
-							result.push(next);
-						}
-					}
-				} else {
-					// Trailing %
-					result.push('%');
-				}
-			} else {
-				result.push(c);
-			}
-		}
-
-		// Copy result to the output buffer
-		let c_result = match CString::new(result) {
-			Ok(s) => s,
-			Err(_) => {
-				return PF_Err_INTERNAL_STRUCT_DAMAGED;
-			}
-		};
-
-		let bytes = c_result.as_bytes_with_nul();
-		let copy_len = bytes.len().min(SPRINTF_BUFFER_SIZE);
-
-		// Copy bytes
-		unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), arg1 as *mut u8, copy_len) };
-
-		// Ensure null termination if we truncated or filled exactly
-		// If copy_len < SPRINTF_BUFFER_SIZE, the null byte from as_bytes_with_nul is already copied.
-		// If copy_len == SPRINTF_BUFFER_SIZE, we forced a cut, so we must manually null-terminate at the end.
-		if copy_len == SPRINTF_BUFFER_SIZE && SPRINTF_BUFFER_SIZE > 0 {
-			unsafe { *((arg1 as *mut u8).add(SPRINTF_BUFFER_SIZE - 1)) = 0 };
-		}
-
-		#[cfg(feature = "diagnostics")]
-		diagnostics.set_result(format!("{:?}", c_result)).emit();
+			.add_arg("format", format!("{:?}", unsafe { CStr::from_ptr(arg2) }))
+			.set_result(format!("{:?}", unsafe { CStr::from_ptr(arg1) }))
+			.emit();
 
 		PF_Err_NONE
 	})
@@ -441,14 +374,35 @@ mod tests {
 	}
 
 	#[test]
-	fn sprintf_unsupported_specifier_passthrough() {
-		// Only %d/%s/%% are handled; anything else is emitted verbatim.
-		assert_eq!(sprintf!("%q"), "%q");
+	fn sprintf_precision_width_and_length() {
+		let s = CString::new("abcdef").unwrap();
+		assert_eq!(
+			sprintf!(
+				"%.3s|%5.2f|%lld|%04x|%c",
+				s.as_ptr(),
+				2.5f64,
+				1234567890123i64,
+				255u32,
+				'Z' as i32
+			),
+			"abc| 2.50|1234567890123|00ff|Z"
+		);
 	}
 
 	#[test]
-	fn sprintf_trailing_percent() {
-		assert_eq!(sprintf!("done%"), "done%");
+	fn sprintf_cuts_at_the_buffer_size() {
+		let long = CString::new("x".repeat(300)).unwrap();
+		assert_eq!(sprintf!("%s", long.as_ptr()), "x".repeat(255));
+	}
+
+	#[test]
+	fn sprintf_copies_non_utf8_bytes() {
+		// "\xa9 2024" (Latin-1 copyright sign), as plugins built for Windows write it.
+		let fmt = c"\xa9 %d";
+		let mut buffer = [0 as A_char; 256];
+		let err = unsafe { sprintf_sys(buffer.as_mut_ptr(), fmt.as_ptr(), 2024i32) };
+		assert_eq!(err, PF_Err_NONE);
+		assert_eq!(unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_bytes(), b"\xa9 2024");
 	}
 
 	#[test]

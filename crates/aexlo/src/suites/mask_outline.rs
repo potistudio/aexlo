@@ -1,5 +1,6 @@
 //! `AEGP Mask Outline Suite` (wire versions 2, 3 and 5): reading the outline
-//! of a path stream's value (`ADBE Vector Shape`).
+//! of a path stream's value, a layer mask's (`ADBE Mask Shape`, see
+//! [`super::layer_mask`]) or a shape path's (`ADBE Vector Shape`).
 //!
 //! `AEGP_GetNewStreamValue` publishes a copy of the path at the time asked
 //! for, and `AEGP_DisposeStreamValue` drops it, so an outline cannot change
@@ -99,7 +100,7 @@ unsafe extern "C" fn vertex_info(
 	})
 }
 
-/// Shape paths have no variable-width feather.
+/// aexlo's paths have no variable-width feather points.
 unsafe extern "C" fn num_feathers(outline: AEGP_MaskOutlineValH, num_feathersPL: *mut A_long) -> A_Err {
 	crate::core::ffi::guard("get_mask_outline_num_feathers", || {
 		diag!("AEGP_MaskOutlineSuite/AEGP_GetMaskOutlineNumFeathers");

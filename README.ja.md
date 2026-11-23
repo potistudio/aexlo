@@ -48,7 +48,7 @@ After Effects 自体がプラグインに提供するインターフェースで
 
 ### 必要な環境
 
-- `rust-toolchain.toml` で指定された Rust ツールチェーン（現在は 1.100.0）
+- Rust 1.99.0 以上
 - Windows x64 または macOS arm64
 
 > [!NOTE]
@@ -176,12 +176,22 @@ aexlo test --bless                 # 参照画像を保存。以降は `aexlo te
 aexlo test --strict                # ガード領域、リーク、チェックアウトの追跡も実施
 aexlo test --fuzz 100              # パラメーターをランダム化し、失敗ケースをプリセットとして出力
 aexlo bench --save-baseline main   # 以降は aexlo bench --baseline main で比較
-aexlo preview build/MyGlow.plugin --preset dot_glow
+aexlo render --preset dot_glow -o dot_glow.png
 aexlo check                        # CI で実行するコマンド（.github/workflows/aexlo-check.yml）
 ```
 
+`aexlo help` でコマンドの一覧を、`aexlo help <command>`（または
+`aexlo <command> --help`）でそのオプションを表示します。
+
 各バリアントはワーカープロセスで実行されるため、プラグインがクラッシュしても、その実行だけが失敗します。
 Rust プラグインでは `aexlo-test` を開発用依存関係に追加すると、フレームのアサーションを伴うプロセス内の `#[aexlo_test::test]` を利用できます。
+
+レンダリングせずにプラグインの宣言内容を見るには `info` を使います。
+
+```bash
+aexlo info MyGlow             # PiPL、ABOUT テキスト、フラグ、パラメーター
+aexlo info MyGlow --pipl      # PiPL だけを、プラグインを読み込まずに表示
+```
 
 プラグインの動作を調べるには、ターミナル UI のプロンプトからコマンドを実行します。
 
@@ -202,14 +212,14 @@ aexlo inspect Discotext --exec "input text HELLO; render smart; save text.png"
 トレースの行にフォーカスすると（Enter または `:focus <text|#seq>`）、その行を診断します。呼び出しなら引数と戻り値、実行中のコマンド、確保した・引数で渡されたメモリとそれがまだ保持されているか、失敗したコマンドならエラーとその直前の呼び出しを表示します。
 `--exec` は同じ分析をテキストで出力します。クレートのディレクトリを渡した場合、`:reload` で再ビルドし、パラメーターの値を引き継ぎます。
 
-エージェントやスクリプトから使う場合は、`--format json` で1行に1つの JSON オブジェクトを出力します。
+エージェントやスクリプトから使う場合は、`--json` で1行に1つの JSON オブジェクトを出力します。
 まず `loaded`、コマンドごとに `command`（結果、発行した `PF_Cmd_*` とそのエラー、`focus` に渡せる `#seq`）、`focus` は診断をセクションに分けて、最後に `report` を出力します。
 プラグイン自身の出力は stderr に回るため、stdout はそのままパースできます。
 `--script -` は stdin からコマンドを読み、1つ答えてから次を読むので、読み込んだプラグインをパイプ越しに操作できます。`report` でその時点の分析を出力し、`clear` でそれまでのトレースを消し、`quit` で終了します。
 
 ```bash
-aexlo inspect MyGlow --format json --exec "render; focus checkout"
-aexlo inspect MyGlow --format json --script -    # stdin に1行1コマンド
+aexlo inspect MyGlow --json --exec "render; focus checkout"
+aexlo inspect MyGlow --json --script -    # stdin に1行1コマンド
 ```
 
 オプション、コマンド、JSON のフィールドはすべて [docs/inspect.ja.md](docs/inspect.ja.md) で説明しています。
@@ -275,7 +285,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 | △ Comp         | △ Dynamic Stream  | ○ Memory               | △ Register             |
 | △ Item         | △ Keyframe        | ○ Iterate              | △ Utility              |
 | △ Light        | ○ Persistent Data | △ Render               | △ Camera               |
-| △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
+| △ Effect       | △ Mask            | △ Render Options       | × QueryXform           |
 | △ PF Interface | △ Mask Outline    | △ Layer Render Options | △ Math                 |
 | △ Proj         | △ Text Document   | × Composite            | △ Compute Cache        |
 | × Footage      | ○ Text Layer      | × Canvas               | △ Hash                 |
@@ -285,9 +295,10 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 △ Layer / Comp / Item / Light / Effect / PF Interface：`set_project` で渡されたプロジェクトを読み取り専用で返します。渡されなければ、エフェクトのレイヤーと、入力を表す仮想フッテージアイテムを持つコンポジション 1 つです。
 Effect Suite が扱うエフェクトはホスト中の 1 つと、ロード中のプラグインが申告した識別情報です。システムにインストールされた全エフェクトは列挙しません。
 △ Stream / Dynamic Stream：トランスフォーム、エフェクトのパラメーター、ソーステキスト、シェイプの内容（パス、グループ、塗り、パスの結合）を、指定された時刻で返します。
-線、パラメトリックシェイプ、レイヤーマスク、エクスプレッションはストリームにしていません。プラグインはパラメーターの非表示・無効化と、キーフレームのないパラメーター（レイヤーと任意データを除く）への値の設定ができます。ほかの書き込みは拒否します。
+レイヤーマスクのアウトライン、不透明度、ぼかし、拡張もストリームです（キーフレームなし）。線、パラメトリックシェイプ、エクスプレッションはストリームにしていません。プラグインはパラメーターの非表示・無効化と、キーフレームのないパラメーター（レイヤーと任意データを除く）への値の設定ができます。ほかの書き込みは拒否します。
 △ Keyframe：読み取りのみで、線形か停止です。ベジェのイージングと空間接線はありません。別の時刻でチェックアウトしたレイヤーの画素は、現在時刻のものです。
-△ Mask Outline / Text Document：シェイプのパスとソーステキストの文字列を読めます。書き込みはできません。レイヤーマスクは Path Query で読みます。
+△ Mask：埋め込み側が `set_mask_paths` でエフェクトのレイヤーに付けたマスクを読み取ります。マスクは変更できず、ほかのレイヤーにはマスクがありません。
+△ Mask Outline / Text Document：レイヤーマスクのアウトライン、シェイプのパス、ソーステキストの文字列を読めます。書き込みはできません。
 △ Camera：v2 のみです。プロジェクトにカメラとライトのレイヤーはないため、カメラは「なし」と答え、既定カメラの距離を返します。
 △ Math：`AEGP_MatrixDecompose4` の角度の規約は After Effects と照合していません。
 △ Proj：未保存の仮想プロジェクトを 1 つ公開します。編集、保存、ルートフォルダー、時間表示設定は未実装です。

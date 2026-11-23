@@ -30,7 +30,7 @@ Before touching aexlo, build the CLI and record where every plugin stands.
 cargo fmt --all -- --check
 cargo build -p aexlo-cli
 mkdir -p target/compat
-target/debug/aexlo compat fixtures/plugins/macos --format json \
+target/debug/aexlo compat fixtures/plugins/macos --json \
   --save-baseline target/compat/base.json > target/compat/before.json
 ```
 
@@ -68,7 +68,7 @@ Then drive the plugin with [`aexlo inspect`](inspect.md) to see which calls
 it makes, with which arguments, and what it does with the result:
 
 ```bash
-target/debug/aexlo inspect fixtures/plugins/macos/RainyDay.plugin --format json --script -
+target/debug/aexlo inspect fixtures/plugins/macos/RainyDay.plugin --json --script -
 # render / set / changed / updateui to trigger it, focus #<seq> to dig in.
 ```
 
@@ -125,7 +125,7 @@ cargo fmt --all -- --check
 
 ```bash
 cargo build -p aexlo-cli
-target/debug/aexlo compat fixtures/plugins/macos --format json \
+target/debug/aexlo compat fixtures/plugins/macos --json \
   --baseline target/compat/base.json > target/compat/after.json
 echo $?
 ```

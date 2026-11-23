@@ -224,6 +224,8 @@ pub struct PluginInstance {
 	global_out_flags: PF_OutFlags,
 	/// `out_flags2` as declared at `PF_Cmd_GLOBAL_SETUP`.
 	global_out_flags2: PF_OutFlags2,
+	/// `my_version` as reported at `PF_Cmd_GLOBAL_SETUP`.
+	global_version: crate::sys::A_u_long,
 
 	/// Instance-specific parameters from the host (non-global storage).
 	params: Vec<crate::sys::PF_ParamDef>,
@@ -463,6 +465,13 @@ impl PluginInstance {
 		crate::OutFlags2::from_bits(self.global_out_flags2 as u32)
 	}
 
+	/// The version the plugin reported in `my_version` at
+	/// `PF_Cmd_GLOBAL_SETUP`. After Effects warns when it differs from the
+	/// PiPL's `eVER` ([`Pipl::effect_version`](crate::Pipl::effect_version)).
+	pub fn version(&self) -> crate::EffectVersion {
+		crate::EffectVersion::from_bits(self.global_version)
+	}
+
 	/// Turn strict-mode instrumentation on or off for this instance (see
 	/// [`Strict`](crate::Strict)). With everything off, the host behaves and
 	/// costs exactly as without strict mode.
@@ -523,10 +532,13 @@ impl PluginInstance {
 	/// [`Strict::track_allocations`](crate::Strict) is on, from the command
 	/// that turned it on; install the observer with [`Loader::observer`] to
 	/// include what setup allocates. Only the thread dispatching a command is
-	/// tracked: memory got or freed from iterate worker threads is missed
-	/// (see [`Self::set_parallel_iterate`]).
+	/// tracked: memory got from iterate worker threads is missed (see
+	/// [`Self::set_parallel_iterate`]). Memory freed there is left out, since
+	/// the host knows it is gone.
 	pub fn allocations(&self) -> Vec<crate::LiveAllocation> {
-		self.tracker.lock().map(|t| t.live()).unwrap_or_default()
+		let mut live = self.tracker.lock().map(|t| t.live()).unwrap_or_default();
+		live.retain(|l| crate::strict::is_host_memory(&self.tracker, l.kind, l.address));
+		live
 	}
 
 	/// Copy up to `len` bytes, from `offset` on, of a live allocation listed
@@ -534,24 +546,27 @@ impl PluginInstance {
 	/// any resize), or a world's pixel rows. `None` when nothing live starts
 	/// at `address` or `offset` is past its end.
 	///
-	/// Reads what the plugin left there between commands. A plugin that
-	/// frees host memory from an iterate worker thread leaves an entry
-	/// behind that this would read after the free; run such a plugin with
-	/// [`Self::set_parallel_iterate`] off while inspecting its memory.
+	/// Reads what the plugin left there between commands. Memory the plugin
+	/// has freed, on any thread, is not read.
 	pub fn read_allocation(&self, address: usize, offset: usize, len: usize) -> Option<Vec<u8>> {
-		let (kind, bytes) = self.tracker.lock().ok()?.find_live(address)?;
-		let (data, size) = match kind {
-			// SAFETY: the tracker saw the plugin get this handle and has not
-			// seen it disposed, and no command runs while `self` is borrowed.
-			crate::AllocationKind::Handle => unsafe { crate::suites::handle::handle_contents(address)? },
-			crate::AllocationKind::World => (address as *const u8, bytes),
-		};
-		if offset > size {
-			return None;
-		}
-		let len = len.min(size - offset);
-		// SAFETY: `data..data + size` is the live allocation's own memory.
-		Some(unsafe { std::slice::from_raw_parts(data.add(offset), len) }.to_vec())
+		let (kind, _) = self.tracker.lock().ok()?.find_live(address)?;
+		// The host's own record of what is live, not the tracker's: the
+		// tracker misses frees on iterate worker threads. It also holds off a
+		// dispose while the bytes are copied.
+		crate::strict::with_host_memory(&self.tracker, kind, address, |bytes| {
+			let (data, size) = match kind {
+				// SAFETY: the host handed out this handle and has not had it
+				// back, and its disposal waits for this closure.
+				crate::AllocationKind::Handle => unsafe { crate::suites::handle::handle_contents(address)? },
+				crate::AllocationKind::World => (address as *const u8, bytes),
+			};
+			if offset > size {
+				return None;
+			}
+			let len = len.min(size - offset);
+			// SAFETY: `data..data + size` is the live allocation's own memory.
+			Some(unsafe { std::slice::from_raw_parts(data.add(offset), len) }.to_vec())
+		})
 	}
 
 	/// The host-side state carried between commands, and what the plugin
@@ -688,19 +703,49 @@ impl PluginInstance {
 		self.parallel_iterate
 	}
 
-	/// Get the output message from the instance (set during `PF_Cmd_ABOUT` command).
-	///
-	/// The message may contain line breaks and special characters (e.g. \r, \n).
-	/// Invalid UTF-8 sequences are replaced with the Unicode replacement character (�).
+	/// `out_data.return_msg`, the text the plugin reported (its ABOUT text, a
+	/// dialog's message, an error), as [`decode_message`] reads it.
 	fn message(&self) -> String {
 		let bytes = &self.out_data.return_msg;
-
-		// Cramp the buffer at the first null byte (if any) to avoid trailing garbage
-		let cramped_length = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
-
 		// SAFETY: `c_char` and `u8` share size and alignment; only the sign interpretation differs, which is irrelevant when reading raw bytes.
-		let utf8: &[u8] = unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const u8, cramped_length) };
+		let bytes: &[u8] = unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const u8, bytes.len()) };
+		decode_message(bytes)
+	}
+}
 
-		String::from_utf8_lossy(utf8).into_owned()
+/// A message a plugin wrote into `return_msg`, up to its first null byte, with
+/// `\n` line breaks.
+///
+/// After Effects breaks lines with `\r` (the classic Mac line end) or `\r\n`;
+/// a lone `\r` sent to a terminal returns to the start of the line and the next
+/// line overwrites this one. Text that is not UTF-8 is in an 8-bit code page,
+/// where 0xA9 is the copyright sign plugins put in their ABOUT text; it is read
+/// as Latin-1, which agrees with Windows-1252 and Mac Roman on that sign.
+fn decode_message(bytes: &[u8]) -> String {
+	let bytes = &bytes[..bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len())];
+	let text = match std::str::from_utf8(bytes) {
+		Ok(text) => text.to_owned(),
+		Err(_) => bytes.iter().map(|&b| char::from(b)).collect(),
+	};
+	text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+#[cfg(test)]
+mod message_tests {
+	use super::decode_message;
+
+	#[test]
+	fn carriage_returns_break_lines() {
+		assert_eq!(
+			decode_message(b"Name - 1.0\r\rWhat it does.\rCopyright\0junk"),
+			"Name - 1.0\n\nWhat it does.\nCopyright"
+		);
+		assert_eq!(decode_message(b"Name, v1.1\r\nMore"), "Name, v1.1\nMore");
+	}
+
+	#[test]
+	fn an_8_bit_copyright_sign_is_read_as_one() {
+		assert_eq!(decode_message(b"\xa9 2025 Someone\0"), "\u{a9} 2025 Someone");
+		assert_eq!(decode_message("\u{a9} UTF-8\0".as_bytes()), "\u{a9} UTF-8");
 	}
 }

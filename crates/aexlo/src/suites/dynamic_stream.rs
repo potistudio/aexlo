@@ -136,6 +136,8 @@ fn parent_of(stream: Stream) -> Option<Stream> {
 				(up.node, index)
 			}
 		},
+		// aexlo's mask parade lists no masks, so a mask's streams hang off it.
+		Node::MaskOutline | Node::MaskOpacity | Node::MaskFeather | Node::MaskExpansion => (Node::Masks, 2),
 	};
 	Some(Stream { index, node, ..stream })
 }
@@ -144,7 +146,18 @@ fn depth(stream: Stream) -> A_long {
 	match stream.node {
 		Node::Layer => 0,
 		Node::Transform | Node::Effects | Node::Masks => 1,
-		Node::Anchor | Node::Position | Node::Scale | Node::Rotation | Node::Opacity | Node::Effect => 2,
+		// No mask atom sits between a mask's streams and the parade (see
+		// `parent_of`), so they are one level below it.
+		Node::Anchor
+		| Node::Position
+		| Node::Scale
+		| Node::Rotation
+		| Node::Opacity
+		| Node::Effect
+		| Node::MaskOutline
+		| Node::MaskOpacity
+		| Node::MaskFeather
+		| Node::MaskExpansion => 2,
 		Node::Param => 3,
 		Node::Property(_) => parent_of(stream).map_or(1, |parent| depth(parent) + 1),
 	}
@@ -184,6 +197,10 @@ fn name_bytes(stream: Stream) -> Vec<u8> {
 		Node::Opacity => b"ADBE Opacity",
 		Node::Effects => b"ADBE Effect Parade",
 		Node::Masks => b"ADBE Mask Parade",
+		Node::MaskOutline => b"ADBE Mask Shape",
+		Node::MaskOpacity => b"ADBE Mask Opacity",
+		Node::MaskFeather => b"ADBE Mask Feather",
+		Node::MaskExpansion => b"ADBE Mask Offset",
 		Node::Effect => {
 			let from_param = param_name(stream.effect_ref, 0);
 			if from_param.is_empty() {
@@ -823,6 +840,36 @@ mod tests {
 
 	fn layer() -> AEGP_StreamRefH {
 		new_stream_handle(Stream::own(std::ptr::null_mut(), 0, Node::Layer))
+	}
+
+	#[test]
+	fn each_depth_is_the_number_of_parents_above() {
+		for node in [
+			Node::Layer,
+			Node::Transform,
+			Node::Anchor,
+			Node::Position,
+			Node::Scale,
+			Node::Rotation,
+			Node::Opacity,
+			Node::Effects,
+			Node::Effect,
+			Node::Masks,
+			Node::Param,
+			Node::MaskOutline,
+			Node::MaskOpacity,
+			Node::MaskFeather,
+			Node::MaskExpansion,
+		] {
+			let start = Stream::own(std::ptr::null_mut(), 0, node);
+			let mut stream = start;
+			let mut parents = 0;
+			while let Some(parent) = parent_of(stream) {
+				stream = parent;
+				parents += 1;
+			}
+			assert_eq!(depth(start), parents, "{node:?}");
+		}
 	}
 
 	#[test]

@@ -58,7 +58,7 @@ However, all of these plugins are designed to run exclusively within After Effec
 
 ### Requirements
 
-- Rust toolchain specified by `rust-toolchain.toml` (currently 1.100.0)
+- Rust 1.99.0 or later
 
 - Windows x64 or macOS arm64
 
@@ -194,13 +194,23 @@ aexlo test --bless                 # write goldens; later `aexlo test` compares
 aexlo test --strict                # + guard bands, leak and checkout tracking
 aexlo test --fuzz 100              # random parameters, failures as presets
 aexlo bench --save-baseline main   # later: aexlo bench --baseline main
-aexlo preview build/MyGlow.plugin --preset dot_glow
+aexlo render --preset dot_glow -o dot_glow.png
 aexlo check                        # what CI runs (.github/workflows/aexlo-check.yml)
 ```
+
+`aexlo help` lists every command, and `aexlo help <command>` (or
+`aexlo <command> --help`) shows its options.
 
 Every variant runs in a worker process, so a crashing plugin fails one run,
 not the suite. Rust plugins add `aexlo-test` as a dev-dependency for
 in-process `#[aexlo_test::test]`s with frame assertions.
+
+To see what a plugin declares without rendering it:
+
+```bash
+aexlo info MyGlow             # PiPL, ABOUT text, flags and parameters
+aexlo info MyGlow --pipl      # the PiPL alone, without loading the plugin
+```
 
 To see what a plugin does, drive it from a prompt in a terminal UI:
 
@@ -227,7 +237,7 @@ names and whether that is still held, or, for a failed command, its error
 and the last call before it. `--exec` prints the same analysis as text. Given a crate directory, `:reload` rebuilds
 it and keeps the parameter values.
 
-For agents and scripts, `--format json` prints one JSON object per line
+For agents and scripts, `--json` prints one JSON object per line
 instead: `loaded`, then a `command` per command (its result, the `PF_Cmd_*`
 it issued with their errors, and the `#seq` that `focus` takes), a `focus`
 with the diagnosis in sections, and a final `report`. The plugin's own output
@@ -237,8 +247,8 @@ can be driven over a pipe; `report` prints the analysis on demand, `clear`
 forgets the trace so far and `quit` ends the session.
 
 ```bash
-aexlo inspect MyGlow --format json --exec "render; focus checkout"
-aexlo inspect MyGlow --format json --script -    # one command per line on stdin
+aexlo inspect MyGlow --json --exec "render; focus checkout"
+aexlo inspect MyGlow --json --script -    # one command per line on stdin
 ```
 
 Every option, command and JSON field is described in
@@ -317,7 +327,7 @@ Legacy Gaussian-kernel generation uses approximate coefficients that have not be
 | △ Comp         | △ Dynamic Stream  | ○ Memory               | △ Register             |
 | △ Item         | △ Keyframe        | ○ Iterate              | △ Utility              |
 | △ Light        | ○ Persistent Data | △ Render               | △ Camera               |
-| △ Effect       | × Mask            | △ Render Options       | × QueryXform           |
+| △ Effect       | △ Mask            | △ Render Options       | × QueryXform           |
 | △ PF Interface | △ Mask Outline    | △ Layer Render Options | △ Math                 |
 | △ Proj         | △ Text Document   | × Composite            | △ Compute Cache        |
 | × Footage      | ○ Text Layer      | × Canvas               | △ Hash                 |
@@ -327,9 +337,10 @@ Legacy Gaussian-kernel generation uses approximate coefficients that have not be
 △ Layer / Comp / Item / Light / Effect / PF Interface: read-only, from the project given with `set_project`, or else one comp with the effect's layer and a synthetic footage item for its input.
 The Effect Suite knows one effect, the hosted one, and the identities reported by loaded plugins; it does not enumerate the system's installed effects.
 △ Stream / Dynamic Stream: transforms, effect parameters, source text and shape contents (paths, groups, fills and Merge Paths) at the time asked for.
-Strokes, parametric shapes, layer masks and expressions are not streams. A plugin can hide or disable parameters, and set those without keyframes other than layers and arbitrary data; other writes are refused.
+A layer mask's outline, opacity, feather and expansion are streams too, without keyframes. Strokes, parametric shapes and expressions are not streams. A plugin can hide or disable parameters, and set those without keyframes other than layers and arbitrary data; other writes are refused.
 △ Keyframe: reads only, linear or held; no bezier eases or spatial tangents. A layer checked out at another time has the current pixels.
-△ Mask Outline / Text Document: shape paths and source strings are read; nothing is written. Layer masks are read through Path Query.
+△ Mask: reads the masks an embedder puts on the effect's layer with `set_mask_paths`; they cannot be changed, and other layers have none.
+△ Mask Outline / Text Document: layer mask outlines, shape paths and source strings are read; nothing is written.
 △ Camera: v2 only. A project has no camera or light layers: no camera is found, and the default one gives its distance.
 △ Math: the angle convention of `AEGP_MatrixDecompose4` has not been checked against After Effects.
 △ Proj: one unsaved synthetic project is exposed; project editing, persistence, root folders and time-display settings are not implemented.

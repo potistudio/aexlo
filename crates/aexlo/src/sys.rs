@@ -105,6 +105,18 @@ typed_consts! {
 	AEGP_LayerSamplingQuality {
 		AEGP_LayerSamplingQual_BILINEAR,
 	}
+	AEGP_MaskFeatherFalloff {
+		AEGP_MaskFeatherFalloff_SMOOTH,
+	}
+	AEGP_MaskMBlur {
+		AEGP_MaskMBlur_SAME_AS_LAYER,
+	}
+	AEGP_MaskStream {
+		AEGP_MaskStream_EXPANSION,
+		AEGP_MaskStream_FEATHER,
+		AEGP_MaskStream_OPACITY,
+		AEGP_MaskStream_OUTLINE,
+	}
 	AEGP_StreamFlags {
 		AEGP_StreamFlag_HAS_MAX,
 		AEGP_StreamFlag_HAS_MIN,
@@ -115,6 +127,7 @@ typed_consts! {
 		AEGP_StreamType_ARB,
 		AEGP_StreamType_COLOR,
 		AEGP_StreamType_LAYER_ID,
+		AEGP_StreamType_MASK,
 		AEGP_StreamType_NO_DATA,
 		AEGP_StreamType_OneD,
 		AEGP_StreamType_ThreeD,

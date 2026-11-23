@@ -17,7 +17,7 @@ crashes or hangs costs that one scenario, not the run.
 
 ```bash
 aexlo compat fixtures/plugins/macos                  # every plugin in a directory
-aexlo compat MyGlow.plugin Other.plugin --all        # list every scenario
+aexlo compat MyGlow.plugin Other.plugin --all        # list every plugin and scenario
 aexlo compat fixtures/plugins/macos --save-baseline compat.json
 aexlo compat fixtures/plugins/macos --baseline compat.json   # exit 1 if any got worse
 ```
@@ -75,6 +75,15 @@ the two differently, it works on text layers, and every scenario except
 A scenario is only marked `partial` for gaps beyond the ones loading already
 had. Those are reported once, on `load`.
 
+### Coverage
+
+Coverage is the share of the scenarios that apply that went `ok`:
+`ok / (all - n/a - invalid)`. `n/a` and `invalid` are left out because they
+say nothing about aexlo. `partial` counts against it: the plugin ran, but
+aexlo did not do everything it asked. The report gives it for the whole run
+and for each plugin, rounded down, so `100.0%` means every scenario was
+`ok`.
+
 ## 3. Options
 
 | Option | Default | |
@@ -83,8 +92,9 @@ had. Those are reported once, on `load`.
 | `--only <text>` | | Only scenarios whose id contains `<text>`. `load` always runs, and so does `input:text` to decide on the `text:` scenarios, but it is only listed if it matches |
 | `--jobs <n>` | half the CPUs | Workers at once |
 | `--timeout <s>` | `20` | Seconds per scenario |
-| `--all` | | List every scenario on its own. Without it, only scenarios that are not `ok` or `n/a` are listed, grouped by how they went |
-| `--format json` | text | The report as one JSON document |
+| `--all` | | List every plugin and every scenario. Without it, only plugins and scenarios with problems are listed (see [Output](#4-output)) |
+| `--json` | text | The report as one JSON document |
+| `--color <auto\|always\|never>` | `auto` | Color the text report, with symbols and bars. `auto` colors it on a terminal unless `NO_COLOR` is set |
 | `--save-baseline <file>` | | Write each scenario's status |
 | `--baseline <file>` | | Compare with a saved baseline |
 
@@ -94,32 +104,61 @@ worker that cannot be started exits 3.
 
 ## 4. Output
 
-The text report has one block per plugin, with its counts and the scenarios
-that did not go well. Scenarios that failed the same way are grouped (same
-status, same first line of the message, same gaps) and a few of them are
-named. The report ends with every gap and the plugins that hit it, most
-widespread first. That is the list of what to implement next.
+The text report starts with the totals: the coverage, then how many
+scenarios went each way. Then come the plugins that had problems, worst
+first (crash, timeout, error, partial, invalid), each with its coverage and
+its scenarios grouped by how they went: same status, same first line of the
+message, same gaps. A group shows its status, how many
+scenarios are in it, why they went that way, and the first few of them.
+The plugins where every scenario was `ok` or `n/a` share one list. The
+report ends with every gap and the plugins that hit it, most widespread
+first. That is the list of what to implement next. Each fact is given once:
+the counts only in the totals, and what went wrong only in the groups.
 
 ```text
-RainyDay  load partial · 20 ok · 93 partial
-    partial  load
-               missing-suite PF Effect Sequence Data Suite v1 (in PARAMS_SETUP)
-    partial  ×93 scenarios
-               missing-suite AEGP Stream Suite v11 (in UPDATE_PARAMS_UI)
-               e.g. param:#1 Preset=Custom, param:#1 Preset=Default, … (+91)
+aexlo compat: 34 plugins, 5323 scenarios, 94.2% coverage
+4919 ok · 1 partial · 103 n/a · 8 error · 292 crash
+
+Falloff  2.6%
+    crash     ×145  worker killed by signal 11 (SIGSEGV) during PF_Cmd_SMART_PRE_RENDER
+                    render:auto@8, render:smart@8, render:smart@16, render:smart@32, … (+141)
+
+AutoFill2  did not load
+    error       ×1  loading AutoFill2.plugin: Plugin not found: AutoFill2.plugin/Contents/MacOS
+
+RainyDay  99.1%
+    partial     ×1  missing-suite PF Effect Sequence Data Suite v1 (in PARAMS_SETUP)
+                    load
+
+Everything ok or n/a (25):
+    AOD_ChannelRemap, AOD_ColorAjust, AOD_ColorChange, AOD_ColorComposite, AOD_ColorConvert,
+    …, RXXR, SDK_Noise, TextGrad
 
 Asked for, but not done by aexlo (plugins that asked):
-   10  missing-suite AEGP Stream Suite v11  [AOD_ChannelRemap, …, RainyDay]
+    1  missing-suite PF Effect Sequence Data Suite v1  [RainyDay]
 ```
 
-`--format json` prints:
+On a terminal, the report is in color: each status has its color and a
+symbol (`✓` ok, `◐` partial, `○` n/a, `?` invalid, `✗` error and crash,
+`◷` timeout), and the totals and each plugin get a bar split between their
+statuses. While it runs, a progress line on stderr shows the phase
+(loading, AV layer, text layer) and how many scenarios are done. Piped or
+redirected, the report is the plain text above and there is no progress
+line.
+
+With `--all`, every plugin gets a block, `ok` and `n/a` scenarios are
+grouped too, and each group names all of its scenarios.
+
+`--json` prints:
 
 ```json
 {
   "summary": { "ok": 1992, "partial": 1654, "n/a": 90, "error": 6, "crash": 38 },
+  "coverage": 0.5398,
   "plugins": [
     {
       "plugin": "RainyDay",
+      "coverage": 0.1754,
       "path": "fixtures/plugins/macos/RainyDay.plugin",
       "load": { "id": "load", "status": "partial", "unsupported": [ … ] },
       "info": { "params": [ … ], "smart": true, "gpu": false, "depths": [8, 16, 32], "formats": [] },
@@ -137,15 +176,17 @@ Asked for, but not done by aexlo (plugins that asked):
   ],
   "gaps": [ { "gap": "missing-suite AEGP Stream Suite v11", "plugins": ["AOD_ChannelRemap", …] } ],
   "worse": [],
-  "better": []
+  "better": [],
+  "coverage_change": { "was": 0.5012, "now": 0.5398 }
 }
 ```
 
 A scenario also has `message` (why it did not pass) and, for `error`, `crash`
-and `timeout`, `last_command`. `worse` and `better` are only present with
-`--baseline`.
+and `timeout`, `last_command`. `coverage` is a ratio from 0 to 1, or
+`null` when no scenario applies. `worse`, `better` and `coverage_change` are
+only present with `--baseline`.
 
-The same gaps appear per run in `aexlo test --format json` (`unsupported`).
+The same gaps appear per run in `aexlo test --json` (`unsupported`).
 In code, they reach `Observer::unsupported` as an `UnsupportedEvent`.
 
 ## 5. Baselines
@@ -161,6 +202,14 @@ moved down this order: `ok` → `partial` → `error` → `timeout` → `crash`.
 Scenarios that are `n/a` or `invalid` on either side are not compared. Nor
 are scenarios or plugins that only one side has, such as a parameter that
 was renamed.
+
+It also gives the coverage before and now, over the scenarios both runs
+have, so a run with `--only` or with plugins the baseline lacks still
+compares like with like:
+
+```text
+Coverage since the baseline: 93.1% -> 94.2% (+1.1 points, on the scenarios both runs have)
+```
 
 Most plugin fixtures are local to each machine (`fixtures/plugins/.gitignore`),
 so keep a baseline next to them rather than in the repository. Save one

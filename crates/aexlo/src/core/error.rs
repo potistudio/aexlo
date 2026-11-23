@@ -35,6 +35,15 @@ pub enum AexloError {
 		path: PathBuf,
 	},
 
+	/// A plugin's PiPL resource could not be read or is malformed.
+	#[error("Invalid PiPL in {}: {reason}", path.display())]
+	InvalidPipl {
+		/// The file the PiPL was read from.
+		path: PathBuf,
+		/// What was wrong with it.
+		reason: String,
+	},
+
 	/// A `.plugin` bundle holds more than one executable in `Contents/MacOS`,
 	/// so which one to load is ambiguous.
 	#[error("Ambiguous plugin bundle {}: expected exactly one executable in Contents/MacOS", path.display())]

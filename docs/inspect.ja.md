@@ -21,7 +21,7 @@
 | パイプ越しのセッション | `aexlo inspect <plugin> --script -` | エージェントやツール。1つ送って答えを読み、次を決める |
 
 バッチとパイプの出力は、標準ではテキストです。
-`--format json` を付けると1行に1つの JSON オブジェクトになり、プログラムでパースできます（[イベント](#4-イベント)）。
+`--json` を付けると1行に1つの JSON オブジェクトになり、プログラムでパースできます（[イベント](#4-イベント)）。
 `aexlo inspect --help` でオプションとコマンドの一覧を表示します。
 
 - [1. はじめに](#1-はじめに)
@@ -49,10 +49,10 @@ aexlo inspect build/MyGlow.plugin
 aexlo inspect MyGlow --exec "set Radius 50; render smart; focus checkout"
 
 # 同じことを JSON の行で出力する
-aexlo inspect MyGlow --format json --exec "render; render smart"
+aexlo inspect MyGlow --json --exec "render; render smart"
 
 # プラグインを読み込んだまま、stdin から1行ずつコマンドを送る
-aexlo inspect MyGlow --format json --script -
+aexlo inspect MyGlow --json --script -
 ```
 
 ### `--exec`、`--script <file>`、`--script -`
@@ -95,11 +95,11 @@ aexlo inspect MyGlow --format json --script -
 | `--serial` | iterate コールバックをプラグインのスレッドで実行し、その中のスイート呼び出しも記録する | 無効 |
 | `--exec <cmds>` | バッチ。コマンドを実行する | — |
 | `--script <file\|->` | ファイルからのバッチ。`-` なら stdin からのセッション | — |
-| `--format <human\|json>` | バッチの出力形式。テキストか [JSON の行](#4-イベント) | `human` |
+| `--json` | バッチの出力を [JSON の行](#4-イベント) にする | テキスト |
 | `--trace` | バッチで、レポートにトレース全体も含める | 無効 |
 | `-h`, `--help` | オプションとコマンドの一覧を表示する | — |
 
-`--format` と `--trace` には `--exec` か `--script` が必要です。
+`--json` と `--trace` には `--exec` か `--script` が必要です。
 
 `--level` は、スイート呼び出しをトレースに残すかを決めます。
 ステップ、`PF_Cmd_*` の開始と終了、確保、解放、チェックアウトは、どのレベルでも記録されます。
@@ -235,11 +235,11 @@ aexlo inspect Extrude --exec "input shape ring; key 27 0 0; key 27 30 200; time 
 `dialog` は `PF_Cmd_DO_DIALOG` を送ります。多くのプラグインはこれに応えてネイティブのウィンドウを開きます。
 バッチやパイプ越しの実行では、そのためのイベントループやウィンドウサーバーがない場合があります。
 するとプラグインが止まったままになるか、クラッシュしてプロセスごと終了します（`DeepGlow2` がそうです）。
-`dialog` は TUI から送るか、ウィンドウが開いている間プロセスを維持する `aexlo dialog <plugin>` を使ってください。
+`dialog` は TUI から送ってください。TUI ではプラグインのスレッドが動き続け、Windows では次のコマンドを待つ間ウィンドウのメッセージを処理します。
 
 ## 4. イベント
 
-`--format json` では、stdout の各行が1つの JSON オブジェクトです。
+`--json` では、stdout の各行が1つの JSON オブジェクトです。
 `event` フィールドが行の種類を表します。
 stdout を1行ずつ読み、`event` で処理を分けてください。
 順序は必ず次のとおりです。
@@ -254,6 +254,12 @@ report                              （最後）
 
 時間はマイクロ秒（`*_us`）です。
 アドレスは16進の文字列（`"0x1238…"`）で、`focus` にそのまま渡せる形です。
+項目番号（`seq`、`step`）は数値で、`focus #<n>` で指定できます。
+
+同じことは1回しか出さず、言うことのないフィールドは `null` にせず省きます。
+エラーはあったときだけ、`repeat` はまとめた項目にだけ、`role` は `global_data` か `sequence_data` に当たる確保にだけ付きます。
+省かれうるフィールドは既定値付きで読んでください（Python なら `.get("error")`、jq なら `.error // empty`）。
+`null` が出るのは、プラグインが設定しなかったハンドルのように、それ自体が値のときだけです。
 
 ### `loaded`
 
@@ -279,8 +285,8 @@ report                              （最後）
 | `message` | string | `ok` | 出力された内容（`rendered 16x8 (Smart)`、`#1 = 7`、ABOUT のテキストなど） |
 | `elapsed_us` | number | `ok` | かかった時間 |
 | `error` | string | `ok` でない | 失敗の理由 |
-| `step` | string \| null | 実行した | このステップの項目番号（`"#10"` など）。`focus` に渡すと、ステップが引き起こしたことを診断できる。`clear` はステップとして記録されないので `null` |
-| `commands` | array | 実行した | ステップが送った `PF_Cmd_*`（いちばん外側のものだけ）。各要素は `{command, elapsed_us, error}` で、`error` は[エラーオブジェクト](#エラーオブジェクト)か `null` |
+| `step` | number | 実行した（`clear` を除く） | このステップの項目番号（`10` など）。`focus #10` で、ステップが引き起こしたことを診断できる。`clear` はステップとして記録されないので付かない |
+| `commands` | array | 実行した | ステップが送った `PF_Cmd_*`（いちばん外側のものだけ）。各要素は `{command, elapsed_us, error?}` で、`error` は[エラーオブジェクト](#エラーオブジェクト)。コマンドがエラーを返したときだけ付く |
 | `suite_calls` | number | 実行した | ステップ中のスイート呼び出しの数 |
 | `allocations`、`frees` | number | 実行した | ステップ中に確保・解放したハンドルとワールドの数 |
 | `skipped` | string | `mem`、`find` | 何もしなかった理由（`"only meaningful in the TUI"`）。`ok` は `true` |
@@ -295,7 +301,7 @@ report                              （最後）
 ```json
 {"event":"command","line":"render legacy","ok":false,
  "error":"Legacy render failed: Plugin rejected Render with error code: 512",
- "step":"#29",
+ "step":29,
  "commands":[{"command":"PF_Cmd_RENDER","elapsed_us":10,
               "error":{"code":512,"name":"PF_Err_INTERNAL_STRUCT_DAMAGED"}}],
  "suite_calls":0,"allocations":0,"frees":0}
@@ -320,8 +326,9 @@ report                              （最後）
 | ---------- | -- | - |
 | `line`、`query` | string | コマンドと、`focus` の後ろのテキストまたは `#seq` |
 | `ok` | bool | 一致する項目がなければ `false`。そのときは `entry` と `diagnosis` の代わりに `error` が付き、失敗したコマンドとして数える |
-| `entry` | object | 一致した[項目](#項目オブジェクト) |
-| `diagnosis` | object | `{title, sections}`。[診断オブジェクト](#診断オブジェクト)を参照 |
+| `entry` | object | 一致した[項目](#項目オブジェクト)。呼び出しの `args`、`result`、`last` は含めない。診断がそれぞれの判定付きで並べるため |
+| `diagnosis` | object | `{sections}`。[診断オブジェクト](#診断オブジェクト)を参照 |
+| `around` | array | 前後の項目（一致した項目も含む）。`{seq, depth, text}` で、`text` は 96 文字で切る |
 
 診断の内容は、項目の種類によって変わります。
 
@@ -330,19 +337,20 @@ report                              （最後）
 - **確保・解放：** そのアドレスの一生、現在生存しているか、役割（`global_data`、`sequence_data`）、それを引数に取った呼び出し。
 - **ステップ：** 引き起こしたコマンド、スイート呼び出し、確保、エラー。
 
-どの診断も、最後に前後の項目を示す `around it` セクションが付きます。
-
 ```json
 {"event":"focus","line":"focus host_new_handle","query":"host_new_handle","ok":true,
- "entry":{"seq":23,"type":"call","suite":"PF_HandleSuite1","function":"host_new_handle",
-          "args":[{"name":"size","value":"64"}],"result":null, ...},
- "diagnosis":{"title":"PF_HandleSuite1::host_new_handle","sections":[
-   {"heading":null,"items":[{"key":"inside","value":"PF_Cmd_SMART_RENDER  (+70 µs)","tone":"plain"}, ...]},
-   {"heading":"arguments","items":[{"key":"size","value":"64","tone":"plain"}]},
+ "entry":{"seq":23,"at_us":70345,"depth":1,"type":"call","suite":"PF_HandleSuite1",
+          "function":"host_new_handle","text":"PF_HandleSuite1::host_new_handle(size=64)"},
+ "diagnosis":{"sections":[
+   {"items":[{"key":"inside","value":"PF_Cmd_SMART_RENDER  (+70 µs)"},
+             {"key":"after","value":"» render smart"}]},
+   {"heading":"arguments","items":[{"key":"size","value":"64"}]},
    {"heading":"memory it moved","items":[
-     {"text":"#24 + alloc Handle 0x123805590 (64 B)","tone":"plain"},
+     {"text":"#24 + alloc Handle 0x123805590 (64 B)"},
      {"text":"never freed: still held","tone":"warn"}]},
-   ...]}}
+   ...]},
+ "around":[{"seq":20,"depth":0,"text":"▶ PF_Cmd_SMART_RENDER"}, ...,
+           {"seq":23,"depth":1,"text":"PF_HandleSuite1::host_new_handle(size=64)"}, ...]}
 ```
 
 ### `report`
@@ -363,10 +371,10 @@ report                              （最後）
 | `commands` | array | `PF_Cmd_*` ごとの集計（合計時間の長い順）。`{command, count, errors, max_us, total_us}` |
 | `suite_calls` | array | スイート関数ごとの集計（呼ばれた回数の多い順）。`{suite, function, count, commands}`。`commands` は呼び出し元の `PF_Cmd_*` |
 | `errors` | array | エラーを返したすべての `PF_Cmd_*`。`{seq, command, error}` |
-| `plugin` | object | `path`。`smart_render`、`gpu`、`custom_ui`（bool）。`options_button`（ボタンのラベルか `null`）。`pixel_formats`（下を参照）。`out_flags`、`out_flags2`（[フラグオブジェクト](#フラグオブジェクト)） |
+| `plugin` | object | `path`。`smart_render`、`gpu`、`custom_ui`（bool）。`options_button`（プラグインが設定したときだけ、ボタンのラベル）。`pixel_formats`（下を参照）。`out_flags`、`out_flags2`（[フラグオブジェクト](#フラグオブジェクト)） |
 | `state` | object | 下を参照 |
 | `params` | array | パラメーターごとに1要素。下を参照 |
-| `memory` | array | 生存中のハンドルとワールド。`{kind, address, bytes, allocated_in, role, head}`。`kind` は `Handle` か `World`。`role` は `global_data`、`sequence_data`、`null` のどれか。`head` は先頭 64 バイトの16進で、それより小さい確保なら全部。読めなかったときは `null` |
+| `memory` | array | 生存中のハンドルとワールド。`{kind, address, bytes, allocated_in, role?, head?}`。`kind` は `Handle` か `World`。`role` は `global_data` か `sequence_data` で、それに当たる確保にだけ付く。`head` は先頭 64 バイトの16進で、それより小さい確保なら全部。読めなかったときは付かない |
 | `findings` | string の配列 | strict モードの指摘（古い順）。[下](#指摘とリークが出るタイミング)を参照 |
 
 `params` の各要素は `{index, name, kind, value, detail, hidden, disabled}` です。
@@ -387,8 +395,8 @@ aexlo が名前を知らない FourCC は16進（`0x61726762`）で出ます。
 | `time` | 次のコマンドの `{value, step, scale}` |
 | `input`、`output` | `{width, height, bpc}` |
 | `last_out_flags`、`last_out_flags2`、`last_message` | 直前のコマンドが `PF_OutData` に残した値 |
-| `output_mean` | 出力全体での、ストレート（乗算済みでない）RGBA の各チャンネルの平均（0..1）。有限でない値（32 bpc で `strict poison` が書く NaN など）は 0 として数える |
-| `unwritten_pixels` | `strict poison` のとき、直前のレンダリングが書かなかった出力ピクセルの数。それ以外は `null` |
+| `output_mean` | 出力全体での、ストレート（乗算済みでない）RGBA の各チャンネルの平均（0..1、小数点以下 4 桁）。有限でない値（32 bpc で `strict poison` が書く NaN など）は 0 として数える |
+| `unwritten_pixels` | `strict poison` のときだけ。直前のレンダリングが書かなかった出力ピクセルの数 |
 | `parallel_iterate` | iterate コールバックを複数スレッドで実行しているか（`serial off`） |
 | `strict` | `{poison, guard, alloc, checkout}` |
 
@@ -405,7 +413,7 @@ strict モードは決まった時点で判定します。
 | チェックアウトの違反 | `checkout` | 誤ったチェックアウトやチェックインの時点、またはレイヤーパラメーターをチェックアウトしたままコマンドが終わったとき | `checkout: …` |
 
 それより前でも、保持されているものは `memory` でわかります。
-`role` が `null` で `allocated_in` がレンダリングのコマンドなら、そのレンダリングが終わった後も残っています。
+`role` がなく `allocated_in` がレンダリングのコマンドなら、そのレンダリングが終わった後も残っています。
 最終的に解放されたかどうかは、`strict alloc` を有効にした最後のレポートでわかります。
 
 ### `help`
@@ -436,7 +444,7 @@ SDK に名前のないコード（プラグイン独自のエラー）では、`
 | `seq` | 番号。`focus #seq` で指定できる |
 | `at_us` | 記録開始からの時刻 |
 | `depth` | 入れ子の深さ。0 はステップか最上位のコマンド、1 はそのコマンドが呼んだもの、以下同様 |
-| `repeat` | この項目にまとめた呼び出しの数（下を参照）。ほとんどの項目では 1 |
+| `repeat` | この項目にまとめた呼び出しの数（下を参照）。まとめた項目にだけ付き、ないときは 1 |
 | `text` | TUI やテキスト出力での表示。`focus` はこれを検索する |
 | `type` | 下の種類のどれか。種類ごとにフィールドが加わる |
 
@@ -444,8 +452,8 @@ SDK に名前のないコード（プラグイン独自のエラー）では、`
 | ------ | ----------- | ---------------- |
 | `step` | `» render smart` | `line`：送ったコマンド |
 | `begin` | `▶ PF_Cmd_SMART_RENDER` | `command` |
-| `end` | `◀ PF_Cmd_RENDER  PF_Err_INTERNAL_STRUCT_DAMAGED (512)  (10 µs)` | `command`、`elapsed_us`、`error`（エラーオブジェクトか `null`） |
-| `call` | `PF_HandleSuite1::host_new_handle(size=64)` | `suite`、`function`、`args`（`[{name, value}]`）、`result`（文字列か `null`）、`last`（下を参照） |
+| `end` | `◀ PF_Cmd_RENDER  PF_Err_INTERNAL_STRUCT_DAMAGED (512)  (10 µs)` | `command`、`elapsed_us`、`error`（エラーを返したときだけ、エラーオブジェクト） |
+| `call` | `PF_HandleSuite1::host_new_handle(size=64)` | `suite`、`function`、`args`（`[{name, value}]`）、`result`（関数に戻り値があるときだけ、文字列）、`last`（下を参照） |
 | `alloc`、`free` | `+ alloc Handle 0x… (64 B)`、`- free  Handle 0x… (64 B)` | `kind`（`Handle` か `World`）、`address`、`bytes` |
 | `checkout` | `⇄ CheckoutLayerPixels #0` | `kind`、`id`（チェックアウトの番号） |
 
@@ -460,7 +468,7 @@ SDK に名前のないコード（プラグイン独自のエラー）では、`
 ピクセルごとのコールバックでトレースが埋まらないようにするためです。
 `repeat` は呼び出しの数で、`text` の末尾に `  ×<repeat>` が付きます。
 `args` と `result` は最初の呼び出しのものです。
-`last` は最後の呼び出しの `{args, result}` で、最初と違う場合だけ入り、それ以外は `null` です。
+`last` は最後の呼び出しの `{args, result?}` で、最初と違う場合だけ付きます。
 間の呼び出しは数えますが、その引数は残しません。
 
 引数を記録するのは `--level args`（既定）のときだけです。
@@ -468,23 +476,24 @@ SDK に名前のないコード（プラグイン独自のエラー）では、`
 
 ### 診断オブジェクト
 
-`{"title": "...", "sections": [{"heading": "...", "items": [...]}]}`。
+`{"sections": [{"heading": "...", "items": [...]}]}`。
+項目そのものの名前やトレース上の位置は繰り返しません。隣の `entry` と `around` にあります。
 
-診断が項目の実行場所（`entry`、`inside`、`after`）から始まるときは、その最初のセクションの `heading` が `null` です。
+診断が項目の実行場所（`inside`、`after`）から始まるときは、その最初のセクションに `heading` がありません。
 ステップの診断にはこのセクションがなく、`what it caused` から始まります。
 
 各要素は次の2つの形のどちらかです。
 
-- `{"key", "value", "tone", "note"?}`：ラベル付きの値。`tone` は値の判定で、`note` があればその理由です（`"live Handle, 64 B, allocated at #24 in PF_Cmd_RENDER"`、`"null pointer"` など）。
-- `{"text", "tone"}`：ラベルのない行。
+- `{"key", "value", "tone"?, "note"?}`：ラベル付きの値。`note` があれば判定の理由です（`"live Handle, 64 B, allocated at #24 in PF_Cmd_RENDER"`、`"null pointer"` など）。呼び出しの戻り値のキーは `result` です。
+- `{"text", "tone"?}`：ラベルのない行。
+
+`tone` は、分析が何かを判定したところにだけ付きます。
 
 | `tone` | 意味 |
 | ------ | ---- |
 | `bad` | バグ。解放後の使用、レンダリングから漏れたワールド、エラーコード |
 | `warn` | 怪しい。null ポインター、解放されないメモリ、まだ確保されていない値 |
 | `good` | 確認済みで問題なし。生存中のメモリを指す引数、`PF_Err_NONE`、解放されたメモリ |
-| `plain` | 情報 |
-| `dim` | 前後の項目などの文脈 |
 
 問題だけが欲しいプログラムは、`tone` が `bad` か `warn` の要素を集めれば足ります。
 
@@ -530,19 +539,19 @@ Windows では、CLI はプラグインの後始末と出力のフラッシュ�
 
 ```bash
 # 失敗したコマンド
-aexlo inspect MyGlow --format json --exec "render; render smart; render legacy" \
+aexlo inspect MyGlow --json --exec "render; render smart; render legacy" \
   | jq -c 'select(.event=="command" and .ok==false) | {line, error}'
 
 # エラーを返したすべての PF_Cmd_*（成功したコマンドの中のものも含む）
-aexlo inspect MyGlow --format json --exec "render" \
+aexlo inspect MyGlow --json --exec "render" \
   | jq -c 'select(.event=="report") | .errors[]'
 
 # リーク：strict モードの指摘。GLOBAL_SETDOWN の時点で残っていたものも含む
-aexlo inspect MyGlow --strict --format json --exec "render; render" \
+aexlo inspect MyGlow --strict --json --exec "render; render" \
   | jq 'select(.event=="report") | .findings'
 
 # 診断が見つけた問題だけ
-aexlo inspect MyGlow --format json --exec "render legacy; focus ◀ PF_Cmd_RENDER" \
+aexlo inspect MyGlow --json --exec "render legacy; focus ◀ PF_Cmd_RENDER" \
   | jq -c 'select(.event=="focus") | .diagnosis.sections[].items[] | select(.tone=="bad" or .tone=="warn")'
 ```
 
@@ -552,7 +561,7 @@ aexlo inspect MyGlow --format json --exec "render legacy; focus ◀ PF_Cmd_RENDE
 import json, subprocess
 
 p = subprocess.Popen(
-    ["aexlo", "inspect", "build/MyGlow.plugin", "--format", "json", "--script", "-"],
+    ["aexlo", "inspect", "build/MyGlow.plugin", "--json", "--script", "-"],
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
 
 def send(line):
@@ -565,10 +574,10 @@ if hello["event"] == "error":
     raise SystemExit(hello["error"])
 
 r = send("render")
-failed = [c for c in r.get("commands", []) if c["error"]]
+failed = [c for c in r.get("commands", []) if "error" in c]
 if not r["ok"] or failed:
     # ステップを診断する。どの PF_Cmd_* を引き起こし、どこで失敗したか
-    print(send(f"focus {r['step']}")["diagnosis"])
+    print(send(f"focus #{r['step']}")["diagnosis"])
     # 失敗したコマンドそのものを診断する
     print(send("focus ◀ PF_Cmd_RENDER")["diagnosis"])
 
@@ -584,7 +593,7 @@ p.wait()
 ### バグを追い詰める手順
 
 1. `render`（または問題のあるコマンド）を送り、その `command` イベントを読む。
-2. `ok` が `false` か、`commands[].error` のどれかが入っていれば、その `step` を `focus` する。続けて、失敗したコマンドを `focus ◀ PF_Cmd_<NAME>` で診断する。
+2. `ok` が `false` か、`commands[].error` のどれかが入っていれば、`#` に続けてその `step` を `focus` する（`focus #29`）。続けて、失敗したコマンドを `focus ◀ PF_Cmd_<NAME>` で診断する。
 3. 各診断から `bad` と `warn` の要素を集める。要素にアドレスが出てきたら、`focus + alloc Handle 0x…`（または `World`）でその確保を診断できる。一生と、それを引数に取った呼び出しがわかる。
 4. 1つだけ変えて（`set`、`size`、`depth`、`render smart`、`strict on`）、1 に戻る。次のレポートをそれ以降だけにしたいなら、先に `clear` する。
 5. リークを調べるなら `strict alloc` を有効にし（または `--strict` で起動し）、最後のレポートの `findings` を読む。

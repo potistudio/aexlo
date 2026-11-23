@@ -148,6 +148,9 @@ pub use param_value::{ParamKind, ParamValue};
 /// Typed flags and pixel formats a plugin declares.
 pub use flags::{OutFlags, OutFlags2, ParamUiFlags, PixelFormat};
 
+/// The PiPL resource: what After Effects reads from a plugin before loading it.
+pub use pipl::{EffectVersion, Pipl, PiplProperty, PiplValue, Stage};
+
 /// The GPU this host renders on, for machine fingerprints.
 pub use gpu::device_name as gpu_device_name;
 

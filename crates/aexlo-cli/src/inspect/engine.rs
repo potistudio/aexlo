@@ -213,14 +213,14 @@ impl Engine {
 			Command::Set { .. } | Command::SetWords(_) => {
 				let fx = self.instance()?;
 				let (index, key, value) = match command {
-					Command::Set { key, value } => (crate::resolve_param_key(fx, key)?, key.clone(), value.clone()),
+					Command::Set { key, value } => (crate::param::resolve_key(fx, key)?, key.clone(), value.clone()),
 					Command::SetWords(words) => split_words(fx, words)?,
 					_ => unreachable!(),
 				};
 				settable(fx, index)?;
 				let parsed = match popup_choice(fx, index, &value) {
 					Some(choice) => ParamValue::Popup(choice),
-					None => crate::parse_param_value(fx, index, &value)?,
+					None => crate::param::parse_value(fx, index, &value)?,
 				};
 				fx.set_param(index, parsed.clone())
 					.with_context(|| format!("setting parameter {key}"))?;
@@ -232,11 +232,11 @@ impl Engine {
 			}
 			Command::Key { key, frame, value } => {
 				let fx = self.instance()?;
-				let index = crate::resolve_param_key(fx, key)?;
+				let index = crate::param::resolve_key(fx, key)?;
 				settable(fx, index)?;
 				let parsed = match popup_choice(fx, index, value) {
 					Some(choice) => ParamValue::Popup(choice),
-					None => crate::parse_param_value(fx, index, value)?,
+					None => crate::param::parse_value(fx, index, value)?,
 				};
 				let now = fx.time();
 				let at = frame
@@ -266,7 +266,7 @@ impl Engine {
 			}
 			Command::Changed(key) => {
 				let fx = self.instance()?;
-				let index = crate::resolve_param_key(fx, key)?;
+				let index = crate::param::resolve_key(fx, key)?;
 				existing(fx, index)?;
 				fx.user_changed_param(index)
 					.context("PF_Cmd_USER_CHANGED_PARAM failed")?;
@@ -670,13 +670,13 @@ fn split_words(fx: &PluginInstance, text: &str) -> Result<(usize, String, String
 	for taken in (1..words.len()).rev() {
 		let key = words[..taken].join(" ");
 		if names(&key) {
-			let index = crate::resolve_param_key(fx, &key)?;
+			let index = crate::param::resolve_key(fx, &key)?;
 			return Ok((index, key, words[taken..].join(" ")));
 		}
 	}
 	// Nothing matched: the error for the first word lists the names.
 	let first = words.first().copied().unwrap_or_default();
-	Err(crate::resolve_param_key(fx, first)
+	Err(crate::param::resolve_key(fx, first)
 		.err()
 		.unwrap_or_else(|| anyhow::anyhow!("set <param> <value>")))
 }
@@ -695,7 +695,7 @@ fn existing(fx: &PluginInstance, index: usize) -> Result<()> {
 /// empty and put what it does on the button.
 fn resolve_button(fx: &PluginInstance, key: &str) -> Result<usize> {
 	let is_button = |i: usize| fx.param_kind(i) == Some(ParamKind::Button);
-	let by_name = crate::resolve_param_key(fx, key);
+	let by_name = crate::param::resolve_key(fx, key);
 	if let Ok(index) = by_name
 		&& is_button(index)
 	{

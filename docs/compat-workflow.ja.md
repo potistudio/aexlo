@@ -28,7 +28,7 @@ aexlo が動かせるプラグインを増やすための手順です。
 ```bash
 cargo build -p aexlo-cli
 mkdir -p target/compat
-aexlo compat fixtures/plugins/<macos/windows>/<plugin.ext> --format json \
+aexlo compat fixtures/plugins/<macos/windows>/<plugin.ext> --json \
   --save-baseline target/compat/base.json > target/compat/before.json
 ```
 
@@ -57,7 +57,7 @@ aexlo compat fixtures/plugins/macos/Example.aex --only "param:#1" --all
 次に [`aexlo inspect`](inspect.ja.md) でプラグインを動かし、どの呼び出しをどの引数で行い、結果をどう使うかを見ます。
 
 ```bash
-aexlo inspect fixtures/plugins/macos/Example.aex --format json --script -
+aexlo inspect fixtures/plugins/macos/Example.aex --json --script -
 # render / set / changed / updateui で呼び出しを起こし、focus #<seq> で掘り下げる。
 ```
 
@@ -99,7 +99,7 @@ cargo fmt --all -- --check
 
 ```bash
 cargo build -p aexlo-cli
-target/debug/aexlo compat fixtures/plugins/macos --format json \
+target/debug/aexlo compat fixtures/plugins/macos --json \
   --baseline target/compat/base.json > target/compat/after.json
 echo $?
 ```

@@ -13,7 +13,8 @@ PLUGIN COMMANDS (each runs on the plugin's thread and is traced)
   set <param> <value>       Set a parameter (index, #index or name)
   key <param> <frame> <value>
                             Add a linear keyframe (`set` replaces them all)
-  changed <param>           PF_Cmd_USER_CHANGED_PARAM (+ UPDATE_PARAMS_UI if asked)
+  changed <param>           PF_Cmd_USER_CHANGED_PARAM (+ UPDATE_PARAMS_UI if
+                            asked)
   press <button>            Press a button (index, #index, name or the text on
                             it); prints the values the plugin changed
   updateui                  PF_Cmd_UPDATE_PARAMS_UI
@@ -23,7 +24,7 @@ PLUGIN COMMANDS (each runs on the plugin's thread and is traced)
   input <png> | input <black|white|gradient> [w h]
                             Replace the input layer (keeps its depth)
   input text <string>       Make the layer a text layer showing <string>
-                            (\n breaks lines): the plugin gets its glyph
+                            (\\n breaks lines): the plugin gets its glyph
                             outlines and the text, white, as its input
   input shape <rect|ellipse|triangle|ring>
                             Make the layer a shape layer: the plugin gets its

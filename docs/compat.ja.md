@@ -16,7 +16,7 @@
 
 ```bash
 aexlo compat fixtures/plugins/macos                  # ディレクトリ内のすべてのプラグイン
-aexlo compat MyGlow.plugin Other.plugin --all        # すべてのシナリオを表示
+aexlo compat MyGlow.plugin Other.plugin --all        # すべてのプラグインとシナリオを表示
 aexlo compat fixtures/plugins/macos --save-baseline compat.json
 aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれば終了コード 1
 ```
@@ -74,6 +74,13 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 読み込み時にすでに出た不足は `load` に一度だけ記録します。
 各シナリオが `partial` になるのは、それ以外の不足があったときだけです。
 
+### 対応率（coverage）
+
+対応率は、適用できるシナリオのうち `ok` だったものの割合です（`ok / (全体 - n/a - invalid)`）。
+`n/a` と `invalid` は aexlo について何も示さないので除きます。
+`partial` は対応していないものとして数えます。プラグインは動いたものの、aexlo が求められたことをすべてはしていないためです。
+レポートでは全体とプラグインごとに、切り捨てで表示します。`100.0%` は全シナリオが `ok` だったときだけです。
+
 ## 3. オプション
 
 | オプション | 既定値 | |
@@ -82,8 +89,9 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 | `--only <text>` | | ID に `<text>` を含むシナリオだけ実行する。`load` は常に実行する。`text:` シナリオを決めるため `input:text` も常に実行するが、一致したときだけ一覧に出す |
 | `--jobs <n>` | CPU 数の半分 | 同時に動かすワーカーの数 |
 | `--timeout <s>` | `20` | シナリオごとの秒数 |
-| `--all` | | すべてのシナリオを1つずつ表示する。指定しない場合は `ok` と `n/a` 以外を、結果ごとにまとめて表示する |
-| `--format json` | テキスト | レポートを1つの JSON で出力する |
+| `--all` | | すべてのプラグインとシナリオを表示する。指定しない場合は、問題のあったものだけを表示する（[出力](#4-出力)） |
+| `--json` | テキスト | レポートを1つの JSON で出力する |
+| `--color <auto\|always\|never>` | `auto` | テキストのレポートに色、記号、バーを付ける。`auto` は端末に出すときだけ付ける（`NO_COLOR` があれば付けない） |
 | `--save-baseline <file>` | | 各シナリオのステータスを書き出す |
 | `--baseline <file>` | | 保存したベースラインと比べる |
 
@@ -93,29 +101,53 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 
 ## 4. 出力
 
-テキストのレポートは、プラグインごとに件数と、うまくいかなかったシナリオを表示します。
-同じ失敗の仕方をしたシナリオ（ステータス、メッセージの1行目、不足がすべて同じ）はまとめ、そのうちいくつかの ID を示します。
+テキストのレポートは、最初に合計（対応率と、結果ごとのシナリオ数）を表示します。
+続いて、問題のあったプラグインを重い順（crash、timeout、error、partial、invalid）に表示します。
+各プラグインには対応率と、結果ごとにまとめたシナリオが付きます。
+ステータス、メッセージの1行目、不足がすべて同じシナリオを1つのグループにまとめます。
+グループには、ステータス、シナリオの数、そうなった理由、先頭のいくつかの ID を表示します。
+すべてのシナリオが `ok` か `n/a` だったプラグインは、1つの一覧にまとめます。
 最後に、すべての不足とそれに当たったプラグインを、多い順に表示します。
 これが次に実装すべきものの一覧になります。
+同じ情報は一度しか出しません。件数は合計にだけ、何が起きたかはグループにだけ表示します。
 
 ```text
-RainyDay  load partial · 20 ok · 93 partial
-    partial  load
-               missing-suite PF Effect Sequence Data Suite v1 (in PARAMS_SETUP)
-    partial  ×93 scenarios
-               missing-suite AEGP Stream Suite v11 (in UPDATE_PARAMS_UI)
-               e.g. param:#1 Preset=Custom, param:#1 Preset=Default, … (+91)
+aexlo compat: 34 plugins, 5323 scenarios, 94.2% coverage
+4919 ok · 1 partial · 103 n/a · 8 error · 292 crash
+
+Falloff  2.6%
+    crash     ×145  worker killed by signal 11 (SIGSEGV) during PF_Cmd_SMART_PRE_RENDER
+                    render:auto@8, render:smart@8, render:smart@16, render:smart@32, … (+141)
+
+AutoFill2  did not load
+    error       ×1  loading AutoFill2.plugin: Plugin not found: AutoFill2.plugin/Contents/MacOS
+
+RainyDay  99.1%
+    partial     ×1  missing-suite PF Effect Sequence Data Suite v1 (in PARAMS_SETUP)
+                    load
+
+Everything ok or n/a (25):
+    AOD_ChannelRemap, AOD_ColorAjust, AOD_ColorChange, AOD_ColorComposite, AOD_ColorConvert,
+    …, RXXR, SDK_Noise, TextGrad
 
 Asked for, but not done by aexlo (plugins that asked):
-   10  missing-suite AEGP Stream Suite v11  [AOD_ChannelRemap, …, RainyDay]
+    1  missing-suite PF Effect Sequence Data Suite v1  [RainyDay]
 ```
 
-`--format json` の形式は [英語版](compat.md#4-output) を参照してください。
+端末に出すときは色が付きます。
+ステータスごとの色と記号（`✓` ok、`◐` partial、`○` n/a、`?` invalid、`✗` error と crash、`◷` timeout）を表示し、合計と各プラグインには、ステータスの割合を示すバーを付けます。
+実行中は stderr に進捗の行を表示し、段階（読み込み、AV レイヤー、テキストレイヤー）と終わったシナリオの数を示します。
+パイプやリダイレクトに出すときは上のプレーンテキストになり、進捗の行も出ません。
+
+`--all` を付けると、すべてのプラグインを個別に表示し、`ok` と `n/a` のシナリオもまとめて、各グループのシナリオをすべて示します。
+
+`--json` の形式は [英語版](compat.md#4-output) を参照してください。
 各シナリオは `id`、`status`、`message`、`unsupported` を持ちます。
 `error`、`crash`、`timeout` の場合は `last_command` も持ちます。
-全体には `summary`、`plugins`、`gaps` があり、`--baseline` を指定すると `worse` と `better` も加わります。
+全体には `summary`、`coverage`、`plugins`、`gaps` があり、`--baseline` を指定すると `worse`、`better`、`coverage_change`（`was` と `now`）も加わります。
+`coverage` は 0 から 1 の比率で、プラグインごとにもあります。適用できるシナリオがなければ `null` です。
 
-同じ不足は `aexlo test --format json` でも実行ごとに出力されます（`unsupported`）。
+同じ不足は `aexlo test --json` でも実行ごとに出力されます（`unsupported`）。
 コードからは `Observer::unsupported` で `UnsupportedEvent` として受け取れます。
 
 ## 5. ベースライン
@@ -130,6 +162,13 @@ Asked for, but not done by aexlo (plugins that asked):
 `ok` → `partial` → `error` → `timeout` → `crash` の順に後ろへ動いたものが悪化です。
 どちらかで `n/a` または `invalid` のシナリオは比べません。
 片方にしかないシナリオやプラグイン（名前の変わったパラメーターなど）も比べません。
+
+対応率も、両方の実行にあるシナリオだけで、以前と今を比べて表示します。
+`--only` で絞った実行や、ベースラインにないプラグインを含む実行でも、同じ条件で比べられます。
+
+```text
+Coverage since the baseline: 93.1% -> 94.2% (+1.1 points, on the scenarios both runs have)
+```
 
 プラグインのフィクスチャはほとんどがマシンごとのローカルなもの（`fixtures/plugins/.gitignore`）です。
 そのため、ベースラインはリポジトリではなくフィクスチャのそばに置いてください。

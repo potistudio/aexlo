@@ -70,6 +70,7 @@ pub mod interface;
 pub mod iterate;
 mod keyframe;
 pub(crate) mod layer;
+pub(crate) mod layer_mask;
 pub(crate) use layer::enter_effect;
 mod mask_outline;
 mod math;
@@ -115,6 +116,8 @@ static AEGP_LAYER_RENDER_OPTIONS_1: AEGP_LayerRenderOptionsSuite1 = aegp_render:
 static COMP_SUITE_9: AEGP_CompSuite9 = comp::create_comp_suite_9();
 static COMP_SUITE_11: AEGP_CompSuite11 = comp::create_comp_suite_11();
 static AEGP_WORLD_1: AEGP_WorldSuite1 = aegp_world::suite_1();
+static AEGP_MASK_5: AEGP_MaskSuite5 = layer_mask::mask_suite_5();
+static AEGP_MASK_6: AEGP_MaskSuite6 = layer_mask::mask_suite_6();
 static AEGP_WORLD_2: AEGP_WorldSuite2 = aegp_world::suite_2();
 static AEGP_WORLD_3: AEGP_WorldSuite3 = aegp_world::suite_3();
 static AEGP_MEMORY_1: AEGP_MemorySuite1 = aegp_memory::suite_1();
@@ -543,6 +546,15 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			unsafe { *suite = &AEGP_MATH_1 as *const _ as *const c_void };
 			PF_Err_NONE
 		}
+		// Layer Mask wire versions 6 and 7 are AEGP_MaskSuite5 and 6.
+		("AEGP Layer Mask Suite", v) if v == kAEGPMaskSuiteVersion5 as i32 => {
+			unsafe { *suite = &AEGP_MASK_5 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
+		("AEGP Layer Mask Suite", v) if v == kAEGPMaskSuiteVersion6 as i32 => {
+			unsafe { *suite = &AEGP_MASK_6 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion4 as i32 => {
 			unsafe {
 				*suite = &COMP_SUITE_4 as *const _ as *const std::ffi::c_void;
@@ -731,6 +743,8 @@ mod tests {
 			("AEGP Mask Outline Suite", 3),
 			("AEGP Mask Outline Suite", 5),
 			("AEGP Text Document Suite", 1),
+			("AEGP Layer Mask Suite", 6),
+			("AEGP Layer Mask Suite", 7),
 			("PF AE Adv App Suite", 1),
 			("PF AE Adv App Suite", 2),
 			("PF AE Adv Item Suite", 1),
