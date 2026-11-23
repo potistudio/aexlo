@@ -69,6 +69,51 @@ fn backdrop(x: i32, y: i32) -> Unit {
 	[alpha, c(4.0, 1.0) * scale, c(2.0, 5.0) * scale, c(7.0, 2.0) * scale]
 }
 
+/// The non-separable layouts: rows 1 and 3 have a half-transparent source.
+fn ns_source(x: i32, y: i32) -> Unit {
+	let i = x as f64;
+	let alpha = if y == 1 || y == 3 { 0.5 } else { 1.0 };
+	[
+		alpha,
+		((i * 3.0 + 1.0) % 8.0) / 7.0,
+		((i * 5.0 + 2.0) % 8.0) / 7.0,
+		((i * 2.0 + 5.0) % 8.0) / 7.0,
+	]
+}
+
+/// Rows 2 and 3 have a half-transparent destination.
+fn ns_backdrop(x: i32, y: i32) -> Unit {
+	let i = (x + y) as f64;
+	let alpha = if y >= 2 { 0.5 } else { 1.0 };
+	[
+		alpha,
+		((i * 7.0 + 3.0) % 8.0) / 7.0,
+		((i * 3.0 + 6.0) % 8.0) / 7.0,
+		((i + 2.0) % 8.0) / 7.0,
+	]
+}
+
+/// Opaque, with values up to 2.
+fn hdr_source(x: i32, y: i32) -> Unit {
+	let i = (y * W + x) as f64;
+	[
+		1.0,
+		((i * 3.0) % 9.0) / 4.0,
+		((i * 5.0 + 1.0) % 9.0) / 4.0,
+		((i * 7.0 + 2.0) % 9.0) / 4.0,
+	]
+}
+
+fn hdr_backdrop(x: i32, y: i32) -> Unit {
+	let i = (y * W + x) as f64;
+	[
+		1.0,
+		((i * 2.0 + 3.0) % 9.0) / 4.0,
+		((i * 4.0 + 5.0) % 9.0) / 4.0,
+		((i + 7.0) % 9.0) / 4.0,
+	]
+}
+
 /// The pattern for a transform: a smooth ramp, so filtering shows.
 fn ramp(x: i32, y: i32) -> Unit {
 	let (u, v) = (x as f64 / (W - 1) as f64, y as f64 / (H - 1) as f64);
@@ -341,26 +386,85 @@ pub unsafe fn run(in_data: *mut ae::PF_InData) {
 		// composite_rect, which takes the opacity on its own.
 		if let Some(composite_rect) = suite.composite_rect {
 			for &(name, xfer) in &[
+				("COPY", ae::PF_Xfer_COPY),
+				("BEHIND", ae::PF_Xfer_BEHIND),
+				("IN_FRONT", ae::PF_Xfer_IN_FRONT),
 				("DISSOLVE", ae::PF_Xfer_DISSOLVE),
+				("ADD", ae::PF_Xfer_ADD),
+				("MULTIPLY", ae::PF_Xfer_MULTIPLY),
+				("SCREEN", ae::PF_Xfer_SCREEN),
 				("MULTIPLY_ALPHA", ae::PF_Xfer_MULTIPLY_ALPHA),
 			] {
-				unsafe { dst.fill(backdrop) };
-				let mut full = rect(W, H);
+				for opacity in [255, 128, 0] {
+					unsafe { dst.fill(backdrop) };
+					let mut full = rect(W, H);
+					let err = unsafe {
+						composite_rect(
+							effect_ref,
+							&mut full,
+							opacity,
+							&mut src.world,
+							0,
+							0,
+							ae::PF_Field_FRAME as ae::PF_Field,
+							xfer as ae::PF_XferMode,
+							&mut dst.world,
+						)
+					};
+					fact(
+						&format!("xform.{d}.composite_rect[{name},o{opacity}]"),
+						json!({ "err": err, "px": unsafe { dst.pixels() } }),
+					);
+				}
+			}
+		}
+
+		// The non-separable modes, on layouts that keep one alpha at 1 at a
+		// time (row 0 both opaque, row 1 the source half, row 2 the
+		// destination half, row 3 both half), and opaque values up to 2.
+		for (layout, over, under) in [
+			(
+				"ns",
+				ns_source as fn(i32, i32) -> Unit,
+				ns_backdrop as fn(i32, i32) -> Unit,
+			),
+			("hdr", hdr_source, hdr_backdrop),
+		] {
+			if layout == "hdr" && depth != Depth::Float {
+				continue;
+			}
+			unsafe { src.fill(over) };
+			for &(name, xfer) in &[
+				("HUE", ae::PF_Xfer_HUE),
+				("SATURATION", ae::PF_Xfer_SATURATION),
+				("COLOR", ae::PF_Xfer_COLOR),
+				("LUMINOSITY", ae::PF_Xfer_LUMINOSITY),
+				("LIGHTER_COLOR", ae::PF_Xfer_LIGHTER_COLOR),
+				("DARKER_COLOR", ae::PF_Xfer_DARKER_COLOR),
+			] {
+				let Some(transfer_rect) = suite.transfer_rect else {
+					break;
+				};
+				unsafe { dst.fill(under) };
+				let full = rect(W, H);
+				let how = mode(xfer, 255, 0, false);
 				let err = unsafe {
-					composite_rect(
+					transfer_rect(
 						effect_ref,
-						&mut full,
-						128,
-						&mut src.world,
-						0,
-						0,
+						ae::PF_Quality_HI as ae::PF_Quality,
+						straight as ae::PF_ModeFlags,
 						ae::PF_Field_FRAME as ae::PF_Field,
-						xfer as ae::PF_XferMode,
+						&full,
+						&src.world,
+						&how,
+						std::ptr::null(),
+						0,
+						0,
 						&mut dst.world,
 					)
 				};
 				fact(
-					&format!("xform.{d}.composite_rect[{name},o128]"),
+					&format!("xform.{d}.{layout}[{name}]"),
 					json!({ "err": err, "px": unsafe { dst.pixels() } }),
 				);
 			}
