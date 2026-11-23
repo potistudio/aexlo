@@ -66,7 +66,7 @@ the two differently, it works on text layers, and every scenario except
 | ------ | ------- |
 | `ok` | It ran, and asked for nothing aexlo does not do |
 | `partial` | It ran, but asked for something aexlo does not do. The report lists what |
-| `n/a` | The plugin does not declare it (a depth, smart render, GPU) |
+| `n/a` | The plugin does not declare it (a depth, smart render, GPU). A `render:legacy@*` scenario is `n/a` too when the plugin declares smart render and returns a `PF_Err` from `PF_Cmd_RENDER`: After Effects never sends that command to a smart-render plugin |
 | `invalid` | The scenario does not fit the plugin. This is a gap in `compat`, not in aexlo |
 | `error` | The plugin returned a `PF_Err` |
 | `timeout` | No result within `--timeout` |

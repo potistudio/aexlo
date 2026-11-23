@@ -18,6 +18,13 @@ may break the API, and every breaking change is listed below.
   installed-effect registry. Falloff needs v5 to free its effect handle in
   `PF_Cmd_SMART_PRE_RENDER`.
 
+### Changed
+
+- `aexlo compat` counts a `render:legacy@*` scenario as `n/a`, not `error`,
+  when the plugin declares smart render and returns a `PF_Err` from
+  `PF_Cmd_RENDER`. After Effects never sends that command to a smart-render
+  plugin, and Furikake refuses it outright.
+
 ### Fixed
 
 - The stream value of a layer parameter (`AEGP_GetNewStreamValue`) names the

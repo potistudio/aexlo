@@ -65,7 +65,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 | ---------- | ---- |
 | `ok` | 動作し、aexlo が応えないものは何も求めなかった |
 | `partial` | 動作したが、aexlo が応えないものを求めた。何を求めたかはレポートに出る |
-| `n/a` | プラグインが宣言していない（深度、スマートレンダー、GPU） |
+| `n/a` | プラグインが宣言していない（深度、スマートレンダー、GPU）。スマートレンダーを宣言したプラグインが `PF_Cmd_RENDER` で `PF_Err` を返したときの `render:legacy@*` も `n/a`。After Effects はスマートレンダー対応のプラグインにこのコマンドを送らない |
 | `invalid` | シナリオがプラグインに合わない。aexlo ではなく `compat` 側の不足 |
 | `error` | プラグインが `PF_Err` を返した |
 | `timeout` | `--timeout` 以内に結果が返らなかった |
