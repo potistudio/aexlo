@@ -12,6 +12,10 @@ may break the API, and every breaking change is listed below.
 No public item was removed, but these can break a build or change what a
 plugin renders or returns.
 
+- "PF Batch Sampling Suite" v1 is served as After Effects serves it, with
+  every entry null, where `get_batch_func` and `get_batch_func16` returned
+  `PF_Err_BAD_CALLBACK_PARAM` and the sampling calls succeeded. A trace of
+  the probe in After Effects 2026 shows the four entries null.
 - `PF_PathVertexInfo` gives a mask's tangents as points in layer space, as
   the SDK guide describes them, not as offsets from the vertex. `MaskPath`
   still takes offsets. Every effect that reads mask paths sees different

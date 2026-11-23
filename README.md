@@ -274,14 +274,14 @@ The plugins that pass every scenario are listed in
 
 ## Implementation Progress
 
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀ 84% (31/37)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀ 86% (32/37)
 
 > ○ fully implemented / △ only partially implemented / × not implemented
 
 | CB Suites          | Effect Suites                    | Adv Effect Suites | Others            |
 | ------------------ | -------------------------------- | ----------------- | ----------------- |
 | ○ ANSI             | ○ AE App                         | ○ AE Adv App      | ○ Cache On Load   |
-| △ Batch Sampling   | ○ AngleParam                     | ○ AE Adv Item     | △ Channel         |
+| ○ Batch Sampling   | ○ AngleParam                     | ○ AE Adv Item     | △ Channel         |
 | ○ Color            | ○ ColorParam                     | ○ AE Adv Time     | ○ GPU Device      |
 | ○ Color16          | △ Effect Custom UI Overlay Theme |                   | ○ Plugin Helper   |
 | ○ ColorFloat       | △ Effect Custom UI               |                   | ○ Plugin Helper 2 |
@@ -300,8 +300,8 @@ The plugins that pass every scenario are listed in
 
 △ Effect Custom UI / Overlay Theme: theme values are served, and Drawbot draws
 during `PF_Event_DRAW`. The CLI never sends `PF_Cmd_EVENT`; an embedder does.
-△ Batch Sampling: no batch functions are provided (the SDK withdrew them in
-After Effects 7.0); the per-pixel samplers work.
+○ Batch Sampling: as in After Effects, every entry of the suite is null (the
+SDK withdrew batch sampling in After Effects 7.0); the per-pixel samplers work.
 ○ Param Utils: states cover values over the range asked about, the pixels of
 layers, masks over that range, and arbitrary data as the plugin flattens it
 whenever the host takes a value in (after setup, and after the commands in

@@ -17,9 +17,9 @@
 
 use super::pixel_norm::NormalizedPixel;
 use crate::sys::{
-	PF_BatchSample16Func, PF_BatchSampleFunc, PF_BatchSamplingSuite1, PF_EffectWorld, PF_Err,
-	PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_Fixed, PF_ModeFlags, PF_Pixel, PF_Pixel16, PF_PixelFloat, PF_ProgPtr,
-	PF_Quality, PF_SampPB, PF_Sampling8Suite1, PF_Sampling16Suite1, PF_SamplingFloatSuite1,
+	PF_BatchSamplingSuite1, PF_EffectWorld, PF_Err, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_Fixed, PF_ModeFlags,
+	PF_Pixel, PF_Pixel16, PF_PixelFloat, PF_ProgPtr, PF_Quality, PF_SampPB, PF_Sampling8Suite1, PF_Sampling16Suite1,
+	PF_SamplingFloatSuite1,
 };
 
 fn fixed_to_f64(v: PF_Fixed) -> f64 {
@@ -186,55 +186,17 @@ pub(crate) unsafe extern "C" fn end_sampling_sys(
 	crate::core::ffi::guard("end_sampling_sys", || PF_Err_NONE)
 }
 
-/// Batch sampling functions were withdrawn in AE 7.0; report none so the
-/// plugin falls back to the per-pixel samplers.
-unsafe extern "C" fn get_batch_func(
-	_effect_ref: PF_ProgPtr,
-	_quality: PF_Quality,
-	_mode_flags: PF_ModeFlags,
-	_params: *const PF_SampPB,
-	batch: *mut PF_BatchSampleFunc,
-) -> PF_Err {
-	crate::core::ffi::guard("get_batch_func", || {
-		// Batch sampling is deprecated since AE 7.0.
-		crate::observe::unsupported(
-			crate::observe::UnsupportedKind::Stub,
-			"PF_BatchSamplingSuite1/get_batch_func",
-			"",
-		);
-		if let Some(out) = unsafe { batch.as_mut() } {
-			*out = std::ptr::null_mut();
-		}
-		PF_Err_BAD_CALLBACK_PARAM
-	})
-}
-
-unsafe extern "C" fn get_batch_func16(
-	_effect_ref: PF_ProgPtr,
-	_quality: PF_Quality,
-	_mode_flags: PF_ModeFlags,
-	_params: *const PF_SampPB,
-	batch: *mut PF_BatchSample16Func,
-) -> PF_Err {
-	crate::core::ffi::guard("get_batch_func16", || {
-		crate::observe::unsupported(
-			crate::observe::UnsupportedKind::Stub,
-			"PF_BatchSamplingSuite1/get_batch_func16",
-			"",
-		);
-		if let Some(out) = unsafe { batch.as_mut() } {
-			*out = std::ptr::null_mut();
-		}
-		PF_Err_BAD_CALLBACK_PARAM
-	})
-}
-
+/// "PF Batch Sampling Suite" v1, as After Effects serves it: the suite can be
+/// acquired, and every entry is null. Batch sampling was withdrawn in After
+/// Effects 7.0, and the SDK gives its functions no signature
+/// (`PF_BatchSampleFunc` is `void *`). The probe's trace from After Effects
+/// 2026 (`playground/probe/src/xform.rs`) shows all four entries null.
 pub(super) const fn create_batch_sampling_suite_1() -> PF_BatchSamplingSuite1 {
 	PF_BatchSamplingSuite1 {
-		begin_sampling: Some(begin_sampling_sys),
-		end_sampling: Some(end_sampling_sys),
-		get_batch_func: Some(get_batch_func),
-		get_batch_func16: Some(get_batch_func16),
+		begin_sampling: None,
+		end_sampling: None,
+		get_batch_func: None,
+		get_batch_func16: None,
 	}
 }
 
