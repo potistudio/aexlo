@@ -42,6 +42,7 @@ pub unsafe fn run_all(in_data: *mut ae::PF_InData) {
 	guarded("suite.handle", || unsafe { suite_handle_checks(in_data) });
 	guarded("suite.world", || unsafe { suite_world_checks(in_data) });
 	guarded("suite.iterate8", || unsafe { suite_iterate8_checks(in_data) });
+	guarded("xform", || unsafe { crate::xform::run(in_data) });
 }
 
 // ---- Variables ------------------------------------------------------------
@@ -625,11 +626,11 @@ unsafe fn kernel_checks(in_data: *mut ae::PF_InData) {
 // The suite map (which suites acquire at all) lives in probes.rs; these go one
 // level deeper and pin down the behavior of individual suite functions.
 
-struct SuiteGuard<'a> {
+pub(crate) struct SuiteGuard<'a> {
 	pica: &'a ae::SPBasicSuite,
 	name: &'static [u8],
 	version: u32,
-	ptr: *const c_void,
+	pub(crate) ptr: *const c_void,
 }
 
 impl Drop for SuiteGuard<'_> {
@@ -640,7 +641,11 @@ impl Drop for SuiteGuard<'_> {
 	}
 }
 
-unsafe fn acquire(in_data: *mut ae::PF_InData, name: &'static [u8], version: u32) -> Option<SuiteGuard<'static>> {
+pub(crate) unsafe fn acquire(
+	in_data: *mut ae::PF_InData,
+	name: &'static [u8],
+	version: u32,
+) -> Option<SuiteGuard<'static>> {
 	let pica = unsafe { (*in_data).pica_basicP.as_ref() }?;
 	let acquire = pica.AcquireSuite?;
 	let mut ptr: *const c_void = std::ptr::null();

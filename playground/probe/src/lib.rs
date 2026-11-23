@@ -19,6 +19,7 @@ mod inspect;
 mod probes;
 mod render;
 mod trace;
+mod xform;
 
 use after_effects::sys as ae;
 use serde_json::json;
