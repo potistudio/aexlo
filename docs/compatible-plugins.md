@@ -36,30 +36,30 @@ plugins in `fixtures/plugins/macos`:
 | AOD_RegionColorize         |  42 |  39 |  3 | 8, 16, 32 | yes | no |
 | AOD_SingularValueDecompose |  29 |  26 |  3 | 8, 16, 32 | yes | no |
 | AOD_VoronoiGenerate        |  89 |  86 |  3 | 8, 16, 32 | yes | no |
+| AnimatedNoise              |  42 |  39 |  3 | 8, 16, 32 | yes | no |
 | BitonicPixelSorter         |  71 |  71 |  0 | 8, 16, 32 | yes | yes |
 | Circle-Repeater            |  56 |  53 |  3 | 8, 16, 32 | yes | no |
 | Cosmic                     | 111 | 111 |  0 | 8, 16, 32 | yes | yes |
 | DeepGlow2                  | 442 | 432 | 10 | 8, 32 | yes | no |
 | DisplacerPro               | 106 | 101 |  5 | 8, 32 | yes | no |
 | Falloff                    | 148 | 148 |  0 | 8, 16, 32 | yes | yes |
+| FillColor                  |  28 |  25 |  3 | 8, 16, 32 | yes | no |
 | Furikake                   | 610 | 604 |  6 | 8, 16, 32 | yes | no |
 | RXXR                       | 767 | 764 |  3 | 8, 16, 32 | yes | no |
 | SDK_Noise                  |  23 |  20 |  3 | 8, 16, 32 | yes | no |
 | TextGrad                   | 535 | 525 | 10 | 8, 32 | yes | no |
 
-That is 5,061 scenarios: 4,964 `ok` and 97 `n/a`.
+That is 5,131 scenarios: 5,028 `ok` and 103 `n/a`.
 
 ## Not on the list yet
 
-The other five plugins in the fixture directory fall short in one of these
+The other three plugins in the fixture directory fall short in one of these
 ways. Each is a gap in aexlo, or a fixture that is not installed, not a
 plugin that is known to be wrong.
 
 | Plugin | Coverage | What `compat` reports |
 | ------ | -------: | --------------------- |
 | RainyDay              |  99.1% | missing `PF Effect Sequence Data Suite` v1 at load |
-| AnimatedNoise         |  97.4% | `crash` ×1 in `PF_Cmd_SMART_RENDER` |
-| FillColor             |  96.0% | `crash` ×1 in `PF_Cmd_SMART_RENDER` |
 | AOD_MobiusTransform   |  19.6% | `crash` ×37 in `PF_Cmd_SMART_RENDER` and `PF_Cmd_RENDER` |
 | AutoFill2             |       — | does not load: the binary is missing from the bundle |
 

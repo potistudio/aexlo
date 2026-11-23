@@ -78,10 +78,18 @@ pub(crate) fn untag_host_world(data: usize) {
 /// Allocate a zeroed, writeable `width` x `height` world of `bytes_per_pixel`
 /// pixels, remembering `format` for [`allocated_format`]. Release it with
 /// [`free_world`].
+///
+/// A world with no pixels (a width or height of 0 or less) gets a null
+/// `data`: an empty buffer's pointer is dangling, and a plugin that writes
+/// through it crashes at a small address. The entry points refuse such a
+/// world ([`refuse_empty`]).
 pub(super) fn alloc_world(width: A_long, height: A_long, bytes_per_pixel: i32, format: u32) -> PF_EffectWorld {
 	let width = width.max(0);
 	let height = height.max(0);
 	let row_data = width as usize * bytes_per_pixel.max(0) as usize;
+	if row_data == 0 || height == 0 {
+		return world_of(null_mut(), 0, width, height, 0);
+	}
 
 	// Strict mode: a guard band around the image, verified on dispose.
 	let guarded = crate::strict::guard_bands().then(|| {
@@ -115,7 +123,17 @@ pub(super) fn alloc_world(width: A_long, height: A_long, bytes_per_pixel: i32, f
 	if format == PF_PixelFormat_ARGB64 as u32 {
 		world_flags |= crate::sys::PF_WorldFlag_DEEP as PF_WorldFlags;
 	}
+	world_of(data, rowbytes, width, height, world_flags)
+}
 
+/// A `PF_EffectWorld` over `data`, with every other field at its default.
+fn world_of(
+	data: *mut u8,
+	rowbytes: A_long,
+	width: A_long,
+	height: A_long,
+	world_flags: PF_WorldFlags,
+) -> PF_EffectWorld {
 	PF_EffectWorld {
 		reserved0: null_mut(),
 		reserved1: null_mut(),
@@ -140,6 +158,19 @@ pub(super) fn alloc_world(width: A_long, height: A_long, bytes_per_pixel: i32, f
 		reserved_long3: 0,
 		dephault: 0,
 	}
+}
+
+/// For a world entry point asked for `width` x `height`: `Some` error, with
+/// `world` set to an empty world (null `data`), when that has no pixels.
+pub(super) fn refuse_empty(name: &str, width: A_long, height: A_long, world: *mut PF_EffectWorld) -> Option<PF_Err> {
+	if width > 0 && height > 0 {
+		return None;
+	}
+	log::warn!("{name}: a {width}x{height} world has no pixels");
+	if let Some(world) = unsafe { world.as_mut() } {
+		*world = world_of(null_mut(), 0, width.max(0), height.max(0), 0);
+	}
+	Some(PF_Err_BAD_CALLBACK_PARAM)
 }
 
 /// Reclaim the pixel buffer of a world made by [`alloc_world`] and null its `data`.
@@ -203,6 +234,15 @@ unsafe extern "C" fn new_world_sys(
 	worldP: *mut PF_EffectWorld,
 ) -> PF_Err {
 	crate::core::ffi::guard("new_world_sys", || {
+		diag!("PF_WorldSuite2/PF_NewWorld",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+			"widthL" => widthL,
+			"heightL" => heightL,
+			"clear_pixB" => _clear_pixB,
+			"pixel_format" => pixel_format,
+			"worldP (out)" => format!("{:#x}", worldP as usize),
+		);
+
 		//== Validation ==//
 		if effect_ref.is_null() {
 			log::error!("new_world: effect_ref is null");
@@ -256,18 +296,12 @@ unsafe extern "C" fn new_world_sys(
 			8 // Default to 8 bytes per pixel for unsupported formats
 		};
 
+		if let Some(err) = refuse_empty("PF_NewWorld", widthL, heightL, worldP) {
+			return err;
+		}
 		let new_world = alloc_world(widthL, heightL, depth, fmt);
 
 		unsafe { *worldP = new_world };
-
-		diag!("PF_WorldSuite2/PF_NewWorld",
-			"effect_ref" => format!("{:#x}", effect_ref as usize),
-			"widthL" => widthL,
-			"heightL" => heightL,
-			"clear_pixB" => _clear_pixB,
-			"pixel_format" => pixel_format,
-			"worldP (out)" => format!("{:#x}", worldP as usize),
-		);
 
 		PF_Err_NONE
 	})
@@ -326,6 +360,13 @@ pub(crate) unsafe extern "C" fn new_world_util(
 	world: *mut PF_EffectWorld,
 ) -> PF_Err {
 	crate::core::ffi::guard("new_world_util", || {
+		diag!("PF_UtilCallbacks/new_world",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+			"width" => width,
+			"height" => height,
+			"flags" => format!("{flags:#x}"),
+			"world" => format!("{:#x}", world as usize),
+		);
 		if effect_ref.is_null() || world.is_null() {
 			log::error!("new_world: effect_ref or world is null");
 			return PF_Err_BAD_CALLBACK_PARAM;
@@ -337,16 +378,11 @@ pub(crate) unsafe extern "C" fn new_world_util(
 		} else {
 			(4, PF_PixelFormat_ARGB32 as u32)
 		};
+		if let Some(err) = refuse_empty("new_world", width, height, world) {
+			return err;
+		}
 		let allocated = alloc_world(width, height, bytes, format);
 		unsafe { *world = allocated };
-
-		diag!("PF_UtilCallbacks/new_world",
-			"effect_ref" => format!("{:#x}", effect_ref as usize),
-			"width" => width,
-			"height" => height,
-			"flags" => format!("{flags:#x}"),
-			"world" => format!("{:#x}", world as usize),
-		);
 
 		PF_Err_NONE
 	})
@@ -368,6 +404,28 @@ pub const fn create_world_suite() -> PF_WorldSuite2 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// FillColor asks for a `height / 4` x 8 world, so 0 x 8 on a short layer,
+	/// and fills it when `data` is not null. A dangling pointer crashed it.
+	#[test]
+	fn a_world_with_no_pixels_is_refused_with_null_data() {
+		let effect = 1 as PF_ProgPtr;
+		let mut world: PF_EffectWorld = unsafe { std::mem::zeroed() };
+		world.data = 1 as crate::sys::PF_PixelPtr;
+		let err = unsafe { new_world_util(effect, 0, 8, 0, &mut world) };
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
+		assert!(world.data.is_null());
+		assert_eq!((world.width, world.height, world.rowbytes), (0, 8, 0));
+		assert_eq!(unsafe { dispose_world_sys(effect, &mut world) }, PF_Err_NONE);
+
+		let err = unsafe { new_world_sys(effect, 4, 0, 1, PF_PixelFormat_ARGB128, &mut world) };
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
+		assert!(world.data.is_null());
+
+		let mut empty = alloc_world(0, 3, 4, PF_PixelFormat_ARGB32 as u32);
+		assert!(empty.data.is_null());
+		unsafe { free_world(&mut empty) };
+	}
 
 	#[test]
 	fn legacy_new_world_allocates_and_dispose_frees_it() {

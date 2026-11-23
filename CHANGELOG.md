@@ -27,6 +27,14 @@ may break the API, and every breaking change is listed below.
 
 ### Fixed
 
+- A world with no pixels (a width or height of 0 or less) is refused with
+  `PF_Err_BAD_CALLBACK_PARAM` and a null `data`, by `PF_UtilCallbacks`'
+  `new_world`, `PF_WorldSuite2::PF_NewWorld` and
+  `PF_PixelFormatSuite1::NewWorldOfPixelFormat`. Its `data` was the dangling
+  pointer of an empty buffer. FillColor and AnimatedNoise ask for a
+  `height / 4` x 8 world, so 0 x 8 on a layer under 4 pixels tall, and wrote
+  through that pointer unless it was null: they crashed in
+  `PF_Cmd_SMART_RENDER`.
 - The stream value of a layer parameter (`AEGP_GetNewStreamValue`) names the
   layer when one is linked, with the id `AEGP_GetLayerID` gives aexlo's one
   layer, and is 0 only for "None". It was always 0, so Furikake, which looks

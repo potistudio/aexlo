@@ -36,30 +36,30 @@ macOS arm64、aexlo v0.3.0、2026-11-23 に
 | AOD_RegionColorize         |  42 |  39 |  3 | 8, 16, 32 | あり | なし |
 | AOD_SingularValueDecompose |  29 |  26 |  3 | 8, 16, 32 | あり | なし |
 | AOD_VoronoiGenerate        |  89 |  86 |  3 | 8, 16, 32 | あり | なし |
+| AnimatedNoise              |  42 |  39 |  3 | 8, 16, 32 | あり | なし |
 | BitonicPixelSorter         |  71 |  71 |  0 | 8, 16, 32 | あり | あり |
 | Circle-Repeater            |  56 |  53 |  3 | 8, 16, 32 | あり | なし |
 | Cosmic                     | 111 | 111 |  0 | 8, 16, 32 | あり | あり |
 | DeepGlow2                  | 442 | 432 | 10 | 8, 32 | あり | なし |
 | DisplacerPro               | 106 | 101 |  5 | 8, 32 | あり | なし |
 | Falloff                    | 148 | 148 |  0 | 8, 16, 32 | あり | あり |
+| FillColor                  |  28 |  25 |  3 | 8, 16, 32 | あり | なし |
 | Furikake                   | 610 | 604 |  6 | 8, 16, 32 | あり | なし |
 | RXXR                       | 767 | 764 |  3 | 8, 16, 32 | あり | なし |
 | SDK_Noise                  |  23 |  20 |  3 | 8, 16, 32 | あり | なし |
 | TextGrad                   | 535 | 525 | 10 | 8, 32 | あり | なし |
 
-合計 5,061 シナリオ（4,964 `ok`、97 `n/a`）です。
+合計 5,131 シナリオ（5,028 `ok`、103 `n/a`）です。
 
 ## まだ一覧にないプラグイン
 
-フィクスチャディレクトリにある残り 5 プラグインは、次のいずれかに当たります。
+フィクスチャディレクトリにある残り 3 プラグインは、次のいずれかに当たります。
 いずれも aexlo 側の不足か、インストールされていないフィクスチャによるもので、
 プラグイン自体が誤っていると分かっているわけではありません。
 
 | プラグイン | カバレッジ | `compat` の報告 |
 | ---------- | ---------: | ---------------- |
 | RainyDay            |  99.1% | 読み込み時に `PF Effect Sequence Data Suite` v1 が不足 |
-| AnimatedNoise       |  97.4% | `PF_Cmd_SMART_RENDER` で `crash` ×1 |
-| FillColor           |  96.0% | `PF_Cmd_SMART_RENDER` で `crash` ×1 |
 | AOD_MobiusTransform |  19.6% | `PF_Cmd_SMART_RENDER` と `PF_Cmd_RENDER` で `crash` ×37 |
 | AutoFill2           |       — | 読み込めない: バンドルにバイナリがない |
 
