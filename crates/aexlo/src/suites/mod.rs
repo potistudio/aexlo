@@ -90,6 +90,7 @@ pub(crate) mod stream;
 mod text_document;
 mod text_layer;
 pub mod transform;
+mod transform_modes;
 pub mod utility;
 pub mod world;
 

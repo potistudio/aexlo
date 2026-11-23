@@ -245,26 +245,41 @@ impl<P: Channels> RawWorld<P> {
 		unsafe { (self.at(x, y) as *mut P).write_unaligned(pixel) };
 	}
 
-	/// Bilinear sample at continuous coordinate `(x, y)`, where integer
-	/// coordinates land exactly on pixel centers. Returns the channels in the
-	/// depth's units. Taps that fall outside the buffer contribute transparent
-	/// black, so sampling near an edge fades out rather than reading garbage.
-	unsafe fn sample_bilinear(&self, x: f64, y: f64) -> [f64; 4] {
-		let x0 = x.floor();
-		let y0 = y.floor();
-		let fx = x - x0;
-		let fy = y - y0;
-		let (x0i, y0i) = (x0 as i32, y0 as i32);
-		let (x1i, y1i) = (x0i.saturating_add(1), y0i.saturating_add(1));
-		let p00 = unsafe { self.read(x0i, y0i) }.channels();
-		let p10 = unsafe { self.read(x1i, y0i) }.channels();
-		let p01 = unsafe { self.read(x0i, y1i) }.channels();
-		let p11 = unsafe { self.read(x1i, y1i) }.channels();
-		std::array::from_fn(|i| {
-			let top = p00[i] + (p10[i] - p00[i]) * fx;
-			let bottom = p01[i] + (p11[i] - p01[i]) * fx;
-			top + (bottom - top) * fy
-		})
+	/// The straight pixel at `(x, y)` on a 0..1 scale, transparent outside.
+	#[inline]
+	unsafe fn straight(&self, x: i32, y: i32) -> (f64, [f64; 3]) {
+		let [a, r, g, b] = unsafe { self.read(x, y) }.channels().map(|v| v / P::MAX);
+		(a.clamp(0.0, 1.0), [r, g, b])
+	}
+
+	/// Bilinear sample at `(x, y)` (integers on pixel centres) of the
+	/// premultiplied pixels, given back straight on a 0..1 scale, so that a
+	/// transparent neighbour fades coverage and not colour.
+	unsafe fn sample_premultiplied(&self, x: f64, y: f64) -> (f64, [f64; 3]) {
+		let (x0, y0) = (x.floor(), y.floor());
+		let (fx, fy) = (x - x0, y - y0);
+		let (x0, y0) = (x0 as i32, y0 as i32);
+		let mut acc = [0.0; 4];
+		for (dx, dy, w) in [
+			(0, 0, (1.0 - fx) * (1.0 - fy)),
+			(1, 0, fx * (1.0 - fy)),
+			(0, 1, (1.0 - fx) * fy),
+			(1, 1, fx * fy),
+		] {
+			if w == 0.0 {
+				continue;
+			}
+			let (a, c) = unsafe { self.straight(x0.saturating_add(dx), y0.saturating_add(dy)) };
+			acc[0] += a * w;
+			for i in 0..3 {
+				acc[i + 1] += c[i] * a * w;
+			}
+		}
+		let a = acc[0];
+		if a <= 0.0 {
+			return (0.0, [0.0; 3]);
+		}
+		(a, [acc[1] / a, acc[2] / a, acc[3] / a])
 	}
 }
 
@@ -280,28 +295,6 @@ fn skip_row_for_field(y: i32, field: PF_Field) -> bool {
 	} else {
 		false
 	}
-}
-
-/// Unpacks a stored pixel into (alpha, [r, g, b]) on a 0..1 scale. When
-/// `premultiplied` is set (`PF_MF_Alpha_PREMUL`), the stored channels are
-/// divided back out by alpha so the rest of the compositing math can always
-/// work in straight alpha, matching how the rest of this crate stores worlds.
-#[inline]
-fn to_straight<P: Channels>(p: P, premultiplied: bool) -> (f64, [f64; 3]) {
-	let [a, r, g, b] = p.channels().map(|v| v / P::MAX);
-	// Coverage cannot leave 0..1, even where colour may.
-	let a = a.clamp(0.0, 1.0);
-	let raw = [r, g, b];
-	let c = if premultiplied {
-		if a > 1e-6 {
-			[raw[0] / a, raw[1] / a, raw[2] / a]
-		} else {
-			[0.0; 3]
-		}
-	} else {
-		raw
-	};
-	(a, c)
 }
 
 #[inline]
@@ -320,251 +313,26 @@ fn opacity_of<P: Channels>(mode: &PF_CompositeMode) -> f64 {
 	}
 }
 
-// ---- Blend-mode formulas (operate on 0..1 normalized channel values) ------
-// Separable modes follow the W3C compositing/blending spec's per-channel
-// formulas; the four non-separable modes (Hue/Saturation/Color/Luminosity)
-// use its Lum/Sat/ClipColor helpers. `cb` is the backdrop (destination),
-// `cs` the source, matching the spec's naming.
+use super::transform_modes::{Px, composite, dissolve_roll};
 
-fn hard_light(cb: f64, cs: f64) -> f64 {
-	if cs <= 0.5 {
-		2.0 * cb * cs
-	} else {
-		let cs2 = 2.0 * cs - 1.0;
-		cb + cs2 - cb * cs2
-	}
-}
-
-fn soft_light(cb: f64, cs: f64) -> f64 {
-	if cs <= 0.5 {
-		cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb)
-	} else {
-		let d = if cb <= 0.25 {
-			((16.0 * cb - 12.0) * cb + 4.0) * cb
-		} else {
-			cb.sqrt()
-		};
-		cb + (2.0 * cs - 1.0) * (d - cb)
-	}
-}
-
-fn color_dodge(cb: f64, cs: f64) -> f64 {
-	if cb <= 0.0 {
-		0.0
-	} else if cs >= 1.0 {
-		1.0
-	} else {
-		(cb / (1.0 - cs)).min(1.0)
-	}
-}
-
-fn color_burn(cb: f64, cs: f64) -> f64 {
-	if cb >= 1.0 {
-		1.0
-	} else if cs <= 0.0 {
-		0.0
-	} else {
-		1.0 - ((1.0 - cb) / cs).min(1.0)
-	}
-}
-
-fn vivid_light(cb: f64, cs: f64) -> f64 {
-	if cs <= 0.5 {
-		color_burn(cb, 2.0 * cs)
-	} else {
-		color_dodge(cb, 2.0 * cs - 1.0)
-	}
-}
-
-fn pin_light(cb: f64, cs: f64) -> f64 {
-	if cs <= 0.5 {
-		cb.min(2.0 * cs)
-	} else {
-		cb.max(2.0 * cs - 1.0)
-	}
-}
-
-/// Per-channel separable blend. Modes with no simple per-channel formula
-/// (Copy/In Front/Dissolve, the alpha-multiply variants, and anything this
-/// emulator doesn't recognise) fall back to `cs` -- i.e. Normal/over -- which
-/// is also exactly the identity `composite_pixel` needs for those modes.
-#[allow(non_upper_case_globals)]
-fn blend_channel(mode: A_long, cb: f64, cs: f64) -> f64 {
-	match mode {
-		PF_Xfer_MULTIPLY
-		| PF_Xfer_MULTIPLY_ALPHA
-		| PF_Xfer_MULTIPLY_ALPHA_LUMA
-		| PF_Xfer_MULTIPLY_NOT_ALPHA
-		| PF_Xfer_MULTIPLY_NOT_ALPHA_LUMA => cb * cs,
-		PF_Xfer_SCREEN => cb + cs - cb * cs,
-		PF_Xfer_OVERLAY => hard_light(cs, cb),
-		PF_Xfer_HARD_LIGHT => hard_light(cb, cs),
-		PF_Xfer_SOFT_LIGHT => soft_light(cb, cs),
-		PF_Xfer_DARKEN => cb.min(cs),
-		PF_Xfer_LIGHTEN => cb.max(cs),
-		PF_Xfer_DIFFERENCE | PF_Xfer_DIFFERENCE2 => (cb - cs).abs(),
-		PF_Xfer_EXCLUSION => cb + cs - 2.0 * cb * cs,
-		PF_Xfer_COLOR_DODGE | PF_Xfer_COLOR_DODGE2 => color_dodge(cb, cs),
-		PF_Xfer_COLOR_BURN | PF_Xfer_COLOR_BURN2 => color_burn(cb, cs),
-		PF_Xfer_ADD | PF_Xfer_LINEAR_DODGE | PF_Xfer_ADDITIVE_PREMUL | PF_Xfer_ALPHA_ADD => (cb + cs).min(1.0),
-		PF_Xfer_SUBTRACT => (cb - cs).max(0.0),
-		PF_Xfer_LINEAR_BURN => (cb + cs - 1.0).max(0.0),
-		PF_Xfer_LINEAR_LIGHT => (cb + 2.0 * cs - 1.0).clamp(0.0, 1.0),
-		PF_Xfer_VIVID_LIGHT => vivid_light(cb, cs),
-		PF_Xfer_PIN_LIGHT => pin_light(cb, cs),
-		PF_Xfer_HARD_MIX => {
-			if vivid_light(cb, cs) < 0.5 {
-				0.0
-			} else {
-				1.0
-			}
-		}
-		PF_Xfer_DIVIDE => {
-			if cs <= 0.0 {
-				1.0
-			} else {
-				(cb / cs).min(1.0)
-			}
-		}
-		_ => cs,
-	}
-}
-
-fn lum(c: [f64; 3]) -> f64 {
-	0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]
-}
-
-fn clip_color(c: [f64; 3]) -> [f64; 3] {
-	let l = lum(c);
-	let n = c.iter().cloned().fold(f64::INFINITY, f64::min);
-	let x = c.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-	let mut out = c;
-	if n < 0.0 && (l - n).abs() > 1e-9 {
-		for v in out.iter_mut() {
-			*v = l + (*v - l) * l / (l - n);
-		}
-	}
-	if x > 1.0 && (x - l).abs() > 1e-9 {
-		for v in out.iter_mut() {
-			*v = l + (*v - l) * (1.0 - l) / (x - l);
-		}
-	}
-	out
-}
-
-fn set_lum(c: [f64; 3], l: f64) -> [f64; 3] {
-	let d = l - lum(c);
-	clip_color([c[0] + d, c[1] + d, c[2] + d])
-}
-
-fn sat(c: [f64; 3]) -> f64 {
-	c.iter().cloned().fold(f64::NEG_INFINITY, f64::max) - c.iter().cloned().fold(f64::INFINITY, f64::min)
-}
-
-fn set_sat(c: [f64; 3], s: f64) -> [f64; 3] {
-	let mut out = c;
-	let mut idx = [0usize, 1, 2];
-	idx.sort_by(|&a, &b| out[a].total_cmp(&out[b]));
-	let (imin, imid, imax) = (idx[0], idx[1], idx[2]);
-	if out[imax] > out[imin] {
-		out[imid] = (out[imid] - out[imin]) * s / (out[imax] - out[imin]);
-		out[imax] = s;
-	} else {
-		out[imid] = 0.0;
-		out[imax] = 0.0;
-	}
-	out[imin] = 0.0;
-	out
-}
-
-/// Full-triple blend, dispatching to the non-separable HSL modes and
-/// per-channel [`blend_channel`] for everything else. `cb` is the backdrop
-/// (destination), `cs` the source.
-#[allow(non_upper_case_globals)]
-fn blend_rgb(mode: A_long, cb: [f64; 3], cs: [f64; 3]) -> [f64; 3] {
-	match mode {
-		PF_Xfer_HUE => set_lum(set_sat(cs, sat(cb)), lum(cb)),
-		PF_Xfer_SATURATION => set_lum(set_sat(cb, sat(cs)), lum(cb)),
-		PF_Xfer_COLOR => set_lum(cs, lum(cb)),
-		PF_Xfer_LUMINOSITY => set_lum(cb, lum(cs)),
-		PF_Xfer_LIGHTER_COLOR => {
-			if lum(cs) >= lum(cb) {
-				cs
-			} else {
-				cb
-			}
-		}
-		PF_Xfer_DARKER_COLOR => {
-			if lum(cs) <= lum(cb) {
-				cs
-			} else {
-				cb
-			}
-		}
-		_ => [
-			blend_channel(mode, cb[0], cs[0]),
-			blend_channel(mode, cb[1], cs[1]),
-			blend_channel(mode, cb[2], cs[2]),
-		],
-	}
-}
-
-/// Standard Porter-Duff "over" composite of `top` onto `bottom`, with `mode`
-/// selecting the RGB blend function applied where both are opaque. This is
-/// the one compositing primitive `composite_rect`/`transfer_rect`/
-/// `transform_world` all reduce to.
-#[allow(non_upper_case_globals)]
-fn composite_over(
-	top_a: f64,
-	top_c: [f64; 3],
-	bottom_a: f64,
-	bottom_c: [f64; 3],
+/// Composite one pixel, as After Effects does (see [`super::transform_modes`]).
+#[inline]
+fn composite_pixel<P: Channels>(
+	(src_a, src_c): (f64, [f64; 3]),
+	opacity: f64,
+	(dst_a, dst_c): (f64, [f64; 3]),
 	mode: A_long,
-	hdr: bool,
+	roll: f64,
 ) -> (f64, [f64; 3]) {
-	let out_a = top_a + bottom_a * (1.0 - top_a);
-	let blended = match mode {
-		PF_Xfer_ADD | PF_Xfer_LINEAR_DODGE | PF_Xfer_ADDITIVE_PREMUL | PF_Xfer_ALPHA_ADD if hdr => {
-			std::array::from_fn(|i| bottom_c[i] + top_c[i])
-		}
-		_ => blend_rgb(mode, bottom_c, top_c),
-	};
-	let mut out_c = [0.0; 3];
-	for i in 0..3 {
-		let premul = top_c[i] * top_a * (1.0 - bottom_a)
-			+ bottom_c[i] * bottom_a * (1.0 - top_a)
-			+ blended[i] * top_a * bottom_a;
-		out_c[i] = if out_a > 1e-6 {
-			let straight = premul / out_a;
-			if hdr { straight } else { straight.clamp(0.0, 1.0) }
-		} else {
-			0.0
-		};
-	}
-	(out_a, out_c)
-}
-
-/// Composites `src` onto `dst` under `mode`. `PF_Xfer_NONE` leaves `dst`
-/// untouched; `PF_Xfer_BEHIND` composites `dst` on top of `src` (visible
-/// wherever `dst` is transparent) instead of the usual `src`-on-top order.
-/// Everything else -- including `COPY`/`IN_FRONT`, which have no distinct
-/// blend formula of their own -- is a Normal-mode `over`.
-#[allow(non_upper_case_globals)]
-fn composite_pixel(
-	src_a: f64,
-	src_c: [f64; 3],
-	dst_a: f64,
-	dst_c: [f64; 3],
-	mode: A_long,
-	hdr: bool,
-) -> (f64, [f64; 3]) {
-	if mode == PF_Xfer_NONE {
-		return (dst_a, dst_c);
-	}
-	if mode == PF_Xfer_BEHIND {
-		return composite_over(dst_a, dst_c, src_a, src_c, PF_Xfer_COPY, hdr);
-	}
-	composite_over(src_a, src_c, dst_a, dst_c, mode, hdr)
+	let out = composite(
+		mode,
+		Px { a: src_a, c: src_c },
+		opacity,
+		Px { a: dst_a, c: dst_c },
+		!P::HDR,
+		roll,
+	);
+	(out.a, out.c)
 }
 
 /// A mask world, at a depth of its own.
@@ -725,9 +493,14 @@ fn copy<P: Channels>(s: &PF_EffectWorld, d: &PF_EffectWorld, from: PF_Rect, to: 
 	// An empty destination rectangle is only a point.
 	let stretch = to_w > 0 && to_h > 0 && (to_w, to_h) != (from_w, from_h);
 	let (w, h) = if stretch { (to_w, to_h) } else { (from_w, from_h) };
+	// After Effects takes, for destination pixel `at`, the source pixel at
+	// ceil((at + 1) * from / to) - 1: the last one the destination pixel's
+	// far edge reaches into.
 	let source = |at: i32, to: i32, from: i32| {
 		if stretch {
-			(i64::from(at) * i64::from(from) / i64::from(to)) as i32
+			((i64::from(at) + 1) * i64::from(from) - 1)
+				.div_euclid(i64::from(to))
+				.min(i64::from(from) - 1) as i32
 		} else {
 			at
 		}
@@ -847,12 +620,9 @@ fn composite_rect<P: Channels>(
 		for col in 0..width {
 			let dx = dest_x + col;
 			let sx = left + col;
-			let sp = unsafe { src_raw.read(sx, sy) };
-			let (mut src_a, src_c) = to_straight(sp, false);
-			src_a *= opacity;
-			let dp = unsafe { dst_raw.read(dx, dy) };
-			let (dst_a, dst_c) = to_straight(dp, false);
-			let (out_a, out_c) = composite_pixel(src_a, src_c, dst_a, dst_c, xfer_mode, P::HDR);
+			let source = unsafe { src_raw.straight(sx, sy) };
+			let backdrop = unsafe { dst_raw.straight(dx, dy) };
+			let (out_a, out_c) = composite_pixel::<P>(source, opacity, backdrop, xfer_mode, dissolve_roll(0, dx, dy));
 			unsafe { dst_raw.write(dx, dy, from_straight::<P>(out_a, out_c)) };
 		}
 	});
@@ -1229,26 +999,56 @@ fn copy_hq<P: Channels>(
 	let src_raw = RawWorld::<P>::from(s);
 	let dst_raw = RawWorld::<P>::from(d);
 
+	// Each destination pixel averages the source area it covers, weighted by
+	// how much of each source pixel falls in it and by coverage.
+	let spans = |at: i32, scale: f64, start: i32| -> Vec<(i32, f64)> {
+		let (from, to) = (f64::from(at) * scale, f64::from(at + 1) * scale);
+		let mut out = Vec::new();
+		let mut p = from.floor();
+		while p < to {
+			let w = (p + 1.0).min(to) - p.max(from);
+			if w > 0.0 {
+				out.push((start + p as i32, w));
+			}
+			p += 1.0;
+		}
+		out
+	};
 	(0..dst_h).into_par_iter().for_each(|row| {
 		let dy = dst_top + row;
-		let sy = src_top as f64 + (row as f64 + 0.5) * scale_y - 0.5;
+		let rows = spans(row, scale_y, src_top);
 		for col in 0..dst_w {
 			let dx = dst_left + col;
-			let sx = src_left as f64 + (col as f64 + 0.5) * scale_x - 0.5;
-			let px = P::store(unsafe { src_raw.sample_bilinear(sx, sy) });
-			unsafe { dst_raw.write(dx, dy, px) };
+			let mut acc = [0.0; 4];
+			let mut area = 0.0;
+			for &(sx, wx) in &spans(col, scale_x, src_left) {
+				for &(sy, wy) in &rows {
+					let w = wx * wy;
+					// SAFETY: `straight` checks its bounds.
+					let (a, c) = unsafe { src_raw.straight(sx, sy) };
+					acc[0] += a * w;
+					for i in 0..3 {
+						acc[i + 1] += c[i] * a * w;
+					}
+					area += w;
+				}
+			}
+			let a = if area > 0.0 { acc[0] / area } else { 0.0 };
+			let c = if acc[0] > 0.0 {
+				[acc[1] / acc[0], acc[2] / acc[0], acc[3] / acc[0]]
+			} else {
+				[0.0; 3]
+			};
+			// SAFETY: `write` checks its bounds.
+			unsafe { dst_raw.write(dx, dy, from_straight::<P>(a, c)) };
 		}
 	});
 }
 
 /// `composite_rect`'s more capable sibling: takes a structured
-/// `PF_CompositeMode` (opacity + `rgb_only`) and an optional mask, and
-/// respects `m_flags` to unpremultiply `src_world` if needed.
-///
-/// `comp_mode.rand_seed` isn't consulted (dissolve dithering isn't modeled);
-/// `quality` is accepted
-/// but doesn't change behavior, since this emulator has no separate
-/// low-quality fast path.
+/// `PF_CompositeMode` (opacity, `rgb_only`, Dissolve's `rand_seed`) and an
+/// optional mask. As in After Effects, `m_flags` and `quality` change
+/// nothing here: colours are straight either way.
 pub(crate) unsafe extern "C" fn transfer_rect_sys(
 	_effect_ref: PF_ProgPtr,
 	_quality: PF_Quality,
@@ -1301,14 +1101,8 @@ pub(crate) unsafe extern "C" fn transfer_rect_sys(
 			return PF_Err_NONE;
 		}
 
-		let premultiplied = m_flags & PF_MF_Alpha_STRAIGHT == 0;
 		let (from, to) = ((left, top, width, height), (dest_x, dest_y));
-		let how = Transfer {
-			mode,
-			mask,
-			premultiplied,
-			field,
-		};
+		let how = Transfer { mode, mask, field };
 		by_depth!(depth, transfer_rect(src, dst, from, to, &how));
 
 		PF_Err_NONE
@@ -1319,7 +1113,6 @@ pub(crate) unsafe extern "C" fn transfer_rect_sys(
 struct Transfer<'a> {
 	mode: &'a PF_CompositeMode,
 	mask: Option<Mask>,
-	premultiplied: bool,
 	field: PF_Field,
 }
 
@@ -1330,12 +1123,7 @@ fn transfer_rect<P: Channels>(
 	(dest_x, dest_y): (i32, i32),
 	how: &Transfer,
 ) {
-	let Transfer {
-		mode,
-		mask,
-		premultiplied,
-		field,
-	} = *how;
+	let Transfer { mode, mask, field } = *how;
 	let opacity = opacity_of::<P>(mode);
 	let rgb_only = mode.rgb_only != 0;
 	let xfer = mode.xfer;
@@ -1352,16 +1140,14 @@ fn transfer_rect<P: Channels>(
 		for col in 0..width {
 			let dx = dest_x + col;
 			let sx = left + col;
-			let sp = unsafe { src_raw.read(sx, sy) };
-			let (mut src_a, src_c) = to_straight(sp, premultiplied);
-			src_a *= opacity;
+			let (mut src_a, src_c) = unsafe { src_raw.straight(sx, sy) };
 			if let Some(mask) = mask {
 				src_a *= mask.value(dx, dy);
 			}
-			let dp = unsafe { dst_raw.read(dx, dy) };
-			let (dst_a, dst_c) = to_straight(dp, false);
-			let (out_a, out_c) = composite_pixel(src_a, src_c, dst_a, dst_c, xfer, P::HDR);
-			let final_a = if rgb_only { dst_a } else { out_a };
+			let backdrop = unsafe { dst_raw.straight(dx, dy) };
+			let roll = dissolve_roll(mode.rand_seed, dx, dy);
+			let (out_a, out_c) = composite_pixel::<P>((src_a, src_c), opacity, backdrop, xfer, roll);
+			let final_a = if rgb_only { backdrop.0 } else { out_a };
 			unsafe { dst_raw.write(dx, dy, from_straight::<P>(final_a, out_c)) };
 		}
 	});
@@ -1372,12 +1158,13 @@ fn transfer_rect<P: Channels>(
 ///
 /// `matrices` map source space to destination space when `src2dst_matrix` is
 /// set (so each destination pixel is resampled through the inverse) and
-/// destination-to-source otherwise. Multiple matrices are premultiply-
-/// averaged (each tap weighted by its own alpha, then unpremultiplied) to
-/// approximate motion blur without fringing at transparent edges.
+/// destination-to-source otherwise. `PF_Quality_LO` takes the source pixel
+/// under each destination pixel's centre; `PF_Quality_HI` filters the
+/// premultiplied pixels bilinearly. Multiple matrices are averaged the same
+/// way, for motion blur.
 pub(crate) unsafe extern "C" fn transform_world_sys(
 	_effect_ref: PF_ProgPtr,
-	_quality: PF_Quality,
+	quality: PF_Quality,
 	m_flags: PF_ModeFlags,
 	field: PF_Field,
 	src_world: *const PF_EffectWorld,
@@ -1442,15 +1229,10 @@ pub(crate) unsafe extern "C" fn transform_world_sys(
 			})
 			.collect();
 
-		let premultiplied = m_flags & PF_MF_Alpha_STRAIGHT == 0;
 		let to = (left, top, width, height);
-		let how = Transfer {
-			mode,
-			mask,
-			premultiplied,
-			field,
-		};
-		by_depth!(depth, transform_world(src, dst, to, &mats, &how));
+		let how = Transfer { mode, mask, field };
+		let nearest = quality == PF_Quality_LO as PF_Quality;
+		by_depth!(depth, transform_world(src, dst, to, &mats, &how, nearest));
 
 		PF_Err_NONE
 	})
@@ -1462,13 +1244,9 @@ fn transform_world<P: Channels>(
 	(left, top, width, height): (i32, i32, i32, i32),
 	mats: &[Mat3],
 	how: &Transfer,
+	nearest: bool,
 ) {
-	let Transfer {
-		mode,
-		mask,
-		premultiplied,
-		field,
-	} = *how;
+	let Transfer { mode, mask, field } = *how;
 	let opacity = opacity_of::<P>(mode);
 	let rgb_only = mode.rgb_only != 0;
 	let xfer = mode.xfer;
@@ -1487,18 +1265,18 @@ fn transform_world<P: Channels>(
 			let mut acc_a = 0.0;
 			let mut acc_c = [0.0; 3];
 			for mat in mats {
+				// Each destination pixel's centre, mapped back into the source.
 				let (sx, sy) = apply_matrix(mat, dx as f64 + 0.5, dy as f64 + 0.5);
-				let [a, r, g, b] = unsafe { src_raw.sample_bilinear(sx - 0.5, sy - 0.5) };
-				let a_n = a / P::MAX;
-				let (rp, gp, bp) = if premultiplied {
-					(r / P::MAX, g / P::MAX, b / P::MAX)
+				// Low quality takes the pixel under it, high quality filters.
+				let (a, c) = if nearest {
+					unsafe { src_raw.straight(sx.floor() as i32, sy.floor() as i32) }
 				} else {
-					(r / P::MAX * a_n, g / P::MAX * a_n, b / P::MAX * a_n)
+					unsafe { src_raw.sample_premultiplied(sx - 0.5, sy - 0.5) }
 				};
-				acc_a += a_n;
-				acc_c[0] += rp;
-				acc_c[1] += gp;
-				acc_c[2] += bp;
+				acc_a += a;
+				for i in 0..3 {
+					acc_c[i] += c[i] * a;
+				}
 			}
 			let mut src_a = acc_a / mats.len() as f64;
 			let src_c = if acc_a > 1e-9 {
@@ -1506,15 +1284,14 @@ fn transform_world<P: Channels>(
 			} else {
 				[0.0; 3]
 			};
-			src_a *= opacity;
 			if let Some(mask) = mask {
 				src_a *= mask.value(dx, dy);
 			}
 
-			let dp = unsafe { dst_raw.read(dx, dy) };
-			let (dst_a, dst_c) = to_straight(dp, false);
-			let (out_a, out_c) = composite_pixel(src_a, src_c, dst_a, dst_c, xfer, P::HDR);
-			let final_a = if rgb_only { dst_a } else { out_a };
+			let backdrop = unsafe { dst_raw.straight(dx, dy) };
+			let roll = dissolve_roll(mode.rand_seed, dx, dy);
+			let (out_a, out_c) = composite_pixel::<P>((src_a, src_c), opacity, backdrop, xfer, roll);
+			let final_a = if rgb_only { backdrop.0 } else { out_a };
 			unsafe { dst_raw.write(dx, dy, from_straight::<P>(final_a, out_c)) };
 		}
 	});
@@ -1730,14 +1507,14 @@ mod tests {
 				0,
 				0,
 				PF_Field_FRAME,
-				PF_Xfer_COPY,
+				PF_Xfer_IN_FRONT,
 				dst.as_mut_ptr(),
 			)
 		};
 		assert_px_eq(
 			dst.pixel(0, 0),
 			px(255, 200, 200, 200),
-			"zero opacity should leave dst untouched",
+			"zero opacity in front should leave dst untouched (COPY replaces)",
 		);
 	}
 
