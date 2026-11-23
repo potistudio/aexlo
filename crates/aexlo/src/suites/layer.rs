@@ -71,8 +71,9 @@ pub(crate) fn current_effect() -> PF_ProgPtr {
 /// Length of aexlo's comp, and of the layer that fills it.
 pub(crate) const COMP_DURATION_SECONDS: A_long = 30;
 
-/// The id of the layer when there is no project (`AEGP_GetLayerID`).
-const LAYER_ID: u32 = 1;
+/// The id of the layer when there is no project (`AEGP_GetLayerID`), which a
+/// linked layer parameter names too (`AEGP_GetNewStreamValue`).
+pub(crate) const LAYER_ID: u32 = 1;
 
 /// Handle -> (the owning instance's token, layer id), for layers the effect is
 /// not on.

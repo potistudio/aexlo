@@ -268,10 +268,12 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # exit 1 if any got
 ```
 
 See [docs/compat.md](https://github.com/potistudio/aexlo/blob/master/docs/compat.md).
+The plugins that pass every scenario are listed in
+[docs/compatible-plugins.md](https://github.com/potistudio/aexlo/blob/master/docs/compatible-plugins.md).
 
 ## Implementation Progress
 
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀ 76% (28/37)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀⣀ 78% (29/37)
 
 > ○ fully implemented / △ only partially implemented / × not implemented
 
@@ -287,7 +289,7 @@ See [docs/compat.md](https://github.com/potistudio/aexlo/blob/master/docs/compat
 | ○ Iterate8         | ○ Path Data                      |                   |                   |
 | ○ Iterate16        | △ Path Query                     |                   |                   |
 | ○ IterateFloat     | ○ PointParam                     |                   |                   |
-| ○ Pixel Data       | × Effect Sequence Data           |                   |                   |
+| ○ Pixel Data       | ○ Effect Sequence Data           |                   |                   |
 | ○ Pixel Format     |                                  |                   |                   |
 | ○ Sampling8        |                                  |                   |                   |
 | ○ Sampling16       |                                  |                   |                   |

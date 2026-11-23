@@ -3,7 +3,7 @@
 //!
 //! Parameter indices: [24] Radius.
 
-use aexlo::{Depth8, Layer, ParamValue, PluginInstance};
+use aexlo::{Depth8, Depth32, Layer, ParamValue, PluginInstance, RenderPath};
 use aexlo_fixture_gate::needs_fixture;
 
 const RADIUS: usize = 24;
@@ -84,6 +84,40 @@ fn glow_is_centred_and_symmetric() {
 			red(cx + 150, cy + 150).max(red(cx - 100, cy)),
 			0,
 			"glow leaked far from the dot"
+		);
+	}
+}
+
+/// At 32 bpc the plugin copies its input into the output with
+/// `transfer_rect` on float worlds, setting `opacity` but not `opacitySu`.
+/// Smart render runs there too, and the glow comes out as it does at 8 bpc.
+#[needs_fixture("DeepGlow2")]
+#[test]
+fn renders_at_32_bpc_like_8_bpc() {
+	let (w, h, cx, cy) = (640u32, 480u32, 150u32, 60u32);
+	let mut fx8 = load();
+	fx8.set_input_layer(dot(w, h, cx, cy));
+	fx8.set_render_size(w, h);
+	fx8.set_param(RADIUS, ParamValue::Float(100.0)).unwrap();
+	fx8.render_with(RenderPath::Smart).unwrap();
+	let out8 = fx8.read_output::<Depth8>().unwrap();
+
+	let mut fx = load();
+	fx.set_input_layer(dot(w, h, cx, cy).convert::<Depth32>());
+	fx.set_render_size(w, h);
+	fx.set_param(RADIUS, ParamValue::Float(100.0)).unwrap();
+	fx.render_with(RenderPath::Smart).expect("32 bpc smart render");
+	let out32 = fx.read_output::<Depth32>().unwrap();
+
+	for d in [0, 5, 10, 20, 40] {
+		let (x, y) = (cx + d, cy);
+		let red8 = out8.get(x, y).unwrap().red as f32 / 255.0;
+		let p = out32.get(x, y).unwrap();
+		assert_eq!(p.alpha, 1.0, "({x},{y}) is not opaque");
+		assert!(
+			(p.red - red8).abs() < 0.01,
+			"({x},{y}): {} at 32 bpc, {red8} at 8 bpc",
+			p.red
 		);
 	}
 }

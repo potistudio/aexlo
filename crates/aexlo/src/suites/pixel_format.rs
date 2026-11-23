@@ -180,6 +180,9 @@ unsafe extern "C" fn new_world_of_pixel_format(
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let clamp = |v: A_u_long| v.min(A_long::MAX as A_u_long) as A_long;
+		if let Some(err) = super::world::refuse_empty("NewWorldOfPixelFormat", clamp(width), clamp(height), world) {
+			return err;
+		}
 		let format = crate::sys::fourcc(pixelFormat);
 		unsafe { *world = alloc_world(clamp(width), clamp(height), 4 * depth.bytes(), format) };
 		PF_Err_NONE

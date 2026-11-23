@@ -192,6 +192,24 @@ sdk_flags! {
 }
 
 sdk_flags! {
+	/// `PF_ParamFlags` (`PF_ParamFlag_*`): how the host treats a parameter
+	/// ([`PluginInstance::param_flags`](crate::PluginInstance::param_flags)).
+	///
+	/// The SDK gives some bits two names; this names each bit once.
+	/// `START_COLLAPSED` is also `PF_ParamFlag_COLLAPSE_TWIRLY`, and
+	/// `USE_VALUE_FOR_OLD_PROJECTS` is `PF_ParamFlag_LAYER_PARAM_IS_TRACKMATTE`
+	/// on a layer parameter.
+	pub struct ParamFlags;
+	CANNOT_TIME_VARY = PF_ParamFlag_CANNOT_TIME_VARY,
+	CANNOT_INTERP = PF_ParamFlag_CANNOT_INTERP,
+	START_COLLAPSED = PF_ParamFlag_START_COLLAPSED,
+	SUPERVISE = PF_ParamFlag_SUPERVISE,
+	USE_VALUE_FOR_OLD_PROJECTS = PF_ParamFlag_USE_VALUE_FOR_OLD_PROJECTS,
+	EXCLUDE_FROM_HAVE_INPUTS_CHANGED = PF_ParamFlag_EXCLUDE_FROM_HAVE_INPUTS_CHANGED,
+	SKIP_REVEAL_WHEN_UNHIDDEN = PF_ParamFlag_SKIP_REVEAL_WHEN_UNHIDDEN,
+}
+
+sdk_flags! {
 	/// `PF_ParamUIFlags` (`PF_PUI_*`): how a parameter is shown
 	/// ([`PluginInstance::param_ui_flags`](crate::PluginInstance::param_ui_flags)).
 	pub struct ParamUiFlags;
@@ -287,6 +305,10 @@ mod tests {
 			"ParamUiFlags(TOPIC | 0x100000)"
 		);
 		assert_eq!(format!("{:#x}", ParamUiFlags::CONTROL), "0x2");
+		assert_eq!(
+			format!("{:?}", ParamFlags::SUPERVISE | ParamFlags::START_COLLAPSED),
+			"ParamFlags(START_COLLAPSED | SUPERVISE)"
+		);
 	}
 
 	#[test]

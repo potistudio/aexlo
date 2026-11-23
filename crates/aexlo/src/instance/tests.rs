@@ -30,6 +30,21 @@ fn param_kind_covers_value_less_params() {
 }
 
 #[test]
+fn param_flags_read_what_the_plugin_declared() {
+	let mut fx = bare_instance();
+	let mut popup = param_of_type(crate::sys::PF_Param_POPUP as PF_ParamType);
+	popup.flags =
+		(crate::sys::PF_ParamFlag_SUPERVISE | crate::sys::PF_ParamFlag_CANNOT_TIME_VARY) as crate::sys::PF_ParamFlags;
+	fx.add_instance_param(popup);
+
+	let flags = fx.param_flags(1).unwrap();
+	assert!(flags.contains(crate::ParamFlags::SUPERVISE | crate::ParamFlags::CANNOT_TIME_VARY));
+	assert!(!flags.contains(crate::ParamFlags::CANNOT_INTERP));
+	assert_eq!(fx.param_flags(0), Some(crate::ParamFlags::empty()));
+	assert_eq!(fx.param_flags(2), None);
+}
+
+#[test]
 fn point3d_round_trips() {
 	let mut fx = bare_instance();
 	fx.add_instance_param(param_of_type(crate::sys::PF_Param_POINT_3D as PF_ParamType));
@@ -181,6 +196,42 @@ fn initial_input_and_distinct_output_are_visible_in_all_setup_commands() {
 	assert_eq!(fx.input_size(), (19, 13));
 	assert_eq!(fx.output_size(), (37, 23));
 	assert_eq!(fx.input_layer.kind(), PixelDepthKind::U16);
+}
+
+/// A click stores its drag state in `continue_refcon`. After Effects hands it
+/// back with every drag that follows, and a new click starts from zero.
+#[test]
+fn custom_ui_drags_get_back_the_continue_refcon_of_their_click() {
+	use std::sync::Mutex;
+	static SEEN: Mutex<Vec<(crate::sys::PF_EventType, crate::sys::A_intptr_t)>> = Mutex::new(Vec::new());
+	unsafe extern "C" fn entry(
+		cmd: PF_Cmd,
+		_input: *mut crate::sys::PF_InData,
+		_output: *mut crate::sys::PF_OutData,
+		_params: crate::sys::PF_ParamList,
+		_world: *mut crate::sys::PF_LayerDef,
+		extra: *mut c_void,
+	) -> crate::sys::PF_Err {
+		if cmd == RawCommand::Event.to_sys() && !extra.is_null() {
+			let extra = unsafe { &mut *(extra.cast::<crate::sys::PF_EventExtra>()) };
+			if matches!(extra.e_type, crate::sys::PF_Event_DO_CLICK | crate::sys::PF_Event_DRAG) {
+				let click = unsafe { &mut extra.u.do_click };
+				SEEN.lock().unwrap().push((extra.e_type, click.continue_refcon[0]));
+				click.continue_refcon[0] += 7;
+				click.send_drag = 1;
+			}
+		}
+		PF_Err_NONE
+	}
+	SEEN.lock().unwrap().clear();
+	let mut fx = unsafe { Host::get().entry_loader(entry) }.size(64, 64).load().unwrap();
+	fx.click_custom_control(1, 4, 4, 32, 16).unwrap();
+	fx.drag_custom_control(1, 5, 5, 32, 16, false).unwrap();
+	fx.drag_custom_control(1, 6, 6, 32, 16, true).unwrap();
+	fx.click_custom_control(1, 4, 4, 32, 16).unwrap();
+
+	let (click, drag) = (crate::sys::PF_Event_DO_CLICK, crate::sys::PF_Event_DRAG);
+	assert_eq!(*SEEN.lock().unwrap(), [(click, 0), (drag, 7), (drag, 14), (click, 0)]);
 }
 
 #[test]

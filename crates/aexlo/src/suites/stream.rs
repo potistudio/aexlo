@@ -147,9 +147,12 @@ impl Stream {
 			Node::Param => {
 				let instance = self.instance()?;
 				let def = instance.param_at(self.index, time)?;
-				let linked = || instance.project().and_then(|project| project.param_layer(self.index));
+				// A project says which layer a layer parameter shows, or none.
+				let project = instance.project();
 				Some(match StreamValue::of(&def, instance.arb_streams_live()) {
-					StreamValue::LayerId(_) => StreamValue::LayerId(linked().unwrap_or(0) as A_long),
+					StreamValue::LayerId(_) if let Some(project) = project => {
+						StreamValue::LayerId(project.param_layer(self.index).unwrap_or(0) as A_long)
+					}
 					value => value,
 				})
 			}
@@ -342,7 +345,13 @@ impl StreamValue {
 		// SAFETY: every union read is selected by `param_type`.
 		unsafe {
 			match def.param_type {
-				t if t == PF_Param_LAYER as PF_ParamType => Self::LayerId(0),
+				// A linked layer's `PF_LayerDef` holds its pixels; "None" has none.
+				// Without a project the one layer is the one it can name.
+				t if t == PF_Param_LAYER as PF_ParamType => Self::LayerId(if def.u.ld.data.is_null() {
+					0
+				} else {
+					crate::suites::layer::LAYER_ID as A_long
+				}),
 				t if t == PF_Param_SLIDER as PF_ParamType => Self::OneD(def.u.sd.value as f64),
 				t if t == PF_Param_FIX_SLIDER as PF_ParamType => {
 					Self::OneD(utils::fixed16_to_f32(def.u.fd.value) as f64)
@@ -1538,6 +1547,23 @@ mod tests {
 			assert_eq!((v1.two_d.x, v1.two_d.y), (3.0, 4.0));
 			assert_eq!((v2.two_d.x, v2.two_d.y), (3.0, 4.0));
 		}
+	}
+
+	#[test]
+	fn a_layer_parameter_names_the_layer_only_when_linked() {
+		let mut layer: PF_ParamDef = unsafe { std::mem::zeroed() };
+		layer.param_type = PF_Param_LAYER as PF_ParamType;
+		let value = |def: &PF_ParamDef| {
+			let mut out: AEGP_StreamVal2 = unsafe { std::mem::zeroed() };
+			out.layer_id = 99;
+			write_val!(StreamValue::of(def, false), &mut out);
+			unsafe { out.layer_id }
+		};
+		assert_eq!(value(&layer), 0, "None");
+
+		let mut pixels = [0u8; 4];
+		layer.u.ld.data = pixels.as_mut_ptr().cast();
+		assert_eq!(value(&layer) as u32, crate::suites::layer::LAYER_ID);
 	}
 
 	#[test]

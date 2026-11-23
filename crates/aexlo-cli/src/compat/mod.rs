@@ -330,8 +330,24 @@ fn param_values(param: &ParamInfo) -> Vec<(String, Value)> {
 	}
 }
 
+/// The `PF_Err` a smart-render plugin answered `PF_Cmd_RENDER` with, when the
+/// legacy run of `run` failed on nothing else. After Effects sends such a
+/// plugin `PF_Cmd_SMART_PRE_RENDER` and `PF_Cmd_SMART_RENDER` instead, so a
+/// plugin like Furikake may refuse the legacy command outright.
+fn refused_legacy(run: &Run, smart: bool) -> Option<i32> {
+	if !smart || run.variant.render != RenderMode::Legacy || run.outcome != Outcome::Error || run.fault.is_some() {
+		return None;
+	}
+	let last = run.trace.commands.last()?;
+	if run.trace.unfinished.is_some() || last.name != "RENDER" {
+		return None;
+	}
+	last.error
+}
+
 /// What `run` says about a scenario, without the gaps loading already had.
-fn judge(id: &str, run: &Run, load_gaps: &[Gap]) -> Scenario {
+/// `smart` is whether the plugin declares smart render.
+fn judge(id: &str, run: &Run, load_gaps: &[Gap], smart: bool) -> Scenario {
 	let unsupported: Vec<Gap> = run
 		.trace
 		.unsupported
@@ -343,6 +359,18 @@ fn judge(id: &str, run: &Run, load_gaps: &[Gap]) -> Scenario {
 		})
 		.cloned()
 		.collect();
+	if let Some(code) = refused_legacy(run, smart) {
+		return Scenario {
+			id: id.to_string(),
+			status: Status::NotApplicable,
+			message: Some(format!(
+				"the plugin declares PF_OutFlag2_SUPPORTS_SMART_RENDER and refuses PF_Cmd_RENDER with error {code}; \
+				 After Effects never sends it PF_Cmd_RENDER"
+			)),
+			last_command: None,
+			unsupported,
+		};
+	}
 	let status = match run.outcome {
 		Outcome::Pass if unsupported.is_empty() => Status::Ok,
 		Outcome::Pass => Status::Partial,
@@ -605,7 +633,8 @@ pub fn run(paths: &[PathBuf], only: Option<&str>, jobs: usize, timeout: f64) -> 
 			continue;
 		}
 		let report = &mut reports[*index];
-		let scenario = judge(id, run, &report.load.unsupported);
+		let smart = report.info.as_ref().is_some_and(|info| info.smart);
+		let scenario = judge(id, run, &report.load.unsupported, smart);
 		report.scenarios.push(scenario);
 	}
 	Ok(reports)
@@ -850,6 +879,49 @@ mod tests {
 			.map(|id| format!("{ON_TEXT}{id}"))
 			.collect();
 		assert_eq!(ids(&text), expected);
+	}
+
+	#[test]
+	fn a_smart_plugin_that_refuses_the_legacy_command_is_not_applicable() {
+		let plugin = PluginRef {
+			source: PluginSource::Artifact("Fx.plugin".into()),
+			entry: "EffectMain".into(),
+		};
+		let run = |render: RenderMode, last: &str, error: Option<i32>| {
+			let mut variant = Variant::standalone("Fx", plugin.clone());
+			variant.render = render;
+			let command = |name: &str, error| aexlo_harness::exec::TracedCommand {
+				name: name.into(),
+				seconds: 0.0,
+				error,
+			};
+			let trace = aexlo_harness::Trace {
+				commands: vec![command("SEQUENCE_SETUP", None), command(last, error)],
+				..aexlo_harness::Trace::default()
+			};
+			Run::from_failure(
+				variant,
+				RunFailure::Plugin {
+					message: "Plugin rejected Render with error code: 516".into(),
+					trace,
+				},
+			)
+		};
+		let status = |run: &Run, smart| judge("render:legacy@8", run, &[], smart).status;
+
+		let refused = run(RenderMode::Legacy, "RENDER", Some(516));
+		assert_eq!(status(&refused, true), Status::NotApplicable);
+		assert_eq!(status(&refused, false), Status::Error, "a legacy-only plugin");
+		assert_eq!(
+			status(&run(RenderMode::Smart, "RENDER", Some(516)), true),
+			Status::Error,
+			"only the legacy scenarios"
+		);
+		assert_eq!(
+			status(&run(RenderMode::Legacy, "UPDATE_PARAMS_UI", Some(516)), true),
+			Status::Error,
+			"an error before PF_Cmd_RENDER"
+		);
 	}
 
 	pub(super) fn scenario(id: &str, status: Status) -> Scenario {

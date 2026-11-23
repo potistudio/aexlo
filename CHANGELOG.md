@@ -71,7 +71,26 @@ plugin renders or returns.
   gives the identities the loaded plugins declare.
 - The legacy utility callbacks blend, convolve, generate Gaussian kernels
   (approximate coefficients) and resolve `get_callback_addr`.
-- Smart pre-renders have a `GuidMixInPtr`. No frames are cached by GUID.
+- `PF Effect Sequence Data Suite` v1. `PF_GetConstSequenceData` gives the
+  sequence data handle the plugin returned from `PF_Cmd_SEQUENCE_SETUP`, or
+  null before it. Effects built with the `after-effects` crate, such as
+  RainyDay, read their sequence data through it whenever
+  `in_data->sequence_data` is null, `PF_Cmd_PARAMS_SETUP` included.
+- `PluginInstance::param_flags` reads the `PF_ParamFlag_*` bits a parameter
+  declares, as the new `ParamFlags`. A host checks
+  `ParamFlags::SUPERVISE` to tell when to send
+  `PF_Cmd_USER_CHANGED_PARAM` (`PluginInstance::user_changed_param`).
+- `AEGP Effect Suite` v5. It is v4 plus `AEGP_GetIsInternalEffect`, which
+  takes an installed-effect key and is refused like the rest of the
+  installed-effect registry. Falloff needs v5 to free its effect handle in
+  `PF_Cmd_SMART_PRE_RENDER`.
+
+### Changed
+
+- `aexlo compat` counts a `render:legacy@*` scenario as `n/a`, not `error`,
+  when the plugin declares smart render and returns a `PF_Err` from
+  `PF_Cmd_RENDER`. After Effects never sends that command to a smart-render
+  plugin, and Furikake refuses it outright.
 
 ### Fixed
 
@@ -83,9 +102,11 @@ plugin renders or returns.
   `PF_IsIdenticalCheckout` compares all the parameters those stand for.
 - PF World Transform works at 16 and 32 bpc. `composite_rect`,
   `transfer_rect` and `transform_world` refused those worlds, which failed
-  every render of Shine at those depths; `blend` and `convolve` read them as
+  every render of Shine at those depths and DeepGlow2's smart render at
+  32 bpc; `blend` and `convolve` read them as
   8-bit; `copy` and `copy_hq` succeeded after copying a half or a quarter of
-  each row. Deep opacity is read from `opacitySu`, and 32 bpc keeps values
+  each row. Deep opacity is read from `opacitySu`, or from `opacity` when
+  `opacitySu` is 0 as DeepGlow2 sends it, and 32 bpc keeps values
   out of range through copying, filtering, normal and additive compositing.
   At 8 bpc only `copy` differs: it stretches into a destination rectangle of
   another size and no longer reads past the source.
@@ -111,6 +132,28 @@ plugin renders or returns.
 - Pre-render data that is a host handle without a delete callback is freed
   instead of leaked.
 - `PF_KernelFlag_USE_CHAR` kernels are read as unsigned bytes.
+- A world with no pixels (a width or height of 0 or less) is refused with
+  `PF_Err_BAD_CALLBACK_PARAM` and a null `data`, by `PF_UtilCallbacks`'
+  `new_world`, `PF_WorldSuite2::PF_NewWorld` and
+  `PF_PixelFormatSuite1::NewWorldOfPixelFormat`. Its `data` was the dangling
+  pointer of an empty buffer. FillColor and AnimatedNoise ask for a
+  `height / 4` x 8 world, so 0 x 8 on a layer under 4 pixels tall, and wrote
+  through that pointer unless it was null: they crashed in
+  `PF_Cmd_SMART_RENDER`.
+- The stream value of a layer parameter (`AEGP_GetNewStreamValue`) names the
+  layer when one is linked: without a project, the id `AEGP_GetLayerID` gives
+  the effect's layer, and 0 only for "None". It was always 0, so Furikake, which looks
+  a linked Z buffer or occlusion layer up by that id for its transform,
+  failed its smart pre-render.
+- `PF_Event_DRAG` hands the plugin back the `continue_refcon` that its click
+  (or the drag before it) left, as After Effects does, instead of zeros.
+  Curve editors that keep the point being dragged there, such as Falloff's
+  and Furikake's, ignored every drag.
+- `PF_Cmd_SMART_PRE_RENDER` hands the plugin a `GuidMixInPtr` callback in
+  `PF_PreRenderCallbacks` instead of a null pointer. Plugins that mix state
+  into the frame GUID without checking the pointer, such as Cosmic and
+  Falloff, crashed there. aexlo keeps no frame cache, so the callback checks
+  its arguments, records the call and returns success.
 
 ## [0.3.0] - 2026-11-23
 

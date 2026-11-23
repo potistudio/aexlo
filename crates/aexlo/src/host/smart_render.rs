@@ -6,17 +6,6 @@ use crate::PluginInstance;
 use crate::core::constants::{DEFAULT_HEIGHT as HEIGHT, DEFAULT_WIDTH as WIDTH};
 use crate::core::diagnostics::diag;
 
-/// aexlo renders every requested frame and does not reuse frames by GUID.
-/// Consequently no dependency bytes need to be retained until such a cache exists.
-unsafe extern "C" fn guid_mix_in_ptr(_effect_ref: PF_ProgPtr, size: A_u_long, data: *const std::ffi::c_void) -> PF_Err {
-	crate::core::ffi::guard("guid_mix_in_ptr", || {
-		if size != 0 && data.is_null() {
-			return PF_Err_BAD_CALLBACK_PARAM;
-		}
-		PF_Err_NONE
-	})
-}
-
 //==== Stub implementations ================================
 unsafe extern "C" fn checkout_layer_stub(
 	effect_ref: PF_ProgPtr,
@@ -127,6 +116,54 @@ unsafe extern "C" fn checkout_layer_stub(
 		);
 
 		PF_Err_NONE
+	})
+}
+
+/// `PF_PreRenderCallbacks::GuidMixInPtr`: the plugin mixes state that is not a
+/// parameter (sequence data, a palette table) into the GUID After Effects
+/// keys its frame cache with.
+///
+/// aexlo keeps no frame cache and renders every frame it is asked for, so
+/// there is no GUID for the bytes to change: accepting them is the whole
+/// behavior. The call is still checked and recorded, with a digest of the
+/// bytes so two pre-renders that mixed in different state can be told apart.
+unsafe extern "C" fn guid_mix_in(effect_ref: PF_ProgPtr, buf_size: A_u_long, buf: *const std::ffi::c_void) -> PF_Err {
+	crate::core::ffi::guard("guid_mix_in", || {
+		//== Validation ==//
+		if effect_ref.is_null() {
+			log::error!("GuidMixInPtr: effect_ref is null");
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+
+		if buf.is_null() && buf_size != 0 {
+			log::error!("GuidMixInPtr: buf is null but buf_sizeLu is {buf_size}");
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+
+		//== Implementation ==//
+		let bytes: &[u8] = if buf_size == 0 {
+			&[]
+		} else {
+			// SAFETY: `buf` is non-null (checked above) and the SDK contract is
+			// that it points at `buf_sizeLu` readable bytes for this call.
+			unsafe { std::slice::from_raw_parts(buf.cast::<u8>(), buf_size as usize) }
+		};
+
+		diag!("PF_PreRenderCallbacks/GuidMixInPtr",
+			"effect_ref" => format!("{:#x}", effect_ref as usize),
+			"buf_sizeLu" => buf_size,
+			"buf" => format!("{:#x}", buf as usize);
+			result: format!("fnv1a64 {:#018x}", fnv1a64(bytes)),
+		);
+
+		PF_Err_NONE
+	})
+}
+
+/// 64-bit FNV-1a, to name the bytes a plugin mixed into its GUID in a trace.
+fn fnv1a64(bytes: &[u8]) -> u64 {
+	bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &b| {
+		(hash ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
 	})
 }
 
@@ -345,13 +382,14 @@ mod tests {
 		let extra = state.pre_render_extra();
 		let callback = unsafe { (*extra.cb).GuidMixInPtr.expect("GUID callback") };
 		let bytes = [1u8, 2, 3];
+		let effect_ref = 1usize as PF_ProgPtr;
 		unsafe {
 			assert_eq!(
-				callback(null_mut(), bytes.len() as A_u_long, bytes.as_ptr().cast()),
+				callback(effect_ref, bytes.len() as A_u_long, bytes.as_ptr().cast()),
 				PF_Err_NONE
 			);
-			assert_eq!(callback(null_mut(), 0, null()), PF_Err_NONE);
-			assert_eq!(callback(null_mut(), 1, null()), PF_Err_BAD_CALLBACK_PARAM);
+			assert_eq!(callback(effect_ref, 0, null()), PF_Err_NONE);
+			assert_eq!(callback(effect_ref, 1, null()), PF_Err_BAD_CALLBACK_PARAM);
 		}
 	}
 
@@ -432,7 +470,7 @@ impl SmartRenderData {
 			pre_output: Box::new(empty_pre_render_output()),
 			pre_callbacks: Box::new(crate::sys::PF_PreRenderCallbacks {
 				checkout_layer: Some(checkout_layer_stub),
-				GuidMixInPtr: Some(guid_mix_in_ptr),
+				GuidMixInPtr: Some(guid_mix_in),
 			}),
 
 			input: Box::new(crate::sys::PF_SmartRenderInput {
@@ -583,5 +621,48 @@ impl SmartRenderData {
 		self.input.device_index = 0;
 		self.input.bitdepth = self.cpu_bitdepth;
 		self.input.gpu_data = null();
+	}
+}
+
+#[cfg(test)]
+mod guid_tests {
+	use super::*;
+
+	#[test]
+	fn guid_mix_in_accepts_bytes() {
+		let data = [1u8, 2, 3, 4];
+		let effect_ref = 1usize as PF_ProgPtr;
+		// SAFETY: `data` is 4 readable bytes; the callback only reads them.
+		let err = unsafe { guid_mix_in(effect_ref, data.len() as A_u_long, data.as_ptr().cast()) };
+		assert_eq!(err, PF_Err_NONE);
+		// SAFETY: a zero-length mix-in never reads `buf`.
+		assert_eq!(unsafe { guid_mix_in(effect_ref, 0, null()) }, PF_Err_NONE);
+	}
+
+	#[test]
+	fn guid_mix_in_rejects_bad_pointers() {
+		let data = [0u8; 8];
+		// SAFETY: both calls are refused before `buf` is read.
+		unsafe {
+			assert_eq!(
+				guid_mix_in(null_mut(), 8, data.as_ptr().cast()),
+				PF_Err_BAD_CALLBACK_PARAM
+			);
+			assert_eq!(guid_mix_in(1usize as PF_ProgPtr, 8, null()), PF_Err_BAD_CALLBACK_PARAM);
+		}
+	}
+
+	#[test]
+	fn pre_render_callbacks_offer_guid_mix_in() {
+		let mut data = SmartRenderData::new();
+		let extra = data.pre_render_extra();
+		// SAFETY: `extra.cb` points into `data`, which is alive.
+		assert!(unsafe { (*extra.cb).GuidMixInPtr }.is_some());
+	}
+
+	#[test]
+	fn fnv1a64_matches_reference() {
+		assert_eq!(fnv1a64(b""), 0xcbf2_9ce4_8422_2325);
+		assert_eq!(fnv1a64(b"a"), 0xaf63_dc4c_8601_ec8c);
 	}
 }

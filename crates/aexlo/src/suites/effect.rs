@@ -1,4 +1,4 @@
-//! `AEGP Effect Suite` (wire versions 1, 2, 3 and 4) and the `AEGP_EffectRefH`
+//! `AEGP Effect Suite` (wire versions 1 to 5) and the `AEGP_EffectRefH`
 //! handles it takes.
 //!
 //! aexlo hosts one effect on a synthetic layer per [`PluginInstance`]. An
@@ -10,12 +10,14 @@
 //! Wire version 1 is version 2 without `AEGP_DuplicateEffect`. Version 3 adds
 //! the command argument to `AEGP_EffectCallGeneric` (the same signature as
 //! version 4) but has no effect-mask calls. Version 4 appends those calls;
-//! aexlo's effects have no effect masks.
+//! aexlo's effects have no effect masks. Version 5 appends
+//! `AEGP_GetIsInternalEffect`, which takes an installed-effect key and so is
+//! refused like the rest of the registry.
 
 use crate::sys::{
-	A_Err, A_Err_GENERIC, A_Time, A_char, A_long, A_u_long, AEGP_EffectFlags, AEGP_EffectFlags_ACTIVE,
+	A_Boolean, A_Err, A_Err_GENERIC, A_Time, A_char, A_long, A_u_long, AEGP_EffectFlags, AEGP_EffectFlags_ACTIVE,
 	AEGP_EffectIndex, AEGP_EffectRefH, AEGP_EffectSuite1, AEGP_EffectSuite2, AEGP_EffectSuite3, AEGP_EffectSuite4,
-	AEGP_InstalledEffectKey, AEGP_LayerH, AEGP_MaskIDVal, AEGP_PluginID, AEGP_StreamRefH, PF_Cmd,
+	AEGP_EffectSuite5, AEGP_InstalledEffectKey, AEGP_LayerH, AEGP_MaskIDVal, AEGP_PluginID, AEGP_StreamRefH, PF_Cmd,
 	PF_Err_BAD_CALLBACK_PARAM, PF_Err_INVALID_INDEX, PF_Err_NONE, PF_ParamDef, PF_ParamDefUnion, PF_ParamIndex,
 	PF_ParamType, PF_ProgPtr,
 };
@@ -481,6 +483,16 @@ unsafe extern "C" fn set_effect_mask(
 	})
 }
 
+unsafe extern "C" fn get_is_internal_effect(
+	_installed_effect_key: AEGP_InstalledEffectKey,
+	_isInternal: *mut A_Boolean,
+) -> A_Err {
+	crate::core::ffi::guard("get_is_internal_effect", || {
+		diag!("AEGP_EffectSuite5/AEGP_GetIsInternalEffect");
+		unsupported("AEGP_GetIsInternalEffect")
+	})
+}
+
 /// Builds the `AEGP_EffectSuite1` vtable. Same calls as version 2, without
 /// `AEGP_DuplicateEffect`.
 pub(super) const fn create_effect_suite_1() -> AEGP_EffectSuite1 {
@@ -579,6 +591,36 @@ pub(super) const fn create_effect_suite_4() -> AEGP_EffectSuite4 {
 	}
 }
 
+/// Builds the `AEGP_EffectSuite5` vtable: version 4 plus
+/// `AEGP_GetIsInternalEffect`.
+pub(super) const fn create_effect_suite_5() -> AEGP_EffectSuite5 {
+	AEGP_EffectSuite5 {
+		AEGP_GetLayerNumEffects: Some(get_layer_num_effects),
+		AEGP_GetLayerEffectByIndex: Some(get_layer_effect_by_index),
+		AEGP_GetInstalledKeyFromLayerEffect: Some(get_installed_key_from_layer_effect),
+		AEGP_GetEffectParamUnionByIndex: Some(get_effect_param_union_by_index),
+		AEGP_GetEffectFlags: Some(get_effect_flags),
+		AEGP_SetEffectFlags: Some(set_effect_flags),
+		AEGP_ReorderEffect: Some(reorder_effect),
+		AEGP_EffectCallGeneric: Some(effect_call_generic_cmd),
+		AEGP_DisposeEffect: Some(dispose_effect),
+		AEGP_ApplyEffect: Some(apply_effect),
+		AEGP_DeleteLayerEffect: Some(delete_layer_effect),
+		AEGP_GetNumInstalledEffects: Some(get_num_installed_effects),
+		AEGP_GetNextInstalledEffect: Some(get_next_installed_effect),
+		AEGP_GetEffectName: Some(get_effect_name),
+		AEGP_GetEffectMatchName: Some(get_effect_match_name),
+		AEGP_GetEffectCategory: Some(get_effect_category),
+		AEGP_DuplicateEffect: Some(duplicate_effect),
+		AEGP_NumEffectMask: Some(num_effect_mask),
+		AEGP_GetEffectMaskID: Some(get_effect_mask_id),
+		AEGP_AddEffectMask: Some(add_effect_mask),
+		AEGP_RemoveEffectMask: Some(remove_effect_mask),
+		AEGP_SetEffectMask: Some(set_effect_mask),
+		AEGP_GetIsInternalEffect: Some(get_is_internal_effect),
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -648,6 +690,21 @@ mod tests {
 			assert_eq!(suite.AEGP_DisposeEffect.unwrap()(handle), PF_Err_NONE);
 		}
 		assert_eq!(n, 0);
+	}
+
+	#[test]
+	fn version_5_serves_handles_and_refuses_the_registry() {
+		let suite = create_effect_suite_5();
+		let handle = new_effect_handle(0x1234 as PF_ProgPtr);
+		let mut flags: AEGP_EffectFlags = 0;
+		let mut internal: A_Boolean = 7;
+		unsafe {
+			assert_eq!(suite.AEGP_GetEffectFlags.unwrap()(handle, &mut flags), PF_Err_NONE);
+			assert_ne!(suite.AEGP_GetIsInternalEffect.unwrap()(1, &mut internal), PF_Err_NONE);
+			assert_eq!(suite.AEGP_DisposeEffect.unwrap()(handle), PF_Err_NONE);
+		}
+		assert_eq!(flags, AEGP_EffectFlags_ACTIVE);
+		assert_eq!(internal, 7, "a refused call leaves the out-parameter alone");
 	}
 
 	#[test]

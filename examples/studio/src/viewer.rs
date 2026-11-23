@@ -859,10 +859,14 @@ fn update(s: &mut Studio, geo: Geo, pos: Pos2, mods: egui::Modifiers) {
 				PValue::Point3D([_, _, z]) => PValue::Point3D([x as f64, y as f64, z]),
 				_ => PValue::Point([x, y]),
 			};
+			if value == current {
+				return;
+			}
 			fx.params
 				.entry(index)
 				.or_insert_with(|| Anim::new(default))
 				.set(frame, value);
+			s.edited.insert((effect, index));
 		}
 		Drag::Vertex {
 			layer,

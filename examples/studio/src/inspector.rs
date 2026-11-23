@@ -1,11 +1,13 @@
 //! The right panel: the selected layer's contents, transform, masks and
 //! effect controls.
 
+use std::collections::HashMap;
+
 use aexlo::ParamKind;
 use eframe::egui::{self, Color32, RichText, SliderClamping};
 
 use crate::app::{PathTarget, Pen, Studio, Tool, palette};
-use crate::engine::{ParamDesc, PluginInfo};
+use crate::engine::{ParamDesc, Phase, PluginInfo};
 use crate::model::{
 	Anim, BezPath, BlendMode, Effect, Geometry, Id, Layer, LayerKind, MaskMode, PValue, ShapeItem, TextAlign,
 };
@@ -16,6 +18,12 @@ use crate::widgets::{self, anim_row, drag_f32, drag_xy};
 struct Actions {
 	about: Option<Id>,
 	press: Option<(Id, usize)>,
+	/// Effect parameters the user edited this frame.
+	edited: Vec<(Id, usize)>,
+	/// Custom controls shown this frame, at their size.
+	control_sizes: Vec<(Id, usize, u32, u32)>,
+	/// Mouse events on custom controls.
+	pointer: Vec<(Id, usize, (i32, i32), Phase)>,
 	move_effect: Option<(usize, isize)>,
 	remove_effect: Option<usize>,
 	select_effect: Option<Id>,
@@ -34,6 +42,7 @@ pub fn show(ui: &mut egui::Ui, s: &mut Studio) {
 	let comp = s.project.comp.clone();
 	let layer_names: Vec<(Id, String)> = s.project.layers.iter().map(|l| (l.id, l.name.clone())).collect();
 	let mut actions = Actions::default();
+	let held = s.held_control();
 
 	egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
 		let Studio {
@@ -42,6 +51,7 @@ pub fn show(ui: &mut egui::Ui, s: &mut Studio) {
 			param_flags,
 			sel,
 			last,
+			controls,
 			..
 		} = &mut *s;
 		let Some(layer) = project.layer_mut(id) else { return };
@@ -150,12 +160,25 @@ pub fn show(ui: &mut egui::Ui, s: &mut Studio) {
 							self_id: id,
 							masks: &masks,
 							pressed: None,
+							edited: Vec::new(),
+							controls,
+							held: held.filter(|(e, _)| *e == effect.id).map(|(_, i)| i),
+							control_sizes: Vec::new(),
+							pointer: Vec::new(),
 						};
 						let mut index = 1;
 						block(ui, &mut cx, effect, &mut index);
 						if let Some(param) = cx.pressed {
 							actions.press = Some((effect.id, param));
 						}
+						let id = effect.id;
+						actions.edited.extend(cx.edited.iter().map(|&param| (id, param)));
+						actions
+							.control_sizes
+							.extend(cx.control_sizes.iter().map(|&(i, w, h)| (id, i, w, h)));
+						actions
+							.pointer
+							.extend(cx.pointer.iter().map(|&(i, at, phase)| (id, i, at, phase)));
 					}
 				}
 			});
@@ -170,7 +193,14 @@ fn apply(s: &mut Studio, id: Id, actions: Actions) {
 		s.show_about(effect);
 	}
 	if let Some((effect, index)) = actions.press {
-		s.press_button(effect, index);
+		s.user_changed_param(effect, index);
+	}
+	s.edited.extend(actions.edited);
+	for (effect, index, width, height) in actions.control_sizes {
+		s.control_size(effect, index, width, height);
+	}
+	for (effect, index, at, phase) in actions.pointer {
+		s.control_pointer(effect, index, at, phase);
 	}
 	if let Some(effect) = actions.select_effect {
 		s.sel.effect = if s.sel.effect == Some(effect) {
@@ -533,6 +563,16 @@ struct ParamCx<'a> {
 	self_id: Id,
 	masks: &'a [(Id, String)],
 	pressed: Option<usize>,
+	/// Parameters whose value the user changed.
+	edited: Vec<usize>,
+	/// What each custom control last drew, by `(effect, index)`.
+	controls: &'a HashMap<(Id, usize), egui::TextureHandle>,
+	/// The custom control of this effect the mouse is held on.
+	held: Option<usize>,
+	/// Custom controls shown, with the size they are shown at.
+	control_sizes: Vec<(usize, u32, u32)>,
+	/// Mouse events on custom controls.
+	pointer: Vec<(usize, (i32, i32), Phase)>,
 }
 
 impl ParamCx<'_> {
@@ -547,6 +587,11 @@ impl ParamCx<'_> {
 	fn disabled(&self, i: usize) -> bool {
 		self.disabled.get(i).copied().unwrap_or(false)
 	}
+
+	/// Whether parameter `i` draws its own control (`PF_PUI_CONTROL`).
+	fn custom(&self, i: usize) -> bool {
+		self.info.params[i].custom_ui.is_some() && !matches!(self.kind(i), ParamKind::GroupStart | ParamKind::GroupEnd)
+	}
 }
 
 /// Parameters from `*i` up to the end of the enclosing group, nesting groups
@@ -558,7 +603,7 @@ fn block(ui: &mut egui::Ui, cx: &mut ParamCx, effect: &mut Effect, i: &mut usize
 			.num_columns(3)
 			.spacing([6.0, 3.0])
 			.show(ui, |ui| {
-				while *i < n && !matches!(cx.kind(*i), ParamKind::GroupStart | ParamKind::GroupEnd) {
+				while *i < n && !matches!(cx.kind(*i), ParamKind::GroupStart | ParamKind::GroupEnd) && !cx.custom(*i) {
 					if !cx.hidden(*i) {
 						row(ui, cx, effect, *i);
 					}
@@ -570,6 +615,12 @@ fn block(ui: &mut egui::Ui, cx: &mut ParamCx, effect: &mut Effect, i: &mut usize
 		}
 		let start = *i;
 		*i += 1;
+		if cx.custom(start) {
+			if !cx.hidden(start) {
+				custom_row(ui, cx, effect, start);
+			}
+			continue;
+		}
 		if cx.kind(start) == ParamKind::GroupEnd {
 			return;
 		}
@@ -599,6 +650,55 @@ fn skip_group(cx: &ParamCx, i: &mut usize) {
 	}
 }
 
+/// A parameter with a custom control: its standard row if it has a value,
+/// then the control the plugin draws, across the panel.
+fn custom_row(ui: &mut egui::Ui, cx: &mut ParamCx, effect: &mut Effect, index: usize) {
+	let info = cx.info;
+	let desc = &info.params[index];
+	if desc.default.is_some() {
+		egui::Grid::new(("custom-row", effect.id, index))
+			.num_columns(3)
+			.spacing([6.0, 3.0])
+			.show(ui, |ui| row(ui, cx, effect, index));
+	} else if !desc.name.trim().is_empty() {
+		ui.weak(desc.name.trim());
+	}
+	let enabled = !cx.disabled(index);
+	ui.add_enabled_ui(enabled, |ui| custom_control(ui, cx, effect.id, index));
+}
+
+/// The pixels custom control `index` drew, passing the mouse to the plugin.
+/// An edge the plugin left at 0 fills the panel's width, or 80 px high.
+fn custom_control(ui: &mut egui::Ui, cx: &mut ParamCx, effect: Id, index: usize) {
+	let (width, height) = cx.info.params[index].custom_ui.unwrap_or_default();
+	let width = width.unwrap_or_else(|| ui.available_width().floor().max(1.0) as u32);
+	let height = height.unwrap_or(80);
+	cx.control_sizes.push((index, width, height));
+	let size = egui::vec2(width as f32, height as f32);
+	let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+	match cx.controls.get(&(effect, index)) {
+		Some(texture) => {
+			let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+			ui.painter().image(texture.id(), rect, uv, Color32::WHITE);
+		}
+		None => {
+			ui.painter().rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
+		}
+	}
+	// The control's pixels are the panel's points.
+	let local = |p: egui::Pos2| ((p.x - rect.left()).floor() as i32, (p.y - rect.top()).floor() as i32);
+	let Some(pos) = response.interact_pointer_pos() else {
+		return;
+	};
+	if cx.held != Some(index) {
+		if response.is_pointer_button_down_on() || response.clicked() {
+			cx.pointer.push((index, local(pos), Phase::Down));
+		}
+	} else if ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO) {
+		cx.pointer.push((index, local(pos), Phase::Move));
+	}
+}
+
 fn row(ui: &mut egui::Ui, cx: &mut ParamCx, effect: &mut Effect, index: usize) {
 	let desc = &cx.info.params[index];
 	let name = if desc.name.is_empty() {
@@ -613,7 +713,12 @@ fn row(ui: &mut egui::Ui, cx: &mut ParamCx, effect: &mut Effect, index: usize) {
 		match desc.kind {
 			ParamKind::Layer => {
 				ui.label(&name);
-				ui.add_enabled_ui(enabled, |ui| layer_picker(ui, cx, effect, index));
+				if ui
+					.add_enabled_ui(enabled, |ui| layer_picker(ui, cx, effect, index))
+					.inner
+				{
+					cx.edited.push(index);
+				}
 			}
 			ParamKind::Button => {
 				// After Effects shows the name to the left and the label on
@@ -657,8 +762,8 @@ fn row(ui: &mut egui::Ui, cx: &mut ParamCx, effect: &mut Effect, index: usize) {
 		RichText::new(&name).weak()
 	});
 	label.context_menu(|ui| {
-		if ui.button("Reset to default").clicked() {
-			effect.params.remove(&index);
+		if ui.button("Reset to default").clicked() && effect.params.remove(&index).is_some() {
+			cx.edited.push(index);
 		}
 	});
 	let mut value = effect.params.get(&index).map_or(default.clone(), |a| a.at(cx.frame));
@@ -671,11 +776,13 @@ fn row(ui: &mut egui::Ui, cx: &mut ParamCx, effect: &mut Effect, index: usize) {
 			.entry(index)
 			.or_insert_with(|| Anim::new(default))
 			.set(cx.frame, value);
+		cx.edited.push(index);
 	}
 	ui.end_row();
 }
 
-fn layer_picker(ui: &mut egui::Ui, cx: &ParamCx, effect: &mut Effect, index: usize) {
+/// Whether the user picked a different layer.
+fn layer_picker(ui: &mut egui::Ui, cx: &ParamCx, effect: &mut Effect, index: usize) -> bool {
 	let current = effect.layers.get(&index).copied();
 	let label = |id: Option<Id>| match id {
 		None => "None".to_string(),
@@ -699,6 +806,7 @@ fn layer_picker(ui: &mut egui::Ui, cx: &ParamCx, effect: &mut Effect, index: usi
 				}
 			}
 		});
+	effect.layers.get(&index).copied() != current
 }
 
 fn value_editor(ui: &mut egui::Ui, value: &mut PValue, desc: &ParamDesc, masks: &[(Id, String)]) -> bool {

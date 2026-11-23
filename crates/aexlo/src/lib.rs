@@ -146,7 +146,7 @@ pub use instance::PluginEntryPoint;
 pub use param_value::{ParamKind, ParamValue};
 
 /// Typed flags and pixel formats a plugin declares.
-pub use flags::{OutFlags, OutFlags2, ParamUiFlags, PixelFormat};
+pub use flags::{OutFlags, OutFlags2, ParamFlags, ParamUiFlags, PixelFormat};
 
 /// The PiPL resource: what After Effects reads from a plugin before loading it.
 pub use pipl::{EffectVersion, Pipl, PiplProperty, PiplValue, Stage};

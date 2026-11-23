@@ -367,6 +367,18 @@ impl PluginInstance {
 			.map(|p| crate::ParamUiFlags::from_bits(p.ui_flags as u32))
 	}
 
+	/// Flags the plugin set on the parameter (`PF_ParamFlag_*`), or `None` if
+	/// `index` is out of range.
+	///
+	/// After Effects sends `PF_Cmd_USER_CHANGED_PARAM` ([`Self::user_changed_param`])
+	/// when the user edits a parameter with [`ParamFlags::SUPERVISE`](crate::ParamFlags::SUPERVISE).
+	/// Buttons are pressed through the same command.
+	pub fn param_flags(&self, index: usize) -> Option<crate::ParamFlags> {
+		self.params
+			.get(index)
+			.map(|p| crate::ParamFlags::from_bits(p.flags as u32))
+	}
+
 	/// Whether any parameter draws a custom control (`PF_PUI_CONTROL`).
 	///
 	/// After Effects opens that control from `PF_Cmd_EVENT`. The Options button

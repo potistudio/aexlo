@@ -59,6 +59,7 @@ pub(crate) mod drawbot;
 pub(crate) use drawbot::system_font;
 mod dynamic_stream;
 pub(crate) mod effect;
+mod effect_sequence_data;
 mod effect_ui;
 mod ffi;
 pub mod fill_matte;
@@ -165,6 +166,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 		unused_longA: [0; 1],
 	},
 	effect_ui: effect_ui::create_effect_ui_suite_1(),
+	effect_sequence_data: effect_sequence_data::create_effect_sequence_data_suite_1(),
 	effect_custom_ui1: effect_ui::create_effect_custom_ui_suite_1(),
 	effect_custom_ui2: effect_ui::create_effect_custom_ui_suite_2(),
 	overlay_theme: effect_ui::create_overlay_theme_suite_1(),
@@ -220,6 +222,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 	effect2: effect::create_effect_suite_2(),
 	effect3: effect::create_effect_suite_3(),
 	effect4: effect::create_effect_suite_4(),
+	effect5: effect::create_effect_suite_5(),
 	color_settings: color_settings::create_color_settings_suite_2(),
 	light: layer::create_light_suite_1(),
 	text_layer: text_layer::suite_1(),
@@ -241,6 +244,7 @@ pub static SUITE_CONTAINER: SuiteContainer = SuiteContainer {
 pub struct SuiteContainer {
 	pub ansi: PF_ANSICallbacksBlock,
 	pub effect_ui: PF_EffectUISuite1,
+	pub effect_sequence_data: PF_EffectSequenceDataSuite1,
 	pub effect_custom_ui1: PF_EffectCustomUISuite1,
 	pub effect_custom_ui2: PF_EffectCustomUISuite2,
 	pub overlay_theme: PF_EffectCustomUIOverlayThemeSuite1,
@@ -296,6 +300,7 @@ pub struct SuiteContainer {
 	pub effect2: AEGP_EffectSuite2,
 	pub effect3: AEGP_EffectSuite3,
 	pub effect4: AEGP_EffectSuite4,
+	pub effect5: AEGP_EffectSuite5,
 	pub color_settings: AEGP_ColorSettingsSuite2,
 	pub light: AEGP_LightSuite1,
 	pub text_layer: AEGP_TextLayerSuite1,
@@ -349,6 +354,7 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		// Static suites: pointers into the shared SUITE_CONTAINER.
 		("PF ANSI Suite", 1) => dispatch_static!(suite, suite_name, version, ansi),
 		("PF Effect UI Suite", 1) => dispatch_static!(suite, suite_name, version, effect_ui),
+		("PF Effect Sequence Data Suite", 1) => dispatch_static!(suite, suite_name, version, effect_sequence_data),
 		("PF Effect Custom UI Suite", 1) => dispatch_static!(suite, suite_name, version, effect_custom_ui1),
 		("PF Effect Custom UI Suite", 2) => dispatch_static!(suite, suite_name, version, effect_custom_ui2),
 		("PF Effect Custom UI Overlay Theme Suite", 1) => {
@@ -464,11 +470,13 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("AEGP Keyframe Suite", 4) => dispatch_static!(suite, suite_name, version, keyframe),
 		("AEGP Keyframe Suite", 5) => dispatch_static!(suite, suite_name, version, keyframe5),
 		// Effect Suite v1 is v2 without DuplicateEffect. v3 adds the command
-		// argument to EffectCallGeneric; v4 appends the effect-mask calls.
+		// argument to EffectCallGeneric; v4 appends the effect-mask calls and
+		// v5 appends GetIsInternalEffect.
 		("AEGP Effect Suite", 1) => dispatch_static!(suite, suite_name, version, effect1),
 		("AEGP Effect Suite", 2) => dispatch_static!(suite, suite_name, version, effect2),
 		("AEGP Effect Suite", 3) => dispatch_static!(suite, suite_name, version, effect3),
 		("AEGP Effect Suite", 4) => dispatch_static!(suite, suite_name, version, effect4),
+		("AEGP Effect Suite", 5) => dispatch_static!(suite, suite_name, version, effect5),
 		("PF Color Settings Suite", v) if v == kAEGPColorSettingsSuiteVersion2 as i32 => {
 			dispatch_static!(suite, suite_name, version, color_settings)
 		}
@@ -770,6 +778,7 @@ mod tests {
 			("AEGP Effect Suite", 2),
 			("AEGP Effect Suite", 3),
 			("AEGP Effect Suite", 4),
+			("AEGP Effect Suite", 5),
 			("AEGP Iterate Suite", 1),
 			("AEGP Layer Suite", 5),
 			("AEGP Layer Suite", 8),

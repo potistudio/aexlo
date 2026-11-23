@@ -7,7 +7,7 @@
 //! including hidden ones; a link back to the layer being rendered reads its
 //! source before effects, and cycles are cut.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use aexlo::{Depth8, ParamKind, PluginInstance};
 use tiny_skia::{FilterQuality, Pixmap, PixmapPaint};
 
-use crate::model::{BlendMode, Effect, Id, Layer, LayerKind, PValue, Project};
+use crate::model::{Anim, BlendMode, Effect, Id, Layer, LayerKind, PValue, Project};
 use crate::plugins;
 use crate::raster::{Fonts, Image, ImageCache, mask_coverage, render_shapes, render_text};
 
@@ -34,6 +34,9 @@ pub struct ParamDesc {
 	pub choices: Option<Vec<String>>,
 	/// The text on a button, which After Effects shows apart from its name.
 	pub button_label: Option<String>,
+	/// The size a custom control (`PF_PUI_CONTROL`) declared, with `None`
+	/// for an edge the Effect Controls panel fills. `None` without a control.
+	pub custom_ui: Option<(Option<u32>, Option<u32>)>,
 }
 
 /// What a loaded plugin told us about itself.
@@ -63,17 +66,25 @@ impl PluginInfo {
 	}
 }
 
+/// The project and frame the UI showed when it sent a request.
+#[derive(Clone)]
+pub struct Snapshot {
+	pub project: Arc<Project>,
+	pub frame: i32,
+	pub generation: u64,
+	/// The last [`Event::ParamsChanged`] (`seq`) the UI applied to `project`.
+	/// Values the plugin set after it are not in `project` yet.
+	pub seen: u64,
+}
+
 pub enum Request {
-	Render {
-		project: Arc<Project>,
-		frame: i32,
-		generation: u64,
-	},
-	/// Press a button parameter (`PF_Cmd_USER_CHANGED_PARAM`), then re-render.
-	Button {
-		project: Arc<Project>,
-		frame: i32,
-		generation: u64,
+	Render(Snapshot),
+	/// The user finished editing parameter `index`, or pressed a button.
+	/// Renders, tells the plugin (`PF_Cmd_USER_CHANGED_PARAM`) if the
+	/// parameter is a button or the plugin supervises it, then renders the
+	/// values the plugin changed.
+	Changed {
+		snap: Snapshot,
 		effect: Id,
 		index: usize,
 	},
@@ -82,7 +93,33 @@ pub enum Request {
 	About {
 		effect: Id,
 	},
+	/// The inspector shows custom control `index` of `effect` at this size.
+	/// The engine draws it (`PF_Event_DRAW`) and keeps drawing it there.
+	ControlSize {
+		effect: Id,
+		index: usize,
+		width: u32,
+		height: u32,
+	},
+	/// The mouse on custom control `index` of `effect`, in the control's own
+	/// pixels. Down is `PF_Event_DO_CLICK`; Move and Up are `PF_Event_DRAG`
+	/// while the plugin asked for drags, Up being the last.
+	Pointer {
+		snap: Snapshot,
+		effect: Id,
+		index: usize,
+		x: i32,
+		y: i32,
+		phase: Phase,
+	},
 	Export(ExportJob),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+	Down,
+	Move,
+	Up,
 }
 
 pub enum ExportKind {
@@ -96,6 +133,8 @@ pub enum ExportKind {
 
 pub struct ExportJob {
 	pub project: Arc<Project>,
+	/// As [`Snapshot::seen`].
+	pub seen: u64,
 	pub start: i32,
 	pub end: i32,
 	pub kind: ExportKind,
@@ -124,14 +163,23 @@ pub enum Event {
 		hidden: Vec<bool>,
 		disabled: Vec<bool>,
 	},
-	/// The plugin changed parameter values itself (from a button press).
+	/// The plugin changed parameter values itself (from
+	/// `PF_Cmd_USER_CHANGED_PARAM` or a custom control). Numbered from 1, for
+	/// [`Snapshot::seen`].
 	ParamsChanged {
+		seq: u64,
 		effect: Id,
 		frame: i32,
 		values: Vec<(usize, PValue)>,
 	},
 	/// What the plugin answered to `PF_Cmd_ABOUT`.
 	About(Result<String, String>),
+	/// What custom control `index` of `effect` drew.
+	Control {
+		effect: Id,
+		index: usize,
+		image: Image,
+	},
 	ExportProgress {
 		done: i32,
 		total: i32,
@@ -292,19 +340,11 @@ impl Engine {
 		let thread = std::thread::Builder::new()
 			.name("aexlo-render".into())
 			.spawn(move || {
-				Worker {
-					slots: HashMap::new(),
-					sources: HashMap::new(),
-					images: ImageCache::default(),
-					fonts: Fonts::new(),
-					notify: Notify {
-						tx: events_tx,
-						repaint: Box::new(repaint),
-					},
-					cancel,
-					closing: worker_closing,
-				}
-				.run(requests)
+				let notify = Notify {
+					tx: events_tx,
+					repaint: Box::new(repaint),
+				};
+				Worker::new(notify, cancel, worker_closing).run(requests)
 			})
 			.expect("spawn render thread");
 		Self {
@@ -396,6 +436,10 @@ struct Slot {
 	linked: BTreeSet<usize>,
 	hidden: Vec<bool>,
 	disabled: Vec<bool>,
+	/// Custom controls the inspector shows, at the size it shows them.
+	controls: BTreeMap<usize, (u32, u32)>,
+	/// The custom control the plugin wants `PF_Event_DRAG` for until mouse-up.
+	dragging: Option<usize>,
 }
 
 impl Slot {
@@ -413,7 +457,70 @@ impl Slot {
 			linked: BTreeSet::new(),
 			hidden: Vec::new(),
 			disabled: Vec::new(),
+			controls: BTreeMap::new(),
+			dragging: None,
 		}
+	}
+
+	/// Write the values `effect` has at `frame` that the instance does not hold
+	/// yet, with point defaults for a `self.size` input; whether any changed.
+	/// The keyframes go along, timed by `clock`, so that checkouts at other
+	/// times are right.
+	fn apply_values(&mut self, effect: &Effect, frame: i32, clock: crate::bridge::Clock) -> bool {
+		let (Some(info), Ok(fx)) = (&self.info, &mut self.instance) else {
+			return false;
+		};
+		let mut changed = false;
+		for desc in &info.params {
+			let Some(default) = info.default_value(desc.index, self.size) else {
+				continue;
+			};
+			let anim = effect.params.get(&desc.index);
+			let value = anim.map_or(default, |a| a.at(frame));
+			let track = anim.and_then(|a| clock.param(a));
+			let unchanged = self.applied.get(&desc.index) == Some(&value);
+			if unchanged && fx.param_track(desc.index) == track.as_ref() {
+				continue;
+			}
+			let set = match track {
+				Some(track) if fx.param_track(desc.index) == Some(&track) => Ok(()),
+				Some(track) => fx.set_param_track(desc.index, track),
+				None => fx.set_param(desc.index, (&value).into()),
+			};
+			if let Err(e) = set {
+				log::warn!("{}: setting parameter {} failed: {e}", self.plugin, desc.index);
+			}
+			self.applied.insert(desc.index, value);
+			changed = true;
+		}
+		changed
+	}
+
+	/// Draw the custom controls the inspector shows (only `index`, if given).
+	fn draw_controls(&mut self, index: Option<usize>) -> Vec<(usize, Image)> {
+		let Ok(fx) = &mut self.instance else { return Vec::new() };
+		let mut out = Vec::new();
+		for (&i, &(w, h)) in &self.controls {
+			if index.is_some_and(|only| only != i) {
+				continue;
+			}
+			// Asking to be drawn again is ignored: the control is redrawn after
+			// every edit, and a plugin that always asks would never stop.
+			if let Err(e) = fx.draw_custom_control(i, w, h) {
+				log::debug!("{}: drawing control {i} failed: {e}", self.plugin);
+			}
+			if let Some(image) = fx.custom_control_image(i) {
+				out.push((
+					i,
+					Image {
+						width: image.width,
+						height: image.height,
+						pixels: image.rgba.clone(),
+					},
+				));
+			}
+		}
+		out
 	}
 
 	/// Re-read the hidden/disabled flags; whether they changed.
@@ -426,6 +533,29 @@ impl Slot {
 		self.disabled = disabled;
 		changed
 	}
+}
+
+/// Drop pointer moves that a later move on the same control replaces.
+fn coalesce_moves(queue: Vec<Request>) -> Vec<Request> {
+	let moves = |r: &Request| match r {
+		Request::Pointer {
+			effect,
+			index,
+			phase: Phase::Move,
+			..
+		} => Some((*effect, *index)),
+		_ => None,
+	};
+	let mut out: Vec<Request> = Vec::with_capacity(queue.len());
+	for request in queue {
+		if let (Some(control), Some(prev)) = (moves(&request), out.last())
+			&& moves(prev) == Some(control)
+		{
+			out.pop();
+		}
+		out.push(request);
+	}
+	out
 }
 
 fn describe(fx: &PluginInstance) -> PluginInfo {
@@ -442,6 +572,9 @@ fn describe(fx: &PluginInstance) -> PluginInfo {
 				range: fx.param_slider_range(index),
 				choices: fx.param_choices(index),
 				button_label: fx.param_button_label(index).map(str::to_string),
+				custom_ui: fx
+					.param_has_custom_ui(index)
+					.then(|| fx.custom_control_size(index).unwrap_or_default()),
 			})
 			.collect(),
 	}
@@ -492,40 +625,78 @@ struct Worker {
 	cancel: Arc<AtomicBool>,
 	/// The window is closing: start nothing more.
 	closing: Arc<AtomicBool>,
+	/// Values the plugin set that the UI has not applied yet, by `seq`.
+	unacked: Vec<Unacked>,
+	next_seq: u64,
+}
+
+/// One [`Event::ParamsChanged`] the UI may not have applied yet.
+struct Unacked {
+	seq: u64,
+	effect: Id,
+	frame: i32,
+	values: Vec<(usize, PValue)>,
 }
 
 impl Worker {
+	fn new(notify: Notify, cancel: Arc<AtomicBool>, closing: Arc<AtomicBool>) -> Self {
+		Self {
+			slots: HashMap::new(),
+			sources: HashMap::new(),
+			images: ImageCache::default(),
+			fonts: Fonts::new(),
+			notify,
+			cancel,
+			closing,
+			unacked: Vec::new(),
+			next_seq: 1,
+		}
+	}
+
 	fn run(mut self, requests: Receiver<Request>) {
 		while let Some(first) = wait_request(&requests) {
 			let mut queue = vec![first];
 			queue.extend(requests.try_iter());
+			let queue = coalesce_moves(queue);
 			// Only the newest render matters; everything else runs in order.
-			let newest = queue.iter().rposition(|r| matches!(r, Request::Render { .. }));
+			let newest = queue.iter().rposition(|r| matches!(r, Request::Render(_)));
+			let last = queue.len() - 1;
 			for (i, request) in queue.into_iter().enumerate() {
 				if self.closing.load(Ordering::Relaxed) {
 					return;
 				}
 				match request {
-					Request::Render { .. } if Some(i) != newest => {}
-					Request::Render {
-						project,
-						frame,
-						generation,
-					} => {
-						let result = self.render(&project, frame, generation);
+					Request::Render(_) if Some(i) != newest => {}
+					Request::Render(snap) => {
+						let result = self.render_snapshot(&snap);
 						self.notify.send(Event::Frame(Box::new(result)));
 					}
-					Request::Button {
-						project,
-						frame,
-						generation,
+					Request::Changed { snap, effect, index } => {
+						let mut result = self.render_snapshot(&snap);
+						if self.user_changed_param(&snap, effect, index) {
+							result = self.render_snapshot(&snap);
+						}
+						self.notify.send(Event::Frame(Box::new(result)));
+					}
+					Request::ControlSize {
 						effect,
 						index,
+						width,
+						height,
+					} => self.control_size(effect, index, width, height),
+					Request::Pointer {
+						snap,
+						effect,
+						index,
+						x,
+						y,
+						phase,
 					} => {
-						self.render(&project, frame, generation);
-						self.press_button(effect, index, frame);
-						let result = self.render(&project, frame, generation);
-						self.notify.send(Event::Frame(Box::new(result)));
+						// Later pointer samples render for this one.
+						if self.pointer(&snap, effect, index, (x, y), phase) && i == last {
+							let result = self.render_snapshot(&snap);
+							self.notify.send(Event::Frame(Box::new(result)));
+						}
 					}
 					Request::About { effect } => self.about(effect),
 					Request::Export(job) => {
@@ -535,6 +706,32 @@ impl Worker {
 				}
 			}
 		}
+	}
+
+	/// `snap.project` with the values the plugin set that the UI had not
+	/// applied when it sent `snap`, so rendering it does not undo them.
+	fn resolve(&mut self, snap: &Snapshot) -> Arc<Project> {
+		self.unacked.retain(|u| u.seq > snap.seen);
+		if self.unacked.is_empty() {
+			return snap.project.clone();
+		}
+		let mut project = (*snap.project).clone();
+		for u in &self.unacked {
+			if let Some(fx) = project.effect_mut(u.effect) {
+				for (index, value) in &u.values {
+					fx.params
+						.entry(*index)
+						.or_insert_with(|| Anim::new(value.clone()))
+						.set(u.frame, value.clone());
+				}
+			}
+		}
+		Arc::new(project)
+	}
+
+	fn render_snapshot(&mut self, snap: &Snapshot) -> FrameResult {
+		let project = self.resolve(snap);
+		self.render(&project, snap.frame, snap.generation)
 	}
 
 	/// Load every effect in the project (so the UI gets their parameters even
@@ -779,9 +976,8 @@ impl Worker {
 			.ok();
 		let clock = crate::bridge::Clock::of(layer, ctx.project);
 		let slot = self.slots.get_mut(&effect.id).ok_or("not loaded")?;
-		let info = slot.info.clone();
+		slot.info.as_ref().ok_or("no plugin info")?;
 		let fx = slot.instance.as_mut().map_err(|e| format!("failed to load: {e}"))?;
-		let info = info.ok_or("no plugin info")?;
 		let (w, h) = (input.width, input.height);
 
 		fx.set_input_layer(to_layer(input)?);
@@ -794,30 +990,8 @@ impl Worker {
 			slot.size = (w, h);
 		}
 
-		let mut changed = false;
-		for desc in &info.params {
-			let Some(default) = info.default_value(desc.index, (w, h)) else {
-				continue;
-			};
-			let anim = effect.params.get(&desc.index);
-			let value = anim.map_or(default, |a| a.at(ctx.frame));
-			// The keyframes go along, so checkouts at other times are right.
-			let track = anim.and_then(|a| clock.param(a));
-			let unchanged = slot.applied.get(&desc.index) == Some(&value);
-			if unchanged && fx.param_track(desc.index) == track.as_ref() {
-				continue;
-			}
-			let set = match track {
-				Some(track) if fx.param_track(desc.index) == Some(&track) => Ok(()),
-				Some(track) => fx.set_param_track(desc.index, track),
-				None => fx.set_param(desc.index, (&value).into()),
-			};
-			if let Err(e) = set {
-				log::warn!("{}: setting parameter {} failed: {e}", slot.plugin, desc.index);
-			}
-			slot.applied.insert(desc.index, value);
-			changed = true;
-		}
+		let changed = slot.apply_values(effect, ctx.frame, clock);
+		let Ok(fx) = &mut slot.instance else { unreachable!() };
 
 		fx.set_mask_paths(layer.masks.iter().map(mask_path).collect());
 
@@ -841,6 +1015,13 @@ impl Worker {
 					effect: effect.id,
 					hidden: slot.hidden.clone(),
 					disabled: slot.disabled.clone(),
+				});
+			}
+			for (index, image) in slot.draw_controls(None) {
+				self.notify.send(Event::Control {
+					effect: effect.id,
+					index,
+					image,
 				});
 			}
 		}
@@ -871,15 +1052,96 @@ impl Worker {
 		self.notify.send(Event::About(answer));
 	}
 
-	fn press_button(&mut self, effect: Id, index: usize, frame: i32) {
+	/// Send `PF_Cmd_USER_CHANGED_PARAM` for parameter `index` of `effect` if
+	/// After Effects would: for a button, or a parameter the plugin declared
+	/// with `PF_ParamFlag_SUPERVISE`. Whether it was sent.
+	fn user_changed_param(&mut self, snap: &Snapshot, effect: Id, index: usize) -> bool {
+		let Some(Ok(fx)) = self.slots.get(&effect).map(|s| &s.instance) else {
+			return false;
+		};
+		let button = fx.param_kind(index) == Some(ParamKind::Button);
+		let supervised = fx
+			.param_flags(index)
+			.is_some_and(|f| f.contains(aexlo::ParamFlags::SUPERVISE));
+		if !button && !supervised {
+			return false;
+		}
+		self.sync_effect(snap, effect);
+		let Some(slot) = self.slots.get_mut(&effect) else {
+			return false;
+		};
+		let Ok(fx) = &mut slot.instance else { return false };
+		if let Err(e) = fx.user_changed_param(index) {
+			log::warn!("{}: PF_Cmd_USER_CHANGED_PARAM({index}) failed: {e}", slot.plugin);
+		}
+		self.plugin_edited(effect, snap.frame);
+		true
+	}
+
+	/// Write the values `effect` has in `snap` to its instance before a user
+	/// action reaches the plugin: the render skips disabled effects and layers
+	/// outside their time, so it may not have.
+	fn sync_effect(&mut self, snap: &Snapshot, effect: Id) {
+		let project = self.resolve(snap);
+		let Some(slot) = self.slots.get_mut(&effect) else {
+			return;
+		};
+		if let Some((layer, model)) = project.effect(effect) {
+			if slot.size == (0, 0) {
+				slot.size = slot.info.as_ref().map_or((0, 0), |i| i.load_size);
+			}
+			slot.apply_values(model, snap.frame, crate::bridge::Clock::of(layer, &project));
+		}
+	}
+
+	/// Draw custom control `index` of `effect` at `width` x `height` from now on.
+	fn control_size(&mut self, effect: Id, index: usize, width: u32, height: u32) {
+		let Some(slot) = self.slots.get_mut(&effect) else {
+			return;
+		};
+		slot.controls.insert(index, (width.max(1), height.max(1)));
+		for (index, image) in slot.draw_controls(Some(index)) {
+			self.notify.send(Event::Control { effect, index, image });
+		}
+	}
+
+	/// Send a mouse event to custom control `index` of `effect`, at `(x, y)`
+	/// in its pixels. Whether the plugin got it.
+	fn pointer(&mut self, snap: &Snapshot, effect: Id, index: usize, (x, y): (i32, i32), phase: Phase) -> bool {
+		let Some(slot) = self.slots.get(&effect) else {
+			return false;
+		};
+		if phase != Phase::Down && slot.dragging != Some(index) || !slot.controls.contains_key(&index) {
+			return false;
+		}
+		self.sync_effect(snap, effect);
+		let Some(slot) = self.slots.get_mut(&effect) else {
+			return false;
+		};
+		let (w, h) = slot.controls[&index];
+		let Ok(fx) = &mut slot.instance else { return false };
+		let result = match phase {
+			Phase::Down => fx.click_custom_control(index, x, y, w, h),
+			Phase::Move | Phase::Up => fx.drag_custom_control(index, x, y, w, h, phase == Phase::Up),
+		};
+		slot.dragging = match &result {
+			Ok(event) if event.send_drag && phase != Phase::Up => Some(index),
+			_ => None,
+		};
+		if let Err(e) = result {
+			log::warn!("{}: custom control {index} {phase:?} failed: {e}", slot.plugin);
+		}
+		self.plugin_edited(effect, snap.frame);
+		true
+	}
+
+	/// After the plugin handled a user action itself: tell the UI the values,
+	/// UI flags and custom controls it changed.
+	fn plugin_edited(&mut self, effect: Id, frame: i32) {
 		let Some(slot) = self.slots.get_mut(&effect) else {
 			return;
 		};
 		let Ok(fx) = &mut slot.instance else { return };
-		if let Err(e) = fx.user_changed_param(index) {
-			log::warn!("{}: button {index} failed: {e}", slot.plugin);
-		}
-		// The plugin may have changed other parameters in response.
 		let mut values = Vec::new();
 		for (i, value) in fx.param_values() {
 			let Some(value) = PValue::from_param(value) else {
@@ -898,8 +1160,24 @@ impl Worker {
 				disabled: slot.disabled.clone(),
 			});
 		}
+		for (index, image) in slot.draw_controls(None) {
+			self.notify.send(Event::Control { effect, index, image });
+		}
 		if !values.is_empty() {
-			self.notify.send(Event::ParamsChanged { effect, frame, values });
+			let seq = self.next_seq;
+			self.next_seq += 1;
+			self.unacked.push(Unacked {
+				seq,
+				effect,
+				frame,
+				values: values.clone(),
+			});
+			self.notify.send(Event::ParamsChanged {
+				seq,
+				effect,
+				frame,
+				values,
+			});
 		}
 	}
 
@@ -917,12 +1195,18 @@ impl Worker {
 		if !matches!(job.kind, ExportKind::Png(_)) {
 			std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
 		}
+		let project = self.resolve(&Snapshot {
+			project: job.project.clone(),
+			frame: start,
+			generation: 0,
+			seen: job.seen,
+		});
 		let result = (|| {
 			for (n, frame) in (start..=end).enumerate() {
 				if self.cancel.load(Ordering::Relaxed) {
 					return Err("export cancelled".to_string());
 				}
-				let image = self.render(&job.project, frame, 0).image;
+				let image = self.render(&project, frame, 0).image;
 				// A frame cut short by closing must not be saved.
 				if self.closing.load(Ordering::Relaxed) {
 					return Err("export cancelled".to_string());
@@ -1036,18 +1320,24 @@ mod tests {
 	use aexlo_fixture_gate::needs_fixture;
 
 	fn worker() -> Worker {
-		Worker {
-			slots: HashMap::new(),
-			sources: HashMap::new(),
-			images: ImageCache::default(),
-			fonts: Fonts::new(),
-			notify: Notify {
-				tx: channel().0,
-				repaint: Box::new(|| {}),
-			},
-			cancel: Arc::new(AtomicBool::new(false)),
-			closing: Arc::new(AtomicBool::new(false)),
-		}
+		listening_worker().0
+	}
+
+	/// A worker and the events it sends.
+	fn listening_worker() -> (Worker, Receiver<Event>) {
+		let (tx, rx) = channel();
+		let notify = Notify {
+			tx,
+			repaint: Box::new(|| {}),
+		};
+		(
+			Worker::new(
+				notify,
+				Arc::new(AtomicBool::new(false)),
+				Arc::new(AtomicBool::new(false)),
+			),
+			rx,
+		)
 	}
 
 	fn project(width: u32, height: u32) -> Project {
@@ -1196,6 +1486,7 @@ mod tests {
 		const FRAMES: i32 = 100_000;
 		engine.send(Request::Export(ExportJob {
 			project: Arc::new(p),
+			seen: 0,
 			start: 0,
 			end: FRAMES - 1,
 			kind: ExportKind::Sequence(dir.clone()),
@@ -1253,6 +1544,165 @@ mod tests {
 		// 25% of 64 px: the block at x 16..32 moves to 32..48.
 		assert_eq!(at(&result.image, 40, 8), [255, 0, 0, 255]);
 		assert_eq!(at(&result.image, 20, 8)[3], 0);
+	}
+
+	/// BitonicPixelSorter supervises its Mode popup. Editing Mode reaches the
+	/// plugin, even with the effect off, and editing a parameter it does not
+	/// supervise does not.
+	#[needs_fixture("BitonicPixelSorter")]
+	#[test]
+	fn user_changed_param_follows_supervise() {
+		require_fixture("BitonicPixelSorter");
+		let mut p = project(16, 16);
+		let mut layer = solid(&mut p, "s", [1.0; 4], 16, 16);
+		let sorter = effect(&mut p, "BitonicPixelSorter", &[]);
+		let id = sorter.id;
+		layer.effects.push(sorter);
+		p.layers.push(layer);
+		let mut w = worker();
+		w.render(&p, 0, 1);
+
+		let fx = w.slots[&id].instance.as_ref().unwrap();
+		let supervised = |i: usize| {
+			fx.param_flags(i)
+				.is_some_and(|f| f.contains(aexlo::ParamFlags::SUPERVISE))
+		};
+		let has_value = |i: usize| fx.get_param(i).and_then(PValue::from_param).is_some();
+		let mode = (1..fx.param_count())
+			.find(|&i| supervised(i) && fx.param_kind(i) == Some(ParamKind::Popup))
+			.expect("a supervised popup");
+		let plain = (1..fx.param_count())
+			.find(|&i| !supervised(i) && has_value(i) && fx.param_kind(i) != Some(ParamKind::Button))
+			.expect("an unsupervised parameter");
+
+		let snap = |p: &Project| Snapshot {
+			project: Arc::new(p.clone()),
+			frame: 0,
+			generation: 1,
+			seen: 0,
+		};
+		assert!(!w.user_changed_param(&snap(&p), id, plain));
+
+		p.layers[0].effects[0].enabled = false;
+		p.layers[0].effects[0].params.insert(mode, Anim::new(PValue::Popup(2)));
+		assert!(w.user_changed_param(&snap(&p), id, mode));
+		let fx = w.slots[&id].instance.as_ref().unwrap();
+		assert_eq!(fx.get_param(mode).and_then(PValue::from_param), Some(PValue::Popup(2)));
+	}
+
+	/// Falloff draws its curve editor, and dragging the middle point of
+	/// "Curve" switches "Curve Preset" to Custom. A render from a project that
+	/// has not taken that value yet keeps it.
+	#[needs_fixture("Falloff")]
+	#[test]
+	fn custom_controls_draw_and_follow_the_mouse() {
+		require_fixture("Falloff");
+		const CURVE_PRESET: usize = 53;
+		const CURVE: usize = 54;
+		let mut p = project(32, 32);
+		let mut layer = solid(&mut p, "s", [1.0; 4], 32, 32);
+		let falloff = effect(&mut p, "Falloff", &[]);
+		let id = falloff.id;
+		layer.effects.push(falloff);
+		p.layers.push(layer);
+		let (mut w, events) = listening_worker();
+		let snap = Snapshot {
+			project: Arc::new(p),
+			frame: 0,
+			generation: 1,
+			seen: 0,
+		};
+		w.render_snapshot(&snap);
+		let info = w.slots[&id].info.clone().unwrap();
+		assert_eq!(info.params[CURVE].custom_ui, Some((Some(240), Some(180))));
+		assert_eq!(info.params[CURVE_PRESET].custom_ui, None);
+
+		w.control_size(id, CURVE, 240, 180);
+		let drawn = |events: &Receiver<Event>| {
+			events
+				.try_iter()
+				.filter_map(|e| match e {
+					Event::Control {
+						index: CURVE, image, ..
+					} => Some(image),
+					_ => None,
+				})
+				.last()
+		};
+		let before = drawn(&events).expect("the curve is drawn");
+		assert_eq!((before.width, before.height), (240, 180));
+
+		assert!(w.pointer(&snap, id, CURVE, (120, 90), Phase::Down));
+		assert_eq!(w.slots[&id].dragging, Some(CURVE));
+		assert!(w.pointer(&snap, id, CURVE, (140, 60), Phase::Move));
+		assert!(w.pointer(&snap, id, CURVE, (140, 60), Phase::Up));
+		assert_eq!(w.slots[&id].dragging, None);
+		assert!(
+			!w.pointer(&snap, id, CURVE, (150, 50), Phase::Move),
+			"no drag after mouse-up"
+		);
+
+		let (mut changed, mut after) = (Vec::new(), None);
+		for event in events.try_iter() {
+			match event {
+				Event::ParamsChanged { seq, values, .. } => changed.push((seq, values)),
+				Event::Control {
+					index: CURVE, image, ..
+				} => after = Some(image),
+				_ => {}
+			}
+		}
+		assert_eq!(changed, [(1, vec![(CURVE_PRESET, PValue::Popup(8))])]);
+		assert!(after.expect("redrawn").pixels != before.pixels, "the point moved");
+
+		w.render_snapshot(&snap);
+		let fx = w.slots[&id].instance.as_ref().unwrap();
+		assert_eq!(
+			fx.get_param(CURVE_PRESET).and_then(PValue::from_param),
+			Some(PValue::Popup(8))
+		);
+	}
+
+	#[test]
+	fn pointer_moves_on_one_control_coalesce() {
+		let snap = Snapshot {
+			project: Arc::new(project(1, 1)),
+			frame: 0,
+			generation: 0,
+			seen: 0,
+		};
+		let at = |index, phase| Request::Pointer {
+			snap: snap.clone(),
+			effect: 1,
+			index,
+			x: 0,
+			y: 0,
+			phase,
+		};
+		let kept: Vec<_> = coalesce_moves(vec![
+			at(1, Phase::Down),
+			at(1, Phase::Move),
+			at(1, Phase::Move),
+			at(2, Phase::Move),
+			at(1, Phase::Move),
+			at(1, Phase::Up),
+		])
+		.into_iter()
+		.map(|r| match r {
+			Request::Pointer { index, phase, .. } => (index, phase),
+			_ => unreachable!(),
+		})
+		.collect();
+		assert_eq!(
+			kept,
+			[
+				(1, Phase::Down),
+				(1, Phase::Move),
+				(2, Phase::Move),
+				(1, Phase::Move),
+				(1, Phase::Up)
+			]
+		);
 	}
 
 	#[needs_fixture("DisplacerPro")]
@@ -1363,17 +1813,13 @@ mod profile {
 	}
 
 	fn tests_worker() -> Worker {
-		Worker {
-			slots: HashMap::new(),
-			sources: HashMap::new(),
-			images: ImageCache::default(),
-			fonts: Fonts::new(),
-			notify: Notify {
+		Worker::new(
+			Notify {
 				tx: channel().0,
 				repaint: Box::new(|| {}),
 			},
-			cancel: Arc::new(AtomicBool::new(false)),
-			closing: Arc::new(AtomicBool::new(false)),
-		}
+			Arc::new(AtomicBool::new(false)),
+			Arc::new(AtomicBool::new(false)),
+		)
 	}
 }

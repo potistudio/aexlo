@@ -358,6 +358,9 @@ struct LiveUiContext {
 	#[allow(dead_code)]
 	context: Box<crate::sys::PF_Context>,
 	handle: Box<*mut crate::sys::PF_Context>,
+	/// What the plugin left in `continue_refcon` at the last click or drag.
+	/// After Effects hands it back with each `PF_Event_DRAG` that follows.
+	continue_refcon: [crate::sys::A_intptr_t; 4],
 }
 
 impl LiveUiContext {
@@ -375,6 +378,7 @@ impl LiveUiContext {
 		Self {
 			context,
 			handle: Box::new(ptr),
+			continue_refcon: [0; 4],
 		}
 	}
 
@@ -567,6 +571,12 @@ impl PluginInstance {
 			// SAFETY: `data..data + size` is the live allocation's own memory.
 			Some(unsafe { std::slice::from_raw_parts(data.add(offset), len) }.to_vec())
 		})
+	}
+
+	/// The `sequence_data` handle the plugin returned, or null before
+	/// `PF_Cmd_SEQUENCE_SETUP`.
+	pub(crate) fn sequence_handle(&self) -> crate::sys::PF_Handle {
+		self.effect_state.handles().1
 	}
 
 	/// The host-side state carried between commands, and what the plugin
