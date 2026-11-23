@@ -239,7 +239,7 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 
 ## 実装の進捗
 
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀ 86% (32/37)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 89% (33/37)
 
 > ○ 実装済み / △ 一部実装 / × 未実装
 
@@ -261,13 +261,13 @@ aexlo compat fixtures/plugins/macos --baseline compat.json   # 悪化があれ�
 | ○ Sampling16       |                                  |                   |                   |
 | ○ SamplingFloat    |                                  |                   |                   |
 | ○ World            |                                  |                   |                   |
-| △ World Transform  |                                  |                   |                   |
+| ○ World Transform  |                                  |                   |                   |
 
 △ Effect Custom UI / Overlay Theme：テーマの値は返します。Drawbot は `PF_Event_DRAW` のあいだ描画します。CLI は `PF_Cmd_EVENT` を送らず、埋め込み側が送ります。
 
 ○ Batch Sampling：After Effects と同じく、スイートの関数はすべて NULL です（SDK では After Effects 7.0 で廃止）。画素単位のサンプラーは使えます。
 ○ Param Utils：状態は、指定された範囲の値、レイヤーの画素、その範囲のマスク、任意データを対象にします。任意データは、ホストが値を受け取るとき（セットアップ後と、プラグインが値を変えるコマンドの後）にプラグインが flatten した内容で比べます。`AUTOMATIC_WIDE_TIME_INPUT` のエフェクトでは、それまでのチェックアウトが届いた時刻まで範囲を広げます。レイヤーの画像は 1 枚なので、埋め込み側が別フレーム用の画像を設定すると変化として扱います。
-△ World Transform：8・16・32 bpc に対応し、1 回の呼び出しの深度は揃っている必要があります。ディザ合成、アルファ乗算系のモード、品質指定は近似または無視です。加算系以外の描画モードは HDR に拡張していません。After Effects との比較は未実施です。
+○ World Transform：After Effects 2026 と同じ合成をします。全モードを 8・16・32 bpc で測った probe のトレースと照合し、32 bpc は完全一致、8・16 bpc は数階調以内です。例外は、ディザ合成の乱数パターン（規則は After Effects と同じで、乱数は aexlo 独自）と、両方のレイヤーが半透明な部分の色相・彩度・輝度です。`composite_rect` は After Effects と同じく描画モードを無視し、どのワールドも 8 bpc として扱います。
 × PF Utility：AEGP Utility とは別のスイートです。取得はできますが、関数はすべてエラーを返すスタブです。
 △ Channel：レイヤーは通常の 2D 画像であり、補助チャンネルはないものとして応答します。
 未実装のコールバックは、成功を装わずエラーを返します。

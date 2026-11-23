@@ -5,9 +5,9 @@
 //! to a trace of the probe (`playground/probe/src/xform.rs`) taken in After
 //! Effects 2026: every mode at 8, 16 and 32 bpc, with partial alpha, half
 //! opacity and float values above 1. At 32 bpc they match After Effects
-//! exactly, except for Hue and Saturation where both layers are partly
-//! transparent; at 8 and 16 bpc they match it to within a few levels of
-//! rounding. Dissolve follows After Effects' rule with a pattern of its own:
+//! exactly, except for Hue, Saturation and Luminosity where both layers are
+//! partly transparent; at 8 and 16 bpc they match it to within a few levels
+//! of rounding. Dissolve follows After Effects' rule with a pattern of its own:
 //! After Effects' random numbers cannot be told from outside.
 //!
 //! Most modes are the W3C "source over" composite of a blend `B(cb, cs)`:
@@ -153,11 +153,12 @@ fn over(top: Px, bottom: Px, blend: impl Fn([f64; 3], [f64; 3]) -> [f64; 3]) -> 
 fn clip_colour(c: [f64; 3]) -> [f64; 3] {
 	let l = luma(c);
 	let n = c[0].min(c[1]).min(c[2]);
-	let x = c[0].max(c[1]).max(c[2]);
 	let mut out = c;
 	if n < 0.0 && l - n > 1e-12 {
 		out = out.map(|v| l + (v - l) * l / (l - n));
 	}
+	// After Effects looks at the maximum again after lifting the minimum.
+	let x = out[0].max(out[1]).max(out[2]);
 	if x > 1.0 && x - l > 1e-12 {
 		out = out.map(|v| l + (v - l) * (1.0 - l) / (x - l));
 	}

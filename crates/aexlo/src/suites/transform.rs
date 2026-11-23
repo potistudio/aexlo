@@ -545,8 +545,12 @@ fn copy<P: Channels>(s: &PF_EffectWorld, d: &PF_EffectWorld, from: PF_Rect, to: 
 	}
 }
 
-/// Composites `source_wld`'s `src_rect` onto `dest_wld` at `(dest_x,
-/// dest_y)`, scaled by `src_opacity` (0..255) and blended per `xfer_mode`.
+/// Composites `source_wld`'s `src_rect` with `dest_wld` at `(dest_x,
+/// dest_y)` as After Effects 2026 does: whatever `xfer_mode` says, the
+/// destination goes over the source (Behind), the source at `src_opacity`
+/// (0..255). After Effects reads and writes every world as 8 bpc here, so a
+/// 16 or 32 bpc world has the first quarter or half of each row's bytes
+/// composited as 8-bit pixels; so does aexlo.
 pub(crate) unsafe extern "C" fn composite_rect_sys(
 	_effect_ref: PF_ProgPtr,
 	src_rect: *mut PF_Rect,
@@ -568,11 +572,6 @@ pub(crate) unsafe extern "C" fn composite_rect_sys(
 		if src.data.is_null() || dst.data.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		let depth = match common_depth("composite_rect", &[src, dst]) {
-			Ok(depth) => depth,
-			Err(err) => return err,
-		};
-
 		let rect = if !src_rect.is_null() {
 			unsafe { *src_rect }
 		} else {
@@ -593,7 +592,8 @@ pub(crate) unsafe extern "C" fn composite_rect_sys(
 
 		let opacity = src_opacity.clamp(0, 255) as f64 / 255.0;
 		let (from, to) = ((left, top, width, height), (dest_x, dest_y));
-		by_depth!(depth, composite_rect(src, dst, from, to, opacity, field_rdr, xfer_mode));
+		let _ = xfer_mode;
+		composite_rect::<PF_Pixel8>(src, dst, from, to, opacity, field_rdr);
 
 		PF_Err_NONE
 	})
@@ -606,7 +606,6 @@ fn composite_rect<P: Channels>(
 	(dest_x, dest_y): (i32, i32),
 	opacity: f64,
 	field_rdr: PF_Field,
-	xfer_mode: PF_XferMode,
 ) {
 	let src_raw = RawWorld::<P>::from(src);
 	let dst_raw = RawWorld::<P>::from(dst);
@@ -622,8 +621,11 @@ fn composite_rect<P: Channels>(
 			let sx = left + col;
 			let source = unsafe { src_raw.straight(sx, sy) };
 			let backdrop = unsafe { dst_raw.straight(dx, dy) };
-			let (out_a, out_c) = composite_pixel::<P>(source, opacity, backdrop, xfer_mode, dissolve_roll(0, dx, dy));
-			unsafe { dst_raw.write(dx, dy, from_straight::<P>(out_a, out_c)) };
+			let (out_a, out_c) = composite_pixel::<P>(source, opacity, backdrop, PF_Xfer_BEHIND, 0.0);
+			// Where nothing is left, the destination keeps its colour.
+			if out_a > 0.0 {
+				unsafe { dst_raw.write(dx, dy, from_straight::<P>(out_a, out_c)) };
+			}
 		}
 	});
 }
@@ -1324,9 +1326,14 @@ mod tests {
 	const PIXEL_SIZE: isize = std::mem::size_of::<PF_Pixel8>() as isize;
 
 	#[test]
-	fn composite_rect_rejects_two_depths_in_one_call() {
-		let mut src = super::super::world::alloc_world(2, 2, 8, PF_PixelFormat_ARGB64 as u32);
-		let mut dst = super::super::world::alloc_world(2, 2, 4, PF_PixelFormat_ARGB32 as u32);
+	fn composite_rect_reads_every_world_as_8_bit() {
+		// Two 16-bit pixels a row: as 8 bpc, only the first one's bytes.
+		let mut src = super::super::world::alloc_world(2, 1, 16, PF_PixelFormat_ARGB64 as u32);
+		let mut dst = super::super::world::alloc_world(2, 1, 16, PF_PixelFormat_ARGB64 as u32);
+		unsafe {
+			std::slice::from_raw_parts_mut(src.data.cast::<u8>(), 16).fill(0xFF);
+			std::slice::from_raw_parts_mut(dst.data.cast::<u8>(), 16).fill(0);
+		}
 		let err = unsafe {
 			composite_rect_sys(
 				std::ptr::null_mut(),
@@ -1340,7 +1347,10 @@ mod tests {
 				&mut dst,
 			)
 		};
-		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
+		assert_eq!(err, PF_Err_NONE);
+		let bytes = unsafe { std::slice::from_raw_parts(dst.data.cast::<u8>(), 16) }.to_vec();
+		assert_eq!(bytes[..8], [0xFF; 8], "the first 16-bit pixel, as two 8-bit ones");
+		assert_eq!(bytes[8..], [0; 8], "the second is past the 8-bit row");
 		unsafe {
 			super::super::world::free_world(&mut src);
 			super::super::world::free_world(&mut dst);
@@ -1468,7 +1478,7 @@ mod tests {
 	}
 
 	#[test]
-	fn composite_rect_copy_opaque_src_replaces_dst() {
+	fn composite_rect_puts_the_destination_over_the_source() {
 		let mut src = TestWorld::new(2, 2, px(255, 10, 20, 30));
 		let mut dst = TestWorld::new(2, 2, px(255, 200, 200, 200));
 
@@ -1488,8 +1498,8 @@ mod tests {
 		assert_eq!(err, PF_Err_NONE);
 		assert_px_eq(
 			dst.pixel(0, 0),
-			px(255, 10, 20, 30),
-			"opaque COPY should fully replace dst",
+			px(255, 200, 200, 200),
+			"the opaque destination stays over the source, whatever the mode",
 		);
 	}
 

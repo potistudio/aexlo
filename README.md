@@ -274,7 +274,7 @@ The plugins that pass every scenario are listed in
 
 ## Implementation Progress
 
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀⣀ 86% (32/37)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 89% (33/37)
 
 > ○ fully implemented / △ only partially implemented / × not implemented
 
@@ -296,7 +296,7 @@ The plugins that pass every scenario are listed in
 | ○ Sampling16       |                                  |                   |                   |
 | ○ SamplingFloat    |                                  |                   |                   |
 | ○ World            |                                  |                   |                   |
-| △ World Transform  |                                  |                   |                   |
+| ○ World Transform  |                                  |                   |                   |
 
 △ Effect Custom UI / Overlay Theme: theme values are served, and Drawbot draws
 during `PF_Event_DRAW`. The CLI never sends `PF_Cmd_EVENT`; an embedder does.
@@ -308,10 +308,12 @@ whenever the host takes a value in (after setup, and after the commands in
 which a plugin changes its values). An `AUTOMATIC_WIDE_TIME_INPUT` effect's
 range widens by the times its checkouts have reached. A layer has one picture,
 so a picture an embedder sets for another frame reads as a change.
-△ World Transform: 8, 16 and 32 bpc, one depth per call. Dissolve, the
-alpha-multiply modes and the quality setting are approximated or ignored,
-non-additive blend modes are not extended to HDR, and no result has been
-compared with After Effects.
+○ World Transform: composites as After Effects 2026 does, checked against
+a probe trace of every mode at 8, 16 and 32 bpc: exact at 32 bpc and within a
+few levels at 8 and 16, but for Dissolve's random pattern (the rule is After
+Effects', the numbers aexlo's) and Hue, Saturation and Luminosity where both
+layers are partly transparent. `composite_rect` ignores its transfer mode and
+treats every world as 8 bpc, as After Effects does.
 × PF Utility: not to be confused with AEGP Utility. The suite can be acquired,
 but each of its functions is a stub that returns an error.
 △ Channel: layers are plain 2D images and report no auxiliary channels.

@@ -96,7 +96,6 @@ fn mode(xfer: i32, opacity: u8) -> PF_CompositeMode {
 
 #[derive(Debug, Clone, Copy)]
 enum Op {
-	Composite(i32),
 	Blend,
 	Convolve,
 	Copy,
@@ -123,7 +122,6 @@ fn run<P: Deep>(op: Op) -> Vec<[f64; 4]> {
 	// SAFETY: every pointer is a live local or null.
 	let err = unsafe {
 		match op {
-			Op::Composite(x) => composite_rect_sys(null, std::ptr::null_mut(), 200, a, 1, -1, frame, x as _, d),
 			Op::Blend => blend_sys(null, a, b, 20000, d),
 			Op::Convolve => {
 				let mut kernel = [1i32, 2, 1, 2, 4, 2, 1, 2, 1];
@@ -193,9 +191,8 @@ fn run<P: Deep>(op: Op) -> Vec<[f64; 4]> {
 
 #[test]
 fn deep_results_are_the_8_bit_ones_at_a_finer_step() {
+	// composite_rect is left out: After Effects reads deep worlds as 8 bpc there.
 	let ops = [
-		Op::Composite(PF_Xfer_IN_FRONT),
-		Op::Composite(PF_Xfer_MULTIPLY),
 		Op::Blend,
 		Op::Convolve,
 		Op::Copy,

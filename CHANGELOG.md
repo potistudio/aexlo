@@ -33,9 +33,31 @@ plugin renders or returns.
 - `PF_AreStatesIdentical` refuses a null state instead of calling it
   identical, and `PF_GetCurrentState` refuses an index that stands for
   nothing and an effect it does not know.
-- PF World Transform and the legacy callbacks of the same names refuse worlds
-  of two depths in one call, and worlds whose depth cannot be told, and
-  report it. `copy` used to move raw bytes between them: AEPixelSorter2's
+- PF World Transform composites as After Effects 2026 does, checked against
+  a trace of the probe (`playground/probe/src/xform.rs`) in After Effects:
+  at 32 bpc exactly, at 8 and 16 bpc to within a few levels, but for
+  Dissolve's random pattern and Hue, Saturation and Luminosity where both
+  layers are partly transparent. Renders that use it can change:
+  - `COPY` replaces the destination instead of compositing over it, and
+    `rgb_only` keeps the destination's alpha.
+  - Blend results are not clamped at 32 bpc (only Add was), and are at 8
+    and 16 bpc. The classic Difference, Color Dodge and Color Burn work on
+    premultiplied colours, the stencil and silhouette modes change only the
+    destination's alpha, and Hue, Saturation, Color and Luminosity use Rec.
+    601 luma and blend against the destination over the source.
+  - Dissolve gives each pixel the source, opaque, or the destination, by
+    `rand_seed`; it was Normal.
+  - `m_flags` no longer changes anything: After Effects reads colours as
+    straight either way.
+  - `transform_world` takes the nearest pixel at `PF_Quality_LO` and filters
+    premultiplied pixels at `PF_Quality_HI`, so edges no longer darken;
+    `copy` picks the pixels After Effects picks when it stretches, and
+    `copy_hq` averages the area each pixel covers.
+  - `composite_rect` ignores its transfer mode and puts the destination over
+    the source, and reads every world as 8 bpc, as After Effects does.
+- PF World Transform and the legacy callbacks of the same names but
+  `composite_rect` refuse worlds of two depths in one call, and worlds whose
+  depth cannot be told, and report it. `copy` used to move raw bytes between them: AEPixelSorter2's
   legacy path at 16 and 32 bpc now fails where it drew a scrambled picture
   (its smart path is unaffected).
 
@@ -120,8 +142,8 @@ plugin renders or returns.
   layer parameters, masks, text and shapes on the layer, and the bytes of
   arbitrary data. The `CHECK_ALL` indices mean what the SDK says.
   `PF_IsIdenticalCheckout` compares all the parameters those stand for.
-- PF World Transform works at 16 and 32 bpc. `composite_rect`,
-  `transfer_rect` and `transform_world` refused those worlds, which failed
+- PF World Transform works at 16 and 32 bpc. `transfer_rect` and
+  `transform_world` refused those worlds, which failed
   every render of Shine at those depths and DeepGlow2's smart render at
   32 bpc; `blend` and `convolve` read them as
   8-bit; `copy` and `copy_hq` succeeded after copying a half or a quarter of
