@@ -48,28 +48,34 @@ mod aegp_world;
 mod angle_param;
 pub mod ansi;
 mod cache_on_load;
+mod camera;
 mod channel;
 pub mod color_callbacks;
 mod color_param;
 mod color_settings;
 mod comp;
+pub(crate) mod compute_cache;
 pub(crate) mod drawbot;
 pub(crate) use drawbot::system_font;
 mod dynamic_stream;
-mod effect;
+pub(crate) mod effect;
 mod effect_sequence_data;
 mod effect_ui;
 mod ffi;
 pub mod fill_matte;
 pub mod gpu_device;
 pub mod handle;
+mod hash;
 mod helper;
 pub mod interface;
 pub mod iterate;
 mod keyframe;
-mod layer;
+pub(crate) mod layer;
 pub(crate) mod layer_mask;
 pub(crate) use layer::enter_effect;
+mod mask_outline;
+mod math;
+mod param_state;
 pub mod param_utils;
 mod path;
 pub mod persistent_data;
@@ -77,21 +83,43 @@ pub mod pixel_data;
 mod pixel_format;
 mod pixel_norm;
 mod point_param;
+mod project;
 pub(crate) mod register;
 pub mod sampling;
 pub(crate) mod stream;
+mod text_document;
 mod text_layer;
 pub mod transform;
+mod transform_modes;
 pub mod utility;
 pub mod world;
 
 use crate::core::diagnostics::diag;
 use crate::sys::*;
+
+/// A handle for a value a suite keeps in a registry: a number, never an
+/// address, and never given out twice. `AEGP_DisposeStreamValue` sees only a
+/// union's first word, so the top bits make it a signalling NaN, which no
+/// layer id, pointer or finite number in that union can be.
+fn value_handle() -> usize {
+	static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+	0x7FF5 << 48 | NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+static AEGP_MATH_1: AEGP_MathSuite1 = math::suite_1();
+static AEGP_MASK_OUTLINE_1: AEGP_MaskOutlineSuite1 = mask_outline::suite_1();
+static AEGP_MASK_OUTLINE_2: AEGP_MaskOutlineSuite2 = mask_outline::suite_2();
+static AEGP_MASK_OUTLINE_3: AEGP_MaskOutlineSuite3 = mask_outline::suite_3();
+static AEGP_TEXT_DOCUMENT_1: AEGP_TextDocumentSuite1 = text_document::suite_1();
+static AEGP_STREAM_1: AEGP_StreamSuite1 = stream::create_stream_suite_1();
+static AEGP_CAMERA_2: AEGP_CameraSuite2 = camera::suite_2();
 static COMP_SUITE_4: AEGP_CompSuite4 = comp::create_comp_suite_4();
+static PF_WORLD_1: PF_WorldSuite1 = world::create_world_suite_1();
+static AEGP_LAYER_RENDER_OPTIONS_1: AEGP_LayerRenderOptionsSuite1 = aegp_render::layer_render_options_suite_1();
+static COMP_SUITE_9: AEGP_CompSuite9 = comp::create_comp_suite_9();
+static COMP_SUITE_11: AEGP_CompSuite11 = comp::create_comp_suite_11();
 static AEGP_WORLD_1: AEGP_WorldSuite1 = aegp_world::suite_1();
 static AEGP_MASK_5: AEGP_MaskSuite5 = layer_mask::mask_suite_5();
 static AEGP_MASK_6: AEGP_MaskSuite6 = layer_mask::mask_suite_6();
-static AEGP_MASK_OUTLINE_3: AEGP_MaskOutlineSuite3 = layer_mask::mask_outline_suite_3();
 static AEGP_WORLD_2: AEGP_WorldSuite2 = aegp_world::suite_2();
 static AEGP_WORLD_3: AEGP_WorldSuite3 = aegp_world::suite_3();
 static AEGP_MEMORY_1: AEGP_MemorySuite1 = aegp_memory::suite_1();
@@ -100,12 +128,14 @@ static AEGP_UTILITY_5: AEGP_UtilitySuite5 = aegp_utility::suite_5();
 static AEGP_UTILITY_6: AEGP_UtilitySuite6 = aegp_utility::suite_6();
 static AEGP_ITEM_6: AEGP_ItemSuite6 = aegp_item::suite_6();
 static AEGP_STREAM_3: AEGP_StreamSuite3 = stream::create_stream_suite_3();
+static AEGP_LAYER_1: AEGP_LayerSuite1 = layer::create_layer_suite_1();
 static AEGP_LAYER_3: AEGP_LayerSuite3 = layer::create_layer_suite_3();
 static AEGP_DYNAMIC_STREAM_1: AEGP_DynamicStreamSuite1 = dynamic_stream::suite_1();
 static AEGP_DYNAMIC_STREAM_2: AEGP_DynamicStreamSuite2 = dynamic_stream::suite_2();
 static AEGP_DYNAMIC_STREAM_3: AEGP_DynamicStreamSuite3 = dynamic_stream::suite_3();
 static AEGP_DYNAMIC_STREAM_4: AEGP_DynamicStreamSuite4 = dynamic_stream::suite_4();
 static AEGP_ITEM_8: AEGP_ItemSuite8 = aegp_item::suite_8();
+static AEGP_ITEM_9: AEGP_ItemSuite9 = aegp_item::suite_9();
 static AEGP_LAYER_RENDER_OPTIONS_2: AEGP_LayerRenderOptionsSuite2 = aegp_render::layer_render_options_suite_2();
 static AEGP_RENDER_OPTIONS_4: AEGP_RenderOptionsSuite4 = aegp_render::render_options_suite_4();
 static AEGP_RENDER_5: AEGP_RenderSuite5 = aegp_render::render_suite_5();
@@ -333,6 +363,10 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		}
 		("PF Handle Suite", 2) => dispatch_static!(suite, suite_name, version, handle),
 		("PF World Transform Suite", 1) => dispatch_static!(suite, suite_name, version, world_transform),
+		("PF World Suite", 1) => {
+			unsafe { *suite = &PF_WORLD_1 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("PF World Suite", 2) => dispatch_static!(suite, suite_name, version, world),
 		// Iterate suites are append-only, so the v2 tables also satisfy v1 requests.
 		("PF Iterate8 Suite", 1..=2) => dispatch_static!(suite, suite_name, version, iterate8),
@@ -392,9 +426,13 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 		("AEGP Persistent Data Suite", 3) => {
 			dispatch_static!(suite, suite_name, version, persistent_data)
 		}
-		// Stream Suite wire versions 7, 8, 9, 10 and 11 are AEGP_StreamSuite2, 3,
-		// 4, 5 and 6. They differ in their stream value structs and in whether names
+		// Stream Suite wire versions 4, 7, 8, 9, 10 and 11 are AEGP_StreamSuite1, 2,
+		// 3, 4, 5 and 6. They differ in their stream value structs and in whether names
 		// and expression text are `char` or UTF-16.
+		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion1 as i32 => {
+			unsafe { *suite = &AEGP_STREAM_1 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("AEGP Stream Suite", v) if v == kAEGPStreamSuiteVersion2 as i32 => {
 			dispatch_static!(suite, suite_name, version, stream2)
 		}
@@ -471,6 +509,14 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			unsafe { *suite = &AEGP_ITEM_8 as *const _ as *const c_void };
 			PF_Err_NONE
 		}
+		("AEGP Item Suite", v) if v == kAEGPItemSuiteVersion9 as i32 => {
+			unsafe { *suite = &AEGP_ITEM_9 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
+		}
+		("AEGP Layer Render Options Suite", v) if v == kAEGPLayerRenderOptionsSuiteVersion1 as i32 => {
+			unsafe { *suite = &AEGP_LAYER_RENDER_OPTIONS_1 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("AEGP Layer Render Options Suite", v) if v == kAEGPLayerRenderOptionsSuiteVersion2 as i32 => {
 			unsafe { *suite = &AEGP_LAYER_RENDER_OPTIONS_2 as *const _ as *const c_void };
 			PF_Err_NONE
@@ -483,8 +529,32 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			unsafe { *suite = &AEGP_RENDER_5 as *const _ as *const c_void };
 			PF_Err_NONE
 		}
+		("AEGP Camera Suite", v) if v == kAEGPCameraSuiteVersion2 as i32 => {
+			unsafe { *suite = &AEGP_CAMERA_2 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("AEGP Light Suite", 1) => dispatch_static!(suite, suite_name, version, light),
 		("AEGP Text Layer Suite", 1) => dispatch_static!(suite, suite_name, version, text_layer),
+		("AEGP Mask Outline Suite", v) if v == kAEGPMaskOutlineSuiteVersion1 as i32 => {
+			unsafe { *suite = &AEGP_MASK_OUTLINE_1 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
+		("AEGP Mask Outline Suite", v) if v == kAEGPMaskOutlineSuiteVersion2 as i32 => {
+			unsafe { *suite = &AEGP_MASK_OUTLINE_2 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
+		("AEGP Mask Outline Suite", v) if v == kAEGPMaskOutlineSuiteVersion3 as i32 => {
+			unsafe { *suite = &AEGP_MASK_OUTLINE_3 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
+		("AEGP Text Document Suite", 1) => {
+			unsafe { *suite = &AEGP_TEXT_DOCUMENT_1 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
+		("AEGP Math Suite", 1) => {
+			unsafe { *suite = &AEGP_MATH_1 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		// Layer Mask wire versions 6 and 7 are AEGP_MaskSuite5 and 6.
 		("AEGP Layer Mask Suite", v) if v == kAEGPMaskSuiteVersion5 as i32 => {
 			unsafe { *suite = &AEGP_MASK_5 as *const _ as *const c_void };
@@ -494,26 +564,32 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			unsafe { *suite = &AEGP_MASK_6 as *const _ as *const c_void };
 			PF_Err_NONE
 		}
-		// Mask Outline wire versions 3 and 5 are AEGP_MaskOutlineSuite2 and 3;
-		// suite 2 is the first seven entries of suite 3.
-		("AEGP Mask Outline Suite", v)
-			if v == kAEGPMaskOutlineSuiteVersion2 as i32 || v == kAEGPMaskOutlineSuiteVersion3 as i32 =>
-		{
-			unsafe { *suite = &AEGP_MASK_OUTLINE_3 as *const _ as *const c_void };
-			PF_Err_NONE
-		}
 		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion4 as i32 => {
 			unsafe {
 				*suite = &COMP_SUITE_4 as *const _ as *const std::ffi::c_void;
 			}
 			PF_Err_NONE
 		}
+		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion9 as i32 => {
+			unsafe { *suite = &COMP_SUITE_9 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion10 as i32 => {
 			dispatch_static!(suite, suite_name, version, comp)
+		}
+		// Suite 11 appends `AEGP_ReorderCompSelection`. Suite 12 has the same
+		// layout, so both wire versions share that table.
+		("AEGP Comp Suite", v) if v == kAEGPCompSuiteVersion11 as i32 || v == kAEGPCompSuiteVersion12 as i32 => {
+			unsafe { *suite = &COMP_SUITE_11 as *const _ as *const c_void };
+			PF_Err_NONE as PF_Err
 		}
 		// Layer Suite v6 switches names to UTF-16 handles; later versions append.
 		// Wire version 8 is `AEGP_LayerSuite3`. It is not a prefix of suite 5:
 		// suite 5 inserts `GetLayerSourceItemID` and the duplicate/lookup calls.
+		("AEGP Layer Suite", v) if v == kAEGPLayerSuiteVersion1 as i32 => {
+			unsafe { *suite = &AEGP_LAYER_1 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("AEGP Layer Suite", v) if v == kAEGPLayerSuiteVersion3 as i32 => {
 			unsafe { *suite = &AEGP_LAYER_3 as *const _ as *const c_void };
 			PF_Err_NONE
@@ -582,6 +658,18 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			unsafe { *suite = &AEGP_UTILITY_6 as *const _ as *const c_void };
 			PF_Err_NONE
 		}
+		("AEGP Compute Cache", 1) => {
+			unsafe { *suite = &compute_cache::SUITE as *const _ as *const c_void };
+			PF_Err_NONE
+		}
+		("AEGP Hash Suite", 1) => {
+			unsafe { *suite = &hash::SUITE as *const _ as *const c_void };
+			PF_Err_NONE
+		}
+		("AEGP Proj Suite", v) if v == kAEGPProjSuiteVersion5 as i32 => {
+			unsafe { *suite = &project::SUITE as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		_ => {
 			crate::observe::unsupported(
 				crate::observe::UnsupportedKind::MissingSuite,
@@ -631,6 +719,8 @@ mod tests {
 	fn acquire_serves_every_registered_suite() {
 		for (name, version) in [
 			("PF ANSI Suite", 1),
+			("PF World Suite", 1),
+			("PF World Suite", 2),
 			("PF Iterate8 Suite", 2),
 			("PF iterate16 Suite", 1),
 			("PF iterate16 Suite", 2),
@@ -657,10 +747,13 @@ mod tests {
 			("PF Path Query Suite", 1),
 			("PF Path Data Suite", 1),
 			("AEGP Text Layer Suite", 1),
-			("AEGP Layer Mask Suite", 6),
-			("AEGP Layer Mask Suite", 7),
+			("AEGP Math Suite", 1),
+			("AEGP Mask Outline Suite", 2),
 			("AEGP Mask Outline Suite", 3),
 			("AEGP Mask Outline Suite", 5),
+			("AEGP Text Document Suite", 1),
+			("AEGP Layer Mask Suite", 6),
+			("AEGP Layer Mask Suite", 7),
 			("PF AE Adv App Suite", 1),
 			("PF AE Adv App Suite", 2),
 			("PF AE Adv Item Suite", 1),
@@ -670,6 +763,7 @@ mod tests {
 			("PF Cache On Load Suite", 1),
 			("AE Plugin Helper Suite", 1),
 			("AE Plugin Helper Suite2", 2),
+			("AEGP Stream Suite", 4),
 			("AEGP Stream Suite", 7),
 			("AEGP Stream Suite", 8),
 			("AEGP Stream Suite", 9),
@@ -687,6 +781,7 @@ mod tests {
 			("AEGP Effect Suite", 4),
 			("AEGP Effect Suite", 5),
 			("AEGP Iterate Suite", 1),
+			("AEGP Layer Suite", 5),
 			("AEGP Layer Suite", 8),
 			("AEGP Layer Suite", 11),
 			("AEGP Layer Suite", 12),
@@ -694,13 +789,24 @@ mod tests {
 			("AEGP Layer Suite", 14),
 			("AEGP Layer Suite", 15),
 			("AEGP Comp Suite", 9),
+			("AEGP Comp Suite", 19),
 			("AEGP Comp Suite", 21),
+			("AEGP Comp Suite", 25),
+			("AEGP Comp Suite", 26),
+			("AEGP Camera Suite", 2),
 			("AEGP Light Suite", 1),
 			("PF Color Settings Suite", 3),
 			("PF Color Settings Suite", 6),
 			("AEGP Memory Suite", 1),
 			("AEGP Item Suite", 10),
 			("AEGP Item Suite", 13),
+			("AEGP Item Suite", 14),
+			("AEGP Utility Suite", 11),
+			("AEGP Utility Suite", 13),
+			("AEGP Compute Cache", 1),
+			("AEGP Hash Suite", 1),
+			("AEGP Proj Suite", 8),
+			("AEGP Layer Render Options Suite", 1),
 			("AEGP Layer Render Options Suite", 2),
 			("AEGP Render Options Suite", 4),
 			("AEGP Render Suite", 8),

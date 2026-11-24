@@ -4,15 +4,13 @@
 //! Parameter indices: [24] Radius.
 
 use aexlo::{Depth8, Depth32, Layer, ParamValue, PluginInstance, RenderPath};
+use aexlo_fixture_gate::needs_fixture;
 
 const RADIUS: usize = 24;
 
-fn load() -> Option<PluginInstance> {
-	let Some(path) = test_e2e::fixture("DeepGlow2") else {
-		eprintln!("skipping: fixture 'DeepGlow2' not present locally");
-		return None;
-	};
-	Some(aexlo::Host::get().load(&path).expect("failed to load plugin"))
+fn load() -> PluginInstance {
+	let path = test_e2e::fixture("DeepGlow2");
+	aexlo::Host::get().load(&path).expect("failed to load plugin")
 }
 
 fn render(instance: &mut PluginInstance) -> Vec<u8> {
@@ -38,9 +36,10 @@ fn dot(w: u32, h: u32, cx: u32, cy: u32) -> Layer<Depth8> {
 
 /// The frame is progressive: every scanline is processed alike. (With an
 /// interlaced field reported, odd rows came out brighter and translucent.)
+#[needs_fixture("DeepGlow2")]
 #[test]
 fn renders_every_scanline_alike() {
-	let Some(mut instance) = load() else { return };
+	let mut instance = load();
 	let img = image::open(test_e2e::sample_input_path()).unwrap().to_rgba8();
 	let (w, h) = img.dimensions();
 	instance.set_input_layer(Layer::<Depth8>::from_rgba8(img.into_raw(), w, h).unwrap());
@@ -62,11 +61,12 @@ fn renders_every_scanline_alike() {
 
 /// A glow is centred on its source and falls off evenly in every direction,
 /// with the source itself kept at full intensity.
+#[needs_fixture("DeepGlow2")]
 #[test]
 fn glow_is_centred_and_symmetric() {
 	let (w, h) = (640, 480);
 	for (cx, cy) in [(150i64, 60i64), (450, 200)] {
-		let Some(mut instance) = load() else { return };
+		let mut instance = load();
 		instance.set_input_layer(dot(w, h, cx as u32, cy as u32));
 		instance.set_render_size(w, h);
 		instance.set_param(RADIUS, ParamValue::Float(100.0)).unwrap();
@@ -91,17 +91,18 @@ fn glow_is_centred_and_symmetric() {
 /// At 32 bpc the plugin copies its input into the output with
 /// `transfer_rect` on float worlds, setting `opacity` but not `opacitySu`.
 /// Smart render runs there too, and the glow comes out as it does at 8 bpc.
+#[needs_fixture("DeepGlow2")]
 #[test]
 fn renders_at_32_bpc_like_8_bpc() {
 	let (w, h, cx, cy) = (640u32, 480u32, 150u32, 60u32);
-	let Some(mut fx8) = load() else { return };
+	let mut fx8 = load();
 	fx8.set_input_layer(dot(w, h, cx, cy));
 	fx8.set_render_size(w, h);
 	fx8.set_param(RADIUS, ParamValue::Float(100.0)).unwrap();
 	fx8.render_with(RenderPath::Smart).unwrap();
 	let out8 = fx8.read_output::<Depth8>().unwrap();
 
-	let mut fx = load().unwrap();
+	let mut fx = load();
 	fx.set_input_layer(dot(w, h, cx, cy).convert::<Depth32>());
 	fx.set_render_size(w, h);
 	fx.set_param(RADIUS, ParamValue::Float(100.0)).unwrap();
@@ -124,6 +125,7 @@ fn renders_at_32_bpc_like_8_bpc() {
 /// The buttons reset and swap parameters through `AEGP_SetStreamValue`, and
 /// `PF_Cmd_UPDATE_PARAMS_UI` hides and disables them through
 /// `AEGP_SetDynamicStreamFlag`: "Swap Colors" is only on with a two-color tint.
+#[needs_fixture("DeepGlow2")]
 #[test]
 fn buttons_set_parameters_through_streams() {
 	const GAMMA_CORRECTION: usize = 60;
@@ -132,7 +134,7 @@ fn buttons_set_parameters_through_streams() {
 	const COLOR: usize = 84;
 	const OUTER_COLOR: usize = 85;
 	const SWAP_COLORS: usize = 86;
-	let Some(mut instance) = load() else { return };
+	let mut instance = load();
 	assert_eq!(instance.param_button_label(RESET_GAMMA), Some("Reset Gamma"));
 
 	instance.set_param(GAMMA_CORRECTION, ParamValue::Float(30.0)).unwrap();

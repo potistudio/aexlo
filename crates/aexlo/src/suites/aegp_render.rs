@@ -96,8 +96,19 @@ unsafe extern "C" fn new_from_layer(
 		let Some(out) = (unsafe { options_out.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		if PluginInstance::get_instance_ptr(layerH as PF_ProgPtr).is_none() {
-			return PF_Err_BAD_CALLBACK_PARAM;
+		// Checked before the handle is read as an instance: only the effect's
+		// own layer is one, and only its pixels are known.
+		match super::layer::Timeline::of(layerH.cast()) {
+			Some(timeline) if timeline.hosts_effect => {}
+			Some(_) => {
+				crate::observe::unsupported(
+					crate::observe::UnsupportedKind::Declined,
+					"AEGP_LayerRenderOptionsSuite/AEGP_NewFromLayer",
+					"only the effect's own layer can be rendered",
+				);
+				return crate::sys::A_Err_GENERIC;
+			}
+			None => return PF_Err_BAD_CALLBACK_PARAM,
 		}
 		*out = publish_options(fresh_options(layerH as PF_ProgPtr));
 		PF_Err_NONE
@@ -276,6 +287,25 @@ unsafe extern "C" fn get_matte(optionsH: AEGP_LayerRenderOptionsH, mode_out: *mu
 		*out = options.matte;
 		PF_Err_NONE
 	})
+}
+
+pub const fn layer_render_options_suite_1() -> crate::sys::AEGP_LayerRenderOptionsSuite1 {
+	crate::sys::AEGP_LayerRenderOptionsSuite1 {
+		AEGP_NewFromLayer: Some(new_from_layer),
+		AEGP_NewFromUpstreamOfEffect: Some(new_from_upstream),
+		AEGP_Duplicate: Some(duplicate),
+		AEGP_Dispose: Some(dispose_options),
+		AEGP_SetTime: Some(set_time),
+		AEGP_GetTime: Some(get_time),
+		AEGP_SetTimeStep: Some(set_time_step),
+		AEGP_GetTimeStep: Some(get_time_step),
+		AEGP_SetWorldType: Some(set_world_type),
+		AEGP_GetWorldType: Some(get_world_type),
+		AEGP_SetDownsampleFactor: Some(set_downsample),
+		AEGP_GetDownsampleFactor: Some(get_downsample),
+		AEGP_SetMatteMode: Some(set_matte),
+		AEGP_GetMatteMode: Some(get_matte),
+	}
 }
 
 pub const fn layer_render_options_suite_2() -> AEGP_LayerRenderOptionsSuite2 {
@@ -873,6 +903,27 @@ pub const fn render_options_suite_4() -> AEGP_RenderOptionsSuite4 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn layer_options_v1_uses_its_own_abi_layout() {
+		let suite = layer_render_options_suite_1();
+		let options = publish_options(fresh_options(std::ptr::null_mut()));
+		let mut copy = std::ptr::null_mut();
+		assert_eq!(
+			unsafe { suite.AEGP_Duplicate.unwrap()(0, options, &mut copy) },
+			PF_Err_NONE
+		);
+		assert!(!copy.is_null());
+		assert_eq!(unsafe { suite.AEGP_SetWorldType.unwrap()(copy, 2) }, PF_Err_NONE);
+		let mut kind = 0;
+		assert_eq!(
+			unsafe { suite.AEGP_GetWorldType.unwrap()(copy, &mut kind) },
+			PF_Err_NONE
+		);
+		assert_eq!(kind, 2);
+		assert_eq!(unsafe { suite.AEGP_Dispose.unwrap()(copy) }, PF_Err_NONE);
+		assert_eq!(unsafe { suite.AEGP_Dispose.unwrap()(options) }, PF_Err_NONE);
+	}
 
 	#[test]
 	fn render_options_reject_an_unknown_item() {

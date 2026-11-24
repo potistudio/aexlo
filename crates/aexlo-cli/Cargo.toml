@@ -53,5 +53,6 @@ ratatui = "0.30.2"
 libc = "0.2.186"
 
 [dev-dependencies]
+aexlo_fixture_gate = { workspace = true }
 image = { workspace = true, features = ["png"] }
 serde_json = { workspace = true }

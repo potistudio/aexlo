@@ -43,8 +43,8 @@ jobs:
       - name: clippy (aexlo, diagnostics)
         run: cargo clippy -p aexlo --all-targets --features diagnostics --locked -- -D warnings
 
-      # Fixture tests skip plugins that are not checked in (fixtures/plugins),
-      # and GPU tests skip when the runner has no device.
+      # Tests that need a plugin that is not checked in (fixtures/plugins), or
+      # a GPU the runner lacks, are reported as ignored (tests/fixture_gate).
       - name: test
         run: cargo test --workspace --locked --no-fail-fast
 

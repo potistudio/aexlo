@@ -3,8 +3,8 @@
 //!
 //! A null `color` means transparent black (the SDK's "clear" behavior), and a
 //! null `dst_rect` means the whole world. `premultiply` (the color-less
-//! variant) treats the world as 8-bpc, matching the worlds this host hands to
-//! plugins; the `premultiply_color*` variants are depth-typed by the entry
+//! variant) follows the world's depth, as does `fill` on a world known to be
+//! deep (its colour scaled up); the other variants are depth-typed by the entry
 //! point the plugin picked. When unmultiplying a pixel whose alpha is zero the
 //! color channels are passed through unchanged (the result is undefined in AE;
 //! passing through avoids inventing data).
@@ -16,6 +16,26 @@ use crate::sys::{
 };
 
 use super::pixel_norm::NormalizedPixel;
+use super::transform::{Depth, depth_of};
+
+/// The depth of `world`, for the entry points whose types do not say it. One
+/// that cannot be told is taken for 8-bit, and reported.
+///
+/// # Safety
+/// `world` must be null or a valid world.
+unsafe fn depth_at(name: &str, world: *const PF_EffectWorld) -> Depth {
+	let Some(world) = (unsafe { world.as_ref() }) else {
+		return Depth::Eight;
+	};
+	depth_of(world).unwrap_or_else(|detail| {
+		crate::observe::unsupported(
+			crate::observe::UnsupportedKind::Declined,
+			format!("FillMatteSuite/{name}"),
+			format!("{detail}; taken for 8-bit"),
+		);
+		Depth::Eight
+	})
+}
 
 /// Iteration bounds for a world: `rect` (or the full world when null) clipped
 /// to the world's extent. Returns `None` when the intersection is empty.
@@ -148,7 +168,23 @@ pub(crate) unsafe extern "C" fn fill_8_sys(
 			"dst_rect" => format!("{:?}", dst_rect),
 			"world" => format!("{:?}", world),
 		);
-		unsafe { fill_world::<PF_Pixel>(color, dst_rect, world) }
+		// SAFETY: the plugin's world, rectangle and colour for this call; the
+		// depth keeps every write inside a pixel of the world.
+		unsafe {
+			match depth_at("fill", world) {
+				Depth::Eight => fill_world::<PF_Pixel>(color, dst_rect, world),
+				Depth::Sixteen => {
+					let deep = color.as_ref().map(|c| PF_Pixel16::from_norm(c.to_norm()));
+					let deep = deep.as_ref().map_or(std::ptr::null(), |c| c as *const PF_Pixel16);
+					fill_world(deep, dst_rect, world)
+				}
+				Depth::Float => {
+					let deep = color.as_ref().map(|c| PF_PixelFloat::from_norm(c.to_norm()));
+					let deep = deep.as_ref().map_or(std::ptr::null(), |c| c as *const PF_PixelFloat);
+					fill_world(deep, dst_rect, world)
+				}
+			}
+		}
 	})
 }
 
@@ -194,8 +230,15 @@ pub(crate) unsafe extern "C" fn premultiply_sys(
 			"forward" => forward,
 			"dst" => format!("{:?}", dst),
 		);
-		// In-place against a black matte; this host's plain worlds are 8-bpc.
-		unsafe { premultiply_world::<PF_Pixel>(dst, std::ptr::null(), forward, dst) }
+		// In place against a black matte, at the world's depth.
+		// SAFETY: the plugin's world for this call, walked at its own depth.
+		unsafe {
+			match depth_at("premultiply", dst) {
+				Depth::Eight => premultiply_world::<PF_Pixel>(dst, std::ptr::null(), forward, dst),
+				Depth::Sixteen => premultiply_world::<PF_Pixel16>(dst, std::ptr::null(), forward, dst),
+				Depth::Float => premultiply_world::<PF_PixelFloat>(dst, std::ptr::null(), forward, dst),
+			}
+		}
 	})
 }
 

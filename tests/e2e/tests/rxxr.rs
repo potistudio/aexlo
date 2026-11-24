@@ -7,6 +7,7 @@
 //! [264] Chunk Width.
 
 use aexlo::{Depth8, Layer, ParamValue, PluginInstance};
+use aexlo_fixture_gate::needs_fixture;
 
 const PRESET: usize = 210;
 const ENABLE_GLITCH: usize = 255;
@@ -19,11 +20,8 @@ const GLITCH_WIDE_SLICE: i32 = 17;
 const W: u32 = 96;
 const H: u32 = 64;
 
-fn load() -> Option<PluginInstance> {
-	let Some(path) = test_e2e::fixture("RXXR") else {
-		eprintln!("skipping: fixture 'RXXR' not present locally");
-		return None;
-	};
+fn load() -> PluginInstance {
+	let path = test_e2e::fixture("RXXR");
 	let mut instance: PluginInstance = aexlo::Host::get().load(&path).expect("failed to load plugin");
 	let gradient = (0..W * H)
 		.flat_map(|i| {
@@ -33,12 +31,13 @@ fn load() -> Option<PluginInstance> {
 		.collect();
 	instance.set_input_layer(Layer::<Depth8>::from_rgba8(gradient, W, H).unwrap());
 	instance.set_render_size(W, H);
-	Some(instance)
+	instance
 }
 
+#[needs_fixture("RXXR")]
 #[test]
 fn choosing_a_preset_writes_its_parameters() {
-	let Some(mut instance) = load() else { return };
+	let mut instance = load();
 	assert_eq!(instance.get_param(ENABLE_GLITCH), Some(ParamValue::Checkbox(false)));
 
 	instance
@@ -52,9 +51,10 @@ fn choosing_a_preset_writes_its_parameters() {
 	instance.render_frame().expect("render failed");
 }
 
+#[needs_fixture("RXXR")]
 #[test]
 fn every_preset_applies_and_renders() {
-	let Some(mut instance) = load() else { return };
+	let mut instance = load();
 	// RXXR 1.2.0 lists 38 choices, separators included.
 	for choice in 1..=38 {
 		instance.set_param(PRESET, ParamValue::Popup(choice)).unwrap();

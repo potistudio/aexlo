@@ -154,6 +154,7 @@ dependencies = [
  "metal",
  "objc",
  "rayon",
+ "sha2",
  "thiserror 2.0.18",
  "tiny-skia",
 ]
@@ -175,6 +176,7 @@ dependencies = [
  "aexlo",
  "aexlo-bench",
  "aexlo-harness",
+ "aexlo_fixture_gate",
  "anstream",
  "anstyle",
  "anyhow",
@@ -251,6 +253,10 @@ dependencies = [
  "after-effects",
  "pipl",
 ]
+
+[[package]]
+name = "aexlo_fixture_gate"
+version = "0.3.0"
 
 [[package]]
 name = "aexlo_misbehave"
@@ -5080,11 +5086,13 @@ version = "0.3.0"
 dependencies = [
  "ab_glyph",
  "aexlo",
+ "aexlo_fixture_gate",
  "eframe",
  "env_logger",
  "epaint_default_fonts",
  "image",
  "log",
+ "raw-window-handle",
  "rfd",
  "serde",
  "serde_json",
@@ -5248,6 +5256,7 @@ name = "test_e2e"
 version = "0.3.0"
 dependencies = [
  "aexlo",
+ "aexlo_fixture_gate",
  "image",
 ]
 

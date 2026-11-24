@@ -397,9 +397,8 @@ impl PluginInstance {
 			self.dispose_pre_render();
 			return Err(AexloError::GpuRenderDeclined);
 		}
-		// The plugin queues its kernels and returns. Those kernels still read the
-		// pre-render block, so it is freed only after the context has drained.
-		// Freeing it here races the GPU and corrupts the heap (Universe Glow).
+		// The plugin queues its kernels and returns. Those kernels may still read
+		// the pre-render block, so it is freed only after the context has drained.
 		let rendered = self.render_smart_gpu();
 		if let Some(ctx) = self.gpu_context.as_mut() {
 			ctx.wait_for_completion();
@@ -567,13 +566,18 @@ impl PluginInstance {
 	}
 
 	/// Set the time the next commands operate on (e.g. `Time::frame(n, 30)` for
-	/// frame `n` of a 30 fps comp).
+	/// frame `n` of a 30 fps comp). It is the time of the effect's layer, which
+	/// is comp time unless a [project](Self::set_project) offsets or stretches
+	/// the layer. Keyframed parameters ([`Self::set_param_track`]) take their
+	/// values at it.
 	///
 	/// The layer and comp the plugin sees through the AEGP suites run at the
 	/// same frame rate. Plugins start at [`Time::default`], frame 0 at 30 fps.
 	pub fn set_time(&mut self, time: Time) {
 		let (value, step, scale) = time.into_parts();
 		self.render_context.set_time(value, step, scale);
+		self.apply_param_tracks();
+		self.apply_mask_tracks();
 	}
 
 	/// The time set by [`Self::set_time`].
@@ -603,6 +607,10 @@ impl PluginInstance {
 		// SAFETY: the layer's buffer is exactly `w * h * bpp` bytes.
 		let bytes = unsafe { std::slice::from_raw_parts(layer.data_ptr(), w * h * bpp) };
 		guarded.load_rows(bytes);
+		// Suites that read a world's depth from its allocation (the World
+		// Transform Suite, `PF_GetPixelFormat`) must see the output's depth
+		// in the guarded copy too.
+		crate::suites::world::tag_host_world(guarded.data_ptr() as usize, guarded.rowbytes() * h, layer.kind());
 		self.world.data = guarded.data_ptr() as *mut crate::sys::PF_Pixel;
 		self.world.rowbytes = guarded.rowbytes() as i32;
 		self.output_guard = Some(guarded);
@@ -610,9 +618,10 @@ impl PluginInstance {
 
 	/// Copy the guarded output back and report overwritten guard bands.
 	pub(super) fn end_output_guard(&mut self) {
-		let Some(guarded) = self.output_guard.take() else {
+		let Some(mut guarded) = self.output_guard.take() else {
 			return;
 		};
+		crate::suites::world::untag_host_world(guarded.data_ptr() as usize);
 		let layer = self.output_layer.layer_mut();
 		let len = layer.width() as usize * layer.height() as usize * layer.kind().bytes_per_pixel();
 		// SAFETY: as in `begin_output_guard`.

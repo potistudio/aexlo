@@ -1,8 +1,9 @@
-//! `AEGP Comp Suite` (wire version 21, `AEGP_CompSuite10`) over aexlo's
+//! `AEGP Comp Suite` (wire versions 9, 19, 21, 25 and 26) over aexlo's
 //! one-layer timeline (see [`layer`](super::layer)).
 //!
-//! The comp is the effect's layer: same handle, the input layer's size, the
-//! render context's frame rate, [`COMP_DURATION_SECONDS`](super::layer::COMP_DURATION_SECONDS) long, with After
+//! The comp is the embedder's (`PluginInstance::set_project`), else the
+//! effect's layer: the input layer's size, the render context's frame rate
+//! and [`COMP_DURATION_SECONDS`](super::layer::COMP_DURATION_SECONDS) long. It has After
 //! Effects' defaults for everything a new comp has (black background, full
 //! resolution, motion blur off with a 180° shutter at -90°, 16 suggested
 //! samples, adaptive limit 128, the work area spanning the comp). That comp is
@@ -11,7 +12,7 @@
 
 use crate::sys::*;
 
-use super::layer::{Timeline, answer, comp_handle, item_handle};
+use super::layer::{Timeline, answer_comp, comp_handle, item_handle};
 use crate::core::diagnostics::diag;
 
 /// After Effects' default shutter angle and phase, in degrees.
@@ -24,7 +25,7 @@ unsafe extern "C" fn get_comp_from_item(itemH: AEGP_ItemH, compPH: *mut AEGP_Com
 		let Some(out) = (unsafe { compPH.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		if Timeline::of(itemH as _).is_none() {
+		if Timeline::of_effect(itemH as _).is_none() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = comp_handle(itemH as PF_ProgPtr);
@@ -38,7 +39,7 @@ unsafe extern "C" fn get_item_from_comp(compH: AEGP_CompH, itemPH: *mut AEGP_Ite
 		let Some(out) = (unsafe { itemPH.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		if Timeline::of(compH as _).is_none() {
+		if Timeline::of_effect(compH as _).is_none() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		*out = item_handle(compH as PF_ProgPtr);
@@ -47,7 +48,11 @@ unsafe extern "C" fn get_item_from_comp(compH: AEGP_CompH, itemPH: *mut AEGP_Ite
 }
 
 fn unsupported(name: &str) -> A_Err {
-	log::warn!("AEGP_CompSuite10/{name}: aexlo's comp is fixed");
+	crate::observe::unsupported(
+		crate::observe::UnsupportedKind::Declined,
+		format!("AEGP_CompSuite/{name}"),
+		"the project is read-only",
+	);
 	A_Err_GENERIC
 }
 
@@ -149,18 +154,18 @@ refuse! {
 unsafe extern "C" fn get_comp_downsample_factor(compH: AEGP_CompH, dsfP: *mut AEGP_DownsampleFactor) -> A_Err {
 	crate::core::ffi::guard("get_comp_downsample_factor", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompDownsampleFactor", "compH" => format!("{:#x}", compH as usize));
-		answer(compH as _, dsfP, |_| AEGP_DownsampleFactor { xS: 1, yS: 1 })
+		answer_comp(compH as _, dsfP, |_| AEGP_DownsampleFactor { xS: 1, yS: 1 })
 	})
 }
 
 unsafe extern "C" fn get_comp_bg_color(compH: AEGP_CompH, bg_colorP: *mut AEGP_ColorVal) -> A_Err {
 	crate::core::ffi::guard("get_comp_bg_color", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompBGColor", "compH" => format!("{:#x}", compH as usize));
-		answer(compH as _, bg_colorP, |_| AEGP_ColorVal {
-			alphaF: 1.0,
-			redF: 0.0,
-			greenF: 0.0,
-			blueF: 0.0,
+		answer_comp(compH as _, bg_colorP, |t| AEGP_ColorVal {
+			alphaF: t.background[3],
+			redF: t.background[0],
+			greenF: t.background[1],
+			blueF: t.background[2],
 		})
 	})
 }
@@ -169,7 +174,7 @@ unsafe extern "C" fn get_comp_bg_color(compH: AEGP_CompH, bg_colorP: *mut AEGP_C
 unsafe extern "C" fn get_comp_flags(compH: AEGP_CompH, comp_flagsP: *mut AEGP_CompFlags) -> A_Err {
 	crate::core::ffi::guard("get_comp_flags", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompFlags", "compH" => format!("{:#x}", compH as usize));
-		answer(compH as _, comp_flagsP, |_| 0)
+		answer_comp(compH as _, comp_flagsP, |_| 0)
 	})
 }
 
@@ -179,21 +184,21 @@ unsafe extern "C" fn get_show_layer_name_or_source_name(
 ) -> A_Err {
 	crate::core::ffi::guard("get_show_layer_name_or_source_name", || {
 		diag!("AEGP_CompSuite10/AEGP_GetShowLayerNameOrSourceName", "compH" => format!("{:#x}", compH as usize));
-		answer(compH as _, layer_names_shownPB, |_| 1)
+		answer_comp(compH as _, layer_names_shownPB, |_| 1)
 	})
 }
 
 unsafe extern "C" fn get_show_blend_modes(compH: AEGP_CompH, blend_modes_shownPB: *mut A_Boolean) -> A_Err {
 	crate::core::ffi::guard("get_show_blend_modes", || {
 		diag!("AEGP_CompSuite10/AEGP_GetShowBlendModes", "compH" => format!("{:#x}", compH as usize));
-		answer(compH as _, blend_modes_shownPB, |_| 0)
+		answer_comp(compH as _, blend_modes_shownPB, |_| 0)
 	})
 }
 
 unsafe extern "C" fn get_comp_framerate(compH: AEGP_CompH, fpsPF: *mut A_FpLong) -> A_Err {
 	crate::core::ffi::guard("get_comp_framerate", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompFramerate", "compH" => format!("{:#x}", compH as usize));
-		answer(compH as _, fpsPF, |t| {
+		answer_comp(compH as _, fpsPF, |t| {
 			t.time_scale as A_FpLong / t.time_step.max(1) as A_FpLong
 		})
 	})
@@ -206,7 +211,7 @@ unsafe extern "C" fn get_comp_shutter_angle_phase(
 ) -> A_Err {
 	crate::core::ffi::guard("get_comp_shutter_angle_phase", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompShutterAnglePhase", "compH" => format!("{:#x}", compH as usize));
-		if Timeline::of(compH as _).is_none() || angle.is_null() || phase.is_null() {
+		if Timeline::of_effect(compH as _).is_none() || angle.is_null() || phase.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		unsafe {
@@ -234,7 +239,7 @@ unsafe extern "C" fn get_comp_shutter_frame_range(
 ) -> A_Err {
 	crate::core::ffi::guard("get_comp_shutter_frame_range", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompShutterFrameRange", "compH" => format!("{:#x}", compH as usize));
-		let Some(t) = Timeline::of(compH as _) else {
+		let Some(t) = Timeline::of_effect(compH as _) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		let Some(time) = (unsafe { comp_timeP.as_ref() }) else {
@@ -265,21 +270,21 @@ unsafe extern "C" fn get_comp_shutter_frame_range(
 unsafe extern "C" fn get_comp_suggested_motion_blur_samples(compH: AEGP_CompH, samplesPL: *mut A_long) -> A_Err {
 	crate::core::ffi::guard("get_comp_suggested_motion_blur_samples", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompSuggestedMotionBlurSamples", "compH" => format!("{:#x}", compH as usize));
-		answer(compH as _, samplesPL, |_| 16)
+		answer_comp(compH as _, samplesPL, |_| 16)
 	})
 }
 
 unsafe extern "C" fn get_comp_motion_blur_adaptive_sample_limit(compH: AEGP_CompH, samplesPL: *mut A_long) -> A_Err {
 	crate::core::ffi::guard("get_comp_motion_blur_adaptive_sample_limit", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompMotionBlurAdaptiveSampleLimit", "compH" => format!("{:#x}", compH as usize));
-		answer(compH as _, samplesPL, |_| 128)
+		answer_comp(compH as _, samplesPL, |_| 128)
 	})
 }
 
 unsafe extern "C" fn get_comp_work_area_start(compH: AEGP_CompH, work_area_startPT: *mut A_Time) -> A_Err {
 	crate::core::ffi::guard("get_comp_work_area_start", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompWorkAreaStart", "compH" => format!("{:#x}", compH as usize));
-		answer(compH as _, work_area_startPT, |t| A_Time {
+		answer_comp(compH as _, work_area_startPT, |t| A_Time {
 			value: 0,
 			scale: t.time_scale,
 		})
@@ -289,14 +294,14 @@ unsafe extern "C" fn get_comp_work_area_start(compH: AEGP_CompH, work_area_start
 unsafe extern "C" fn get_comp_work_area_duration(compH: AEGP_CompH, work_area_durationPT: *mut A_Time) -> A_Err {
 	crate::core::ffi::guard("get_comp_work_area_duration", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompWorkAreaDuration", "compH" => format!("{:#x}", compH as usize));
-		answer(compH as _, work_area_durationPT, Timeline::duration)
+		answer_comp(compH as _, work_area_durationPT, Timeline::comp_length)
 	})
 }
 
 unsafe extern "C" fn get_comp_display_start_time(compH: AEGP_CompH, start_timePT: *mut A_Time) -> A_Err {
 	crate::core::ffi::guard("get_comp_display_start_time", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompDisplayStartTime", "compH" => format!("{:#x}", compH as usize));
-		answer(compH as _, start_timePT, |t| A_Time {
+		answer_comp(compH as _, start_timePT, |t| A_Time {
 			value: 0,
 			scale: t.time_scale,
 		})
@@ -306,7 +311,7 @@ unsafe extern "C" fn get_comp_display_start_time(compH: AEGP_CompH, start_timePT
 unsafe extern "C" fn get_comp_frame_duration(compH: AEGP_CompH, timeP: *mut A_Time) -> A_Err {
 	crate::core::ffi::guard("get_comp_frame_duration", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompFrameDuration", "compH" => format!("{:#x}", compH as usize));
-		answer(compH as _, timeP, |t| A_Time {
+		answer_comp(compH as _, timeP, |t| A_Time {
 			value: t.time_step,
 			scale: t.time_scale,
 		})
@@ -316,7 +321,7 @@ unsafe extern "C" fn get_comp_frame_duration(compH: AEGP_CompH, timeP: *mut A_Ti
 unsafe extern "C" fn get_comp_display_drop_frame(compH: AEGP_CompH, dropFramePB: *mut A_Boolean) -> A_Err {
 	crate::core::ffi::guard("get_comp_display_drop_frame", || {
 		diag!("AEGP_CompSuite10/AEGP_GetCompDisplayDropFrame", "compH" => format!("{:#x}", compH as usize));
-		answer(compH as _, dropFramePB, |_| 0)
+		answer_comp(compH as _, dropFramePB, |_| 0)
 	})
 }
 
@@ -366,6 +371,108 @@ pub(super) const fn create_comp_suite_10() -> AEGP_CompSuite10 {
 		AEGP_GetNewCompMarkerStream: Some(get_new_comp_marker_stream),
 		AEGP_GetCompDisplayDropFrame: Some(get_comp_display_drop_frame),
 		AEGP_SetCompDisplayDropFrame: Some(set_comp_display_drop_frame),
+	}
+}
+
+/// `AEGP_CompSuite9` (wire version 19): suite 10 without the layer-name,
+/// blend-mode and adaptive-sample-limit calls, which it inserts.
+pub(super) const fn create_comp_suite_9() -> AEGP_CompSuite9 {
+	let base = create_comp_suite_10();
+	AEGP_CompSuite9 {
+		AEGP_GetCompFromItem: base.AEGP_GetCompFromItem,
+		AEGP_GetItemFromComp: base.AEGP_GetItemFromComp,
+		AEGP_GetCompDownsampleFactor: base.AEGP_GetCompDownsampleFactor,
+		AEGP_SetCompDownsampleFactor: base.AEGP_SetCompDownsampleFactor,
+		AEGP_GetCompBGColor: base.AEGP_GetCompBGColor,
+		AEGP_SetCompBGColor: base.AEGP_SetCompBGColor,
+		AEGP_GetCompFlags: base.AEGP_GetCompFlags,
+		AEGP_GetCompFramerate: base.AEGP_GetCompFramerate,
+		AEGP_SetCompFrameRate: base.AEGP_SetCompFrameRate,
+		AEGP_GetCompShutterAnglePhase: base.AEGP_GetCompShutterAnglePhase,
+		AEGP_GetCompShutterFrameRange: base.AEGP_GetCompShutterFrameRange,
+		AEGP_GetCompSuggestedMotionBlurSamples: base.AEGP_GetCompSuggestedMotionBlurSamples,
+		AEGP_SetCompSuggestedMotionBlurSamples: base.AEGP_SetCompSuggestedMotionBlurSamples,
+		AEGP_GetCompWorkAreaStart: base.AEGP_GetCompWorkAreaStart,
+		AEGP_GetCompWorkAreaDuration: base.AEGP_GetCompWorkAreaDuration,
+		AEGP_SetCompWorkAreaStartAndDuration: base.AEGP_SetCompWorkAreaStartAndDuration,
+		AEGP_CreateSolidInComp: base.AEGP_CreateSolidInComp,
+		AEGP_CreateCameraInComp: base.AEGP_CreateCameraInComp,
+		AEGP_CreateLightInComp: base.AEGP_CreateLightInComp,
+		AEGP_CreateComp: base.AEGP_CreateComp,
+		AEGP_GetNewCollectionFromCompSelection: base.AEGP_GetNewCollectionFromCompSelection,
+		AEGP_SetSelection: base.AEGP_SetSelection,
+		AEGP_GetCompDisplayStartTime: base.AEGP_GetCompDisplayStartTime,
+		AEGP_SetCompDisplayStartTime: base.AEGP_SetCompDisplayStartTime,
+		AEGP_SetCompDuration: base.AEGP_SetCompDuration,
+		AEGP_CreateNullInComp: base.AEGP_CreateNullInComp,
+		AEGP_SetCompPixelAspectRatio: base.AEGP_SetCompPixelAspectRatio,
+		AEGP_CreateTextLayerInComp: base.AEGP_CreateTextLayerInComp,
+		AEGP_CreateBoxTextLayerInComp: base.AEGP_CreateBoxTextLayerInComp,
+		AEGP_SetCompDimensions: base.AEGP_SetCompDimensions,
+		AEGP_DuplicateComp: base.AEGP_DuplicateComp,
+		AEGP_GetCompFrameDuration: base.AEGP_GetCompFrameDuration,
+		AEGP_GetMostRecentlyUsedComp: base.AEGP_GetMostRecentlyUsedComp,
+		AEGP_CreateVectorLayerInComp: base.AEGP_CreateVectorLayerInComp,
+		AEGP_GetNewCompMarkerStream: base.AEGP_GetNewCompMarkerStream,
+		AEGP_GetCompDisplayDropFrame: base.AEGP_GetCompDisplayDropFrame,
+		AEGP_SetCompDisplayDropFrame: base.AEGP_SetCompDisplayDropFrame,
+	}
+}
+
+unsafe extern "C" fn reorder_comp_selection(_compH: AEGP_CompH, _index: A_long) -> A_Err {
+	diag!("AEGP_CompSuite11/AEGP_ReorderCompSelection");
+	unsupported("AEGP_ReorderCompSelection")
+}
+
+/// `AEGP_CompSuite11` (wire versions 25 and 26) is suite 10 plus selection
+/// reordering. The extra call edits the timeline, so it is refused.
+pub(super) const fn create_comp_suite_11() -> AEGP_CompSuite11 {
+	let base = create_comp_suite_10();
+	AEGP_CompSuite11 {
+		AEGP_GetCompFromItem: base.AEGP_GetCompFromItem,
+		AEGP_GetItemFromComp: base.AEGP_GetItemFromComp,
+		AEGP_GetCompDownsampleFactor: base.AEGP_GetCompDownsampleFactor,
+		AEGP_SetCompDownsampleFactor: base.AEGP_SetCompDownsampleFactor,
+		AEGP_GetCompBGColor: base.AEGP_GetCompBGColor,
+		AEGP_SetCompBGColor: base.AEGP_SetCompBGColor,
+		AEGP_GetCompFlags: base.AEGP_GetCompFlags,
+		AEGP_GetShowLayerNameOrSourceName: base.AEGP_GetShowLayerNameOrSourceName,
+		AEGP_SetShowLayerNameOrSourceName: base.AEGP_SetShowLayerNameOrSourceName,
+		AEGP_GetShowBlendModes: base.AEGP_GetShowBlendModes,
+		AEGP_SetShowBlendModes: base.AEGP_SetShowBlendModes,
+		AEGP_GetCompFramerate: base.AEGP_GetCompFramerate,
+		AEGP_SetCompFrameRate: base.AEGP_SetCompFrameRate,
+		AEGP_GetCompShutterAnglePhase: base.AEGP_GetCompShutterAnglePhase,
+		AEGP_GetCompShutterFrameRange: base.AEGP_GetCompShutterFrameRange,
+		AEGP_GetCompSuggestedMotionBlurSamples: base.AEGP_GetCompSuggestedMotionBlurSamples,
+		AEGP_SetCompSuggestedMotionBlurSamples: base.AEGP_SetCompSuggestedMotionBlurSamples,
+		AEGP_GetCompMotionBlurAdaptiveSampleLimit: base.AEGP_GetCompMotionBlurAdaptiveSampleLimit,
+		AEGP_SetCompMotionBlurAdaptiveSampleLimit: base.AEGP_SetCompMotionBlurAdaptiveSampleLimit,
+		AEGP_GetCompWorkAreaStart: base.AEGP_GetCompWorkAreaStart,
+		AEGP_GetCompWorkAreaDuration: base.AEGP_GetCompWorkAreaDuration,
+		AEGP_SetCompWorkAreaStartAndDuration: base.AEGP_SetCompWorkAreaStartAndDuration,
+		AEGP_CreateSolidInComp: base.AEGP_CreateSolidInComp,
+		AEGP_CreateCameraInComp: base.AEGP_CreateCameraInComp,
+		AEGP_CreateLightInComp: base.AEGP_CreateLightInComp,
+		AEGP_CreateComp: base.AEGP_CreateComp,
+		AEGP_GetNewCollectionFromCompSelection: base.AEGP_GetNewCollectionFromCompSelection,
+		AEGP_SetSelection: base.AEGP_SetSelection,
+		AEGP_GetCompDisplayStartTime: base.AEGP_GetCompDisplayStartTime,
+		AEGP_SetCompDisplayStartTime: base.AEGP_SetCompDisplayStartTime,
+		AEGP_SetCompDuration: base.AEGP_SetCompDuration,
+		AEGP_CreateNullInComp: base.AEGP_CreateNullInComp,
+		AEGP_SetCompPixelAspectRatio: base.AEGP_SetCompPixelAspectRatio,
+		AEGP_CreateTextLayerInComp: base.AEGP_CreateTextLayerInComp,
+		AEGP_CreateBoxTextLayerInComp: base.AEGP_CreateBoxTextLayerInComp,
+		AEGP_SetCompDimensions: base.AEGP_SetCompDimensions,
+		AEGP_DuplicateComp: base.AEGP_DuplicateComp,
+		AEGP_GetCompFrameDuration: base.AEGP_GetCompFrameDuration,
+		AEGP_GetMostRecentlyUsedComp: base.AEGP_GetMostRecentlyUsedComp,
+		AEGP_CreateVectorLayerInComp: base.AEGP_CreateVectorLayerInComp,
+		AEGP_GetNewCompMarkerStream: base.AEGP_GetNewCompMarkerStream,
+		AEGP_GetCompDisplayDropFrame: base.AEGP_GetCompDisplayDropFrame,
+		AEGP_SetCompDisplayDropFrame: base.AEGP_SetCompDisplayDropFrame,
+		AEGP_ReorderCompSelection: Some(reorder_comp_selection),
 	}
 }
 
@@ -472,15 +579,30 @@ mod tests {
 
 	#[test]
 	fn duration_is_whole_seconds() {
-		let t = Timeline {
-			width: 1,
-			height: 1,
-			current_time: 0,
-			time_step: 1,
-			time_scale: 30,
-			text: false,
-		};
-		let d = t.duration();
+		struct Out(A_Time);
+		static SEEN: std::sync::Mutex<Option<Out>> = std::sync::Mutex::new(None);
+		unsafe extern "C" fn entry(
+			cmd: PF_Cmd,
+			input: *mut PF_InData,
+			_output: *mut PF_OutData,
+			_params: PF_ParamList,
+			_world: *mut PF_LayerDef,
+			_extra: *mut std::ffi::c_void,
+		) -> PF_Err {
+			if cmd == PF_Cmd_ABOUT as PF_Cmd {
+				let mut time = A_Time { value: 0, scale: 0 };
+				let comp = unsafe { (*input).effect_ref } as AEGP_CompH;
+				unsafe { get_comp_work_area_duration(comp, &mut time) };
+				*SEEN.lock().unwrap() = Some(Out(time));
+			}
+			PF_Err_NONE
+		}
+		unsafe { crate::Host::get().entry_loader(entry) }
+			.load()
+			.unwrap()
+			.about()
+			.unwrap();
+		let d = SEEN.lock().unwrap().take().expect("the comp answered").0;
 		assert_eq!(d.value as i64 / d.scale as i64, COMP_DURATION_SECONDS as i64);
 	}
 }

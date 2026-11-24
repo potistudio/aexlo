@@ -122,6 +122,8 @@ TUI のプロンプトと同じコマンドです。
 | `about` | | `PF_Cmd_ABOUT`。メッセージはプラグインのテキスト |
 | `render [auto\|smart\|legacy\|gpu]` | `r` | 指定した経路でフレームをレンダリングする。`auto` は GPU、smart、legacy の順に選び、失敗すれば次の経路にフォールバックする |
 | `set <param> <value>` | | パラメーターを設定する。[パラメーターの設定](#パラメーターの設定)を参照 |
+| `key <param> <frame> <value>` | | 現在のフレームレートでのフレームに線形キーフレームを追加する。空白を含む名前は引用符で囲む。`set` はキーフレームを定数値に置き換える |
+| `mask <rect\|ellipse\|triangle\|ring\|none>` | | レイヤーのマスクをその図形に差し替える |
 | `changed <param>` | | `PF_Cmd_USER_CHANGED_PARAM`（プラグインが求めれば `UPDATE_PARAMS_UI` も）。`<param>` は行の残り全部で、引用符は省略できる |
 | `updateui` | `update-ui` | `PF_Cmd_UPDATE_PARAMS_UI` |
 | `dialog` | | `PF_Cmd_DO_DIALOG`（Options ボタン）。[ダイアログ](#ダイアログ)を参照 |
@@ -130,6 +132,7 @@ TUI のプロンプトと同じコマンドです。
 | `input <png>` | | 入力レイヤーを PNG に差し替え、現在のビット深度に変換する。行の残りがパスで、引用符は省略できる |
 | `input <black\|white\|gradient> [w h]` | | 入力レイヤーを生成した画像に差し替える。サイズは指定したものか、現在のもの |
 | `input text <string>` | | エフェクトのレイヤーを、現在のサイズで `<string>` を表示するテキストレイヤーにする。`\n` で改行し、引用符は省略できる。[テキストレイヤー](#テキストレイヤー)を参照 |
+| `input shape <rect\|ellipse\|triangle\|ring>` | | エフェクトのレイヤーを、現在のサイズでその図形を表示するシェイプレイヤーにする。[シェイプレイヤー](#シェイプレイヤー)を参照 |
 | `depth <8\|16\|32>` | | 入力（プロジェクト）のビット深度を変換する。プラグインがそのビット深度を宣言していなければ失敗する |
 | `reload` | | プラグインを破棄して読み込み直す。クレートなら先に再ビルドする |
 | `level <commands\|calls\|args>` | `cmd`、`call`、`arguments` | 記録する内容を変える |
@@ -215,6 +218,16 @@ After Effects では、ユーザーがこうした値を入力することはで
 
 ```bash
 aexlo inspect TextGrad --text "TextGrad" --exec "render; save text.png"
+```
+
+### シェイプレイヤー
+
+`input shape <図形>` は、1 つのコンポジションからなるプロジェクトのシェイプレイヤーにエフェクトを置きます。プラグインはレイヤーのストリーム（`ADBE Root Vectors Group` から `ADBE Vector Shape` まで）でパスを見つけ、AEGP Mask Outline Suite で読みます。入力は、透明の上に白で描いた図形です。
+図形は中央より左上に置くので、誤った座標空間でパスを読むと位置のずれでわかります。`mask <図形>` は同じ図形をマスクとして渡します。
+
+```bash
+aexlo inspect Extrude --exec "input shape ring; render smart; save ring.png"
+aexlo inspect Extrude --exec "input shape ring; key 27 0 0; key 27 30 200; time 15; render smart; save half.png"
 ```
 
 ### ダイアログ
@@ -508,6 +521,12 @@ JSON を出力する前に見つかる間違いもあります。
 不正なオプションや、`--exec` か `--script` ファイル内の知らないコマンドです。
 このときは stderr に `error: ...` が出るだけです。
 stdout が空で終了コードが 1 なら、stderr を読んでください。
+
+Windows では、CLI はプラグインの後始末と出力のフラッシュが済んだ時点でプロセスを終了します。
+その時点で読み込まれたままの DLL（プラグイン自身のスレッドが参照を持っていると残ります）には、プロセス終了時の detach を実行しません。
+スレッドがなくなった後の detach は、停止やクラッシュを起こすためです。
+コマンド、setdown、アンロードの最中のクラッシュは、これまでどおりクラッシュとして扱います。
+`aexlo` ライブラリーを組み込んだプログラムの終了方法はそのプログラムが決めます。通常どおり終了すれば、この detach が実行されます。
 
 プラグインがクラッシュすると、プロセスごと終了します。終了コードはシグナルによるものです。
 それまでに出力したイベントはそのまま有効です。

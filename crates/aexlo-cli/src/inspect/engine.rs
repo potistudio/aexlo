@@ -8,12 +8,13 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use aexlo::{
-	AnyLayer, InstanceState, LiveAllocation, ObserveLevel, OutFlags, OutFlags2, ParamKind, ParamValue, PixelDepthKind,
-	PluginInstance, Strict, TextLayer, Time,
+	AnyLayer, Comp, InstanceState, Keyframe, LayerContent, LiveAllocation, MaskPath, MaskVertex, ObserveLevel,
+	OutFlags, OutFlags2, ParamKind, ParamValue, PixelDepthKind, PluginInstance, Project, ProjectLayer, ShapeFill,
+	ShapeGroup, ShapeItem, ShapePath, Strict, TextLayer, Time, TimePoint, Track,
 };
 use anyhow::{Context, Result, bail};
 
-use super::command::{Command, InputSource};
+use super::command::{Command, InputSource, Outline};
 use super::recorder::Recorder;
 
 /// How the plugin is loaded (and reloaded).
@@ -28,6 +29,11 @@ pub struct Setup {
 	pub input: AnyLayer,
 	/// The text when the layer is a text layer (`input text`).
 	pub text: Option<TextLayer>,
+	/// The project around the effect when the layer is a shape layer
+	/// (`input shape`).
+	pub project: Option<Project>,
+	/// The layer's masks (`mask`).
+	pub masks: Vec<MaskPath>,
 	/// The font `input text` sets text in; `None` is a system sans-serif.
 	pub font: Option<PathBuf>,
 	pub size: Option<(u32, u32)>,
@@ -169,6 +175,8 @@ impl Engine {
 			.with_context(|| format!("loading plugin {}", setup.path.display()))?;
 		instance.set_parallel_iterate(!setup.serial);
 		instance.set_text_layer(setup.text.clone());
+		instance.set_project(setup.project.clone());
+		instance.set_mask_paths(setup.masks.clone());
 		Ok(instance)
 	}
 
@@ -220,6 +228,40 @@ impl Engine {
 				if let Some(warning) = out_of_range(fx, index, &parsed) {
 					message += &format!("  ({warning})");
 				}
+				Ok(message)
+			}
+			Command::Key { key, frame, value } => {
+				let fx = self.instance()?;
+				let index = crate::param::resolve_key(fx, key)?;
+				settable(fx, index)?;
+				let parsed = match popup_choice(fx, index, value) {
+					Some(choice) => ParamValue::Popup(choice),
+					None => crate::param::parse_value(fx, index, value)?,
+				};
+				let now = fx.time();
+				let at = frame
+					.checked_mul(now.step())
+					.and_then(|at| TimePoint::new(at, now.scale()))
+					.context("that frame is out of range")?;
+				let mut keys: Vec<Keyframe<ParamValue>> =
+					fx.param_track(index).map_or(Vec::new(), |t| t.keys().to_vec());
+				keys.retain(|existing| existing.time != at);
+				keys.push(Keyframe::linear(at, parsed.clone()));
+				let count = keys.len();
+				let track = Track::keyed(keys).context("no keyframes")?;
+				fx.set_param_track(index, track)
+					.with_context(|| format!("keyframing parameter {key}"))?;
+				Ok(format!(
+					"#{index} = {} at frame {frame} ({count} key(s))",
+					describe_value(&parsed)
+				))
+			}
+			Command::Mask(outline) => {
+				let fx = self.instance()?;
+				let masks = outline.map_or(Vec::new(), |outline| outline_paths(outline, fx.input_size()));
+				fx.set_mask_paths(masks.clone());
+				let message = format!("{} mask(s)", masks.len());
+				self.setup.masks = masks;
 				Ok(message)
 			}
 			Command::Changed(key) => {
@@ -280,17 +322,32 @@ impl Engine {
 				let fx = self.instance()?;
 				let depth = fx.input_depth();
 				let (w, h) = fx.input_size();
-				let (layer, text) = build_input(source, depth, (w, h), self.setup.font.as_deref())?;
+				let (layer, text, project) = match source {
+					InputSource::Shape(outline) => {
+						let (layer, project) = shape_layer(*outline, depth, (w, h))?;
+						(layer, None, Some(project))
+					}
+					_ => {
+						let (layer, text) = build_input(source, depth, (w, h), self.setup.font.as_deref())?;
+						(layer, text, None)
+					}
+				};
 				let (w, h) = (layer.width(), layer.height());
 				let fx = self.instance()?;
 				set_input(fx, layer.clone());
 				fx.set_text_layer(text.clone());
-				let kind = match &text {
-					Some(text) => format!(" text layer, {} outline(s)", text.outlines().len()),
-					None => String::new(),
+				fx.set_project(project.clone());
+				let kind = match (&text, &project) {
+					(Some(text), _) => format!(" text layer, {} outline(s)", text.outlines().len()),
+					(None, Some(project)) => format!(
+						" shape layer, {} path(s)",
+						project.effect_layer().outlines(TimePoint::ZERO).len()
+					),
+					(None, None) => String::new(),
 				};
 				self.setup.input = layer;
 				self.setup.text = text;
+				self.setup.project = project;
 				Ok(format!("input = {w}x{h} {}-bit{kind}", depth.bits()))
 			}
 			Command::Depth(kind) => {
@@ -308,6 +365,11 @@ impl Engine {
 					.as_ref()
 					.map(PluginInstance::param_values)
 					.unwrap_or_default();
+				let tracks: Vec<(usize, Track<ParamValue>)> = self.instance.as_ref().map_or(Vec::new(), |fx| {
+					(1..fx.param_count())
+						.filter_map(|index| Some((index, fx.param_track(index)?.clone())))
+						.collect()
+				});
 				self.unload();
 				let rebuilt = match &self.setup.manifest {
 					Some(manifest) => {
@@ -324,6 +386,10 @@ impl Engine {
 					.into_iter()
 					.filter(|(index, value)| fx.set_param(*index, value.clone()).is_ok())
 					.count();
+				for (index, track) in tracks {
+					// As with the values: where it still fits.
+					let _ = fx.set_param_track(index, track);
+				}
 				Ok(format!("reloaded{rebuilt}, {restored} parameter value(s) kept"))
 			}
 			Command::Level(level) => {
@@ -467,6 +533,7 @@ pub fn build_input(
 	}
 	let layer = match source {
 		InputSource::Text(_) => unreachable!("handled above"),
+		InputSource::Shape(_) => bail!("a shape layer needs a plugin loaded (`input shape`)"),
 		InputSource::Png(path) => load_png(path)?.convert(depth),
 		InputSource::Fill(rgba, size) => {
 			let (w, h) = size.unwrap_or(current);
@@ -487,6 +554,81 @@ pub fn build_input(
 		}
 	};
 	Ok((layer, None))
+}
+
+/// A `size` shape layer showing `outline`, and the project that has it.
+fn shape_layer(outline: Outline, depth: PixelDepthKind, (w, h): (u32, u32)) -> Result<(AnyLayer, Project)> {
+	let comp = Comp::new("Comp 1", w, h, TimePoint::whole_seconds(10));
+	let mut items: Vec<ShapeItem> = outline_paths(outline, (w, h))
+		.into_iter()
+		.enumerate()
+		.map(|(i, path)| ShapeItem::Path(ShapePath::new(format!("Path {}", i + 1), path)))
+		.collect();
+	items.push(ShapeItem::Fill(ShapeFill::new([1.0; 4])));
+	let group = ShapeItem::Group(ShapeGroup::new("Shape 1", items));
+	let shape = ProjectLayer::new(1, "Shape Layer 1", LayerContent::Shape(vec![group]), &comp);
+	let layer = shape
+		.rasterize(depth, TimePoint::ZERO, [1.0; 4])
+		.context("drawing the shape")?;
+	Ok((layer, Project::new(comp, vec![shape], 1)?))
+}
+
+/// `outline` in a `size` layer. It sits left of and above the middle, so
+/// paths read in the wrong space show.
+fn outline_paths(outline: Outline, (w, h): (u32, u32)) -> Vec<MaskPath> {
+	let (w, h) = (f64::from(w), f64::from(h));
+	let (cx, cy) = (w * 0.4, h * 0.45);
+	let r = w.min(h) * 0.3;
+	let ellipse = |r: f64| {
+		// Circle-to-cubic handle length.
+		let t = r * 0.552_284_749_8;
+		let at = |x: f64, y: f64, tx: f64, ty: f64| MaskVertex {
+			x: cx + x,
+			y: cy + y,
+			tan_in_x: -tx,
+			tan_in_y: -ty,
+			tan_out_x: tx,
+			tan_out_y: ty,
+		};
+		vec![
+			at(0.0, -r, t, 0.0),
+			at(r, 0.0, 0.0, t),
+			at(0.0, r, -t, 0.0),
+			at(-r, 0.0, 0.0, -t),
+		]
+	};
+	let corner = |x: f64, y: f64| MaskVertex::corner(cx + x * r, cy + y * r);
+	let paths = match outline {
+		Outline::Rect => vec![vec![
+			corner(-1.0, -0.7),
+			corner(1.0, -0.7),
+			corner(1.0, 0.7),
+			corner(-1.0, 0.7),
+		]],
+		Outline::Ellipse => vec![ellipse(r)],
+		Outline::Triangle => vec![vec![corner(0.0, -1.0), corner(1.0, 0.8), corner(-1.0, 0.8)]],
+		Outline::Ring => {
+			let inner = ellipse(r * 0.5).into_iter().rev().map(|v| MaskVertex {
+				tan_in_x: v.tan_out_x,
+				tan_in_y: v.tan_out_y,
+				tan_out_x: v.tan_in_x,
+				tan_out_y: v.tan_in_y,
+				..v
+			});
+			vec![ellipse(r), inner.collect()]
+		}
+	};
+	paths
+		.into_iter()
+		.zip(1..)
+		.map(|(vertices, id)| MaskPath {
+			id,
+			name: format!("Mask {id}"),
+			vertices,
+			closed: true,
+			..Default::default()
+		})
+		.collect()
 }
 
 pub fn load_png(path: &Path) -> Result<AnyLayer> {

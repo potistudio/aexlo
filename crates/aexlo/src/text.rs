@@ -145,47 +145,59 @@ impl TextLayer {
 	/// `width` x `height` layer of depth `kind`: what After Effects hands an
 	/// effect on a text layer as its input.
 	pub fn rasterize(&self, kind: PixelDepthKind, width: u32, height: u32, rgba: [f32; 4]) -> AnyLayer {
-		let mut layer = AnyLayer::filled(kind, width, height, [0.0; 4]);
-		let coverage = self.coverage(width, height);
-		layer.set_from_unit_rgba(coverage.into_iter().map(|c| [rgba[0], rgba[1], rgba[2], rgba[3] * c]));
-		layer
+		fill(&self.outlines, kind, (width, height), rgba, false)
 	}
+}
 
-	/// Anti-aliased coverage (0..1) of the filled outlines, row-major.
-	fn coverage(&self, width: u32, height: u32) -> Vec<f32> {
-		let pixels = width as usize * height as usize;
-		let Some(mut mask) = tiny_skia::Mask::new(width, height) else {
-			return vec![0.0; pixels];
+/// `outlines` filled with `rgba` as one shape on a transparent layer.
+pub(crate) fn fill(
+	outlines: &[MaskPath],
+	kind: PixelDepthKind,
+	(width, height): (u32, u32),
+	rgba: [f32; 4],
+	even_odd: bool,
+) -> AnyLayer {
+	let mut layer = AnyLayer::filled(kind, width, height, [0.0; 4]);
+	let coverage = coverage(outlines, width, height, even_odd);
+	layer.set_from_unit_rgba(coverage.into_iter().map(|c| [rgba[0], rgba[1], rgba[2], rgba[3] * c]));
+	layer
+}
+
+/// Anti-aliased coverage (0..1) of the filled outlines, row-major. An open
+/// outline is filled as if closed.
+fn coverage(outlines: &[MaskPath], width: u32, height: u32, even_odd: bool) -> Vec<f32> {
+	let pixels = width as usize * height as usize;
+	let Some(mut mask) = tiny_skia::Mask::new(width, height) else {
+		return vec![0.0; pixels];
+	};
+	let mut builder = tiny_skia::PathBuilder::new();
+	for path in outlines {
+		let Some(first) = path.vertices.first() else {
+			continue;
 		};
-		let mut builder = tiny_skia::PathBuilder::new();
-		for path in &self.outlines {
-			let Some(first) = path.vertices.first() else {
-				continue;
-			};
-			builder.move_to(first.x as f32, first.y as f32);
-			for seg in 0..path.segment_count() {
-				let [_, c1, c2, end] = path.segment(seg).expect("segment index in range");
-				builder.cubic_to(
-					c1.0 as f32,
-					c1.1 as f32,
-					c2.0 as f32,
-					c2.1 as f32,
-					end.0 as f32,
-					end.1 as f32,
-				);
-			}
-			builder.close();
-		}
-		if let Some(path) = builder.finish() {
-			mask.fill_path(
-				&path,
-				tiny_skia::FillRule::Winding,
-				true,
-				tiny_skia::Transform::identity(),
+		builder.move_to(first.x as f32, first.y as f32);
+		for seg in 0..path.segment_count() {
+			let [_, c1, c2, end] = path.segment(seg).expect("segment index in range");
+			builder.cubic_to(
+				c1.0 as f32,
+				c1.1 as f32,
+				c2.0 as f32,
+				c2.1 as f32,
+				end.0 as f32,
+				end.1 as f32,
 			);
 		}
-		mask.data().iter().map(|&a| f32::from(a) / 255.0).collect()
+		builder.close();
 	}
+	if let Some(path) = builder.finish() {
+		let rule = if even_odd {
+			tiny_skia::FillRule::EvenOdd
+		} else {
+			tiny_skia::FillRule::Winding
+		};
+		mask.fill_path(&path, rule, true, tiny_skia::Transform::identity());
+	}
+	mask.data().iter().map(|&a| f32::from(a) / 255.0).collect()
 }
 
 fn load_font(path: &Path) -> Result<FontVec> {
@@ -413,9 +425,7 @@ mod tests {
 
 	#[test]
 	fn layout_centres_the_text_with_a_system_font() {
-		let Some(_) = crate::suites::system_font() else {
-			return; // No system font on this machine: nothing to lay out with.
-		};
+		assert!(crate::suites::system_font().is_some(), "needs a system sans-serif font");
 		let text = TextLayer::layout("Hi o", &TextStyle::sized(40.0), 200, 100).unwrap();
 		// H (1 contour), i (2), space (0), o (2).
 		assert_eq!(text.outlines().len(), 5);

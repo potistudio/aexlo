@@ -10,6 +10,7 @@
 //! Parameter indices: [2] Colors (popup: 1 = Cold … 5 = Deep Space).
 
 use aexlo::{Depth8, Layer, ParamValue, PluginInstance, RenderPath};
+use aexlo_fixture_gate::needs_fixture;
 
 const COLORS: usize = 2;
 
@@ -17,7 +18,7 @@ const W: u32 = 320;
 const H: u32 = 180;
 
 fn render(path: RenderPath, params: &[(usize, ParamValue)]) -> Option<Vec<u8>> {
-	let Some(plugin) = test_e2e::fixture("Cosmic") else {
+	let Some(plugin) = test_e2e::find_fixture("Cosmic") else {
 		eprintln!("skipping: fixture 'Cosmic' not present locally");
 		return None;
 	};
@@ -44,6 +45,7 @@ fn mean_abs_diff(a: &[u8], b: &[u8]) -> f64 {
 
 /// The smart path gets through pre-render (where the plugin mixes in its GUID)
 /// and draws the same frame as the legacy path.
+#[needs_fixture("Cosmic")]
 #[test]
 fn smart_render_matches_legacy() {
 	let Some(smart) = render(RenderPath::Smart, &[]) else {
@@ -58,6 +60,7 @@ fn smart_render_matches_legacy() {
 }
 
 /// Picking another palette changes the smart-rendered frame.
+#[needs_fixture("Cosmic")]
 #[test]
 fn smart_render_follows_palette() {
 	let Some(cold) = render(RenderPath::Smart, &[(COLORS, ParamValue::Popup(1))]) else {

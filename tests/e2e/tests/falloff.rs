@@ -12,6 +12,7 @@
 use std::sync::{Arc, Mutex};
 
 use aexlo::{Depth8, Layer, ObserveLevel, Observer, ParamValue, PluginInstance, RenderPath, UnsupportedEvent};
+use aexlo_fixture_gate::needs_fixture;
 
 const MAX_RADIUS: usize = 2;
 
@@ -33,7 +34,7 @@ impl Observer for Gaps {
 
 /// Render a smart frame; returns the RGBA8 output and the gaps it hit.
 fn render(params: &[(usize, ParamValue)]) -> Option<(Vec<u8>, Vec<String>)> {
-	let Some(plugin) = test_e2e::fixture("Falloff") else {
+	let Some(plugin) = test_e2e::find_fixture("Falloff") else {
 		eprintln!("skipping: fixture 'Falloff' not present locally");
 		return None;
 	};
@@ -62,6 +63,7 @@ fn grey_pixels(out: &[u8]) -> usize {
 }
 
 /// The smart path renders, keeps the layer opaque and draws over it.
+#[needs_fixture("Falloff")]
 #[test]
 fn smart_render_draws() {
 	let Some((out, _)) = render(&[]) else { return };
@@ -72,6 +74,7 @@ fn smart_render_draws() {
 
 /// Pre-render reads a stream and frees the effect handle through Effect
 /// Suite v5; with a blur radius set, nothing it asks for is missing.
+#[needs_fixture("Falloff")]
 #[test]
 fn smart_render_hits_no_gaps() {
 	let Some((out, gaps)) = render(&[(MAX_RADIUS, ParamValue::Float(60.0))]) else {

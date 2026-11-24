@@ -91,6 +91,7 @@
 // crate-wide keeps the FFI surface readable without per-item annotations.
 #![allow(non_snake_case)]
 
+mod animation;
 mod core;
 mod flags;
 mod gpu;
@@ -101,6 +102,7 @@ mod observe;
 mod param_value;
 mod pipl;
 mod pixel;
+mod project;
 mod strict;
 mod stub_log;
 pub mod sys;
@@ -113,6 +115,9 @@ pub(crate) mod suites;
 pub use core::error::{AexloError, Result};
 pub use instance::{CustomControlEvent, CustomControlImage, InstanceState, Loader, PluginInstance, RenderPath};
 pub use time::Time;
+
+/// Values over time: keyframes, and the evaluator every API reads them with.
+pub use animation::{Animate, Interpolation, Keyframe, TimePoint, Track};
 
 /// Window plugins should treat as After Effects' main window
 /// (`PF_PlatData_MAIN_WND`).
@@ -158,6 +163,13 @@ pub use strict::{
 /// Layer masks served through the Path Query/Data suites
 /// ([`PluginInstance::set_mask_paths`]).
 pub use mask::{MaskMode, MaskPath, MaskVertex};
+
+/// The project around an effect: comp, layers, shapes
+/// ([`PluginInstance::set_project`]).
+pub use project::{
+	Comp, LayerContent, LayerTransform, MergeMode, Project, ProjectLayer, ShapeFill, ShapeGroup, ShapeItem, ShapePath,
+	ShapeTransform,
+};
 
 /// Text on the effect's layer, served through the Text Layer Suite
 /// ([`PluginInstance::set_text_layer`]).

@@ -33,7 +33,16 @@ However, all of these plugins are designed to run exclusively within After Effec
 
 ## Capabilities
 
-- Load and render After Effects plugins outside of After Effects.
+- Load and render After Effects plugins outside of After Effects, through
+  their GPU, smart and legacy paths, in 8, 16 and 32 bits per channel.
+- Put an effect on a text or shape layer, so effects that work from glyph
+  and path data (Discotext, Extrude) can read it, and give it masks.
+- Describe the project around an effect: comp, layers, transforms and
+  layer time.
+- Keyframe parameters, with one value at any instant whichever API the
+  plugin asks.
+- Observe the commands and suite calls, and what a plugin asked for that
+  aexlo does not do.
 - Selectively override or re-implement SDK commands, suites, and callbacks
   to fit your specific workflow.
 
@@ -41,6 +50,8 @@ However, all of these plugins are designed to run exclusively within After Effec
 
 > [!WARNING]
 > This project is **currently under heavy development**.
+> Rendering without an error is not a promise of the same pixels: much of the
+> host has not been compared with After Effects.
 > The latest progress of this project can be seen on the [master branch](https://github.com/potistudio/aexlo/tree/master).
 
 ## Quick Start
@@ -79,6 +90,71 @@ fn main() -> aexlo::Result<()> {
 
 A plugin is native code that runs inside your process; see the crate docs on
 [docs.rs](https://docs.rs/aexlo) for the trust, process and threading model.
+
+### Layers, paths and keyframes
+
+> [!NOTE]
+> These APIs are newer than 0.2.0; see
+> [Unreleased](https://github.com/potistudio/aexlo/blob/master/CHANGELOG.md).
+
+Without a project, an effect is alone on a layer that fills its comp.
+`set_text_layer` makes that a text layer, and `set_mask_paths` gives it masks
+(`set_mask_tracks`, masks that move over time).
+`set_project` describes a whole comp instead, which is how an effect gets the
+paths of a shape layer:
+
+```rust,no_run
+use aexlo::{
+    Comp, Depth8, Host, Keyframe, Layer, LayerContent, MaskPath, MaskVertex, ParamValue, PixelDepthKind, Project,
+    ProjectLayer, ShapeFill, ShapeGroup, ShapeItem, ShapePath, Time, TimePoint, Track,
+};
+
+fn main() -> aexlo::Result<()> {
+    let comp = Comp::new("Comp 1", 640, 360, TimePoint::whole_seconds(10));
+    let triangle = MaskPath {
+        vertices: vec![
+            MaskVertex::corner(260.0, 60.0),
+            MaskVertex::corner(370.0, 250.0),
+            MaskVertex::corner(150.0, 250.0),
+        ],
+        closed: true,
+        ..Default::default()
+    };
+    let group = ShapeGroup::new(
+        "Triangle",
+        vec![
+            ShapeItem::Path(ShapePath::new("Path 1", triangle)),
+            ShapeItem::Fill(ShapeFill::new([1.0; 4])),
+        ],
+    );
+    let content = LayerContent::Shape(vec![ShapeItem::Group(group)]);
+    let layer = ProjectLayer::new(1, "Shape Layer 1", content, &comp);
+    // The pixels are the host's to give, as After Effects would draw them.
+    let input = layer
+        .rasterize(PixelDepthKind::U8, TimePoint::ZERO, [1.0; 4])
+        .expect("a shape layer");
+
+    let mut fx = Host::get().loader("Extrude.aex").input(input).load()?;
+    fx.set_project(Some(Project::new(comp, vec![layer], 1)?));
+
+    // Extrude's "Extrusion Length Back".
+    let length = Track::keyed(vec![
+        Keyframe::linear(TimePoint::frame(0, 30), ParamValue::Float(0.0)),
+        Keyframe::linear(TimePoint::frame(30, 30), ParamValue::Float(200.0)),
+    ])
+    .expect("two different times");
+    fx.set_param_track(27, length)?;
+
+    fx.set_time(Time::frame(15, 30)); // 100
+    fx.render_frame()?;
+    let output: Layer<Depth8> = fx.read_output()?;
+    Ok(())
+}
+```
+
+The project is read-only to plugins, and with one `set_time` is the time of
+the effect's layer: comp time is `start + time * stretch`. Keyframes are
+linear or held. [AEGP](#aegp) lists the other limits.
 
 ### Build from the repository
 
@@ -144,6 +220,14 @@ aexlo inspect build/MyGlow.plugin            # TUI; `:help` lists the commands
 aexlo inspect MyGlow --exec "render; set Radius 50; render smart"
 ```
 
+`input text`, `input shape`, `mask` and `key` give the effect a text layer, a
+shape layer, masks and keyframes to work on:
+
+```bash
+aexlo inspect Extrude --exec "input shape ring; render smart; save ring.png"
+aexlo inspect Discotext --exec "input text HELLO; render smart; save text.png"
+```
+
 It traces every command and the host suite functions the plugin calls back,
 totals them per function, and shows the parameters, the `PF_InData` /
 `PF_OutData` state, the handles and worlds the plugin holds as a hex dump
@@ -190,7 +274,7 @@ The plugins that pass every scenario are listed in
 
 ## Implementation Progress
 
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 89% (32/36)
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣀ 89% (33/37)
 
 > ○ fully implemented / △ only partially implemented / × not implemented
 
@@ -201,12 +285,12 @@ The plugins that pass every scenario are listed in
 | ○ Color            | ○ ColorParam                     | ○ AE Adv Time     | ○ GPU Device      |
 | ○ Color16          | △ Effect Custom UI Overlay Theme |                   | ○ Plugin Helper   |
 | ○ ColorFloat       | △ Effect Custom UI               |                   | ○ Plugin Helper 2 |
-| ○ Fill Matte       | ○ Effect UI                      |                   |                   |
+| ○ Fill Matte       | ○ Effect UI                      |                   | × PF Utility      |
 | ○ Handle           | ○ Param Utils                    |                   |                   |
 | ○ Iterate8         | ○ Path Data                      |                   |                   |
 | ○ Iterate16        | ○ Path Query                     |                   |                   |
 | ○ IterateFloat     | ○ PointParam                     |                   |                   |
-| ○ Pixel Data       | × Effect Sequence Data           |                   |                   |
+| ○ Pixel Data       | ○ Effect Sequence Data           |                   |                   |
 | ○ Pixel Format     |                                  |                   |                   |
 | ○ Sampling8        |                                  |                   |                   |
 | ○ Sampling16       |                                  |                   |                   |
@@ -216,31 +300,62 @@ The plugins that pass every scenario are listed in
 
 △ Effect Custom UI / Overlay Theme: theme values are served, and Drawbot draws
 during `PF_Event_DRAW`. The CLI never sends `PF_Cmd_EVENT`; an embedder does.
+○ Batch Sampling: as in After Effects, every entry of the suite is null (the
+SDK withdrew batch sampling in After Effects 7.0); the per-pixel samplers work.
+○ Param Utils: states cover values over the range asked about, the pixels of
+layers, masks over that range, and arbitrary data as the plugin flattens it
+whenever the host takes a value in (after setup, and after the commands in
+which a plugin changes its values). An `AUTOMATIC_WIDE_TIME_INPUT` effect's
+range widens by the times its checkouts have reached. A layer has one picture,
+so a picture an embedder sets for another frame reads as a change.
+○ World Transform: composites as After Effects 2026 does, checked against
+a probe trace of every mode at 8, 16 and 32 bpc: exact at 32 bpc and within a
+few levels at 8 and 16, but for Dissolve's random pattern (the rule is After
+Effects', the numbers aexlo's) and Hue, Saturation and Luminosity where both
+layers are partly transparent. `composite_rect` ignores its transfer mode and
+treats every world as 8 bpc, as After Effects does.
+× PF Utility: not to be confused with AEGP Utility. The suite can be acquired,
+but each of its functions is a stub that returns an error.
 △ Channel: layers are plain 2D images and report no auxiliary channels.
+Callbacks that are not implemented return an error rather than a false success.
+Legacy Gaussian-kernel generation uses approximate coefficients that have not been checked against After Effects.
 
 ### AEGP
 
 ⣿⣿⣶⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ 14% (5/36)
+
+5 fully and 22 partially implemented, 9 not implemented.
 
 | Project        | Streams           | Pixels                 | Other                  |
 | -------------- | ----------------- | ---------------------- | ---------------------- |
 | △ Layer        | △ Stream          | ○ World                | △ Color Settings       |
 | △ Comp         | △ Dynamic Stream  | ○ Memory               | △ Register             |
 | △ Item         | △ Keyframe        | ○ Iterate              | △ Utility              |
-| △ Light        | ○ Persistent Data | △ Render               | × Camera               |
+| △ Light        | ○ Persistent Data | △ Render               | △ Camera               |
 | △ Effect       | △ Mask            | △ Render Options       | × QueryXform           |
-| △ PF Interface | △ Mask Outline    | △ Layer Render Options | × Math                 |
-| × Proj         | × Text Document   | × Composite            | × Compute Cache        |
-| × Footage      | ○ Text Layer      | × Canvas               | × Hash                 |
+| △ PF Interface | △ Mask Outline    | △ Layer Render Options | △ Math                 |
+| △ Proj         | △ Text Document   | × Composite            | △ Compute Cache        |
+| × Footage      | ○ Text Layer      | × Canvas               | △ Hash                 |
 | × Collection   |                   | × Sound Data           | × Render Async Manager |
 | × Marker       |                   |                        |                        |
 
-△ Layer / Comp / Item / Light / Effect / PF Interface / Stream / Dynamic Stream / Keyframe: the project is aexlo's fixed one-layer comp, with no keyframes.
-△ Mask / Mask Outline: read the masks an embedder puts on the layer with `set_mask_paths`; they cannot be changed.
+△ Layer / Comp / Item / Light / Effect / PF Interface: read-only, from the project given with `set_project`, or else one comp with the effect's layer and a synthetic footage item for its input.
+The Effect Suite knows one effect, the hosted one, and the identities reported by loaded plugins; it does not enumerate the system's installed effects.
+△ Stream / Dynamic Stream: transforms, effect parameters, source text and shape contents (paths, groups, fills and Merge Paths) at the time asked for.
+A layer mask's outline, opacity, feather and expansion are streams too, without keyframes. Strokes, parametric shapes and expressions are not streams. A plugin can hide or disable parameters, and set those without keyframes other than layers and arbitrary data; other writes are refused.
+△ Keyframe: reads only, linear or held; no bezier eases or spatial tangents. A layer checked out at another time has the current pixels.
+△ Mask: reads the masks an embedder puts on the effect's layer with `set_mask_paths` or `set_mask_tracks`; they cannot be changed, and other layers have none.
+△ Mask Outline / Text Document: layer mask outlines, shape paths and source strings are read; nothing is written.
+△ Camera: v2 only. A project has no camera or light layers: no camera is found, and the default one gives its distance.
+△ Math: the angle convention of `AEGP_MatrixDecompose4` has not been checked against After Effects.
+△ Proj: one unsaved synthetic project is exposed; project editing, persistence, root folders and time-display settings are not implemented.
 △ Render / Render Options / Layer Render Options: checkout returns the effect's own input.
 △ Color Settings: the working space is sRGB, with no colour management.
 △ Register: idle hooks are recorded and never called.
-△ Utility: there is no script engine (`AEGP_IsScriptingAvailable` says so and `AEGP_ExecuteScript` does nothing), no undo history and no palette UI. `AEGP_GetPluginPlatformRef` gives no bundle on macOS.
+△ Utility: there is no script engine (`AEGP_IsScriptingAvailable` says so and `AEGP_ExecuteScript` returns an error), no undo history and no palette UI. `AEGP_GetPluginPlatformRef` gives no bundle on macOS.
+△ Compute Cache: entries persist until class unregistration or plugin teardown;
+memory-pressure eviction is not implemented. △ Hash: deterministic host-local
+hashes are provided, but their values are not guaranteed to match After Effects.
 
 ### Drawbot
 

@@ -25,4 +25,6 @@ cargo run -p interactive --release -- SDK_Noise
 
 UI には、数値や真偽値など、対応している型のパラメーターが表示されます。任意のプラグインのすべてのパラメーターが表示されるとは限りません。実装の入口は [src/main.rs](src/main.rs) です。
 
+ウィンドウを閉じるとプラグインの後片付けを行います。その後 Windows では `aexlo` コマンドと同様に、固まったりクラッシュしたりすることがある、残留プラグインの DLL デタッチを実行せずにプロセスを終了します。
+
 複数のレイヤーとファイルの書き出しには [studio](../studio/README.ja.md) を試してください。ホスト API の応答を調べるには[検証用 playground](../../playground/README.ja.md) を使ってください。

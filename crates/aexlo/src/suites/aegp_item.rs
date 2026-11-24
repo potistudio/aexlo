@@ -1,19 +1,20 @@
-//! `AEGP Item Suite`, wire versions 10 (`AEGP_ItemSuite6`) and 13
-//! (`AEGP_ItemSuite8`). The two are not the same layout: version 10 names an
-//! item with a fixed `char` buffer, while version 13 takes a plugin id and
-//! returns a UTF-16 handle.
+//! `AEGP Item Suite`, wire versions 10 (`AEGP_ItemSuite6`), 13
+//! (`AEGP_ItemSuite8`) and 14 (`AEGP_ItemSuite9`). Version 10 names an item
+//! with a fixed `char` buffer, while version 13 takes a plugin id and returns
+//! a UTF-16 handle. Version 14 drops the comment-length call and reads the
+//! comment as a UTF-16 handle.
 //!
-//! aexlo's project has one item, and it is the comp (the same pointer as the
-//! layer and the comp; see [`layer`](super::layer)). Reads report that comp.
+//! aexlo's project has a comp and a synthetic footage item for its input layer.
 //! Creating, deleting, renaming or moving an item is refused.
 
 use crate::sys::*;
 
 use super::aegp_memory::handle_from_bytes;
-use super::layer::{Timeline, current_effect, item_handle};
+use super::layer::{Item, current_effect, item_handle, source_item_effect, source_item_handle};
 use crate::core::diagnostics::diag;
 
 const ITEM_NAME: &str = "aexlo";
+const SOURCE_NAME: &str = "Input";
 const COMP_TYPE_NAME: &[u8] = b"Composition\0";
 
 fn refuse(name: &str) -> A_Err {
@@ -22,7 +23,7 @@ fn refuse(name: &str) -> A_Err {
 }
 
 fn known(itemH: AEGP_ItemH) -> bool {
-	Timeline::of(itemH as _).is_some()
+	Item::of(itemH).is_some()
 }
 
 unsafe extern "C" fn get_first_proj_item(projectH: AEGP_ProjectH, itemPH: *mut AEGP_ItemH) -> A_Err {
@@ -57,7 +58,11 @@ unsafe extern "C" fn get_next_proj_item(
 		if !known(itemH) {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		*out = std::ptr::null_mut();
+		*out = if source_item_effect(itemH).is_some() {
+			std::ptr::null_mut()
+		} else {
+			source_item_handle(itemH as PF_ProgPtr)
+		};
 		PF_Err_NONE
 	})
 }
@@ -107,7 +112,11 @@ unsafe extern "C" fn get_item_type(itemH: AEGP_ItemH, item_typeP: *mut AEGP_Item
 		if !known(itemH) {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		*out = AEGP_ItemType_COMP;
+		*out = if source_item_effect(itemH).is_some() {
+			AEGP_ItemType_FOOTAGE as AEGP_ItemType
+		} else {
+			AEGP_ItemType_COMP
+		};
 		PF_Err_NONE
 	})
 }
@@ -120,6 +129,8 @@ unsafe extern "C" fn get_type_name(item_type: AEGP_ItemType, nameZ: *mut A_char)
 		}
 		let name: &[u8] = if item_type == AEGP_ItemType_COMP {
 			COMP_TYPE_NAME
+		} else if item_type == AEGP_ItemType_FOOTAGE as AEGP_ItemType {
+			b"Footage\0"
 		} else {
 			b"\0"
 		};
@@ -137,7 +148,12 @@ unsafe extern "C" fn get_item_name_char(itemH: AEGP_ItemH, nameZ: *mut A_char) -
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
 		let mut bytes = [0u8; AEGP_MAX_ITEM_NAME_SIZE as usize];
-		let name = ITEM_NAME.as_bytes();
+		let name = if source_item_effect(itemH).is_some() {
+			SOURCE_NAME
+		} else {
+			ITEM_NAME
+		}
+		.as_bytes();
 		bytes[..name.len()].copy_from_slice(name);
 		unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr().cast(), nameZ, bytes.len()) };
 		PF_Err_NONE
@@ -175,8 +191,13 @@ unsafe extern "C" fn get_item_name(
 		if !known(itemH) {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		let mut bytes = Vec::with_capacity((ITEM_NAME.len() + 1) * 2);
-		for unit in ITEM_NAME.encode_utf16().chain(std::iter::once(0)) {
+		let name = if source_item_effect(itemH).is_some() {
+			SOURCE_NAME
+		} else {
+			ITEM_NAME
+		};
+		let mut bytes = Vec::with_capacity((name.len() + 1) * 2);
+		for unit in name.encode_utf16().chain(std::iter::once(0)) {
 			bytes.extend_from_slice(&unit.to_le_bytes());
 		}
 		*out = handle_from_bytes(bytes);
@@ -200,7 +221,7 @@ unsafe extern "C" fn get_item_id(itemH: AEGP_ItemH, item_idPL: *mut A_long) -> A
 		if !known(itemH) {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		*out = 1;
+		*out = if source_item_effect(itemH).is_some() { 2 } else { 1 };
 		PF_Err_NONE
 	})
 }
@@ -250,10 +271,10 @@ unsafe extern "C" fn set_item_parent_folder(_itemH: AEGP_ItemH, _parent_folder_i
 unsafe extern "C" fn get_item_duration(itemH: AEGP_ItemH, durationPT: *mut A_Time) -> A_Err {
 	crate::core::ffi::guard("get_item_duration", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemDuration");
-		let (Some(timeline), Some(out)) = (Timeline::of(itemH as _), unsafe { durationPT.as_mut() }) else {
+		let (Some(item), Some(out)) = (Item::of(itemH), unsafe { durationPT.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		*out = timeline.duration();
+		*out = item.duration;
 		PF_Err_NONE
 	})
 }
@@ -261,10 +282,10 @@ unsafe extern "C" fn get_item_duration(itemH: AEGP_ItemH, durationPT: *mut A_Tim
 unsafe extern "C" fn get_item_current_time(itemH: AEGP_ItemH, curr_timePT: *mut A_Time) -> A_Err {
 	crate::core::ffi::guard("get_item_current_time", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemCurrentTime");
-		let (Some(timeline), Some(out)) = (Timeline::of(itemH as _), unsafe { curr_timePT.as_mut() }) else {
+		let (Some(item), Some(out)) = (Item::of(itemH), unsafe { curr_timePT.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
-		*out = timeline.current();
+		*out = item.current;
 		PF_Err_NONE
 	})
 }
@@ -272,14 +293,14 @@ unsafe extern "C" fn get_item_current_time(itemH: AEGP_ItemH, curr_timePT: *mut 
 unsafe extern "C" fn get_item_dimensions(itemH: AEGP_ItemH, widthPL: *mut A_long, heightPL: *mut A_long) -> A_Err {
 	crate::core::ffi::guard("get_item_dimensions", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemDimensions");
-		let Some(timeline) = Timeline::of(itemH as _) else {
+		let Some(item) = Item::of(itemH) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		if let Some(width) = unsafe { widthPL.as_mut() } {
-			*width = timeline.width as A_long;
+			*width = item.width as A_long;
 		}
 		if let Some(height) = unsafe { heightPL.as_mut() } {
-			*height = timeline.height as A_long;
+			*height = item.height as A_long;
 		}
 		PF_Err_NONE
 	})
@@ -379,6 +400,23 @@ unsafe extern "C" fn set_item_label(_itemH: AEGP_ItemH, _label: AEGP_LabelID) ->
 	})
 }
 
+unsafe extern "C" fn get_item_comment_utf16(itemH: AEGP_ItemH, commentPH: *mut AEGP_MemHandle) -> A_Err {
+	diag!("AEGP_ItemSuite9/AEGP_GetItemComment");
+	let Some(out) = (unsafe { commentPH.as_mut() }) else {
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	};
+	if !known(itemH) {
+		return PF_Err_BAD_CALLBACK_PARAM as A_Err;
+	}
+	*out = handle_from_bytes(0u16.to_le_bytes().to_vec());
+	PF_Err_NONE as A_Err
+}
+
+unsafe extern "C" fn set_item_comment_utf16(_itemH: AEGP_ItemH, _commentZ: *const A_UTF16Char) -> A_Err {
+	diag!("AEGP_ItemSuite9/AEGP_SetItemComment");
+	refuse("AEGP_SetItemComment")
+}
+
 unsafe extern "C" fn get_item_mru_view(itemH: AEGP_ItemH, mru_viewP: *mut AEGP_ItemViewP) -> A_Err {
 	crate::core::ffi::guard("get_item_mru_view", || {
 		diag!("AEGP_ItemSuite8/AEGP_GetItemMRUView");
@@ -456,9 +494,114 @@ pub const fn suite_8() -> AEGP_ItemSuite8 {
 	}
 }
 
+/// Wire version 14. Same as suite 8 until the comment calls, which no longer
+/// take a byte length.
+pub const fn suite_9() -> AEGP_ItemSuite9 {
+	AEGP_ItemSuite9 {
+		AEGP_GetFirstProjItem: Some(get_first_proj_item),
+		AEGP_GetNextProjItem: Some(get_next_proj_item),
+		AEGP_GetActiveItem: Some(get_active_item),
+		AEGP_IsItemSelected: Some(is_item_selected),
+		AEGP_SelectItem: Some(select_item),
+		AEGP_GetItemType: Some(get_item_type),
+		AEGP_GetTypeName: Some(get_type_name),
+		AEGP_GetItemName: Some(get_item_name),
+		AEGP_SetItemName: Some(set_item_name),
+		AEGP_GetItemID: Some(get_item_id),
+		AEGP_GetItemFlags: Some(get_item_flags),
+		AEGP_SetItemUseProxy: Some(set_item_use_proxy),
+		AEGP_GetItemParentFolder: Some(get_item_parent_folder),
+		AEGP_SetItemParentFolder: Some(set_item_parent_folder),
+		AEGP_GetItemDuration: Some(get_item_duration),
+		AEGP_GetItemCurrentTime: Some(get_item_current_time),
+		AEGP_GetItemDimensions: Some(get_item_dimensions),
+		AEGP_GetItemPixelAspectRatio: Some(get_item_pixel_aspect_ratio),
+		AEGP_DeleteItem: Some(delete_item),
+		AEGP_CreateNewFolder: Some(create_new_folder),
+		AEGP_SetItemCurrentTime: Some(set_item_current_time),
+		AEGP_GetItemComment: Some(get_item_comment_utf16),
+		AEGP_SetItemComment: Some(set_item_comment_utf16),
+		AEGP_GetItemLabel: Some(get_item_label),
+		AEGP_SetItemLabel: Some(set_item_label),
+		AEGP_GetItemMRUView: Some(get_item_mru_view),
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::suites::layer::Timeline;
+	use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+	static SOURCE_OK: AtomicBool = AtomicBool::new(false);
+	static SOURCE_STALE: AtomicUsize = AtomicUsize::new(0);
+	unsafe extern "C" fn source_test_entry(
+		cmd: PF_Cmd,
+		input: *mut PF_InData,
+		_: *mut PF_OutData,
+		_: PF_ParamList,
+		_: *mut PF_LayerDef,
+		_: *mut std::ffi::c_void,
+	) -> PF_Err {
+		if cmd != PF_Cmd_SEQUENCE_SETUP {
+			return PF_Err_NONE;
+		}
+		let effect = unsafe { (*input).effect_ref };
+		let layer = super::super::layer::create_layer_suite_5();
+		let item = suite_8();
+		let effects = super::super::effect::create_effect_suite_2();
+		let mut source = std::ptr::null_mut();
+		let mut comp = std::ptr::null_mut();
+		let mut next = std::ptr::null_mut();
+		let mut source_id = 0;
+		let mut layer_id = 0;
+		let mut kind = 0;
+		let mut count = 0;
+		let mut installed_key = 0;
+		let mut effect_handle = std::ptr::null_mut();
+		let ok = unsafe {
+			layer.AEGP_GetLayerSourceItem.unwrap()(effect.cast(), &mut source) == 0
+				&& layer.AEGP_GetLayerSourceItemID.unwrap()(effect.cast(), &mut layer_id) == 0
+				&& item.AEGP_GetItemID.unwrap()(source, &mut source_id) == 0
+				&& item.AEGP_GetItemType.unwrap()(source, &mut kind) == 0
+				&& item.AEGP_GetFirstProjItem.unwrap()(std::ptr::null_mut(), &mut comp) == 0
+				&& item.AEGP_GetNextProjItem.unwrap()(std::ptr::null_mut(), comp, &mut next) == 0
+				&& effects.AEGP_GetLayerNumEffects.unwrap()(effect.cast(), &mut count) == 0
+				&& effects.AEGP_GetLayerEffectByIndex.unwrap()(0, effect.cast(), 0, &mut effect_handle) == 0
+				&& effects.AEGP_GetInstalledKeyFromLayerEffect.unwrap()(effect_handle, &mut installed_key) == 0
+				&& effects.AEGP_DisposeEffect.unwrap()(effect_handle) == 0
+		};
+		SOURCE_STALE.store(source as usize, Ordering::SeqCst);
+		SOURCE_OK.store(
+			ok && !source.is_null()
+				&& source != comp
+				&& source == next
+				&& source_id == 2
+				&& layer_id == source_id
+				&& kind == AEGP_ItemType_FOOTAGE as AEGP_ItemType
+				&& count == 1
+				&& installed_key != 0
+				&& Timeline::of(source.cast()).is_none(),
+			Ordering::SeqCst,
+		);
+		PF_Err_NONE
+	}
+
+	#[test]
+	fn input_source_is_distinct_and_only_valid_while_plugin_runs() {
+		SOURCE_OK.store(false, Ordering::SeqCst);
+		let instance = unsafe { crate::Host::get().entry_loader(source_test_entry) }
+			.load()
+			.unwrap();
+		assert!(SOURCE_OK.load(Ordering::SeqCst));
+		drop(instance);
+		let mut kind = 0;
+		let stale = SOURCE_STALE.load(Ordering::SeqCst) as AEGP_ItemH;
+		assert_eq!(
+			unsafe { suite_8().AEGP_GetItemType.unwrap()(stale, &mut kind) },
+			PF_Err_BAD_CALLBACK_PARAM
+		);
+	}
 
 	#[test]
 	fn legacy_suite_names_a_composition() {

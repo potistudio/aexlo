@@ -1,10 +1,11 @@
 //! Pixel-level correctness checks against real plugin fixtures whose behavior
 //! is simple and well-known, as opposed to `render_matrix`'s "did it crash"
-//! smoke test. Each fixture is looked up by name and the test skips (rather
-//! than failing the suite) when it isn't present on this machine -- see
+//! smoke test. Each fixture is looked up by name and the test is ignored
+//! (rather than failing the suite) when it isn't present on this machine -- see
 //! `test_e2e::fixture`.
 
 use aexlo::{Depth8, Layer, ParamValue, PluginInstance};
+use aexlo_fixture_gate::needs_fixture;
 
 /// Load `input.png` both as a `Layer` (to feed the plugin) and as raw RGBA
 /// bytes (to compare the render against).
@@ -30,12 +31,10 @@ fn render_rgba(instance: &mut PluginInstance) -> Vec<u8> {
 
 /// `nothing.aex` is a no-op effect: its rendered output must be byte-identical
 /// to whatever was checked out as input.
+#[needs_fixture("nothing")]
 #[test]
 fn nothing_plugin_is_a_true_passthrough() {
-	let Some(plugin_path) = test_e2e::fixture("nothing") else {
-		eprintln!("skipping: fixture 'nothing' not present locally");
-		return;
-	};
+	let plugin_path = test_e2e::fixture("nothing");
 
 	let mut instance = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 	let (input, expected) = load_sample_input();
@@ -52,12 +51,10 @@ fn nothing_plugin_is_a_true_passthrough() {
 /// `FillColor.aex` overwrites the frame with a solid color when enabled. Setting
 /// its checkbox, color and opacity params and rendering must produce a frame
 /// that is uniformly that exact RGBA value, regardless of the input pixels.
+#[needs_fixture("FillColor")]
 #[test]
 fn fill_color_produces_exact_uniform_output() {
-	let Some(plugin_path) = test_e2e::fixture("FillColor") else {
-		eprintln!("skipping: fixture 'FillColor' not present locally");
-		return;
-	};
+	let plugin_path = test_e2e::fixture("FillColor");
 
 	let mut instance = aexlo::Host::get().load(&plugin_path).expect("failed to load plugin");
 	let (input, _) = load_sample_input();

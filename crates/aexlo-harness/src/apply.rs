@@ -299,14 +299,7 @@ mod tests {
 		// SAFETY: `entry` has the effect entry point's signature and touches nothing.
 		let mut fx = unsafe { aexlo::Host::get().entry_loader(entry) }.load().unwrap();
 		let text = variant(InputSpec::text("Hi"));
-		match configure(&mut fx, &text) {
-			Ok(()) => {}
-			Err(e) if e.message.contains("font") => {
-				eprintln!("skipping: {e}");
-				return;
-			}
-			Err(e) => panic!("{e}"),
-		}
+		configure(&mut fx, &text).unwrap_or_else(|e| panic!("{e}"));
 		assert_eq!(fx.input_size(), (96, 48));
 		let layer = fx.text_layer().expect("a text layer");
 		assert_eq!(layer.text(), "Hi");

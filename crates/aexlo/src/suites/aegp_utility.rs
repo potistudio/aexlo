@@ -28,7 +28,7 @@ use crate::observe::{UnsupportedKind, unsupported};
 use crate::sys::{
 	A_Boolean, A_Err, A_FpLong, A_Ratio, A_UTF16Char, A_char, A_long, A_short, AEGP_ColorVal, AEGP_ErrReportState,
 	AEGP_GetPathTypes, AEGP_GetPathTypes_APP, AEGP_GlobalRefcon, AEGP_MemHandle, AEGP_PluginID, AEGP_UtilitySuite3,
-	AEGP_UtilitySuite5, AEGP_UtilitySuite6, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE,
+	AEGP_UtilitySuite5, AEGP_UtilitySuite6, PF_Err_BAD_CALLBACK_PARAM, PF_Err_INVALID_CALLBACK, PF_Err_NONE,
 };
 
 /// `AEGP_INITFUNC_MAJOR_VERSION` / `AEGP_INITFUNC_MINOR_VERSION` of the SDK
@@ -549,7 +549,7 @@ unsafe extern "C" fn convert_hsf_ratio_to_fp_long(ratioR: A_Ratio, numberPF: *mu
 // Scripting and plugin locations
 // ---------------------------------------------------------------------------
 
-/// aexlo has no ExtendScript engine.
+/// aexlo has no ExtendScript engine, and says so.
 unsafe extern "C" fn is_scripting_available(outAvailablePB: *mut A_Boolean) -> A_Err {
 	crate::core::ffi::guard("AEGP_IsScriptingAvailable", || {
 		diag!("AEGPUtilitySuite/AEGP_IsScriptingAvailable", "outAvailablePB" => ptr(outAvailablePB); result: false);
@@ -581,7 +581,8 @@ unsafe extern "C" fn execute_script(
 			"AEGPUtilitySuite/AEGP_ExecuteScript",
 			format!("{} bytes of script", script.len()),
 		);
-		PF_Err_NONE
+		// The script has not run: success would have the plugin read a result.
+		PF_Err_INVALID_CALLBACK
 	})
 }
 
@@ -833,6 +834,38 @@ mod tests {
 		let mut available: A_Boolean = 1;
 		assert_eq!(unsafe { is_scripting_available(&mut available) }, PF_Err_NONE);
 		assert_eq!(available, 0);
+	}
+
+	#[test]
+	fn execute_script_does_not_claim_to_have_run() {
+		let mut result = 1usize as AEGP_MemHandle;
+		let mut error = 1usize as AEGP_MemHandle;
+		assert_eq!(
+			unsafe { execute_script(0, c"1".as_ptr().cast(), 0, &mut result, &mut error) },
+			PF_Err_INVALID_CALLBACK
+		);
+		assert!(result.is_null() && error.is_null());
+	}
+
+	#[test]
+	fn registers_a_plugin_and_returns_the_main_window() {
+		let owner = crate::suites::register::new_owner();
+		let _scope = crate::suites::register::enter_owner(owner);
+		let mut id = 0;
+		let err = unsafe { register_with_aegp(std::ptr::null_mut(), c"Venustas".as_ptr().cast(), &mut id) };
+		assert_eq!(err, PF_Err_NONE);
+		assert_ne!(id, 0);
+
+		#[cfg(windows)]
+		{
+			let sentinel = 0x1234 as *mut std::ffi::c_void;
+			crate::host::utility::set_main_window(sentinel);
+			let mut hwnd: *mut std::ffi::c_void = std::ptr::null_mut();
+			let err = unsafe { get_main_hwnd((&raw mut hwnd).cast()) };
+			crate::host::utility::set_main_window(std::ptr::null_mut());
+			assert_eq!(err, PF_Err_NONE);
+			assert_eq!(hwnd, sentinel);
+		}
 	}
 
 	#[test]

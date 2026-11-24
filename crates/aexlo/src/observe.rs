@@ -137,8 +137,8 @@ pub enum UnsupportedKind {
 	/// `AcquireSuite` for a suite, or a version of one, that aexlo does not
 	/// serve. The plugin got an error and no suite.
 	MissingSuite,
-	/// A host function aexlo only stubs: it reported success without doing
-	/// anything.
+	/// A host function aexlo only stubs: it did none of the work. Most return
+	/// an error to say so.
 	Stub,
 	/// A host function aexlo serves, but not for these arguments (an unknown
 	/// pixel format, a registration it cannot honor, ...).

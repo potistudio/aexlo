@@ -13,12 +13,10 @@
 //! - Implemented suites/callbacks: asserted against independently-derived
 //!   expected values (std math, the documented premultiply formula, plain
 //!   pixel-rect arithmetic) -- never copied from a previous run's output.
-//! - Known gaps: a few `PF_UtilCallbacks` entries (`blend`, `gaussian_kernel`,
-//!   ...) are still `stub_log!` no-ops. These assertions pin down *today's*
-//!   behavior so a silent regression is caught -- they are expected to start
-//!   failing, on purpose, the day each gap gets a real implementation, and
-//!   then move to the first group, as the ANSI `sprintf` did once it formatted
-//!   with the C library.
+//! - Callback behaviour: checked against the current supported
+//!   semantics, including approximate Gaussian weights.
+
+use std::sync::LazyLock;
 
 use serde_json::{Value, json};
 
@@ -29,14 +27,16 @@ use crate::summary::{self, Summary};
 ///
 /// The probe's trace sink is a process-global `OnceLock` keyed off
 /// `AEXLO_PROBE_TRACE` (see `probe/src/trace.rs`): the env var only takes
-/// effect on the *first* access in this process. Each of this file's tests
-/// calls this once, so keep it that way -- don't add a second call within the
-/// same test binary, or the second load's env var will be silently ignored
-/// and its facts will land in the first call's trace file instead.
+/// effect on the *first* access in this process. So the probe is loaded once
+/// and every test reads that load through [`FACTS`]: a second load would find
+/// its trace file deleted, with the sink still writing to the old one.
+static FACTS: LazyLock<Summary> = LazyLock::new(run_probe_and_summarize);
+
 fn run_probe_and_summarize() -> Summary {
 	let trace_path = std::env::temp_dir().join(format!("aexlo-runtime-facts-{}.jsonl", std::process::id()));
 	let _ = std::fs::remove_file(&trace_path);
-	// SAFETY: single-threaded at this point, matching `playground run`'s own use of this var.
+	// SAFETY: only the one initialiser of `FACTS` runs this, and the tests that
+	// could read the environment wait for it.
 	unsafe { std::env::set_var("AEXLO_PROBE_TRACE", &trace_path) };
 
 	let _instance = unsafe { aexlo::Host::get().from_entry_raw(aexlo_probe::EffectMain as *const () as usize) }
@@ -65,38 +65,38 @@ fn fact_json(summary: &Summary, name: &str) -> Value {
 
 #[test]
 fn probe_facts_match_known_correct_values() {
-	let summary = run_probe_and_summarize();
+	let summary = &*FACTS;
 
 	// ---- ANSI math: real libm calls (`impl_math_sys!` in suites/ansi.rs) ----
-	assert_eq!(fact_f64(&summary, "ansi.sin(0.5)"), 0.5f64.sin());
-	assert_eq!(fact_f64(&summary, "ansi.cos(1.0)"), 1.0f64.cos());
-	assert_eq!(fact_f64(&summary, "ansi.sqrt(2.0)"), 2.0f64.sqrt());
-	assert_eq!(fact_f64(&summary, "ansi.pow(2.0,0.5)"), 2.0f64.powf(0.5));
-	assert_eq!(fact_f64(&summary, "ansi.atan2(1.0,2.0)"), 1.0f64.atan2(2.0));
-	assert_eq!(fact_f64(&summary, "ansi.hypot(3.0,4.0)"), 3.0f64.hypot(4.0));
-	assert_eq!(fact_f64(&summary, "ansi.log(2.0)"), 2.0f64.ln());
-	assert_eq!(fact_f64(&summary, "ansi.log10(1000.0)"), 1000.0f64.log10());
-	assert_eq!(fact_f64(&summary, "ansi.fmod(7.5,2.0)"), 7.5f64 % 2.0);
-	assert_eq!(fact_f64(&summary, "suite.ansi.sin(0.5)"), 0.5f64.sin());
-	assert_eq!(fact_f64(&summary, "suite.ansi.pow(2,10)"), 2.0f64.powf(10.0));
+	assert_eq!(fact_f64(summary, "ansi.sin(0.5)"), 0.5f64.sin());
+	assert_eq!(fact_f64(summary, "ansi.cos(1.0)"), 1.0f64.cos());
+	assert_eq!(fact_f64(summary, "ansi.sqrt(2.0)"), 2.0f64.sqrt());
+	assert_eq!(fact_f64(summary, "ansi.pow(2.0,0.5)"), 2.0f64.powf(0.5));
+	assert_eq!(fact_f64(summary, "ansi.atan2(1.0,2.0)"), 1.0f64.atan2(2.0));
+	assert_eq!(fact_f64(summary, "ansi.hypot(3.0,4.0)"), 3.0f64.hypot(4.0));
+	assert_eq!(fact_f64(summary, "ansi.log(2.0)"), 2.0f64.ln());
+	assert_eq!(fact_f64(summary, "ansi.log10(1000.0)"), 1000.0f64.log10());
+	assert_eq!(fact_f64(summary, "ansi.fmod(7.5,2.0)"), 7.5f64 % 2.0);
+	assert_eq!(fact_f64(summary, "suite.ansi.sin(0.5)"), 0.5f64.sin());
+	assert_eq!(fact_f64(summary, "suite.ansi.pow(2,10)"), 2.0f64.powf(10.0));
 
 	// ---- Host handle allocator: alloc/lock/write/read/resize cycle ----
-	assert_eq!(fact_str(&summary, "handle.new(24).nonnull"), "true");
-	assert_eq!(fact_f64(&summary, "handle.new(24).size"), 24.0);
-	assert_eq!(fact_str(&summary, "handle.lock.write_read_roundtrip"), "true");
+	assert_eq!(fact_str(summary, "handle.new(24).nonnull"), "true");
+	assert_eq!(fact_f64(summary, "handle.new(24).size"), 24.0);
+	assert_eq!(fact_str(summary, "handle.lock.write_read_roundtrip"), "true");
 
-	let resize = fact_json(&summary, "handle.resize(24->64)");
+	let resize = fact_json(summary, "handle.resize(24->64)");
 	assert_eq!(resize["err"], 0);
 	assert_eq!(resize["size"], 64);
 	assert_eq!(resize["preserves_contents"], true);
 
-	let suite_resize = fact_json(&summary, "suite.handle.new(32).resize(48)");
+	let suite_resize = fact_json(summary, "suite.handle.new(32).resize(48)");
 	assert_eq!(suite_resize["size"], 32);
 	assert_eq!(suite_resize["resize_err"], 0);
 	assert_eq!(suite_resize["resized_size"], 48);
 
 	// ---- Worlds: allocation, fill (rect exclusivity), copy, iterate ----
-	let new_world = fact_json(&summary, "world.new_world(16x8)");
+	let new_world = fact_json(summary, "world.new_world(16x8)");
 	assert_eq!(new_world["width"], 16);
 	assert_eq!(new_world["height"], 8);
 	assert_eq!(new_world["cleared_to_zero"], true);
@@ -106,13 +106,13 @@ fn probe_facts_match_known_correct_values() {
 	);
 
 	let full_color = json!({ "a": 255, "r": 10, "g": 20, "b": 30 });
-	let full_fill = fact_json(&summary, "world.fill.full(10,20,30)");
+	let full_fill = fact_json(summary, "world.fill.full(10,20,30)");
 	assert_eq!(full_fill["err"], 0);
 	assert_eq!(full_fill["px(0,0)"], full_color);
 
 	// PF_Rect right/bottom are exclusive: rect (2,1)-(6,5) covers x in [2,6), y in [1,5).
 	let rect_color = json!({ "a": 200, "r": 99, "g": 88, "b": 77 });
-	let rect_fill = fact_json(&summary, "world.fill.rect(2,1,6,5)");
+	let rect_fill = fact_json(summary, "world.fill.rect(2,1,6,5)");
 	assert_eq!(rect_fill["inside(2,1)"], rect_color, "top-left corner is inclusive");
 	assert_eq!(
 		rect_fill["inside(5,4)"], rect_color,
@@ -127,20 +127,20 @@ fn probe_facts_match_known_correct_values() {
 		"outside the rect keeps the base fill"
 	);
 
-	let copy = fact_json(&summary, "world.copy.full");
+	let copy = fact_json(summary, "world.copy.full");
 	assert_eq!(copy["err"], 0);
 	assert_eq!(copy["dst_equals_src"], true);
 
 	// 16x8 = 128 pixels; both the legacy iterate callback and PF_Iterate8Suite2
 	// must visit every pixel exactly once.
-	assert_eq!(fact_json(&summary, "world.iterate(16x8)")["invocations"], 128);
-	assert_eq!(fact_json(&summary, "suite.iterate8.iterate(16x8)")["invocations"], 128);
+	assert_eq!(fact_json(summary, "world.iterate(16x8)")["invocations"], 128);
+	assert_eq!(fact_json(summary, "suite.iterate8.iterate(16x8)")["invocations"], 128);
 
 	// ---- Premultiply: `rgb' = rgb * a` (matte = 0, the colorless variant) ----
 	// per the formula documented on `premultiply_world` in suites/fill_matte.rs.
 	let a = 128.0 / 255.0;
 	let round_to_u8 = |channel: f64| (channel / 255.0 * a * 255.0).round() as i64;
-	let premultiply = fact_json(&summary, "world.premultiply(a=128,rgb=255,64,1)");
+	let premultiply = fact_json(summary, "world.premultiply(a=128,rgb=255,64,1)");
 	assert_eq!(premultiply["err"], 0);
 	assert_eq!(premultiply["px(0,0)"]["a"], 128, "alpha passes through unchanged");
 	assert_eq!(premultiply["px(0,0)"]["r"], round_to_u8(255.0));
@@ -161,31 +161,23 @@ fn probe_facts_match_known_correct_values() {
 		("ansi.sprintf.char", "A%"),
 		("suite.ansi.sprintf", "7/x/1.50"),
 	] {
-		assert_eq!(fact_json(&summary, name)["out"], expected, "{name}");
+		assert_eq!(fact_json(summary, name)["out"], expected, "{name}");
 	}
 }
 
-/// A handful of `PF_UtilCallbacks` entries are still `stub_log!` no-ops
-/// (`blend`, `gaussian_kernel`, `convolve`, ...). This test pins down that
-/// *current* behavior so a
-/// silent regression is caught; it's meant to start failing, on purpose, the
-/// day each gap gets a real implementation -- see `crates/aexlo/src/suites/macros.rs`
-/// (`stub_log!`) and `crates/aexlo/src/suites/ansi.rs` (`sprintf_sys`).
+/// Exercise callback output.
 #[test]
 fn probe_facts_document_known_runtime_gaps() {
-	let summary = run_probe_and_summarize();
+	let summary = &*FACTS;
 
-	// `blend` is a stub: it reports success but never touches `dst`, so a
-	// freshly-cleared destination world stays all-zero instead of holding the
-	// blend of (100,201) at ratio 0.5.
-	let blend = fact_json(&summary, "world.blend(100,201,ratio=0.5)");
+	// The midpoint of 100 and 201 rounds to 151, including the opaque alpha.
+	let blend = fact_json(summary, "world.blend(100,201,ratio=0.5)");
 	assert_eq!(blend["err"], 0);
-	assert_eq!(blend["px(0,0)"], json!({ "a": 0, "r": 0, "g": 0, "b": 0 }));
+	assert_eq!(blend["px(0,0)"], json!({ "a": 255, "r": 151, "g": 151, "b": 151 }));
 
-	// `gaussian_kernel` is a stub: it reports success but never writes a
-	// diameter or kernel weights.
-	let kernel = fact_json(&summary, "kernel.gaussian(r=2,normalized,long)");
+	// Approximate normalised weights have the requested diameter and scale.
+	let kernel = fact_json(summary, "kernel.gaussian(r=2,normalized,long)");
 	assert_eq!(kernel["err"], 0);
-	assert_eq!(kernel["diameter"], 0);
-	assert_eq!(kernel["sum"], 0);
+	assert_eq!(kernel["diameter"], 5);
+	assert!((kernel["sum"].as_i64().unwrap() - 65536).abs() <= 25);
 }

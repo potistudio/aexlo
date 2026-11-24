@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use aexlo::{Depth8, ParamKind, PluginInstance};
@@ -19,7 +20,7 @@ use tiny_skia::{FilterQuality, Pixmap, PixmapPaint};
 
 use crate::model::{Anim, BlendMode, Effect, Id, Layer, LayerKind, PValue, Project};
 use crate::plugins;
-use crate::raster::{Fonts, Image, ImageCache, mask_coverage, render_shapes, render_text, text_outlines};
+use crate::raster::{Fonts, Image, ImageCache, mask_coverage, render_shapes, render_text};
 
 /// One plugin parameter, as declared at `PF_Cmd_PARAMS_SETUP`.
 #[derive(Debug, Clone)]
@@ -41,7 +42,6 @@ pub struct ParamDesc {
 /// What a loaded plugin told us about itself.
 #[derive(Debug)]
 pub struct PluginInfo {
-	pub about: String,
 	pub smart_render: bool,
 	pub gpu: bool,
 	pub params: Vec<ParamDesc>,
@@ -87,6 +87,11 @@ pub enum Request {
 		snap: Snapshot,
 		effect: Id,
 		index: usize,
+	},
+	/// `PF_Cmd_ABOUT`. Only on request: plugins may answer it with a modal
+	/// dialog, which holds this thread until it is closed.
+	About {
+		effect: Id,
 	},
 	/// The inspector shows custom control `index` of `effect` at this size.
 	/// The engine draws it (`PF_Event_DRAW`) and keeps drawing it there.
@@ -167,6 +172,8 @@ pub enum Event {
 		frame: i32,
 		values: Vec<(usize, PValue)>,
 	},
+	/// What the plugin answered to `PF_Cmd_ABOUT`.
+	About(Result<String, String>),
 	/// What custom control `index` of `effect` drew.
 	Control {
 		effect: Id,
@@ -180,9 +187,143 @@ pub enum Event {
 	ExportFinished(Result<String, String>),
 }
 
+/// Block until the UI sends a request, and keep dispatching window messages
+/// on this thread in the meantime.
+///
+/// An effect's editor is created on the thread that handles the button. That
+/// window only paints and receives input while this thread runs a message
+/// loop, which `recv` on its own does not.
+fn wait_request(requests: &Receiver<Request>) -> Option<Request> {
+	#[cfg(windows)]
+	{
+		loop {
+			pump_window_messages();
+			match requests.recv_timeout(Duration::from_millis(16)) {
+				Ok(request) => return Some(request),
+				Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+				Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return None,
+			}
+		}
+	}
+	#[cfg(not(windows))]
+	requests.recv().ok()
+}
+
+#[cfg(windows)]
+fn pump_window_messages() {
+	while peek_message() {}
+}
+
+/// A Win32 `MSG`.
+#[cfg(windows)]
+#[repr(C)]
+struct Msg {
+	hwnd: *mut std::ffi::c_void,
+	message: u32,
+	_pad: u32,
+	wparam: usize,
+	lparam: isize,
+	time: u32,
+	_pad2: u32,
+	x: i32,
+	y: i32,
+}
+
+#[cfg(windows)]
+#[link(name = "user32")]
+unsafe extern "system" {
+	fn PeekMessageW(msg: *mut Msg, hwnd: *mut std::ffi::c_void, min: u32, max: u32, remove: u32) -> i32;
+}
+
+/// Answer what other threads have sent to this thread's windows, and leave
+/// its queue to the event loop.
+#[cfg(windows)]
+fn answer_sent_messages() {
+	let mut msg = std::mem::MaybeUninit::<Msg>::uninit();
+	// SAFETY: `msg` has room for a `MSG` and is not read back. PM_NOREMOVE
+	// still dispatches sent messages, which are never queued.
+	unsafe { PeekMessageW(msg.as_mut_ptr(), std::ptr::null_mut(), 0, 0, 0) };
+}
+
+/// Ask the windows of `thread` to close, as their close button would: a
+/// plugin's modal dialog keeps the command that opened it from returning.
+#[cfg(windows)]
+fn close_windows(thread: &JoinHandle<()>) {
+	use std::ffi::c_void;
+	use std::os::windows::io::AsRawHandle;
+
+	const WM_CLOSE: u32 = 0x10;
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn GetThreadId(thread: *mut c_void) -> u32;
+	}
+	#[link(name = "user32")]
+	unsafe extern "system" {
+		fn EnumThreadWindows(
+			thread: u32,
+			visit: unsafe extern "system" fn(*mut c_void, isize) -> i32,
+			data: isize,
+		) -> i32;
+		fn IsWindowVisible(hwnd: *mut c_void) -> i32;
+		fn IsWindowEnabled(hwnd: *mut c_void) -> i32;
+		fn PostMessageW(hwnd: *mut c_void, message: u32, wparam: usize, lparam: isize) -> i32;
+	}
+	unsafe extern "system" fn visit(hwnd: *mut c_void, _: isize) -> i32 {
+		// SAFETY: `EnumThreadWindows` passes a window handle; these calls accept
+		// one that has since been destroyed, and posting does not wait.
+		unsafe {
+			// A disabled window is waiting for a modal one, or is an IME's.
+			if IsWindowVisible(hwnd) != 0 && IsWindowEnabled(hwnd) != 0 {
+				PostMessageW(hwnd, WM_CLOSE, 0, 0);
+			}
+		}
+		1
+	}
+	// SAFETY: the handle is live while `thread` is borrowed, and `visit`
+	// matches the callback's signature and uses no data.
+	unsafe {
+		let id = GetThreadId(thread.as_raw_handle().cast());
+		if id != 0 {
+			EnumThreadWindows(id, visit, 0);
+		}
+	}
+}
+
+#[cfg(windows)]
+fn peek_message() -> bool {
+	#[link(name = "user32")]
+	unsafe extern "system" {
+		fn TranslateMessage(msg: *const Msg) -> i32;
+		fn DispatchMessageW(msg: *const Msg) -> isize;
+	}
+	let mut msg = Msg {
+		hwnd: std::ptr::null_mut(),
+		message: 0,
+		_pad: 0,
+		wparam: 0,
+		lparam: 0,
+		time: 0,
+		_pad2: 0,
+		x: 0,
+		y: 0,
+	};
+	// PM_REMOVE. A null HWND drains every message queued for this thread.
+	if unsafe { PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, 1) } == 0 {
+		return false;
+	}
+	unsafe {
+		TranslateMessage(&msg);
+		DispatchMessageW(&msg);
+	}
+	true
+}
+
 /// The UI's handle on the engine thread.
 pub struct Engine {
-	tx: Sender<Request>,
+	/// `None` once shut down.
+	tx: Option<Sender<Request>>,
+	thread: Option<JoinHandle<()>>,
+	closing: Arc<AtomicBool>,
 	pub events: Receiver<Event>,
 	pub cancel_export: Arc<AtomicBool>,
 }
@@ -194,18 +335,22 @@ impl Engine {
 		let (events_tx, events) = channel();
 		let cancel_export = Arc::new(AtomicBool::new(false));
 		let cancel = cancel_export.clone();
-		std::thread::Builder::new()
+		let closing = Arc::new(AtomicBool::new(false));
+		let worker_closing = closing.clone();
+		let thread = std::thread::Builder::new()
 			.name("aexlo-render".into())
 			.spawn(move || {
 				let notify = Notify {
 					tx: events_tx,
 					repaint: Box::new(repaint),
 				};
-				Worker::new(notify, cancel).run(requests)
+				Worker::new(notify, cancel, worker_closing).run(requests)
 			})
 			.expect("spawn render thread");
 		Self {
-			tx,
+			tx: Some(tx),
+			thread: Some(thread),
+			closing,
 			events,
 			cancel_export,
 		}
@@ -215,9 +360,57 @@ impl Engine {
 		if let Request::Export(_) = request {
 			self.cancel_export.store(false, Ordering::Relaxed);
 		}
-		let _ = self.tx.send(request);
+		if let Some(tx) = &self.tx {
+			let _ = tx.send(request);
+		}
+	}
+
+	/// Stop the render thread and wait until it has torn every plugin down.
+	///
+	/// Call it on the main window's thread, while that window exists: plugins
+	/// parent their windows to it and send it messages as they close, so this
+	/// keeps answering those. Dialogs still open are asked to close. A plugin
+	/// that does not return is given up on after [`SHUTDOWN_TIMEOUT`].
+	pub fn shutdown(&mut self) {
+		let Some(thread) = self.thread.take() else { return };
+		self.closing.store(true, Ordering::Relaxed);
+		self.cancel_export.store(true, Ordering::Relaxed);
+		// Wakes the thread if it is waiting for a request.
+		self.tx = None;
+		let deadline = Instant::now() + SHUTDOWN_TIMEOUT;
+		#[cfg(windows)]
+		let mut close_windows_at = Instant::now() + CLOSE_WINDOWS_EVERY;
+		while !thread.is_finished() {
+			if Instant::now() >= deadline {
+				log::warn!("a plugin is still busy after {SHUTDOWN_TIMEOUT:?}; closing without tearing it down");
+				return;
+			}
+			#[cfg(windows)]
+			{
+				answer_sent_messages();
+				// Repeated: closing one dialog can open or uncover another.
+				if Instant::now() >= close_windows_at {
+					close_windows(&thread);
+					close_windows_at = Instant::now() + CLOSE_WINDOWS_EVERY;
+				}
+			}
+			std::thread::sleep(Duration::from_millis(10));
+		}
 	}
 }
+
+impl Drop for Engine {
+	fn drop(&mut self) {
+		self.shutdown();
+	}
+}
+
+/// How long closing waits for the render thread.
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How often closing asks the render thread's windows to close.
+#[cfg(windows)]
+const CLOSE_WINDOWS_EVERY: Duration = Duration::from_millis(500);
 
 struct Notify {
 	tx: Sender<Event>,
@@ -255,7 +448,7 @@ impl Slot {
 		log::info!("loading {plugin} from {}", path.display());
 		let instance = aexlo::Host::get().load(&path).map_err(|e| e.to_string());
 		let info = instance.as_ref().ok().map(|fx| Arc::new(describe(fx)));
-		let mut slot = Self {
+		Self {
 			plugin: plugin.to_string(),
 			instance,
 			info,
@@ -266,23 +459,14 @@ impl Slot {
 			disabled: Vec::new(),
 			controls: BTreeMap::new(),
 			dragging: None,
-		};
-		if let Ok(fx) = &mut slot.instance {
-			match fx.about() {
-				Ok(about) => {
-					if let Some(info) = &mut slot.info {
-						Arc::get_mut(info).expect("unshared").about = about.trim().to_string();
-					}
-				}
-				Err(e) => log::debug!("{plugin}: PF_Cmd_ABOUT failed: {e}"),
-			}
 		}
-		slot
 	}
 
 	/// Write the values `effect` has at `frame` that the instance does not hold
 	/// yet, with point defaults for a `self.size` input; whether any changed.
-	fn apply_values(&mut self, effect: &Effect, frame: i32) -> bool {
+	/// The keyframes go along, timed by `clock`, so that checkouts at other
+	/// times are right.
+	fn apply_values(&mut self, effect: &Effect, frame: i32, clock: crate::bridge::Clock) -> bool {
 		let (Some(info), Ok(fx)) = (&self.info, &mut self.instance) else {
 			return false;
 		};
@@ -291,12 +475,20 @@ impl Slot {
 			let Some(default) = info.default_value(desc.index, self.size) else {
 				continue;
 			};
-			let value = effect.params.get(&desc.index).map_or(default, |a| a.at(frame));
-			if self.applied.get(&desc.index) == Some(&value) {
+			let anim = effect.params.get(&desc.index);
+			let value = anim.map_or(default, |a| a.at(frame));
+			let track = anim.and_then(|a| clock.param(a));
+			let unchanged = self.applied.get(&desc.index) == Some(&value);
+			if unchanged && fx.param_track(desc.index) == track.as_ref() {
 				continue;
 			}
-			if let Err(e) = fx.set_param(desc.index, (&value).into()) {
-				log::warn!("{}: set_param({}) failed: {e}", self.plugin, desc.index);
+			let set = match track {
+				Some(track) if fx.param_track(desc.index) == Some(&track) => Ok(()),
+				Some(track) => fx.set_param_track(desc.index, track),
+				None => fx.set_param(desc.index, (&value).into()),
+			};
+			if let Err(e) = set {
+				log::warn!("{}: setting parameter {} failed: {e}", self.plugin, desc.index);
 			}
 			self.applied.insert(desc.index, value);
 			changed = true;
@@ -368,7 +560,6 @@ fn coalesce_moves(queue: Vec<Request>) -> Vec<Request> {
 
 fn describe(fx: &PluginInstance) -> PluginInfo {
 	PluginInfo {
-		about: String::new(),
 		smart_render: fx.supports_smart_render(),
 		gpu: fx.supports_gpu(),
 		load_size: fx.input_size(),
@@ -432,6 +623,8 @@ struct Worker {
 	fonts: Fonts,
 	notify: Notify,
 	cancel: Arc<AtomicBool>,
+	/// The window is closing: start nothing more.
+	closing: Arc<AtomicBool>,
 	/// Values the plugin set that the UI has not applied yet, by `seq`.
 	unacked: Vec<Unacked>,
 	next_seq: u64,
@@ -446,7 +639,7 @@ struct Unacked {
 }
 
 impl Worker {
-	fn new(notify: Notify, cancel: Arc<AtomicBool>) -> Self {
+	fn new(notify: Notify, cancel: Arc<AtomicBool>, closing: Arc<AtomicBool>) -> Self {
 		Self {
 			slots: HashMap::new(),
 			sources: HashMap::new(),
@@ -454,13 +647,14 @@ impl Worker {
 			fonts: Fonts::new(),
 			notify,
 			cancel,
+			closing,
 			unacked: Vec::new(),
 			next_seq: 1,
 		}
 	}
 
 	fn run(mut self, requests: Receiver<Request>) {
-		while let Ok(first) = requests.recv() {
+		while let Some(first) = wait_request(&requests) {
 			let mut queue = vec![first];
 			queue.extend(requests.try_iter());
 			let queue = coalesce_moves(queue);
@@ -468,6 +662,9 @@ impl Worker {
 			let newest = queue.iter().rposition(|r| matches!(r, Request::Render(_)));
 			let last = queue.len() - 1;
 			for (i, request) in queue.into_iter().enumerate() {
+				if self.closing.load(Ordering::Relaxed) {
+					return;
+				}
 				match request {
 					Request::Render(_) if Some(i) != newest => {}
 					Request::Render(snap) => {
@@ -501,6 +698,7 @@ impl Worker {
 							self.notify.send(Event::Frame(Box::new(result)));
 						}
 					}
+					Request::About { effect } => self.about(effect),
 					Request::Export(job) => {
 						let result = self.export(job);
 						self.notify.send(Event::ExportFinished(result));
@@ -542,6 +740,10 @@ impl Worker {
 		let mut live = HashSet::new();
 		for effect in project.layers.iter().flat_map(|l| &l.effects) {
 			live.insert(effect.id);
+			// Loading can take seconds per plugin.
+			if self.closing.load(Ordering::Relaxed) {
+				continue;
+			}
 			if self.slots.get(&effect.id).is_some_and(|s| s.plugin == effect.plugin) {
 				continue;
 			}
@@ -730,6 +932,9 @@ impl Worker {
 
 	fn apply_effects(&mut self, layer: &Layer, mut image: Image, ctx: &mut Frame) -> Image {
 		for effect in layer.effects.iter().filter(|e| e.enabled) {
+			if self.closing.load(Ordering::Relaxed) {
+				break;
+			}
 			// Render linked layers first: they may run other effects.
 			let links: Vec<(usize, Option<Image>)> = effect
 				.layers
@@ -765,14 +970,11 @@ impl Worker {
 		links: Vec<(usize, Option<Image>)>,
 		ctx: &Frame,
 	) -> Result<Image, String> {
-		// A text layer's effects see real text, not only its pixels.
-		let text = match &layer.kind {
-			LayerKind::Text(text) => Some(aexlo::TextLayer::from_outlines(
-				text.text.clone(),
-				text_outlines(text, ctx.frame, &mut self.fonts),
-			)),
-			_ => None,
-		};
+		// Effects see the layers, text and shapes as such, not only pixels.
+		let project = crate::bridge::project(ctx.project, layer, &effect.layers, ctx.frame, &mut self.fonts)
+			.inspect_err(|e| log::warn!("{}: no project for its effects: {e}", layer.name))
+			.ok();
+		let clock = crate::bridge::Clock::of(layer, ctx.project);
 		let slot = self.slots.get_mut(&effect.id).ok_or("not loaded")?;
 		slot.info.as_ref().ok_or("no plugin info")?;
 		let fx = slot.instance.as_mut().map_err(|e| format!("failed to load: {e}"))?;
@@ -780,6 +982,7 @@ impl Worker {
 
 		fx.set_input_layer(to_layer(input)?);
 		fx.set_render_size(w, h);
+		fx.set_project(project);
 		fx.set_time(aexlo::Time::frame(ctx.frame - layer.start, ctx.project.comp.fps.max(1)));
 		if slot.size != (w, h) {
 			// Resizing the input re-resolves point defaults behind our back.
@@ -787,11 +990,10 @@ impl Worker {
 			slot.size = (w, h);
 		}
 
-		let changed = slot.apply_values(effect, ctx.frame);
+		let changed = slot.apply_values(effect, ctx.frame, clock);
 		let Ok(fx) = &mut slot.instance else { unreachable!() };
 
 		fx.set_mask_paths(layer.masks.iter().map(mask_path).collect());
-		fx.set_text_layer(text);
 
 		let mut linked = BTreeSet::new();
 		for (index, image) in links {
@@ -835,6 +1037,21 @@ impl Worker {
 		})
 	}
 
+	fn about(&mut self, effect: Id) {
+		let Some(slot) = self.slots.get_mut(&effect) else {
+			return;
+		};
+		let Ok(fx) = &mut slot.instance else { return };
+		let name = plugins::display_name(&slot.plugin);
+		let answer = match fx.about() {
+			// The status bar has one line.
+			Ok(text) => Ok(text.split_whitespace().collect::<Vec<_>>().join(" "))
+				.map(|text| if text.is_empty() { name } else { text }),
+			Err(e) => Err(format!("{name}: About failed: {e}")),
+		};
+		self.notify.send(Event::About(answer));
+	}
+
 	/// Send `PF_Cmd_USER_CHANGED_PARAM` for parameter `index` of `effect` if
 	/// After Effects would: for a button, or a parameter the plugin declared
 	/// with `PF_ParamFlag_SUPERVISE`. Whether it was sent.
@@ -869,11 +1086,11 @@ impl Worker {
 		let Some(slot) = self.slots.get_mut(&effect) else {
 			return;
 		};
-		if let Some((_, model)) = project.effect(effect) {
+		if let Some((layer, model)) = project.effect(effect) {
 			if slot.size == (0, 0) {
 				slot.size = slot.info.as_ref().map_or((0, 0), |i| i.load_size);
 			}
-			slot.apply_values(model, snap.frame);
+			slot.apply_values(model, snap.frame, crate::bridge::Clock::of(layer, &project));
 		}
 	}
 
@@ -990,6 +1207,10 @@ impl Worker {
 					return Err("export cancelled".to_string());
 				}
 				let image = self.render(&project, frame, 0).image;
+				// A frame cut short by closing must not be saved.
+				if self.closing.load(Ordering::Relaxed) {
+					return Err("export cancelled".to_string());
+				}
 				let path = match &job.kind {
 					ExportKind::Png(path) => path.clone(),
 					_ => dir.join(format!("frame_{n:05}.png")),
@@ -1096,6 +1317,7 @@ fn blend_mode(mode: BlendMode) -> tiny_skia::BlendMode {
 mod tests {
 	use super::*;
 	use crate::model::{Anim, BezPath, Effect, ShapeItem};
+	use aexlo_fixture_gate::needs_fixture;
 
 	fn worker() -> Worker {
 		listening_worker().0
@@ -1108,7 +1330,14 @@ mod tests {
 			tx,
 			repaint: Box::new(|| {}),
 		};
-		(Worker::new(notify, Arc::new(AtomicBool::new(false))), rx)
+		(
+			Worker::new(
+				notify,
+				Arc::new(AtomicBool::new(false)),
+				Arc::new(AtomicBool::new(false)),
+			),
+			rx,
+		)
 	}
 
 	fn project(width: u32, height: u32) -> Project {
@@ -1135,12 +1364,12 @@ mod tests {
 		image.pixels[i..i + 4].try_into().unwrap()
 	}
 
-	fn has_fixture(name: &str) -> bool {
-		let found = plugins::list_fixtures().iter().any(|f| f == name);
-		if !found {
-			eprintln!("skipping: fixture '{name}' not present");
-		}
-		found
+	/// For tests run with `--ignored`: they must not pass without their plugin.
+	fn require_fixture(name: &str) {
+		assert!(
+			plugins::resolve(name).exists(),
+			"fixture '{name}' is not in fixtures/plugins on this machine"
+		);
 	}
 
 	fn effect(p: &mut Project, plugin: &str, params: &[(usize, PValue)]) -> Effect {
@@ -1194,11 +1423,10 @@ mod tests {
 		assert_eq!(at(&out, 15, 5)[3], 0);
 	}
 
+	#[needs_fixture("FillColor")]
 	#[test]
 	fn plugin_effects_run_on_their_layer() {
-		if !has_fixture("FillColor") {
-			return;
-		}
+		require_fixture("FillColor");
 		let mut p = project(32, 16);
 		let mut layer = solid(&mut p, "s", [1.0; 4], 16, 16);
 		let fill = effect(
@@ -1220,11 +1448,10 @@ mod tests {
 		assert_eq!(at(&w.render(&p, 0, 2).image, 16, 8), [255, 255, 255, 255]);
 	}
 
+	#[needs_fixture("FillColor")]
 	#[test]
 	fn adjustment_layers_process_what_is_below() {
-		if !has_fixture("FillColor") {
-			return;
-		}
+		require_fixture("FillColor");
 		let mut p = project(16, 8);
 		let mut adjust = p.new_layer("adjust", LayerKind::Adjustment);
 		let fill = effect(
@@ -1249,13 +1476,41 @@ mod tests {
 		assert_eq!(at(&out, 12, 4), [255, 0, 0, 255]);
 	}
 
+	#[test]
+	fn shutdown_interrupts_an_export() {
+		let mut p = project(64, 64);
+		let red = solid(&mut p, "red", [1.0, 0.0, 0.0, 1.0], 64, 64);
+		p.layers.push(red);
+		let dir = std::env::temp_dir().join(format!("aexlo-studio-shutdown-{}", std::process::id()));
+		let mut engine = Engine::spawn(|| {});
+		const FRAMES: i32 = 100_000;
+		engine.send(Request::Export(ExportJob {
+			project: Arc::new(p),
+			seen: 0,
+			start: 0,
+			end: FRAMES - 1,
+			kind: ExportKind::Sequence(dir.clone()),
+		}));
+		let first = engine.events.recv_timeout(Duration::from_secs(10));
+		engine.shutdown();
+		let events: Vec<Event> = engine.events.try_iter().collect();
+		let _ = std::fs::remove_dir_all(&dir);
+
+		assert!(matches!(first, Ok(Event::ExportProgress { done: 1, .. })));
+		assert!(matches!(events.last(), Some(Event::ExportFinished(Err(e))) if e == "export cancelled"));
+		// The thread is gone: it dropped its end of the channel with the plugins.
+		assert!(matches!(
+			engine.events.try_recv(),
+			Err(std::sync::mpsc::TryRecvError::Disconnected)
+		));
+	}
+
 	/// DisplacerPro reads its map from another layer, which is hidden: the
 	/// link still renders it.
+	#[needs_fixture("DisplacerPro")]
 	#[test]
 	fn layer_params_read_other_layers() {
-		if !has_fixture("DisplacerPro") {
-			return;
-		}
+		require_fixture("DisplacerPro");
 		const MAP_LAYER: usize = 1;
 		const TRANSLATE_X: usize = 15;
 		let mut p = project(64, 16);
@@ -1294,11 +1549,10 @@ mod tests {
 	/// BitonicPixelSorter supervises its Mode popup. Editing Mode reaches the
 	/// plugin, even with the effect off, and editing a parameter it does not
 	/// supervise does not.
+	#[needs_fixture("BitonicPixelSorter")]
 	#[test]
 	fn user_changed_param_follows_supervise() {
-		if !has_fixture("BitonicPixelSorter") {
-			return;
-		}
+		require_fixture("BitonicPixelSorter");
 		let mut p = project(16, 16);
 		let mut layer = solid(&mut p, "s", [1.0; 4], 16, 16);
 		let sorter = effect(&mut p, "BitonicPixelSorter", &[]);
@@ -1339,11 +1593,10 @@ mod tests {
 	/// Falloff draws its curve editor, and dragging the middle point of
 	/// "Curve" switches "Curve Preset" to Custom. A render from a project that
 	/// has not taken that value yet keeps it.
+	#[needs_fixture("Falloff")]
 	#[test]
 	fn custom_controls_draw_and_follow_the_mouse() {
-		if !has_fixture("Falloff") {
-			return;
-		}
+		require_fixture("Falloff");
 		const CURVE_PRESET: usize = 53;
 		const CURVE: usize = 54;
 		let mut p = project(32, 32);
@@ -1452,11 +1705,10 @@ mod tests {
 		);
 	}
 
+	#[needs_fixture("DisplacerPro")]
 	#[test]
 	fn layer_link_cycles_are_cut() {
-		if !has_fixture("DisplacerPro") {
-			return;
-		}
+		require_fixture("DisplacerPro");
 		let mut p = project(16, 16);
 		let mut a = solid(&mut p, "a", [1.0; 4], 16, 16);
 		let mut b = solid(&mut p, "b", [1.0; 4], 16, 16);
@@ -1475,11 +1727,10 @@ mod tests {
 		);
 	}
 
+	#[needs_fixture("Furikake")]
 	#[test]
 	fn effects_see_layer_time() {
-		if !has_fixture("Furikake") {
-			return;
-		}
+		require_fixture("Furikake");
 		let mut p = project(320, 180);
 		let mut null = solid(&mut p, "null", [0.0; 4], 320, 180);
 		null.effects.push(p.new_effect("Furikake"));
@@ -1496,11 +1747,10 @@ mod tests {
 
 	/// TextGrad fills each character of a text layer with a gradient: it
 	/// reads the outlines of the layer's text, not its pixels.
+	#[needs_fixture("TextGrad")]
 	#[test]
 	fn text_effects_read_the_layer_text() {
-		if !has_fixture("TextGrad") {
-			return;
-		}
+		require_fixture("TextGrad");
 		let mut p = project(320, 120);
 		let text = crate::model::Text {
 			text: "Hi".into(),
@@ -1568,6 +1818,7 @@ mod profile {
 				tx: channel().0,
 				repaint: Box::new(|| {}),
 			},
+			Arc::new(AtomicBool::new(false)),
 			Arc::new(AtomicBool::new(false)),
 		)
 	}

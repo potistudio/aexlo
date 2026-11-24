@@ -1,15 +1,38 @@
 //! `PF_ParamUtilsSuite3` - parameter UI and keyframe queries.
 //!
-//! aexlo drives a single, static frame with no timeline, so the keyframe/state
-//! entry points report "no keyframes" / "states identical" rather than pretending
-//! to have animation data. The one call effects actually rely on outside a real
-//! host is [`update_param_ui`], which lets a plugin refresh a parameter's UI state
+//! The keyframe and state queries read the parameter's track
+//! (`PluginInstance::set_param_track`) through the evaluator streams and
+//! checkouts use, so all of them agree on a value at a time. What a state
+//! covers is in [`state`](super::param_state).
+//! [`update_param_ui`] lets a plugin refresh a parameter's UI state
 //! (twirl collapse, disabled, name, …) in response to a user edit.
 
 use crate::core::diagnostics::diag;
 use crate::sys::*;
 
 use crate::PluginInstance;
+use crate::animation::{Interpolation, TimePoint};
+
+/// The instance behind `effect_ref`.
+///
+/// # Safety
+/// `effect_ref` must be null or the instance currently being called into, and
+/// the borrow must not outlive the call.
+unsafe fn instance_of<'a>(effect_ref: PF_ProgPtr) -> Option<&'a PluginInstance> {
+	PluginInstance::get_instance_ptr(effect_ref).map(|instance| unsafe { instance.as_ref() })
+}
+
+/// The keyframes of a parameter, or none.
+///
+/// # Safety
+/// See [`instance_of`].
+unsafe fn keys_of(effect_ref: PF_ProgPtr, index: PF_ParamIndex) -> Vec<(TimePoint, Interpolation)> {
+	unsafe { instance_of(effect_ref) }
+		.zip(usize::try_from(index).ok())
+		.and_then(|(instance, index)| instance.param_track(index))
+		.map(|track| track.keys().iter().map(|key| (key.time, key.interpolation)).collect())
+		.unwrap_or_default()
+}
 
 /// Copy a plugin's updated UI fields into the stored parameter.
 ///
@@ -43,120 +66,217 @@ unsafe extern "C" fn update_param_ui(
 	})
 }
 
-/// Report the parameter's render state as an all-zero [`PF_State`]. With no
-/// timeline every checkout is equivalent, so a constant state is consistent with
-/// [`are_states_identical`].
+/// The receipt for what the state covers (see [`state`](super::param_state)).
 unsafe extern "C" fn get_current_state(
-	_effect_ref: PF_ProgPtr,
-	_param_index: PF_ParamIndex,
-	_startPT0: *const A_Time,
-	_durationPT0: *const A_Time,
+	effect_ref: PF_ProgPtr,
+	param_index: PF_ParamIndex,
+	startPT0: *const A_Time,
+	durationPT0: *const A_Time,
 	stateP: *mut PF_State,
 ) -> PF_Err {
 	crate::core::ffi::guard("get_current_state", || {
-		diag!("PF_ParamUtilsSuite3/PF_GetCurrentState", "param_index" => _param_index);
-		if stateP.is_null() {
+		// SAFETY: null, or the plugin's times for this call.
+		let (start, duration) = unsafe { (startPT0.as_ref().copied(), durationPT0.as_ref().copied()) };
+		let told = |time: Option<A_Time>| time.map_or("null".to_string(), |t| format!("{}/{}", t.value, t.scale));
+		diag!("PF_ParamUtilsSuite3/PF_GetCurrentState",
+			"param_index" => param_index,
+			"start" => told(start),
+			"duration" => told(duration),
+		);
+		// SAFETY: null, or the plugin's state to fill in.
+		let Some(out) = (unsafe { stateP.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		out.reservedAL = [0; 4];
+		// SAFETY: as for every suite call.
+		let Some(instance) = (unsafe { instance_of(effect_ref) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		match super::param_state::of(instance, param_index, start, duration) {
+			Some(state) => {
+				*out = state;
+				PF_Err_NONE
+			}
+			None => {
+				crate::observe::unsupported(
+					crate::observe::UnsupportedKind::Declined,
+					"PF_ParamUtilsSuite3/PF_GetCurrentState",
+					format!("param index {param_index}"),
+				);
+				PF_Err_BAD_CALLBACK_PARAM
+			}
 		}
-		// SAFETY: `stateP` is non-null; `PF_State` is a plain byte buffer.
-		unsafe { std::ptr::write_bytes(stateP, 0, 1) };
-		PF_Err_NONE
 	})
 }
 
-/// Report two states as identical: aexlo has a single static frame, so parameter
-/// state never varies over time.
+/// States are identical when their hashes are.
 unsafe extern "C" fn are_states_identical(
 	_effect_ref: PF_ProgPtr,
-	_state1P: *const PF_State,
-	_state2P: *const PF_State,
+	state1P: *const PF_State,
+	state2P: *const PF_State,
 	samePB: *mut A_Boolean,
 ) -> PF_Err {
 	crate::core::ffi::guard("are_states_identical", || {
 		diag!("PF_ParamUtilsSuite3/PF_AreStatesIdentical");
-		if samePB.is_null() {
+		// No state is no proof that nothing changed.
+		if samePB.is_null() || state1P.is_null() || state2P.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		unsafe { *samePB = 1 };
+		let same = {
+			let len = std::mem::size_of::<PF_State>();
+			// SAFETY: both are non-null `PF_State`s, which are plain bytes.
+			unsafe {
+				std::slice::from_raw_parts(state1P.cast::<u8>(), len)
+					== std::slice::from_raw_parts(state2P.cast::<u8>(), len)
+			}
+		};
+		unsafe { *samePB = same as A_Boolean };
 		PF_Err_NONE
 	})
 }
 
-/// Report a checkout as identical across the two times (no animation).
+/// "TRUE if a parameter's value is the same at the two passed times"; what is
+/// between them does not count. A value without keyframes, and a layer's
+/// pixels, are the same at every time here; a path parameter, and the input
+/// layer, also compare the masks at the two times. The negative indices ask
+/// about all the parameters they stand for.
 unsafe extern "C" fn is_identical_checkout(
-	_effect_ref: PF_ProgPtr,
-	_param_index: PF_ParamIndex,
-	_what_time1: A_long,
+	effect_ref: PF_ProgPtr,
+	param_index: PF_ParamIndex,
+	what_time1: A_long,
 	_time_step1: A_long,
-	_time_scale1: A_u_long,
-	_what_time2: A_long,
+	time_scale1: A_u_long,
+	what_time2: A_long,
 	_time_step2: A_long,
-	_time_scale2: A_u_long,
+	time_scale2: A_u_long,
 	identicalPB: *mut PF_Boolean,
 ) -> PF_Err {
 	crate::core::ffi::guard("is_identical_checkout", || {
-		diag!("PF_ParamUtilsSuite3/PF_IsIdenticalCheckout", "param_index" => _param_index);
+		diag!("PF_ParamUtilsSuite3/PF_IsIdenticalCheckout", "param_index" => param_index);
 		if identicalPB.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		unsafe { *identicalPB = 1 };
+		// SAFETY: as for every suite call.
+		let Some(instance) = (unsafe { instance_of(effect_ref) }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		let Some(indices) = super::param_state::indices(instance, param_index) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		// A time without a scale is now, as it is to a checkout.
+		let time = |value, scale| TimePoint::new(value, scale).unwrap_or_else(|| instance.time().into());
+		let (a, b) = (time(what_time1, time_scale1), time(what_time2, time_scale2));
+		let masks_same = || instance.mask_tracks().iter().all(|track| track.at(a) == track.at(b));
+		let reads_masks = |index: usize| {
+			index == 0
+				|| instance
+					.param_by_index(index)
+					.is_some_and(|def| def.param_type == PF_Param_PATH as PF_ParamType)
+		};
+		let same = indices.into_iter().all(|index| {
+			instance
+				.param_track(index)
+				.is_none_or(|track| track.at(a) == track.at(b))
+				&& (!reads_masks(index) || masks_same())
+		});
+		unsafe { *identicalPB = same as PF_Boolean };
 		PF_Err_NONE
 	})
 }
 
-/// Report that no keyframe was found (aexlo has no keyframes).
+/// The nearest keyframe in `time_dir` of `what_time`.
 unsafe extern "C" fn find_keyframe_time(
-	_effect_ref: PF_ProgPtr,
-	_param_index: PF_ParamIndex,
-	_what_time: A_long,
-	_time_scale: A_u_long,
-	_time_dir: PF_TimeDir,
+	effect_ref: PF_ProgPtr,
+	param_index: PF_ParamIndex,
+	what_time: A_long,
+	time_scale: A_u_long,
+	time_dir: PF_TimeDir,
 	foundPB: *mut PF_Boolean,
-	_key_indexP0: *mut PF_KeyIndex,
-	_key_timeP0: *mut A_long,
-	_key_timescaleP0: *mut A_u_long,
+	key_indexP0: *mut PF_KeyIndex,
+	key_timeP0: *mut A_long,
+	key_timescaleP0: *mut A_u_long,
 ) -> PF_Err {
 	crate::core::ffi::guard("find_keyframe_time", || {
-		diag!("PF_ParamUtilsSuite3/PF_FindKeyframeTime", "param_index" => _param_index);
-		if !foundPB.is_null() {
-			unsafe { *foundPB = 0 };
+		diag!("PF_ParamUtilsSuite3/PF_FindKeyframeTime", "param_index" => param_index);
+		let keys = unsafe { keys_of(effect_ref, param_index) };
+		let at = TimePoint::new(what_time, time_scale);
+		let found = at.and_then(|at| match time_dir {
+			d if d == PF_TimeDir_GREATER_THAN as PF_TimeDir => keys.iter().position(|key| key.0 > at),
+			d if d == PF_TimeDir_GREATER_THAN_OR_EQUAL as PF_TimeDir => keys.iter().position(|key| key.0 >= at),
+			d if d == PF_TimeDir_LESS_THAN as PF_TimeDir => keys.iter().rposition(|key| key.0 < at),
+			d if d == PF_TimeDir_LESS_THAN_OR_EQUAL as PF_TimeDir => keys.iter().rposition(|key| key.0 <= at),
+			_ => None,
+		});
+		unsafe {
+			if let Some(out) = foundPB.as_mut() {
+				*out = found.is_some() as PF_Boolean;
+			}
+			let Some(found) = found else {
+				return PF_Err_NONE;
+			};
+			if let Some(out) = key_indexP0.as_mut() {
+				*out = found as PF_KeyIndex;
+			}
+			if let Some(out) = key_timeP0.as_mut() {
+				*out = keys[found].0.value();
+			}
+			if let Some(out) = key_timescaleP0.as_mut() {
+				*out = keys[found].0.scale();
+			}
 		}
 		PF_Err_NONE
 	})
 }
 
-/// Report zero keyframes for the parameter.
 unsafe extern "C" fn get_keyframe_count(
-	_effect_ref: PF_ProgPtr,
-	_param_index: PF_ParamIndex,
+	effect_ref: PF_ProgPtr,
+	param_index: PF_ParamIndex,
 	key_countP: *mut PF_KeyIndex,
 ) -> PF_Err {
 	crate::core::ffi::guard("get_keyframe_count", || {
-		diag!("PF_ParamUtilsSuite3/PF_GetKeyframeCount", "param_index" => _param_index);
+		diag!("PF_ParamUtilsSuite3/PF_GetKeyframeCount", "param_index" => param_index);
 		if key_countP.is_null() {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		unsafe { *key_countP = 0 };
+		unsafe { *key_countP = keys_of(effect_ref, param_index).len() as PF_KeyIndex };
 		PF_Err_NONE
 	})
 }
 
-/// There are no keyframes to check out.
+/// The parameter as it is at keyframe `key_index`.
 unsafe extern "C" fn checkout_keyframe(
-	_effect_ref: PF_ProgPtr,
-	_param_index: PF_ParamIndex,
-	_key_index: PF_KeyIndex,
-	_key_timeP0: *mut A_long,
-	_key_timescaleP0: *mut A_u_long,
-	_paramP0: *mut PF_ParamDef,
+	effect_ref: PF_ProgPtr,
+	param_index: PF_ParamIndex,
+	key_index: PF_KeyIndex,
+	key_timeP0: *mut A_long,
+	key_timescaleP0: *mut A_u_long,
+	paramP0: *mut PF_ParamDef,
 ) -> PF_Err {
 	crate::core::ffi::guard("checkout_keyframe", || {
-		diag!("PF_ParamUtilsSuite3/PF_CheckoutKeyframe", "param_index" => _param_index, "key_index" => _key_index);
-		PF_Err_BAD_CALLBACK_PARAM
+		diag!("PF_ParamUtilsSuite3/PF_CheckoutKeyframe", "param_index" => param_index, "key_index" => key_index);
+		let keys = unsafe { keys_of(effect_ref, param_index) };
+		let Some(&(time, _)) = usize::try_from(key_index).ok().and_then(|at| keys.get(at)) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		unsafe {
+			if let Some(out) = key_timeP0.as_mut() {
+				*out = time.value();
+			}
+			if let Some(out) = key_timescaleP0.as_mut() {
+				*out = time.scale();
+			}
+			if !paramP0.is_null()
+				&& let Some(def) = instance_of(effect_ref)
+					.and_then(|instance| instance.param_at(usize::try_from(param_index).ok()?, Some(time)))
+			{
+				paramP0.write(def);
+			}
+		}
+		PF_Err_NONE
 	})
 }
 
-/// Checking a keyframe back in is a no-op (none were ever checked out).
+/// Checking a keyframe back in is a no-op: the checkout was a copy.
 unsafe extern "C" fn checkin_keyframe(_effect_ref: PF_ProgPtr, _paramP: *mut PF_ParamDef) -> PF_Err {
 	crate::core::ffi::guard("checkin_keyframe", || {
 		diag!("PF_ParamUtilsSuite3/PF_CheckinKeyframe");
@@ -164,21 +284,27 @@ unsafe extern "C" fn checkin_keyframe(_effect_ref: PF_ProgPtr, _paramP: *mut PF_
 	})
 }
 
-/// There are no keyframes, so any index maps to time zero.
+/// Without keyframes any index maps to time zero.
 unsafe extern "C" fn key_index_to_time(
-	_effect_ref: PF_ProgPtr,
-	_param_index: PF_ParamIndex,
-	_key_indexP: PF_KeyIndex,
+	effect_ref: PF_ProgPtr,
+	param_index: PF_ParamIndex,
+	key_indexP: PF_KeyIndex,
 	key_timeP: *mut A_long,
 	key_timescaleP: *mut A_u_long,
 ) -> PF_Err {
 	crate::core::ffi::guard("key_index_to_time", || {
-		diag!("PF_ParamUtilsSuite3/PF_KeyIndexToTime", "param_index" => _param_index);
+		diag!("PF_ParamUtilsSuite3/PF_KeyIndexToTime", "param_index" => param_index);
+		let keys = unsafe { keys_of(effect_ref, param_index) };
+		let time = match usize::try_from(key_indexP).ok().and_then(|at| keys.get(at)) {
+			Some(key) => key.0,
+			None if keys.is_empty() => TimePoint::ZERO,
+			None => return PF_Err_INVALID_INDEX,
+		};
 		if !key_timeP.is_null() {
-			unsafe { *key_timeP = 0 };
+			unsafe { *key_timeP = time.value() };
 		}
 		if !key_timescaleP.is_null() {
-			unsafe { *key_timescaleP = 1 };
+			unsafe { *key_timescaleP = time.scale() };
 		}
 		PF_Err_NONE
 	})

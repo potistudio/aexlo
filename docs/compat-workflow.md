@@ -108,8 +108,9 @@ What to read:
 
 - Unit tests next to the suite.
 - Behavior with a real plugin: `tests/e2e/tests/<plugin>.rs`. Load the
-  fixture with `test_e2e::fixture("<stem>")` and skip when it returns `None`,
-  since most fixtures are local.
+  fixture with `test_e2e::fixture("<stem>")` and put
+  `#[needs_fixture("<stem>")]` above `#[test]`: most fixtures are local, and
+  without its fixture a test is reported ignored, never passed.
 - A plugin that misuses the call: `tests/misbehave`.
 - Pixels: `aexlo test`. `compat` only checks that the plugin runs.
 - Then the workspace:

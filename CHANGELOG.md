@@ -7,8 +7,103 @@ may break the API, and every breaking change is listed below.
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+No public item was removed, but these can break a build or change what a
+plugin renders or returns.
+
+- "PF Batch Sampling Suite" v1 is served as After Effects serves it, with
+  every entry null, where `get_batch_func` and `get_batch_func16` returned
+  `PF_Err_BAD_CALLBACK_PARAM` and the sampling calls succeeded. A trace of
+  the probe in After Effects 2026 shows the four entries null.
+- `PF_PathVertexInfo` gives a mask's tangents as points in layer space, as
+  the SDK guide describes them, not as offsets from the vertex. `MaskPath`
+  still takes offsets. Every effect that reads mask paths sees different
+  tangents, so its reference frames may need updating: Extrude, which pulled
+  masks towards the origin, now follows them.
+- Host callbacks aexlo does not implement return `PF_Err_INVALID_CALLBACK`
+  where they returned `PF_Err_NONE` without doing the work: the stubbed
+  utility callbacks, layer audio, unknown `get_platform_data` selectors and
+  `AEGP_ExecuteScript`. A plugin that relied on the false success can now
+  fail.
+- `checkout_layer` in a pre-render refuses an index that is not a layer
+  parameter, clips `result_rect` to the request and no longer claims that the
+  input is solid. `checkout_layer_pixels` refuses an id that was never
+  checked out, where it gave the input layer.
+- `PF_AreStatesIdentical` refuses a null state instead of calling it
+  identical, and `PF_GetCurrentState` refuses an index that stands for
+  nothing and an effect it does not know.
+- PF World Transform composites as After Effects 2026 does, checked against
+  a trace of the probe (`playground/probe/src/xform.rs`) in After Effects:
+  at 32 bpc exactly, at 8 and 16 bpc to within a few levels, but for
+  Dissolve's random pattern and Hue, Saturation and Luminosity where both
+  layers are partly transparent. Renders that use it can change:
+  - `COPY` replaces the destination instead of compositing over it, and
+    `rgb_only` keeps the destination's alpha.
+  - Blend results are not clamped at 32 bpc (only Add was), and are at 8
+    and 16 bpc. The classic Difference, Color Dodge and Color Burn work on
+    premultiplied colours, the stencil and silhouette modes change only the
+    destination's alpha, and Hue, Saturation, Color and Luminosity use Rec.
+    601 luma and blend against the destination over the source.
+  - Dissolve gives each pixel the source, opaque, or the destination, by
+    `rand_seed`; it was Normal.
+  - `m_flags` no longer changes anything: After Effects reads colours as
+    straight either way.
+  - `transform_world` takes the nearest pixel at `PF_Quality_LO` and filters
+    premultiplied pixels at `PF_Quality_HI`, so edges no longer darken;
+    `copy` picks the pixels After Effects picks when it stretches, and
+    `copy_hq` averages the area each pixel covers.
+  - `composite_rect` ignores its transfer mode and puts the destination over
+    the source, and reads every world as 8 bpc, as After Effects does.
+- PF World Transform and the legacy callbacks of the same names but
+  `composite_rect` refuse worlds of two depths in one call, and worlds whose
+  depth cannot be told, and report it. `copy` used to move raw bytes between them: AEPixelSorter2's
+  legacy path at 16 and 32 bpc now fails where it drew a scrambled picture
+  (its smart path is unaffected).
+
 ### Added
 
+- Masks that move over time: `PluginInstance::set_mask_tracks` takes a
+  `Track<MaskPath>` per mask, keyed in layer time, and `mask_tracks` gives
+  them back; `mask_paths` is the masks at the current time. `PF_CheckoutPath`
+  reads a mask at its `what_time` (a path checked out at another time is held
+  until `PF_CheckinPath`), as do mask outline streams and their keyframes,
+  `PF_GetCurrentState` over a range and `PF_IsIdenticalCheckout` for path
+  parameters and the input layer.
+- A read-only project around the effect: `PluginInstance::set_project` takes
+  a `Project` of a `Comp` and `ProjectLayer`s (footage, null, text, shape),
+  with ids, names, spans, stretch, parents and transforms. The Layer, Comp,
+  Item, PF Interface, Stream and Dynamic Stream suites answer from it, and the
+  handle of a layer that left is refused. Without a project the effect is
+  still alone on a layer that fills its comp. `ProjectLayer::rasterize`
+  draws a text or shape layer as an input, `Project::link_layer_param` says
+  which layer a layer parameter shows, and `AexloError::InvalidProject`
+  reports a project that does not hold together.
+- Shape layers' paths and text layers' source text are streams: "AEGP Mask
+  Outline Suite" (now also v2) reads a shape path as it reads a layer mask's
+  outline, "AEGP Text Document Suite" v1 reads source text, and
+  `AEGP_GetLayerStreamValue` reads the transform. Extrude draws shape
+  layers and Discotext text layers through them.
+- Time: `TimePoint` is exact, and `Track`s of `Keyframe`s interpolate linearly
+  or hold. `PluginInstance::set_param_track` keyframes a parameter; the
+  `params` array, `PF_CHECKOUT_PARAM`, streams, the Keyframe Suite and PF Param
+  Utils all read that track, at the time each is asked about. With a project,
+  `set_time` is the effect layer's time.
+- Suites and versions: "AEGP Comp Suite" v19, v25 and v26, "AEGP Item Suite"
+  v14, "AEGP Layer Render Options Suite" v1, "AEGP Stream Suite" v4, "PF World
+  Suite" v1, and the new "AEGP Proj Suite" v8 (read-only), "AEGP Math Suite"
+  v1, "AEGP Compute Cache" v1 and "AEGP Hash Suite" v1. The angle convention
+  of `AEGP_MatrixDecompose4` and the hash values have not been checked
+  against After Effects.
+- "AEGP Layer Suite" v5 and "AEGP Camera Suite" v2, for comps without a
+  camera: none is found, and the default camera's distance is given. Shine's
+  three 3D Light choices ask for them, and corrupted the heap while unwinding
+  from the failed acquire.
+- The input layer is a footage item and the hosted effect an effect on its
+  layer: the Layer, Item and Effect suites report both, and the Effect Suite
+  gives the identities the loaded plugins declare.
+- The legacy utility callbacks blend, convolve, generate Gaussian kernels
+  (approximate coefficients) and resolve `get_callback_addr`.
 - `PF Effect Sequence Data Suite` v1. `PF_GetConstSequenceData` gives the
   sequence data handle the plugin returned from `PF_Cmd_SEQUENCE_SETUP`, or
   null before it. Effects built with the `after-effects` crate, such as
@@ -32,6 +127,53 @@ may break the API, and every breaking change is listed below.
 
 ### Fixed
 
+- `PF_GetCurrentState` covers arbitrary data as the plugin flattens it
+  (`PF_Arbitrary_FLAT_SIZE_FUNC` and `PF_Arbitrary_FLATTEN_FUNC`), so a change
+  in what a value points to is no longer called unchanged. The host flattens
+  between commands: after setup, and after `PF_Cmd_USER_CHANGED_PARAM`,
+  `PF_Cmd_UPDATE_PARAMS_UI`, `PF_Cmd_EVENT` and `PF_Cmd_DO_DIALOG`; a value the
+  plugin cannot flatten is covered by its handle's bytes as before. For an
+  `AUTOMATIC_WIDE_TIME_INPUT` effect the range widens by how far its checkouts
+  have reached before and after their time, and takes in every time one
+  reached, instead of covering the whole track once any checkout is seen.
+- `PF_GetCurrentState` changes when what it covers does, so that
+  `PF_AreStatesIdentical` no longer calls a changed input unchanged: a
+  value over the time range asked about, the pixels of the input and of
+  layer parameters, masks, text and shapes on the layer, and the bytes of
+  arbitrary data. The `CHECK_ALL` indices mean what the SDK says.
+  `PF_IsIdenticalCheckout` compares all the parameters those stand for.
+- PF World Transform works at 16 and 32 bpc. `transfer_rect` and
+  `transform_world` refused those worlds, which failed
+  every render of Shine at those depths and DeepGlow2's smart render at
+  32 bpc; `blend` and `convolve` read them as
+  8-bit; `copy` and `copy_hq` succeeded after copying a half or a quarter of
+  each row. Deep opacity is read from `opacitySu`, or from `opacity` when
+  `opacitySu` is 0 as DeepGlow2 sends it, and 32 bpc keeps values
+  out of range through copying, filtering, normal and additive compositing.
+  At 8 bpc only `copy` differs: it stretches into a destination rectangle of
+  another size and no longer reads past the source.
+- The legacy `copy` honours its rectangles, and `fill` and the colourless
+  `premultiply` cover the whole of a deep world. Discotext and DisplacerPro
+  left the alpha of three quarters of a 32 bpc frame wrong.
+- `PF_GetPixelFormat` knows the depth of a world that a plugin made over part
+  of one of the host's.
+- `PF_CHECKOUT_PARAM` answers the two indices past a plugin's declared
+  parameters with empty parameters. Red Giant Universe effects probe them,
+  and corrupted the heap on smart renders when they failed.
+- `PF_InData::total_time` is the layer's duration (the project's, or 30
+  seconds without one) instead of 0, which made effects that divide by it
+  render with NaNs or crash.
+- The pre-render delete callback now runs for GPU frames too, so their
+  pre-render data no longer leaks.
+- Teardown sends `PF_Cmd_SEQUENCE_SETDOWN` and `PF_Cmd_GLOBAL_SETDOWN` only
+  after the matching setup succeeded.
+- `PF_DisposeWorld` frees the allocation the host made, whatever the plugin
+  wrote into the world since, and refuses pixels it did not allocate.
+  Disposing a handle the host did not make is ignored instead of freed.
+- New handles are zeroed.
+- Pre-render data that is a host handle without a delete callback is freed
+  instead of leaked.
+- `PF_KernelFlag_USE_CHAR` kernels are read as unsigned bytes.
 - A world with no pixels (a width or height of 0 or less) is refused with
   `PF_Err_BAD_CALLBACK_PARAM` and a null `data`, by `PF_UtilCallbacks`'
   `new_world`, `PF_WorldSuite2::PF_NewWorld` and
@@ -41,21 +183,10 @@ may break the API, and every breaking change is listed below.
   through that pointer unless it was null: they crashed in
   `PF_Cmd_SMART_RENDER`.
 - The stream value of a layer parameter (`AEGP_GetNewStreamValue`) names the
-  layer when one is linked, with the id `AEGP_GetLayerID` gives aexlo's one
-  layer, and is 0 only for "None". It was always 0, so Furikake, which looks
+  layer when one is linked: without a project, the id `AEGP_GetLayerID` gives
+  the effect's layer, and 0 only for "None". It was always 0, so Furikake, which looks
   a linked Z buffer or occlusion layer up by that id for its transform,
   failed its smart pre-render.
-- `PF_WorldTransformSuite1` composites, transfers, transforms, blends and
-  copies 16 and 32 bpc worlds, not only 8 bpc; so do `composite_rect`,
-  `transfer_rect` and `transform_world` in `PF_UtilCallbacks`, which share
-  the code. `transfer_rect`, `composite_rect` and `transform_world` refused deep
-  worlds with `PF_Err_BAD_CALLBACK_PARAM`, so DeepGlow2 failed to smart
-  render at 32 bpc; `copy`, `copy_hq` and `blend` walked them four bytes at a
-  time. Float worlds keep values above 1. A deep destination takes its
-  opacity from `opacitySu`, or from `opacity` when `opacitySu` is 0, as
-  DeepGlow2 sends it. `convolve` still works at 8 bpc only, and every call
-  it, or the others, cannot handle is reported as `declined`. The suite's
-  calls now show in the trace.
 - `PF_Event_DRAG` hands the plugin back the `continue_refcon` that its click
   (or the drag before it) left, as After Effects does, instead of zeros.
   Curve editors that keep the point being dragged there, such as Falloff's

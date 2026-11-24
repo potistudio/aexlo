@@ -186,10 +186,7 @@ mod tests {
 	#[test]
 	fn text_is_drawn_on_transparent_as_its_text_layer_lays_it_out() {
 		let spec = InputSpec::text("Hi");
-		let Ok(Some(text)) = text_layer(&spec, 96, 48) else {
-			eprintln!("skipping: no system font to set the text in");
-			return;
-		};
+		let text = text_layer(&spec, 96, 48).unwrap().expect("a text layer");
 		assert!(text_layer(&InputSpec::default(), 96, 48).unwrap().is_none());
 		let (l, t, r, b) = text.bounds().unwrap();
 		assert!(l >= 0.0 && t >= 0.0 && r <= 96.0 && b <= 48.0, "{l} {t} {r} {b}");

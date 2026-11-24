@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 use std::sync::Arc;
 
 use aexlo_harness::manifest::{self, Manifest};
@@ -235,9 +234,9 @@ pub fn runner_config(common: &Common, artifacts: runner::ArtifactMap) -> Result<
 }
 
 /// Exit with the code `err` maps to, after printing it.
-pub fn fail(err: &Error) -> ExitCode {
+pub fn fail(err: &Error) -> u8 {
 	eprintln!("error: {err}");
-	ExitCode::from(err.exit_code())
+	err.exit_code()
 }
 
 //==== aexlo presets ====================================================
@@ -250,7 +249,7 @@ pub struct PresetsArgs {
 	preset: PresetArgs,
 }
 
-pub fn cmd_presets(args: PresetsArgs) -> ExitCode {
+pub fn cmd_presets(args: PresetsArgs) -> u8 {
 	let run = || -> Result<(), Error> {
 		let common = args.preset.common(args.filter);
 		let manifest = load_manifest(common.manifest.as_deref())?;
@@ -284,20 +283,20 @@ pub fn cmd_presets(args: PresetsArgs) -> ExitCode {
 		Ok(())
 	};
 	match run() {
-		Ok(()) => ExitCode::SUCCESS,
+		Ok(()) => 0,
 		Err(err) => fail(&err),
 	}
 }
 
 //==== aexlo worker =====================================================
 
-pub fn cmd_worker() -> ExitCode {
+pub fn cmd_worker() -> u8 {
 	// Plugins' own log lines and aexlo's warnings land in the run's logs.
 	let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
 		.target(env_logger::Target::Stderr)
 		.try_init();
 	match aexlo_harness::worker::serve() {
-		Ok(()) => ExitCode::SUCCESS,
+		Ok(()) => 0,
 		Err(err) => fail(&err),
 	}
 }
@@ -438,7 +437,7 @@ pub fn report_junit(report: &Report) -> String {
 }
 
 /// Print the summary (or JSON) and write JUnit, returning the exit code.
-pub fn finish(report: &Report, common: &Common) -> ExitCode {
+pub fn finish(report: &Report, common: &Common) -> u8 {
 	if common.format == Format::Json {
 		println!("{}", report_json(report));
 	} else {
@@ -451,7 +450,7 @@ pub fn finish(report: &Report, common: &Common) -> ExitCode {
 		eprintln!("error: writing {}: {e}", path.display());
 		code = 3;
 	}
-	ExitCode::from(code)
+	code
 }
 
 //==== aexlo test =======================================================
@@ -502,7 +501,7 @@ pub struct TestArgs {
 	preset: PresetArgs,
 }
 
-pub fn cmd_test(args: TestArgs) -> ExitCode {
+pub fn cmd_test(args: TestArgs) -> u8 {
 	let setup = || -> Result<(Common, TestFlags, Manifest, Vec<Variant>, RunnerConfig), Error> {
 		let common = args.preset.common(args.filter);
 		let flags = TestFlags {
@@ -677,7 +676,7 @@ impl PresetArgs {
 }
 
 /// `aexlo bench [filter]`: time the manifest's presets.
-pub fn cmd_bench(filter: Option<String>, own: BenchPresetArgs, preset: PresetArgs) -> ExitCode {
+pub fn cmd_bench(filter: Option<String>, own: BenchPresetArgs, preset: PresetArgs) -> u8 {
 	let setup = || -> Result<(Common, BenchFlags, Manifest, Vec<Variant>, RunnerConfig), Error> {
 		let common = preset.common(filter);
 		let flags = BenchFlags {
@@ -735,7 +734,7 @@ pub fn cmd_bench(filter: Option<String>, own: BenchPresetArgs, preset: PresetArg
 			}))
 			.unwrap_or_default()
 		);
-		return ExitCode::from(report.exit_code());
+		return report.exit_code();
 	}
 	finish(&report, &common)
 }
@@ -899,7 +898,7 @@ pub struct CheckArgs {
 	preset: PresetArgs,
 }
 
-pub fn cmd_check(args: CheckArgs) -> ExitCode {
+pub fn cmd_check(args: CheckArgs) -> u8 {
 	/// The flags, the baseline and its threshold, and what to run.
 	type Setup = (Common, Option<String>, f64, Manifest, Vec<Variant>, RunnerConfig);
 	let setup = || -> Result<Setup, Error> {

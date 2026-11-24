@@ -16,10 +16,14 @@ env_logger = { workspace = true }
 epaint_default_fonts = "0.35.0"
 image = { workspace = true, features = ["png", "jpeg"] }
 log = { workspace = true }
+raw-window-handle = "0.6.2"
 rfd = "0.17.2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tiny-skia = { version = "0.11.4", default-features = false, features = ["std", "simd"] }
+
+[dev-dependencies]
+aexlo_fixture_gate = { workspace = true }
 
 [[bin]]
 name = "studio"

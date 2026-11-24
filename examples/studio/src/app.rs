@@ -284,6 +284,10 @@ impl Studio {
 		}
 	}
 
+	pub fn show_about(&mut self, effect: Id) {
+		self.engine.send(Request::About { effect });
+	}
+
 	// ---- Editing helpers -----------------------------------------------------
 
 	pub fn add_layer(&mut self, name: &str, kind: LayerKind) -> Id {
@@ -631,6 +635,7 @@ impl Studio {
 						}
 					}
 				}
+				Event::About(Ok(message) | Err(message)) => self.notify(message),
 				Event::Control { effect, index, image } => {
 					let image = egui::ColorImage::from_rgba_unmultiplied(
 						[image.width as usize, image.height as usize],
@@ -965,7 +970,21 @@ impl Studio {
 	}
 }
 
+impl Drop for Studio {
+	fn drop(&mut self) {
+		// A panic gets here without `on_exit`.
+		self.engine.shutdown();
+		// SAFETY: A null handle clears the window before eframe destroys it.
+		unsafe { aexlo::set_main_window(std::ptr::null_mut()) };
+	}
+}
+
 impl eframe::App for Studio {
+	// The last point at which the window the plugins were given still exists.
+	fn on_exit(&mut self) {
+		self.engine.shutdown();
+	}
+
 	fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
 		self.handle_events(&ctx);

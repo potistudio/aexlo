@@ -224,7 +224,11 @@ unsafe extern "C" fn fill_out(handle: AEGP_WorldH, out: *mut PF_EffectWorld) -> 
 		}
 		// `PF_GetPixelFormat` looks worlds up by `data`; without a tag a deep
 		// world reads back as `ARGB32` and the plugin iterates it as 8 bpc.
-		super::world::tag_host_world(world.pixels.as_ptr() as usize, depth_kind(world.kind));
+		super::world::tag_host_world(
+			world.pixels.as_ptr() as usize,
+			world.pixels.len(),
+			depth_kind(world.kind),
+		);
 		*out = PF_EffectWorld {
 			reserved0: std::ptr::null_mut(),
 			reserved1: std::ptr::null_mut(),

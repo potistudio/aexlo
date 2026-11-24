@@ -6,6 +6,7 @@
 use std::sync::{Arc, Mutex};
 
 use aexlo::{ObserveLevel, Observer, SuiteCallEvent, UnsupportedEvent};
+use aexlo_fixture_gate::needs_fixture;
 
 #[derive(Default)]
 struct Record {
@@ -29,12 +30,10 @@ impl Observer for Record {
 
 /// Loading and rendering reads the sequence data through the suite and asks
 /// for nothing aexlo does not serve.
+#[needs_fixture("RainyDay")]
 #[test]
 fn reads_sequence_data_through_the_suite() {
-	let Some(path) = test_e2e::fixture("RainyDay") else {
-		eprintln!("skipping: fixture 'RainyDay' not present locally");
-		return;
-	};
+	let path = test_e2e::fixture("RainyDay");
 	let record = Arc::new(Record::default());
 	let mut instance = aexlo::Host::get()
 		.loader(&path)

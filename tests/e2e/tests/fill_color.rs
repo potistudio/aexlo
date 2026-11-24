@@ -4,11 +4,12 @@
 //! Parameter indices: [1] Execute, [2] Color.
 
 use aexlo::{Depth8, Layer, ParamValue, PluginInstance, RenderPath};
+use aexlo_fixture_gate::needs_fixture;
 
 const EXECUTE: usize = 1;
 
 fn load() -> Option<PluginInstance> {
-	let Some(path) = test_e2e::fixture("FillColor") else {
+	let Some(path) = test_e2e::find_fixture("FillColor") else {
 		eprintln!("skipping: fixture 'FillColor' not present locally");
 		return None;
 	};
@@ -19,6 +20,7 @@ fn load() -> Option<PluginInstance> {
 /// lookup table, so a layer under 4 pixels tall gets a world with no pixels.
 /// That world's `data` is null, which the plugin checks for; a dangling
 /// pointer crashed it.
+#[needs_fixture("FillColor")]
 #[test]
 fn fills_a_layer_shorter_than_four_pixels() {
 	for (w, h) in [(1, 1), (5, 3)] {

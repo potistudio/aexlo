@@ -12,7 +12,6 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
 use aexlo_harness::runner::{self, Isolate, Outcome, Run, RunnerConfig};
@@ -762,14 +761,14 @@ fn expand(arg: &str) -> Result<Vec<PathBuf>, Error> {
 	Err(Error::invalid(format!("no plugin at {arg}")))
 }
 
-pub fn cmd(args: CompatArgs) -> ExitCode {
+pub fn cmd(args: CompatArgs) -> u8 {
 	match compat(args) {
 		Ok(code) => code,
 		Err(err) => toolkit::fail(&err),
 	}
 }
 
-fn compat(args: CompatArgs) -> Result<ExitCode, Error> {
+fn compat(args: CompatArgs) -> Result<u8, Error> {
 	let mut paths = Vec::new();
 	for plugin in &args.paths {
 		paths.extend(expand(plugin)?);
@@ -814,8 +813,8 @@ fn compat(args: CompatArgs) -> Result<ExitCode, Error> {
 		eprintln!("aexlo compat: wrote {}", path.display());
 	}
 	Ok(match changes {
-		Some(changes) if !changes.worse.is_empty() => ExitCode::from(1),
-		_ => ExitCode::SUCCESS,
+		Some(changes) if !changes.worse.is_empty() => 1,
+		_ => 0,
 	})
 }
 

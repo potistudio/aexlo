@@ -394,9 +394,16 @@ fn an_observer_hears_about_missing_suites_and_stubs_at_any_level() {
 			let mut suite: *const c_void = std::ptr::null();
 			let err = unsafe { pica.AcquireSuite.unwrap()(c"AEGP Nonexistent Suite".as_ptr(), 3, &mut suite) };
 			assert_ne!(err, PF_Err_NONE);
-			let utils = unsafe { &*(*input).utils };
-			let null = std::ptr::null;
-			unsafe { utils.blend.unwrap()(std::ptr::null_mut(), null(), null(), 0, std::ptr::null_mut()) };
+			let stub = crate::suites::utility::create_utility_suite()
+				.GetFilterInstanceID
+				.unwrap();
+			let mut id = 0;
+			let err = unsafe { stub((*input).effect_ref, &mut id) };
+			assert_eq!(
+				err,
+				crate::sys::PF_Err_INVALID_CALLBACK,
+				"a stub does not claim success"
+			);
 		}
 		PF_Err_NONE
 	}
@@ -409,6 +416,6 @@ fn an_observer_hears_about_missing_suites_and_stubs_at_any_level() {
 	fx.about().unwrap();
 	assert_eq!(
 		*gaps.0.lock().unwrap(),
-		["MissingSuite AEGP Nonexistent Suite v3", "Stub blend "]
+		["MissingSuite AEGP Nonexistent Suite v3", "Stub get_filter_instance_id "]
 	);
 }

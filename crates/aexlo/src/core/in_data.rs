@@ -10,6 +10,7 @@
 //! - [`RenderContext`]: the frame being processed (size, time, downsampling).
 
 use crate::core::constants::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
+use crate::suites::layer::COMP_DURATION_SECONDS;
 use crate::sys::*;
 use std::ptr::null_mut;
 
@@ -98,6 +99,8 @@ pub(crate) struct RenderContext {
 	downsample_x: PF_RationalScale,
 	downsample_y: PF_RationalScale,
 	pixel_aspect_ratio: PF_RationalScale,
+	/// How long the effect's layer is, in layer time, when a project says.
+	layer_duration: Option<crate::animation::TimePoint>,
 }
 
 impl Default for RenderContext {
@@ -125,6 +128,7 @@ impl Default for RenderContext {
 			downsample_x: one,
 			downsample_y: one,
 			pixel_aspect_ratio: one,
+			layer_duration: None,
 		};
 		ctx.set_size(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32);
 		ctx
@@ -150,6 +154,26 @@ impl RenderContext {
 		self.time_step = time_step;
 		self.local_time_step = time_step;
 		self.time_scale = time_scale;
+	}
+
+	/// Say how long the effect's layer is, in layer time.
+	pub fn set_layer_duration(&mut self, duration: Option<crate::animation::TimePoint>) {
+		self.layer_duration = duration;
+	}
+
+	/// `in_data.total_time`: the layer's duration in units of `time_scale`.
+	fn total_time(&self) -> A_long {
+		let scale = i64::from(self.time_scale);
+		let total = match self.layer_duration {
+			// A layer played backwards is as long as forwards.
+			Some(duration) => {
+				let num = i128::from(duration.value()).abs() * i128::from(scale);
+				let den = i128::from(duration.scale());
+				i64::try_from((num + den / 2) / den).unwrap_or(i64::MAX)
+			}
+			None => i64::from(COMP_DURATION_SECONDS) * scale,
+		};
+		A_long::try_from(total).unwrap_or(A_long::MAX)
 	}
 
 	/// Set the frame size and cover it entirely with `extent_hint`.
@@ -199,6 +223,9 @@ pub(crate) fn compose(
 	in_data.time_step = render.time_step;
 	in_data.local_time_step = render.local_time_step;
 	in_data.time_scale = render.time_scale;
+	// The layer is as long as the one the AEGP suites report. Plugins divide by
+	// this (transitions, for their progress), so it must not be zero.
+	in_data.total_time = render.total_time();
 	in_data.field = render.field;
 	in_data.downsample_x = render.downsample_x;
 	in_data.downsample_y = render.downsample_y;
@@ -210,4 +237,29 @@ pub(crate) fn compose(
 	in_data.num_params = bindings.num_params;
 
 	in_data
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn total_time_is_the_synthetic_layer_duration() {
+		let host = HostInfo::new(crate::host::interact::create_interact_callbacks());
+		let mut render = RenderContext::default();
+		let total_time = |render: &RenderContext| {
+			let bindings = CallBindings {
+				effect_ref: null_mut(),
+				utils: null_mut(),
+				pica: null_mut(),
+				num_params: 1,
+			};
+			compose(&host, &EffectState::default(), render, bindings).total_time
+		};
+		assert_eq!(total_time(&render), COMP_DURATION_SECONDS * 30);
+		render.set_time(0, 1001, 24000);
+		assert_eq!(total_time(&render), COMP_DURATION_SECONDS * 24000);
+		render.set_time(0, 1, A_long::MAX as A_u_long);
+		assert_eq!(total_time(&render), A_long::MAX, "saturates rather than wrapping");
+	}
 }

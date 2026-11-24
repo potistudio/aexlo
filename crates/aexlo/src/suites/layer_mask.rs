@@ -1,7 +1,5 @@
-//! `AEGP Layer Mask Suite` v7 (`AEGP_MaskSuite6`) and v6 (`AEGP_MaskSuite5`),
-//! and `AEGP Mask Outline Suite` v5 (`AEGP_MaskOutlineSuite3`) and v3
-//! (`AEGP_MaskOutlineSuite2`): read access to the masks an embedder puts on the
-//! effect's layer with
+//! `AEGP Layer Mask Suite` v7 (`AEGP_MaskSuite6`) and v6 (`AEGP_MaskSuite5`):
+//! read access to the masks an embedder puts on the effect's layer with
 //! [`PluginInstance::set_mask_paths`](crate::PluginInstance::set_mask_paths),
 //! the same ones the "PF Path Query Suite" serves.
 //!
@@ -9,14 +7,17 @@
 //! before the embedder replaces the masks reads the mask now at that index, or
 //! fails if there is none. A mask's outline reaches the plugin as the value of
 //! its `AEGP_MaskStream_OUTLINE` stream ([`super::stream`]): an
-//! `AEGP_MaskOutlineValH` holding a copy of the path, freed with the stream
-//! value. Masks are static here, so times are ignored, and nothing can change
-//! them: every setter, and creating, deleting or duplicating a mask, is
-//! declined.
+//! `AEGP_MaskOutlineValH` holding a copy of the path, read through
+//! [`super::mask_outline`] and freed with the stream value, as a shape
+//! path's is, at the time asked for. What this suite reads (mode,
+//! inversion, colour) is the mask at the current time. Nothing can change a
+//! mask: every setter, and creating, deleting or duplicating a mask, is
+//! declined. Only the effect's own layer has masks; any other layer of a
+//! project has none.
 //!
-//! Both handle kinds are kept in a list of the ones handed out: a plugin that
-//! bails out of a failed call may pass an uninitialised handle, which is
-//! refused instead of read or freed.
+//! Mask refs are kept in a list of the ones handed out: a plugin that bails
+//! out of a failed call may pass an uninitialised handle, which is refused
+//! instead of read or freed.
 
 use crate::PluginInstance;
 use crate::core::diagnostics::diag;
@@ -76,13 +77,7 @@ pub(crate) struct MaskRef {
 	pub(crate) index: usize,
 }
 
-/// What an `AEGP_MaskOutlineValH` points at.
-struct Outline {
-	path: MaskPath,
-}
-
 static MASK_REFS: Handed = Handed::new();
-static OUTLINES: Handed = Handed::new();
 
 /// The masks on the layer of the instance behind `effect_ref`.
 fn masks<'a>(effect_ref: PF_ProgPtr) -> Option<&'a [MaskPath]> {
@@ -102,27 +97,14 @@ fn mask<'a>(mask_refH: AEGP_MaskRefH) -> Option<&'a MaskPath> {
 	masks(mask.effect_ref)?.get(mask.index)
 }
 
-/// A new outline value holding a copy of the mask at `index`, or null.
-pub(crate) fn new_outline(effect_ref: PF_ProgPtr, index: usize) -> AEGP_MaskOutlineValH {
-	match masks(effect_ref).and_then(|masks| masks.get(index)) {
-		Some(path) => OUTLINES.hand_out(Outline { path: path.clone() }) as AEGP_MaskOutlineValH,
-		None => std::ptr::null_mut(),
+/// The effect behind a layer handle and the masks on that layer: the
+/// effect's own, or none for another layer of the project.
+fn layer_masks<'a>(aegp_layerH: AEGP_LayerH) -> Option<(PF_ProgPtr, &'a [MaskPath])> {
+	let timeline = super::layer::Timeline::of(aegp_layerH.cast())?;
+	if !timeline.hosts_effect {
+		return Some((timeline.effect, &[]));
 	}
-}
-
-/// An outline value holding `path`, as [`new_outline`] makes one.
-#[cfg(test)]
-pub(crate) fn outline_of(path: MaskPath) -> AEGP_MaskOutlineValH {
-	OUTLINES.hand_out(Outline { path }) as AEGP_MaskOutlineValH
-}
-
-/// Free an outline from [`new_outline`]; anything else is left alone.
-pub(crate) fn dispose_outline(outlineH: AEGP_MaskOutlineValH) -> bool {
-	OUTLINES.take_back(outlineH as *mut Outline)
-}
-
-fn outline<'a>(outlineH: AEGP_MaskOutlineValH) -> Option<&'a MaskPath> {
-	OUTLINES.get(outlineH as *const Outline).map(|o| &o.path)
+	Some((timeline.effect, masks(timeline.effect)?))
 }
 
 /// Whether `index` is a mask on the layer of `effect_ref`.
@@ -165,8 +147,7 @@ fn from_mask<T>(mask_refH: AEGP_MaskRefH, out: *mut T, value: impl FnOnce(&MaskP
 unsafe extern "C" fn get_layer_num_masks(aegp_layerH: AEGP_LayerH, num_masksPL: *mut A_long) -> A_Err {
 	crate::core::ffi::guard("AEGP_GetLayerNumMasks", || {
 		diag!("AEGP_MaskSuite/AEGP_GetLayerNumMasks", "aegp_layerH" => format!("{:#x}", aegp_layerH as usize));
-		// Layer handles are the effect's `PF_ProgPtr` (see `layer::layer_handle`).
-		let Some(masks) = masks(aegp_layerH as PF_ProgPtr) else {
+		let Some((_, masks)) = layer_masks(aegp_layerH) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		answer(num_masksPL, masks.len() as A_long)
@@ -187,11 +168,10 @@ unsafe extern "C" fn get_layer_mask_by_index(
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = std::ptr::null_mut();
-		let effect_ref = aegp_layerH as PF_ProgPtr;
-		if masks(effect_ref).is_none() {
+		let Some((effect_ref, masks)) = layer_masks(aegp_layerH) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
-		}
-		let Some(index) = usize::try_from(mask_indexL).ok().filter(|&i| has_mask(effect_ref, i)) else {
+		};
+		let Some(index) = usize::try_from(mask_indexL).ok().filter(|&i| i < masks.len()) else {
 			return PF_Err_INVALID_INDEX;
 		};
 		*out = MASK_REFS.hand_out(MaskRef { effect_ref, index }) as AEGP_MaskRefH;
@@ -356,139 +336,6 @@ pub(super) const fn mask_suite_5() -> AEGP_MaskSuite5 {
 	}
 }
 
-// ============================================================================
-// AEGP Mask Outline Suite
-// ============================================================================
-
-/// Answer `out` from the outline `outlineH`.
-fn from_outline<T>(outlineH: AEGP_MaskOutlineValH, out: *mut T, value: impl FnOnce(&MaskPath) -> T) -> A_Err {
-	match outline(outlineH) {
-		Some(path) => answer(out, value(path)),
-		None => PF_Err_BAD_CALLBACK_PARAM,
-	}
-}
-
-unsafe extern "C" fn is_mask_outline_open(mask_outlineH: AEGP_MaskOutlineValH, openPB: *mut A_Boolean) -> A_Err {
-	crate::core::ffi::guard("AEGP_IsMaskOutlineOpen", || {
-		diag!("AEGP_MaskOutlineSuite/AEGP_IsMaskOutlineOpen", "mask_outlineH" => format!("{:#x}", mask_outlineH as usize));
-		from_outline(mask_outlineH, openPB, |p| !p.closed as A_Boolean)
-	})
-}
-
-unsafe extern "C" fn get_mask_outline_num_segments(
-	mask_outlineH: AEGP_MaskOutlineValH,
-	num_segmentsPL: *mut A_long,
-) -> A_Err {
-	crate::core::ffi::guard("AEGP_GetMaskOutlineNumSegments", || {
-		diag!("AEGP_MaskOutlineSuite/AEGP_GetMaskOutlineNumSegments",
-			"mask_outlineH" => format!("{:#x}", mask_outlineH as usize),
-		);
-		from_outline(mask_outlineH, num_segmentsPL, |p| p.segment_count() as A_long)
-	})
-}
-
-/// Vertex `which_pointL` in `0..=segments`, tangents relative to the vertex;
-/// on a closed outline the last index is vertex 0 again.
-unsafe extern "C" fn get_mask_outline_vertex_info(
-	mask_outlineH: AEGP_MaskOutlineValH,
-	which_pointL: AEGP_VertexIndex,
-	vertexP: *mut AEGP_MaskVertex,
-) -> A_Err {
-	crate::core::ffi::guard("AEGP_GetMaskOutlineVertexInfo", || {
-		diag!("AEGP_MaskOutlineSuite/AEGP_GetMaskOutlineVertexInfo",
-			"mask_outlineH" => format!("{:#x}", mask_outlineH as usize),
-			"which_pointL" => which_pointL,
-		);
-		let Some(path) = outline(mask_outlineH) else {
-			return PF_Err_BAD_CALLBACK_PARAM;
-		};
-		let Some(v) = usize::try_from(which_pointL).ok().and_then(|i| path.vertex(i)) else {
-			return PF_Err_INVALID_INDEX;
-		};
-		answer(
-			vertexP,
-			AEGP_MaskVertex {
-				x: v.x,
-				y: v.y,
-				tan_in_x: v.tan_in_x,
-				tan_in_y: v.tan_in_y,
-				tan_out_x: v.tan_out_x,
-				tan_out_y: v.tan_out_y,
-			},
-		)
-	})
-}
-
-/// aexlo's masks have no variable-width feather points.
-unsafe extern "C" fn get_mask_outline_num_feathers(
-	mask_outlineH: AEGP_MaskOutlineValH,
-	num_feathersPL: *mut A_long,
-) -> A_Err {
-	crate::core::ffi::guard("AEGP_GetMaskOutlineNumFeathers", || {
-		diag!("AEGP_MaskOutlineSuite/AEGP_GetMaskOutlineNumFeathers",
-			"mask_outlineH" => format!("{:#x}", mask_outlineH as usize),
-		);
-		from_outline(mask_outlineH, num_feathersPL, |_| 0)
-	})
-}
-
-unsafe extern "C" fn get_mask_outline_feather_info(
-	mask_outlineH: AEGP_MaskOutlineValH,
-	which_featherL: AEGP_FeatherIndex,
-	_featherP: *mut AEGP_MaskFeather,
-) -> A_Err {
-	crate::core::ffi::guard("AEGP_GetMaskOutlineFeatherInfo", || {
-		diag!("AEGP_MaskOutlineSuite/AEGP_GetMaskOutlineFeatherInfo",
-			"mask_outlineH" => format!("{:#x}", mask_outlineH as usize),
-			"which_featherL" => which_featherL,
-		);
-		if outline(mask_outlineH).is_none() {
-			return PF_Err_BAD_CALLBACK_PARAM;
-		}
-		PF_Err_INVALID_INDEX
-	})
-}
-
-/// A call that changes an outline: declined.
-macro_rules! declined_outline {
-	($name:ident, $function:literal, ($($arg:ident: $ty:ty),*)) => {
-		unsafe extern "C" fn $name($($arg: $ty),*) -> A_Err {
-			crate::core::ffi::guard($function, || {
-				$(let _ = $arg;)*
-				diag!(concat!("AEGP_MaskOutlineSuite/", $function));
-				declined(concat!("AEGP_MaskOutlineSuite/", $function))
-			})
-		}
-	};
-}
-
-declined_outline!(set_mask_outline_open, "AEGP_SetMaskOutlineOpen", (mask_outlineH: AEGP_MaskOutlineValH, openB: A_Boolean));
-declined_outline!(set_mask_outline_vertex_info, "AEGP_SetMaskOutlineVertexInfo", (mask_outlineH: AEGP_MaskOutlineValH, which_pointL: AEGP_VertexIndex, vertexP: *const AEGP_MaskVertex));
-declined_outline!(create_vertex, "AEGP_CreateVertex", (mask_outlineH: AEGP_MaskOutlineValH, insert_position: AEGP_VertexIndex));
-declined_outline!(delete_vertex, "AEGP_DeleteVertex", (mask_outlineH: AEGP_MaskOutlineValH, index: AEGP_VertexIndex));
-declined_outline!(set_mask_outline_feather_info, "AEGP_SetMaskOutlineFeatherInfo", (mask_outlineH: AEGP_MaskOutlineValH, which_featherL: AEGP_VertexIndex, featherP: *const AEGP_MaskFeather));
-declined_outline!(create_mask_outline_feather, "AEGP_CreateMaskOutlineFeather", (mask_outlineH: AEGP_MaskOutlineValH, featherP0: *const AEGP_MaskFeather, insert_positionP: *mut AEGP_FeatherIndex));
-declined_outline!(delete_mask_outline_feather, "AEGP_DeleteMaskOutlineFeather", (mask_outlineH: AEGP_MaskOutlineValH, index: AEGP_FeatherIndex));
-
-/// Wire version 5. Version 3 (`AEGP_MaskOutlineSuite2`) is its first seven
-/// entries, so this table serves both.
-pub(super) const fn mask_outline_suite_3() -> AEGP_MaskOutlineSuite3 {
-	AEGP_MaskOutlineSuite3 {
-		AEGP_IsMaskOutlineOpen: Some(is_mask_outline_open),
-		AEGP_SetMaskOutlineOpen: Some(set_mask_outline_open),
-		AEGP_GetMaskOutlineNumSegments: Some(get_mask_outline_num_segments),
-		AEGP_GetMaskOutlineVertexInfo: Some(get_mask_outline_vertex_info),
-		AEGP_SetMaskOutlineVertexInfo: Some(set_mask_outline_vertex_info),
-		AEGP_CreateVertex: Some(create_vertex),
-		AEGP_DeleteVertex: Some(delete_vertex),
-		AEGP_GetMaskOutlineNumFeathers: Some(get_mask_outline_num_feathers),
-		AEGP_GetMaskOutlineFeatherInfo: Some(get_mask_outline_feather_info),
-		AEGP_SetMaskOutlineFeatherInfo: Some(set_mask_outline_feather_info),
-		AEGP_CreateMaskOutlineFeather: Some(create_mask_outline_feather),
-		AEGP_DeleteMaskOutlineFeather: Some(delete_mask_outline_feather),
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -512,8 +359,8 @@ mod tests {
 
 	#[test]
 	fn an_outline_is_read_and_freed_once() {
-		let outline = OUTLINES.hand_out(Outline { path: triangle() }) as AEGP_MaskOutlineValH;
-		let suite = mask_outline_suite_3();
+		let outline = super::super::mask_outline::publish(triangle());
+		let suite = super::super::mask_outline::suite_3();
 		unsafe {
 			let mut open: A_Boolean = 1;
 			assert_eq!(suite.AEGP_IsMaskOutlineOpen.unwrap()(outline, &mut open), PF_Err_NONE);
@@ -543,11 +390,11 @@ mod tests {
 			assert_eq!(feathers, 0);
 			assert_eq!(suite.AEGP_SetMaskOutlineOpen.unwrap()(outline, 1), A_Err_GENERIC);
 		}
-		assert!(dispose_outline(outline));
-		assert!(!dispose_outline(outline), "freed once");
+		assert!(super::super::mask_outline::dispose(outline as usize));
+		assert!(!super::super::mask_outline::dispose(outline as usize), "freed once");
 		let mut open: A_Boolean = 0;
 		assert_eq!(
-			unsafe { mask_outline_suite_3().AEGP_IsMaskOutlineOpen.unwrap()(outline, &mut open) },
+			unsafe { suite.AEGP_IsMaskOutlineOpen.unwrap()(outline, &mut open) },
 			PF_Err_BAD_CALLBACK_PARAM
 		);
 	}
@@ -574,14 +421,13 @@ mod tests {
 			);
 			let mut segments = 0;
 			assert_eq!(
-				mask_outline_suite_3().AEGP_GetMaskOutlineNumSegments.unwrap()(
-					garbage as AEGP_MaskOutlineValH,
-					&mut segments
-				),
+				super::super::mask_outline::suite_3()
+					.AEGP_GetMaskOutlineNumSegments
+					.unwrap()(garbage as AEGP_MaskOutlineValH, &mut segments),
 				PF_Err_BAD_CALLBACK_PARAM
 			);
 		}
-		assert!(!dispose_outline(garbage as AEGP_MaskOutlineValH));
+		assert!(!super::super::mask_outline::dispose(garbage));
 	}
 
 	#[test]

@@ -10,4 +10,5 @@ publish = false
 aexlo = { workspace = true }
 
 [dev-dependencies]
+aexlo_fixture_gate = { workspace = true }
 image = { workspace = true, features = ["png"] }

@@ -8,12 +8,22 @@ use crate::host::app::with_app_host_ffi;
 // Parameter Management
 // ============================================================================
 
+/// How many indices past the declared parameters check out successfully, as
+/// empty `PF_Param_NO_DATA` parameters.
+///
+/// The SDK does not document this; it is inferred from Red Giant Universe
+/// 2026.5. Its pre-render checks out every index up to `num_params + 1`. On an
+/// error it frees that parameter's block but keeps the pointer, and its
+/// pre-render delete callback frees it again, so the effect only works in a
+/// host where both checkouts succeed. Indices beyond these are still errors.
+const TRAILING_PARAMS: usize = 2;
+
 unsafe extern "C" fn checkout_param_stub(
 	effect_ref: PF_ProgPtr,
 	index: PF_ParamIndex,
-	_what_time: A_long,
+	what_time: A_long,
 	_time_step: A_long,
-	_time_scale: A_u_long,
+	time_scale: A_u_long,
 	param: *mut PF_ParamDef,
 ) -> PF_Err {
 	crate::core::ffi::guard("checkout_param_stub", || {
@@ -43,11 +53,21 @@ unsafe extern "C" fn checkout_param_stub(
 		// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`).
 		let instance = unsafe { instance.as_ref() };
 
-		if index >= instance.param_count() {
-			// The plugin passed this struct uninitialized and reads it back even
-			// after the error (Universe Glow does, then frees whatever handle it
-			// finds). Handing back the stack garbage corrupts the heap, so the
-			// failed checkout reads as an empty parameter.
+		let count = instance.param_count();
+		if (count..count + TRAILING_PARAMS).contains(&index) {
+			// SAFETY: an all-zero `PF_ParamDef` is a valid value of that C struct.
+			let mut empty: PF_ParamDef = unsafe { std::mem::zeroed() };
+			empty.param_type = PF_Param_NO_DATA as PF_ParamType;
+			// SAFETY: `param` is non-null (checked above) and points at the plugin's `PF_ParamDef` slot.
+			unsafe { param.write(empty) };
+			log::debug!("checkout_param: index {index} is past the {count} declared; returning an empty parameter");
+			return PF_Err_NONE;
+		}
+
+		if index >= count {
+			// The plugin passed this struct uninitialized and may read it back
+			// even after the error, so the failed checkout reads as an empty
+			// parameter rather than stack garbage.
 			// SAFETY: `param` is non-null (checked above) and points at the plugin's `PF_ParamDef` slot; `write` doesn't read the uninitialized value.
 			unsafe { param.write(std::mem::zeroed()) };
 			log::debug!(
@@ -58,9 +78,15 @@ unsafe extern "C" fn checkout_param_stub(
 			return PF_Err_INVALID_INDEX;
 		}
 
-		let src_param = instance.param_by_index(index).unwrap();
-		// SAFETY: `param` is non-null (checked above), and `src_param` is a live parameter of this instance.
-		unsafe { *param = *src_param };
+		if let Some(at) = crate::TimePoint::new(what_time, time_scale) {
+			instance.record_checkout_time(at);
+		}
+		// The value at the time asked for; a zero scale names no time, so now.
+		let src_param = instance
+			.param_at(index, crate::TimePoint::new(what_time, time_scale))
+			.expect("index checked above");
+		// SAFETY: `param` is non-null (checked above) and points at the plugin's `PF_ParamDef` slot.
+		unsafe { *param = src_param };
 		// Checking a param back in matters for layer params (their pixels).
 		if src_param.param_type == PF_Param_LAYER as PF_ParamType {
 			crate::strict::checkout(crate::CheckoutKind::CheckoutParam, index as i32, param as usize);
@@ -69,9 +95,9 @@ unsafe extern "C" fn checkout_param_stub(
 		diag!("InteractCallbacks/checkout_param",
 			"effect_ref" => format!("{:#x}", effect_ref as usize),
 			"index" => index,
-			"what_time" => _what_time,
+			"what_time" => what_time,
 			"time_step" => _time_step,
-			"time_scale" => _time_scale,
+			"time_scale" => time_scale,
 			"param (out)" => format!("{:#x}", param as usize);
 			result: format!("param is set to {:#x}", param as usize),
 		);
@@ -186,14 +212,14 @@ unsafe extern "C" fn checkout_layer_audio_stub(
 ) -> PF_Err {
 	crate::core::ffi::guard("checkout_layer_audio_stub", || {
 		log::warn!("STUB: checkout_layer_audio called");
-		PF_Err_NONE
+		PF_Err_INVALID_CALLBACK
 	})
 }
 
 unsafe extern "C" fn checkin_layer_audio_stub(_effect_ref: PF_ProgPtr, _audio: PF_LayerAudio) -> PF_Err {
 	crate::core::ffi::guard("checkin_layer_audio_stub", || {
 		log::warn!("STUB: checkin_layer_audio called");
-		PF_Err_NONE
+		PF_Err_INVALID_CALLBACK
 	})
 }
 
@@ -209,7 +235,7 @@ unsafe extern "C" fn get_audio_data_stub(
 ) -> PF_Err {
 	crate::core::ffi::guard("get_audio_data_stub", || {
 		log::warn!("STUB: get_audio_data called");
-		PF_Err_NONE
+		PF_Err_INVALID_CALLBACK
 	})
 }
 
@@ -237,6 +263,61 @@ pub fn create_interact_callbacks() -> PF_InteractCallbacks {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn unavailable_audio_callbacks_report_errors() {
+		let cb = create_interact_callbacks();
+		let mut audio = std::ptr::null_mut();
+		let result =
+			unsafe { cb.checkout_layer_audio.unwrap()(std::ptr::null_mut(), 0, 0, 1, 1, 0, 1, 1, 0, &mut audio) };
+		assert_eq!(result, PF_Err_INVALID_CALLBACK);
+		assert!(audio.is_null());
+		assert_eq!(
+			unsafe { cb.checkin_layer_audio.unwrap()(std::ptr::null_mut(), audio) },
+			PF_Err_INVALID_CALLBACK
+		);
+	}
+	#[test]
+	fn checkout_param_answers_the_two_indices_past_the_declared_params() {
+		unsafe extern "C" fn entry(
+			cmd: PF_Cmd,
+			input: *mut PF_InData,
+			_: *mut PF_OutData,
+			_: PF_ParamList,
+			_: *mut PF_LayerDef,
+			_: *mut std::ffi::c_void,
+		) -> PF_Err {
+			if cmd != PF_Cmd_SMART_PRE_RENDER {
+				return PF_Err_NONE;
+			}
+			let input = unsafe { &*input };
+			let checkout = input.inter.checkout_param.unwrap();
+			// As Universe does: probe up to `num_params + 1`, and fail on an error.
+			for past in 0..3 {
+				let mut def = std::mem::MaybeUninit::<PF_ParamDef>::uninit();
+				// SAFETY: a byte fill of this frame's own slot, standing in for stack garbage.
+				unsafe { std::ptr::write_bytes(def.as_mut_ptr(), 0xa5, 1) };
+				let index = input.num_params + past;
+				let err = unsafe { checkout(input.effect_ref, index, 0, 1, 30, def.as_mut_ptr()) };
+				let expected = if past < 2 { PF_Err_NONE } else { PF_Err_INVALID_INDEX };
+				// Written either way, so it is initialised and has no stray handle.
+				let def = unsafe { def.assume_init() };
+				if err != expected || !unsafe { def.u.arb_d.value }.is_null() {
+					return PF_Err_BAD_CALLBACK_PARAM;
+				}
+				if past < 2 && def.param_type != PF_Param_NO_DATA as PF_ParamType {
+					return PF_Err_BAD_CALLBACK_PARAM;
+				}
+			}
+			PF_Err_NONE
+		}
+		let mut instance = unsafe { crate::Host::get().entry_loader(entry) }
+			.size(16, 16)
+			.load()
+			.unwrap();
+		instance.render_with(crate::RenderPath::Smart).unwrap();
+	}
+
 	use crate::host::app::{AppHost, TEST_APP_HOST};
 
 	struct Cancelling;

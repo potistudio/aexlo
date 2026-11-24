@@ -357,3 +357,16 @@ pub const fn create_utility_suite() -> PF_UtilitySuite {
 		IsTrackItemEffectAppliedToSynthetic: Some(is_track_item_effect_applied_to_synthetic_stub),
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn unsupported_metadata_callback_does_not_report_success() {
+		let mut id = 123;
+		let err = unsafe { create_utility_suite().GetFilterInstanceID.unwrap()(std::ptr::null_mut(), &mut id) };
+		assert_eq!(err, PF_Err_INVALID_CALLBACK);
+		assert_eq!(id, 123);
+	}
+}

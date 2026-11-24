@@ -11,7 +11,6 @@
 //! [`crate::toolkit`]; [`cmd`] picks between the two.
 
 use std::path::PathBuf;
-use std::process::ExitCode;
 
 use aexlo_bench::report::{
 	Measurement, print_leaderboard, print_speedups, sort_by_throughput, to_csv, to_json, write_file,
@@ -83,7 +82,7 @@ impl PluginArgs {
 /// `aexlo bench`: the plugins named, else the manifest's presets. The first
 /// argument names a plugin when it exists on disk or as a fixture, and no
 /// flag only presets take is given.
-pub fn cmd(args: BenchArgs) -> ExitCode {
+pub fn cmd(args: BenchArgs) -> u8 {
 	let BenchArgs {
 		mut targets,
 		plugin,

@@ -5,10 +5,11 @@
 //! Parameter indices: [2] Mode, [4]/[5] Threshold Min/Max, [7] Trigger Source
 //! Layer, [12] Direction, [13] Angle, [14] Centre, [16] Path.
 //!
-//! Each test skips when the fixture isn't present locally; GPU comparisons
-//! skip when the machine has no GPU device.
+//! Each test is ignored when the fixture isn't present locally. Without a GPU
+//! device the tests still run, less their GPU comparisons.
 
 use aexlo::{AexloError, Depth8, Layer, MaskPath, MaskVertex, ParamValue, PluginInstance, RenderPath};
+use aexlo_fixture_gate::needs_fixture;
 
 const MODE: usize = 2;
 const THRESHOLD_MIN: usize = 4;
@@ -18,12 +19,9 @@ const ANGLE: usize = 13;
 const CENTRE: usize = 14;
 const PATH: usize = 16;
 
-fn load() -> Option<PluginInstance> {
-	let Some(path) = test_e2e::fixture("BitonicPixelSorter") else {
-		eprintln!("skipping: fixture 'BitonicPixelSorter' not present locally");
-		return None;
-	};
-	Some(aexlo::Host::get().load(&path).expect("failed to load plugin"))
+fn load() -> PluginInstance {
+	let path = test_e2e::fixture("BitonicPixelSorter");
+	aexlo::Host::get().load(&path).expect("failed to load plugin")
 }
 
 fn sample_input() -> Layer<Depth8> {
@@ -111,8 +109,8 @@ fn closed_mask(id: u32) -> MaskPath {
 
 /// Load, feed the sample input with full thresholds (every pixel sorts, so
 /// each mode leaves a large, unambiguous footprint) and apply `params`.
-fn configured(params: &[(usize, ParamValue)]) -> Option<PluginInstance> {
-	let mut instance = load()?;
+fn configured(params: &[(usize, ParamValue)]) -> PluginInstance {
+	let mut instance = load();
 	instance.set_input_layer(sample_input());
 	instance.set_mask_paths(vec![closed_mask(5)]);
 	instance.set_param(THRESHOLD_MIN, ParamValue::Float(0.0)).unwrap();
@@ -120,14 +118,15 @@ fn configured(params: &[(usize, ParamValue)]) -> Option<PluginInstance> {
 	for (index, value) in params {
 		instance.set_param(*index, value.clone()).unwrap();
 	}
-	Some(instance)
+	instance
 }
 
 /// AE declares point defaults as layer percentages; the 50%,50% Centre must
 /// reach the plugin as the frame centre in pixels, and follow a resized input.
+#[needs_fixture("BitonicPixelSorter")]
 #[test]
 fn centre_default_is_the_input_frame_centre() {
-	let Some(mut instance) = load() else { return };
+	let mut instance = load();
 	instance.set_input_layer(sample_input());
 	assert_eq!(
 		instance.get_param(CENTRE),
@@ -152,6 +151,7 @@ fn centre_default_is_the_input_frame_centre() {
 /// share their algorithm across CPU and GPU, so their outputs must agree;
 /// Free Angle/Rotation/Radial/Swirl use a host transform map on the CPU but an
 /// analytic domain sort on the GPU, so only their footprint is checked.
+#[needs_fixture("BitonicPixelSorter")]
 #[test]
 fn every_mode_sorts_on_cpu_and_gpu() {
 	let modes: [ModeCase; 6] = [
@@ -174,7 +174,7 @@ fn every_mode_sorts_on_cpu_and_gpu() {
 	let input = rgba(&sample_input());
 
 	for (name, params, max_cpu_gpu_diff) in modes {
-		let Some(mut cpu) = configured(&params) else { return };
+		let mut cpu = configured(&params);
 		let cpu_out = render_cpu(&mut cpu);
 		let changed = changed_pixels(&cpu_out, &input);
 		assert!(
@@ -182,7 +182,7 @@ fn every_mode_sorts_on_cpu_and_gpu() {
 			"{name}: CPU sorted only {changed} pixels"
 		);
 
-		let mut gpu = configured(&params).unwrap();
+		let mut gpu = configured(&params);
 		let Some(gpu_out) = render_gpu(&mut gpu) else { continue };
 		let changed = changed_pixels(&gpu_out, &input);
 		assert!(
@@ -198,18 +198,17 @@ fn every_mode_sorts_on_cpu_and_gpu() {
 
 /// Path mode sorts along the selected mask: no mask selected leaves the frame
 /// alone, and different masks sort differently.
+#[needs_fixture("BitonicPixelSorter")]
 #[test]
 fn path_mode_follows_the_selected_mask() {
-	let Some(mut none) = configured(&[(MODE, ParamValue::Popup(6)), (PATH, ParamValue::Path(0))]) else {
-		return;
-	};
+	let mut none = configured(&[(MODE, ParamValue::Popup(6)), (PATH, ParamValue::Path(0))]);
 	let input = rgba(&sample_input());
 	assert_eq!(changed_pixels(&render_cpu(&mut none), &input), 0);
 
-	let mut first = configured(&[(MODE, ParamValue::Popup(6)), (PATH, ParamValue::Path(5))]).unwrap();
+	let mut first = configured(&[(MODE, ParamValue::Popup(6)), (PATH, ParamValue::Path(5))]);
 	let first_out = render_cpu(&mut first);
 
-	let mut second = configured(&[(MODE, ParamValue::Popup(6)), (PATH, ParamValue::Path(9))]).unwrap();
+	let mut second = configured(&[(MODE, ParamValue::Popup(6)), (PATH, ParamValue::Path(9))]);
 	let mut other = closed_mask(9);
 	other.vertices.reverse();
 	other.vertices[0].x += 300.0;
@@ -225,9 +224,10 @@ fn path_mode_follows_the_selected_mask() {
 /// gradient as the trigger and the default 40-60% band, only the middle
 /// columns may change -- identically on the CPU and GPU -- and unlinking it
 /// restores the effect-source trigger.
+#[needs_fixture("BitonicPixelSorter")]
 #[test]
 fn trigger_source_layer_selects_the_sorted_band() {
-	let Some(mut instance) = load() else { return };
+	let mut instance = load();
 	let source = sample_input();
 	let (w, h) = (source.width(), source.height());
 	let input = rgba(&source);
@@ -276,9 +276,10 @@ fn trigger_source_layer_selects_the_sorted_band() {
 }
 
 /// Setting a layer parameter is validated like `set_param`.
+#[needs_fixture("BitonicPixelSorter")]
 #[test]
 fn set_layer_param_rejects_non_layer_params() {
-	let Some(mut instance) = load() else { return };
+	let mut instance = load();
 	assert!(matches!(
 		instance.clear_layer_param(MODE),
 		Err(AexloError::ParamTypeMismatch { index: MODE, .. })
@@ -292,6 +293,7 @@ fn set_layer_param_rejects_non_layer_params() {
 /// Axis sorts wider than 4096 px are not GPU-renderable for this plugin; its
 /// pre-render says so, and `render_frame` must render the frame on the CPU
 /// (not on the GPU, and not via the legacy command) exactly as a CPU render.
+#[needs_fixture("BitonicPixelSorter")]
 #[test]
 fn gpu_declined_frame_renders_on_the_cpu() {
 	let (w, h) = (5000u32, 32u32);
@@ -302,19 +304,19 @@ fn gpu_declined_frame_renders_on_the_cpu() {
 			pixels.extend_from_slice(&[v, 255 - v, v / 2, 255]);
 		}
 	}
-	let make = || -> Option<PluginInstance> {
-		let mut instance = load()?;
+	let make = || -> PluginInstance {
+		let mut instance = load();
 		instance.set_input_layer(Layer::<Depth8>::from_rgba8(pixels.clone(), w, h).unwrap());
 		instance.set_render_size(w, h);
 		instance.set_param(THRESHOLD_MIN, ParamValue::Float(0.0)).unwrap();
 		instance.set_param(THRESHOLD_MAX, ParamValue::Float(100.0)).unwrap();
-		Some(instance)
+		instance
 	};
-	let Some(mut cpu) = make() else { return };
+	let mut cpu = make();
 	let expected = render_cpu(&mut cpu);
 	assert!(changed_pixels(&expected, &pixels) > 0);
 
-	let mut auto = make().unwrap();
+	let mut auto = make();
 	if auto.supports_gpu() {
 		match auto.render_with(RenderPath::Gpu) {
 			Err(AexloError::GpuRenderDeclined | AexloError::GpuUnavailable) => {}

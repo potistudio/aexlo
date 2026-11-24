@@ -111,16 +111,72 @@ impl PluginInstance {
 		}
 	}
 
-	/// The masks on the effect's layer (see [`Self::set_mask_paths`]).
+	/// The masks on the effect's layer at the current time (see
+	/// [`Self::set_mask_paths`] and [`Self::set_mask_tracks`]).
 	pub fn mask_paths(&self) -> &[crate::MaskPath] {
 		&self.mask_paths
 	}
 
-	/// Replace the masks on the effect's layer. Plugins see them through the
-	/// "PF Path Query Suite" / "PF Path Data Suite" (e.g. for `PF_Param_PATH`
-	/// parameters, which reference a mask by [`MaskPath::id`](crate::MaskPath::id)).
+	/// Replace the masks on the effect's layer with ones that do not change
+	/// over time. Plugins see them through the "PF Path Query Suite" / "PF
+	/// Path Data Suite" (e.g. for `PF_Param_PATH` parameters, which reference
+	/// a mask by [`MaskPath::id`](crate::MaskPath::id)), the "AEGP Layer Mask
+	/// Suite" and mask streams.
 	pub fn set_mask_paths(&mut self, paths: Vec<crate::MaskPath>) {
-		self.mask_paths = paths;
+		self.set_mask_tracks(paths.into_iter().map(crate::Track::new).collect());
+	}
+
+	/// Replace the masks on the effect's layer with ones that may change over
+	/// time, keyed in layer time as [`Self::set_param_track`] is. A path
+	/// morphs between keyframes with as many vertices and holds otherwise.
+	/// `PF_CheckoutPath`, mask streams, their keyframes and
+	/// `PF_GetCurrentState` read a mask at the time asked for; the rest of a
+	/// mask (its id, mode, inversion and name) is its value at the current
+	/// time, so keep the id the same on every keyframe.
+	pub fn set_mask_tracks(&mut self, tracks: Vec<crate::Track<crate::MaskPath>>) {
+		self.masks = tracks;
+		self.apply_mask_tracks();
+	}
+
+	/// The masks on the effect's layer over time.
+	pub fn mask_tracks(&self) -> &[crate::Track<crate::MaskPath>] {
+		&self.masks
+	}
+
+	/// Mask `index` at `time` in layer time.
+	pub(crate) fn mask_at(&self, index: usize, time: crate::TimePoint) -> Option<crate::MaskPath> {
+		self.masks.get(index).map(|track| track.at(time))
+	}
+
+	/// Hold `path` until [`Self::check_in_path`]: a mask read at a time of its
+	/// own. The pointer stays valid while it is held.
+	pub(crate) fn check_out_path(&self, path: crate::MaskPath) -> *const crate::MaskPath {
+		let held = Box::new(path);
+		let at: *const crate::MaskPath = &*held;
+		self.checked_out_paths
+			.lock()
+			.unwrap_or_else(std::sync::PoisonError::into_inner)
+			.push(held);
+		at
+	}
+
+	/// Drop a path [`Self::check_out_path`] holds; `false` if it is not one.
+	pub(crate) fn check_in_path(&self, path: *const crate::MaskPath) -> bool {
+		let mut held = self
+			.checked_out_paths
+			.lock()
+			.unwrap_or_else(std::sync::PoisonError::into_inner);
+		let Some(at) = held.iter().position(|p| std::ptr::eq(&**p, path)) else {
+			return false;
+		};
+		held.swap_remove(at);
+		true
+	}
+
+	/// Evaluate the mask tracks at the current time.
+	pub(super) fn apply_mask_tracks(&mut self) {
+		let now: crate::TimePoint = self.time().into();
+		self.mask_paths = self.masks.iter().map(|track| track.at(now)).collect();
 	}
 
 	/// The text on the effect's layer, when it is a text layer (see
@@ -139,6 +195,43 @@ impl PluginInstance {
 	/// After Effects would hand the effect.
 	pub fn set_text_layer(&mut self, text: Option<crate::TextLayer>) {
 		self.text_layer = text;
+	}
+
+	/// The project around the effect (see [`Self::set_project`]).
+	pub fn project(&self) -> Option<&crate::Project> {
+		self.project.as_ref().map(|state| &state.project)
+	}
+
+	pub(crate) fn project_state(&self) -> Option<&crate::project::ProjectState> {
+		self.project.as_ref()
+	}
+
+	/// Describe the project around the effect: its comp, every layer, and
+	/// which one the effect is on. With `None` the effect is alone again, on a
+	/// layer that fills its comp.
+	///
+	/// With a project, what the effect's layer is comes from the project, not
+	/// from [`Self::set_text_layer`], and [`Self::set_time`]'s time is that
+	/// layer's: comp time is `start + time * stretch`. The pixels are still
+	/// [`Self::set_input_layer`]'s; [`ProjectLayer::rasterize`](crate::ProjectLayer::rasterize)
+	/// makes them for a text or shape layer.
+	///
+	/// A layer keeps its handle for as long as its id stays in the project;
+	/// the handle of one that left is refused from then on.
+	pub fn set_project(&mut self, project: Option<crate::Project>) {
+		if self.project() == project.as_ref() {
+			return;
+		}
+		let duration = project.as_ref().map(|project| {
+			let layer = project.effect_layer();
+			layer
+				.to_layer_time(layer.out_point)
+				.since(layer.to_layer_time(layer.in_point))
+		});
+		self.render_context.set_layer_duration(duration);
+		let owner = (&raw const *self.source_item_token) as usize;
+		let previous = self.project.take();
+		self.project = project.map(|project| crate::project::ProjectState::new(project, owner, previous));
 	}
 
 	/// Link `layer` to the plugin's own layer parameter at `index` (same index
@@ -201,6 +294,19 @@ impl PluginInstance {
 		self.layer_checkouts.insert(checkout_id, index);
 	}
 
+	pub(crate) fn has_layer_checkout(&self, checkout_id: crate::sys::A_long) -> bool {
+		self.layer_checkouts.contains_key(&checkout_id)
+	}
+
+	/// A hash of the pixels behind layer parameter `index` (the input layer for
+	/// 0), `None` when nothing is linked.
+	pub(crate) fn layer_digest(&self, index: usize) -> Option<u64> {
+		match index {
+			0 => Some(self.input_layer.digest()),
+			_ => self.linked_layers.get(&index).map(LinkedLayer::digest),
+		}
+	}
+
 	/// Size of the layer behind parameter `index`: the input layer for 0, the
 	/// linked layer otherwise, `None` for an unlinked or non-layer parameter.
 	pub(crate) fn layer_param_size(&self, index: usize) -> Option<(i32, i32)> {
@@ -212,14 +318,14 @@ impl PluginInstance {
 	}
 
 	/// The world to hand out for smart-render `checkout_id`: the input world for
-	/// the input layer (or an id never checked out), the linked layer's CPU or
+	/// the input layer, the linked layer's CPU or
 	/// GPU world for a layer parameter, `None` for an unlinked one.
 	pub(crate) fn checked_out_world(
 		&mut self,
 		checkout_id: crate::sys::A_long,
 	) -> Option<*mut crate::sys::PF_EffectWorld> {
 		let gpu = self.smart_render_data.is_gpu();
-		match self.layer_checkouts.get(&checkout_id).copied().unwrap_or(0) {
+		match self.layer_checkouts.get(&checkout_id).copied()? {
 			0 => Some(self.input_world_ptr()),
 			index => self
 				.linked_layers

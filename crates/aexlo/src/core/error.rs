@@ -114,6 +114,10 @@ pub enum AexloError {
 	#[error("Font error: {0}")]
 	Font(String),
 
+	/// A [`Project`](crate::Project) that does not hold together.
+	#[error("Invalid project: {0}")]
+	InvalidProject(String),
+
 	/// Setting up GPU buffers or moving pixels to or from the device failed.
 	#[error("GPU error: {0}")]
 	Gpu(String),

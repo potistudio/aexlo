@@ -31,6 +31,11 @@ fn guarded(name: &str, run: impl FnOnce()) {
 	}
 }
 
+/// The World Transform and Batch Sampling facts, which need a render.
+pub fn guarded_xform(in_data: *mut ae::PF_InData) {
+	guarded("xform", || unsafe { crate::xform::run(in_data) });
+}
+
 pub unsafe fn run_all(in_data: *mut ae::PF_InData) {
 	guarded("var", || unsafe { variable_checks(in_data) });
 	guarded("ansi", || unsafe { ansi_checks(in_data) });
@@ -625,11 +630,11 @@ unsafe fn kernel_checks(in_data: *mut ae::PF_InData) {
 // The suite map (which suites acquire at all) lives in probes.rs; these go one
 // level deeper and pin down the behavior of individual suite functions.
 
-struct SuiteGuard<'a> {
+pub(crate) struct SuiteGuard<'a> {
 	pica: &'a ae::SPBasicSuite,
 	name: &'static [u8],
 	version: u32,
-	ptr: *const c_void,
+	pub(crate) ptr: *const c_void,
 }
 
 impl Drop for SuiteGuard<'_> {
@@ -640,7 +645,11 @@ impl Drop for SuiteGuard<'_> {
 	}
 }
 
-unsafe fn acquire(in_data: *mut ae::PF_InData, name: &'static [u8], version: u32) -> Option<SuiteGuard<'static>> {
+pub(crate) unsafe fn acquire(
+	in_data: *mut ae::PF_InData,
+	name: &'static [u8],
+	version: u32,
+) -> Option<SuiteGuard<'static>> {
 	let pica = unsafe { (*in_data).pica_basicP.as_ref() }?;
 	let acquire = pica.AcquireSuite?;
 	let mut ptr: *const c_void = std::ptr::null();

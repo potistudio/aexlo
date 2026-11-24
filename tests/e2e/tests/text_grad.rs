@@ -9,16 +9,14 @@
 //! pixels and tolerate it.
 
 use aexlo::{AnyLayer, PixelDepthKind, PluginInstance, TextLayer, TextStyle};
+use aexlo_fixture_gate::needs_fixture;
 
 const W: u32 = 640;
 const H: u32 = 360;
 
-fn load() -> Option<PluginInstance> {
-	let Some(path) = test_e2e::fixture("TextGrad") else {
-		eprintln!("skipping: fixture 'TextGrad' not present locally");
-		return None;
-	};
-	Some(aexlo::Host::get().load(&path).expect("failed to load plugin"))
+fn load() -> PluginInstance {
+	let path = test_e2e::fixture("TextGrad");
+	aexlo::Host::get().load(&path).expect("failed to load plugin")
 }
 
 fn set_input(instance: &mut PluginInstance, layer: AnyLayer) {
@@ -37,13 +35,11 @@ fn output(instance: &PluginInstance) -> Vec<u8> {
 
 /// On a text layer, the characters come out filled and coloured, and the
 /// rest of the frame stays transparent.
+#[needs_fixture("TextGrad")]
 #[test]
 fn fills_the_characters_of_a_text_layer() {
-	let Some(mut instance) = load() else { return };
-	let Ok(text) = TextLayer::layout("TextGrad", &TextStyle::sized(140.0), W, H) else {
-		eprintln!("skipping: no system font to set the text in");
-		return;
-	};
+	let mut instance = load();
+	let text = TextLayer::layout("TextGrad", &TextStyle::sized(140.0), W, H).expect("a system font");
 	let input = text.rasterize(PixelDepthKind::U8, W, H, [1.0; 4]);
 	let coverage: Vec<f32> = input.to_unit_rgba().iter().map(|p| p[3]).collect();
 	set_input(&mut instance, input);
@@ -93,9 +89,10 @@ fn fills_the_characters_of_a_text_layer() {
 
 /// On an AV layer there is no text to fill: the plugin passes its input
 /// through (under the watermark).
+#[needs_fixture("TextGrad")]
 #[test]
 fn copies_its_input_on_an_av_layer() {
-	let Some(mut instance) = load() else { return };
+	let mut instance = load();
 	let mut input = AnyLayer::filled(PixelDepthKind::U8, W, H, [0.0; 4]);
 	input.set_from_unit_rgba((0..W * H).map(|i| [(i % W) as f32 / W as f32, 0.5, 0.25, 1.0]));
 	let expected = {

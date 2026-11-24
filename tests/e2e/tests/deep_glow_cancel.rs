@@ -2,6 +2,7 @@
 //! binary because the host is process-wide and set once.
 
 use aexlo::{AppHost, Host};
+use aexlo_fixture_gate::needs_fixture;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static ABORT_POLLS: AtomicUsize = AtomicUsize::new(0);
@@ -18,12 +19,10 @@ impl AppHost for CancellingHost {
 /// DeepGlow2 polls `PF_ABORT` while rendering; a host reporting a cancel stops
 /// the render with `PF_Interrupt_CANCEL`, which `render_frame` reports instead
 /// of retrying on another render path.
+#[needs_fixture("DeepGlow2")]
 #[test]
 fn host_cancel_stops_the_render() {
-	let Some(path) = test_e2e::fixture("DeepGlow2") else {
-		eprintln!("skipping: fixture 'DeepGlow2' not present locally");
-		return;
-	};
+	let path = test_e2e::fixture("DeepGlow2");
 	let host = Host::install(CancellingHost).expect("host already installed");
 	let mut instance = host.load(&path).expect("failed to load plugin");
 

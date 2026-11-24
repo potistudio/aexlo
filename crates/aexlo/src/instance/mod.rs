@@ -72,12 +72,28 @@ impl RawCommand {
 	}
 }
 
+/// The checkouts seen so far: how far before and after the time it was
+/// called at each reached, and the earliest and latest time any reached.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CheckoutSpan {
+	before: crate::TimePoint,
+	after: crate::TimePoint,
+	earliest: crate::TimePoint,
+	latest: crate::TimePoint,
+}
+
 mod layers;
 mod load;
 mod params;
+#[cfg(test)]
+mod project_tests;
 mod render;
 #[cfg(test)]
+mod state_tests;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod time_tests;
 
 pub use load::Loader;
 pub use render::RenderPath;
@@ -178,11 +194,14 @@ pub type PluginEntryPoint = unsafe extern "C" fn(
 /// Manages its library, entry point, parameters, and execution state.
 /// All operations related to the plug-in should be invoked from this.
 pub struct PluginInstance {
+	/// Stable identity for the synthetic input footage item.
+	source_item_token: Box<u8>,
 	/// Identifies AEGP registrations whose callbacks must not outlive this DLL.
 	aegp_owner: u64,
 	raw_library: Option<Library>,
 	entry_point: Option<PluginEntryPoint>,
 	entry_point_name: Option<String>,
+	installed_metadata: Option<crate::suites::effect::EffectMetadata>,
 	binary_file_path: PathBuf,
 
 	/// The dynamic library actually `dlopen`ed (resolved from
@@ -283,12 +302,27 @@ pub struct PluginInstance {
 	/// Pixel formats (FourCCs) registered through the "PF Pixel Format Suite".
 	supported_pixel_formats: Vec<crate::PixelFormat>,
 
-	/// Masks on the effect's layer, served through the Path Query/Data suites.
+	/// Masks on the effect's layer over time, served through the Path
+	/// Query/Data suites, the Layer Mask Suite and mask streams.
+	masks: Vec<crate::Track<crate::MaskPath>>,
+	/// `masks` at the current time.
 	mask_paths: Vec<crate::MaskPath>,
+	/// Paths checked out at a time of their own (`PF_CheckoutPath`), until
+	/// checked in or the instance goes. Boxed: the plugin holds their
+	/// addresses while the list grows.
+	#[allow(clippy::vec_box)]
+	checked_out_paths: std::sync::Mutex<Vec<Box<crate::MaskPath>>>,
 
 	/// The text when the effect's layer is a text layer, served through the
 	/// Text Layer Suite.
 	text_layer: Option<crate::TextLayer>,
+
+	/// Keyframed parameters, by index. `params` holds their values at the
+	/// current time.
+	param_tracks: std::collections::BTreeMap<usize, crate::Track<crate::ParamValue>>,
+
+	/// The project around the effect, when the embedder described one.
+	project: Option<crate::project::ProjectState>,
 
 	/// Layers linked to the plugin's own `PF_Param_LAYER` parameters, by index.
 	linked_layers: HashMap<usize, LinkedLayer>,
@@ -310,6 +344,15 @@ pub struct PluginInstance {
 	/// `PF_Cmd_PARAMS_SETUP`; arbitrary streams read `NO_DATA` until it has.
 	arb_streams_live: bool,
 
+	/// A hash of each arbitrary-data value as the plugin flattens it, taken
+	/// when the host takes a value in: after setup, and after the commands in
+	/// which a plugin changes its values. States cover these.
+	arb_digests: HashMap<usize, u64>,
+
+	/// The times the plugin has checked parameters and layers out at, for
+	/// widening a state's range (`PF_OutFlag2_AUTOMATIC_WIDE_TIME_INPUT`).
+	checkout_span: std::sync::Mutex<Option<CheckoutSpan>>,
+
 	/// Who is told about commands and calls (see [`Self::set_observer`]).
 	observer: Option<Installed>,
 
@@ -321,6 +364,9 @@ pub struct PluginInstance {
 	output_guard: Option<crate::strict::Guarded>,
 	/// Whether the plugin has been set down (see [`Self::finish`]).
 	torn_down: bool,
+	/// Only completed setup stages may receive their matching setdown.
+	global_setup_complete: bool,
+	sequence_setup_complete: bool,
 }
 
 struct ControlPointer {
@@ -630,6 +676,10 @@ impl PluginInstance {
 		}
 
 		NonNull::new(effect_ref as *mut PluginInstance)
+	}
+
+	pub(crate) fn installed_effect_key(&self) -> Option<i32> {
+		crate::suites::effect::key_for_owner(self.aegp_owner)
 	}
 
 	// ---- Getter ------------------------------------------

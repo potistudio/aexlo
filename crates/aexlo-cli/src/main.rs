@@ -13,11 +13,10 @@ mod dev;
 mod info;
 mod inspect;
 mod param;
+mod process;
 mod render;
 mod toolkit;
 mod watch;
-
-use std::process::ExitCode;
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
@@ -101,7 +100,18 @@ platform's extension is added to (SDK_Noise -> SDK_Noise.plugin). info, \
 render, inspect and bench also take a crate directory (with a Cargo.toml) \
 and build its cdylib first.";
 
-fn main() -> ExitCode {
+fn main() {
+	// A panic has been printed by its hook and has dropped the plugins; it
+	// must still not leave through their detach (see `process`).
+	let code = std::panic::catch_unwind(dispatch).unwrap_or(PANICKED);
+	process::exit(code);
+}
+
+/// The status Rust itself exits with after a panic in `main`.
+const PANICKED: u8 = 101;
+
+/// Run the command line and return the exit status.
+fn dispatch() -> u8 {
 	let _ = env_logger::try_init();
 	// A usage error exits 2, like the preset-driven commands' invalid flags.
 	let mut command = whole_descriptions(Cli::command());
@@ -150,12 +160,12 @@ fn whole_descriptions(cli: clap::Command) -> clap::Command {
 
 /// Exit 1 after printing the error. The preset-driven commands choose their
 /// own codes instead (`docs/toolkit.md` §12).
-fn report(result: anyhow::Result<()>) -> ExitCode {
+fn report(result: anyhow::Result<()>) -> u8 {
 	match result {
-		Ok(()) => ExitCode::SUCCESS,
+		Ok(()) => 0,
 		Err(err) => {
 			eprintln!("error: {err:#}");
-			ExitCode::FAILURE
+			1
 		}
 	}
 }

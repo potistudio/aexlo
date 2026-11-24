@@ -12,9 +12,9 @@ unsafe extern "C" fn checkout_layer_stub(
 	index: PF_ParamIndex,
 	checkout_idL: A_long,
 	req: *const crate::sys::PF_RenderRequest,
-	_what_time: A_long,
+	what_time: A_long,
 	_time_step: A_long,
-	_time_scale: A_u_long,
+	time_scale: A_u_long,
 	checkout_result: *mut crate::sys::PF_CheckoutResult,
 ) -> PF_Err {
 	crate::core::ffi::guard("checkout_layer_stub", || {
@@ -44,19 +44,47 @@ unsafe extern "C" fn checkout_layer_stub(
 			Some(mut instance) => {
 				// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`).
 				let instance = unsafe { instance.as_mut() };
-				let index = usize::try_from(index).unwrap_or(0);
+				let Ok(index) = usize::try_from(index) else {
+					return PF_Err_INVALID_INDEX;
+				};
+				if instance
+					.param_by_index(index)
+					.is_none_or(|param| param.param_type != PF_Param_LAYER as PF_ParamType)
+				{
+					return PF_Err_INVALID_INDEX;
+				}
 				instance.record_layer_checkout(checkout_idL, index);
+				if let Some(at) = crate::TimePoint::new(what_time, time_scale) {
+					instance.record_checkout_time(at);
+				}
+				// A layer's pixels are one picture, whatever the time asked for.
+				if instance.project().is_some()
+					&& let Some(asked) = crate::TimePoint::new(what_time, time_scale)
+					&& asked != crate::TimePoint::from(instance.time())
+				{
+					crate::observe::unsupported(
+						crate::observe::UnsupportedKind::Declined,
+						"PF_PreRenderCallbacks/checkout_layer",
+						"layer pixels at another time; the pixels of the current time were given",
+					);
+				}
 				instance.layer_param_size(index).unwrap_or((0, 0))
 			}
 			None => (WIDTH as i32, HEIGHT as i32),
 		};
 
+		// SAFETY: `req` is non-null (checked above) and is the plugin's `PF_RenderRequest`.
+		let requested = unsafe { &(*req).rect };
+		let left = requested.left.clamp(0, layer_w);
+		let top = requested.top.clamp(0, layer_h);
+		let right = requested.right.clamp(left, layer_w);
+		let bottom = requested.bottom.clamp(top, layer_h);
 		let result = crate::sys::PF_CheckoutResult {
 			result_rect: crate::sys::PF_Rect {
-				left: 0,
-				top: 0,
-				right: layer_w,
-				bottom: layer_h,
+				left,
+				top,
+				right,
+				bottom,
 			},
 			max_result_rect: crate::sys::PF_Rect {
 				left: 0,
@@ -65,7 +93,9 @@ unsafe extern "C" fn checkout_layer_stub(
 				bottom: layer_h,
 			},
 			par: crate::sys::PF_RationalScale { num: 1, den: 1 },
-			solid: 1,
+			// A caller-provided input may contain arbitrary pixels; conservatively
+			// report non-solid unless the host actually verifies its contents.
+			solid: 0,
 			reservedB: [0; 3],
 			ref_width: layer_w,
 			ref_height: layer_h,
@@ -83,9 +113,9 @@ unsafe extern "C" fn checkout_layer_stub(
 			"effect_ref" => format!("{:#x}", effect_ref as usize),
 			"index" => index,
 			"checkout_idL" => checkout_idL,
-			"what_time" => _what_time,
+			"what_time" => what_time,
 			"time_step" => _time_step,
-			"time_scale" => _time_scale;
+			"time_scale" => time_scale;
 			result: format!("{:?}", result),
 		);
 
@@ -176,7 +206,13 @@ unsafe extern "C" fn checkout_layer_pixels_stub(
 		// `checkout_output`; an unlinked layer parameter yields null.
 		crate::strict::checkout(crate::CheckoutKind::CheckoutLayerPixels, _checkout_idL, 0);
 		// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`). `pixels` is non-null (checked above).
-		let world = unsafe { instance.as_mut() }.checked_out_world(_checkout_idL);
+		let instance = unsafe { instance.as_mut() };
+		if !instance.has_layer_checkout(_checkout_idL) {
+			// SAFETY: `pixels` is non-null (checked above) and is the plugin's out-slot for the world pointer.
+			unsafe { *pixels = null_mut() };
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		let world = instance.checked_out_world(_checkout_idL);
 		// SAFETY: `pixels` is non-null (checked above) and is the plugin's out-slot for the world pointer.
 		unsafe { *pixels = world.unwrap_or(null_mut()) };
 
@@ -275,6 +311,142 @@ pub(crate) struct SmartRenderData {
 
 	/// Bits per channel of CPU renders: the depth of the instance's worlds.
 	cpu_bitdepth: i16,
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::sync::atomic::{AtomicBool, Ordering};
+
+	static CHECKOUT_OK: AtomicBool = AtomicBool::new(false);
+	static PIXEL_CHECKOUT_OK: AtomicBool = AtomicBool::new(false);
+	unsafe extern "C" fn checkout_test_entry(
+		cmd: PF_Cmd,
+		input: *mut PF_InData,
+		_: *mut PF_OutData,
+		_: PF_ParamList,
+		_: *mut PF_LayerDef,
+		extra: *mut std::ffi::c_void,
+	) -> PF_Err {
+		if cmd == PF_Cmd_SMART_PRE_RENDER {
+			let extra = unsafe { &mut *extra.cast::<PF_PreRenderExtra>() };
+			let mut request = unsafe { (*extra.input).output_request };
+			request.rect = PF_LRect {
+				left: -4,
+				top: 5,
+				right: 20,
+				bottom: 80,
+			};
+			let mut result: PF_CheckoutResult = unsafe { std::mem::zeroed() };
+			let err = unsafe {
+				((*extra.cb).checkout_layer.unwrap())((*input).effect_ref, 0, 17, &request, 0, 1, 30, &mut result)
+			};
+			CHECKOUT_OK.store(
+				err == PF_Err_NONE
+					&& result.solid == 0
+					&& (
+						result.result_rect.left,
+						result.result_rect.top,
+						result.result_rect.right,
+						result.result_rect.bottom,
+					) == (0, 5, 20, 48)
+					&& (result.max_result_rect.right, result.max_result_rect.bottom) == (64, 48),
+				Ordering::SeqCst,
+			);
+		} else if cmd == PF_Cmd_SMART_RENDER {
+			let extra = unsafe { &mut *extra.cast::<PF_SmartRenderExtra>() };
+			let checkout = unsafe { (*extra.cb).checkout_layer_pixels.unwrap() };
+			let mut pixels = null_mut();
+			let valid = unsafe { checkout((*input).effect_ref, 17, &mut pixels) };
+			let was_nonnull = !pixels.is_null();
+			let invalid = unsafe { checkout((*input).effect_ref, 999, &mut pixels) };
+			PIXEL_CHECKOUT_OK.store(
+				valid == PF_Err_NONE && was_nonnull && invalid == PF_Err_BAD_CALLBACK_PARAM && pixels.is_null(),
+				Ordering::SeqCst,
+			);
+		}
+		PF_Err_NONE
+	}
+
+	#[test]
+	fn pre_render_checkout_clips_request_and_does_not_claim_solid_input() {
+		CHECKOUT_OK.store(false, Ordering::SeqCst);
+		PIXEL_CHECKOUT_OK.store(false, Ordering::SeqCst);
+		let mut instance = unsafe { crate::Host::get().entry_loader(checkout_test_entry) }
+			.size(64, 48)
+			.load()
+			.unwrap();
+		instance.render_with(crate::RenderPath::Smart).unwrap();
+		assert!(CHECKOUT_OK.load(Ordering::SeqCst));
+		assert!(PIXEL_CHECKOUT_OK.load(Ordering::SeqCst));
+	}
+
+	#[test]
+	fn pre_render_guid_callback_accepts_dependencies() {
+		let mut state = SmartRenderData::new();
+		let extra = state.pre_render_extra();
+		let callback = unsafe { (*extra.cb).GuidMixInPtr.expect("GUID callback") };
+		let bytes = [1u8, 2, 3];
+		let effect_ref = 1usize as PF_ProgPtr;
+		unsafe {
+			assert_eq!(
+				callback(effect_ref, bytes.len() as A_u_long, bytes.as_ptr().cast()),
+				PF_Err_NONE
+			);
+			assert_eq!(callback(effect_ref, 0, null()), PF_Err_NONE);
+			assert_eq!(callback(effect_ref, 1, null()), PF_Err_BAD_CALLBACK_PARAM);
+		}
+	}
+
+	#[test]
+	fn pre_render_releases_owned_handle_without_delete_callback() {
+		let mut state = SmartRenderData::new();
+		let handle = unsafe { crate::suites::handle::host_new_handle_impl(108) };
+		assert!(!handle.is_null());
+		state.pre_output.pre_render_data = handle.cast();
+		assert!(crate::suites::handle::is_owned_handle(handle as usize));
+		state.dispose_pre_render_data();
+		assert!(!crate::suites::handle::is_owned_handle(handle as usize));
+		state.dispose_pre_render_data();
+		state.pre_output.pre_render_data = std::ptr::dangling_mut::<u8>().cast();
+		state.dispose_pre_render_data();
+	}
+
+	#[test]
+	fn pre_render_delete_runs_once_for_cpu_and_gpu_frames() {
+		use std::sync::atomic::AtomicUsize;
+		static DELETES: AtomicUsize = AtomicUsize::new(0);
+		unsafe extern "C" fn delete(_: *mut std::ffi::c_void) {
+			DELETES.fetch_add(1, Ordering::SeqCst);
+		}
+		let mut state = SmartRenderData::new();
+		let data = std::ptr::dangling_mut::<u8>().cast();
+		state.begin_pre_render();
+		state.pre_output.pre_render_data = data;
+		state.pre_output.delete_pre_render_data_func = Some(delete);
+		state.configure_gpu(null(), 0, crate::sys::PF_GPU_Framework_CUDA);
+		state.begin_pre_render();
+		assert_eq!(DELETES.load(Ordering::SeqCst), 1);
+		state.pre_output.pre_render_data = data;
+		state.pre_output.delete_pre_render_data_func = Some(delete);
+		state.configure_cpu();
+		state.dispose_pre_render_data();
+		assert_eq!(DELETES.load(Ordering::SeqCst), 2);
+		state.dispose_pre_render_data();
+		assert_eq!(DELETES.load(Ordering::SeqCst), 2);
+	}
+
+	#[test]
+	fn gpu_pre_render_releases_owned_handle_without_delete_callback() {
+		let mut state = SmartRenderData::new();
+		state.configure_gpu(null(), 0, crate::sys::PF_GPU_Framework_CUDA);
+		state.begin_pre_render();
+		let handle = unsafe { crate::suites::handle::host_new_handle_impl(108) };
+		assert!(!handle.is_null());
+		state.pre_output.pre_render_data = handle.cast();
+		state.dispose_pre_render_data();
+		assert!(!crate::suites::handle::is_owned_handle(handle as usize));
+	}
 }
 
 impl SmartRenderData {
@@ -407,20 +579,16 @@ impl SmartRenderData {
 		let data = std::mem::replace(&mut self.pre_output.pre_render_data, null_mut());
 		let delete = self.pre_output.delete_pre_render_data_func.take();
 		self.input.pre_render_data = null_mut();
-		// A GPU frame's callback is not invoked. Universe Glow frees that
-		// block itself when the device finishes, and the host's later call is
-		// a double-free: `RtlFreeHeap` inside the plugin, reached from here,
-		// aborts the process (`0xC0000374`). The heap is intact when the call
-		// is skipped. CPU frames stay synchronous and the plugin does not
-		// free the block, so the callback still runs. One host allocation per
-		// GPU frame is leaked.
-		if self.is_gpu() {
-			return;
-		}
 		if let (false, Some(delete)) = (data.is_null(), delete) {
 			// SAFETY: `data` is the plugin's own pre-render data, released once
 			// through the callback it registered alongside it.
 			unsafe { delete(data) };
+		} else if !data.is_null() && crate::suites::handle::is_owned_handle(data as usize) {
+			// Some effects return a host handle without a delete callback. Its
+			// ownership transfers to the host with the pre-render result.
+			// SAFETY: `data` is a live handle aexlo allocated (checked above), and
+			// `mem::replace` cleared every other reference to it.
+			unsafe { crate::suites::handle::host_dispose_handle_impl(data.cast()) };
 		}
 	}
 
@@ -464,7 +632,7 @@ impl SmartRenderData {
 }
 
 #[cfg(test)]
-mod tests {
+mod guid_tests {
 	use super::*;
 
 	#[test]

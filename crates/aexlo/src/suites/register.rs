@@ -36,6 +36,9 @@ impl Drop for OwnerGuard {
 pub(crate) fn enter_owner(owner: u64) -> OwnerGuard {
 	OwnerGuard(CURRENT_OWNER.with(|o| o.replace(Some(owner))))
 }
+pub(crate) fn current_owner() -> Option<u64> {
+	CURRENT_OWNER.with(Cell::get)
+}
 pub(crate) fn register_plugin(id: AEGP_PluginID, global: AEGP_GlobalRefcon) -> bool {
 	let owner = CURRENT_OWNER.with(Cell::get);
 	let Some(owner) = owner else {

@@ -16,6 +16,7 @@ use crate::widgets::{self, anim_row, drag_f32, drag_xy};
 /// Effect-panel actions applied after the panel releases its borrows.
 #[derive(Default)]
 struct Actions {
+	about: Option<Id>,
 	press: Option<(Id, usize)>,
 	/// Effect parameters the user edited this frame.
 	edited: Vec<(Id, usize)>,
@@ -139,7 +140,16 @@ pub fn show(ui: &mut egui::Ui, s: &mut Studio) {
 							if info.smart_render { "Smart" } else { "Legacy" },
 							if info.gpu { " · GPU" } else { "" }
 						);
-						ui.weak(flags).on_hover_text(&info.about);
+						ui.horizontal(|ui| {
+							ui.weak(flags);
+							if ui
+								.small_button("About…")
+								.on_hover_text("Ask the plugin about itself; it may open a dialog")
+								.clicked()
+							{
+								actions.about = Some(effect.id);
+							}
+						});
 						let mut cx = ParamCx {
 							info: &info,
 							hidden,
@@ -179,6 +189,9 @@ pub fn show(ui: &mut egui::Ui, s: &mut Studio) {
 }
 
 fn apply(s: &mut Studio, id: Id, actions: Actions) {
+	if let Some(effect) = actions.about {
+		s.show_about(effect);
+	}
 	if let Some((effect, index)) = actions.press {
 		s.user_changed_param(effect, index);
 	}

@@ -18,13 +18,14 @@ type PluginDataEntryFn = unsafe extern "C" fn(
 #[derive(Default)]
 struct PluginDataInfo {
 	entry_point_name: Option<String>,
+	metadata: crate::suites::effect::EffectMetadata,
 }
 
 unsafe extern "C" fn receive_plugin_data(
 	in_ptr: crate::sys::PF_PluginDataPtr,
-	_in_name: *const crate::sys::A_u_char,
-	_in_match_name: *const crate::sys::A_u_char,
-	_in_category: *const crate::sys::A_u_char,
+	in_name: *const crate::sys::A_u_char,
+	in_match_name: *const crate::sys::A_u_char,
+	in_category: *const crate::sys::A_u_char,
 	in_entry_point_name: *const crate::sys::A_u_char,
 	_in_kind: crate::sys::A_long,
 	_in_api_version_major: crate::sys::A_long,
@@ -42,6 +43,20 @@ unsafe extern "C" fn receive_plugin_data(
 		// SAFETY: As above, for the entry point name.
 		let name = unsafe { CStr::from_ptr(in_entry_point_name as *const std::os::raw::c_char) };
 		info.entry_point_name = Some(name.to_string_lossy().into_owned());
+		let bytes = |ptr: *const crate::sys::A_u_char| {
+			if ptr.is_null() {
+				None
+			} else {
+				// SAFETY: `ptr` is non-null (checked above) and is one of the plugin's
+				// NUL-terminated strings, valid for this call.
+				Some(unsafe { CStr::from_ptr(ptr.cast()) }.to_bytes().to_vec())
+			}
+		};
+		info.metadata = crate::suites::effect::EffectMetadata {
+			name: bytes(in_name),
+			match_name: bytes(in_match_name),
+			category: bytes(in_category),
+		};
 
 		PF_Err_NONE
 	})
@@ -315,6 +330,7 @@ impl PluginInstance {
 	/// `PARAMS_SETUP`, then `SEQUENCE_SETUP`. Independent of where the entry point
 	/// came from (`dlopen`ed or handed in directly).
 	pub(super) fn finalize(&mut self) -> Result<()> {
+		crate::suites::effect::register_metadata(self.aegp_owner, self.installed_metadata.clone());
 		self.setup_global()?;
 		self.setup_params()?;
 		self.setup_arbitrary_params();
@@ -338,10 +354,12 @@ impl PluginInstance {
 
 		{
 			let mut instance_placeholder = PluginInstance {
+				source_item_token: Box::new(0),
 				aegp_owner: crate::suites::register::new_owner(),
 				raw_library: None,
 				entry_point: None,
 				entry_point_name: None,
+				installed_metadata: None,
 				binary_file_path: path.to_path_buf(),
 				resolved_binary_path: None,
 				utility_callbacks,
@@ -385,18 +403,26 @@ impl PluginInstance {
 				custom_ui_ready: std::collections::HashSet::new(),
 				custom_controls: HashMap::new(),
 				supported_pixel_formats: Vec::new(),
+				masks: Vec::new(),
 				mask_paths: Vec::new(),
+				checked_out_paths: std::sync::Mutex::new(Vec::new()),
 				text_layer: None,
+				project: None,
+				param_tracks: std::collections::BTreeMap::new(),
 				linked_layers: HashMap::new(),
 				layer_checkouts: HashMap::new(),
 				parallel_iterate: true,
 				owned_arb_values: Vec::new(),
 				arb_streams_live: false,
+				arb_digests: HashMap::new(),
+				checkout_span: std::sync::Mutex::new(None),
 				observer: None,
 				strict: crate::Strict::default(),
 				tracker: Default::default(),
 				output_guard: None,
 				torn_down: false,
+				global_setup_complete: false,
+				sequence_setup_complete: false,
 			};
 
 			instance_placeholder.wire_self_pointers();
@@ -427,6 +453,7 @@ impl PluginInstance {
 	/// Call the plugin with `PF_Cmd_GLOBAL_SETUP` command.
 	fn setup_global(&mut self) -> Result<()> {
 		self.call_plugin(RawCommand::GlobalSetup, null_mut())?;
+		self.global_setup_complete = true;
 		self.global_out_flags = self.out_data.out_flags;
 		// The capabilities declared here are what count. `out_data` is shared
 		// by every later command, and plugins overwrite its flags in some of
@@ -498,6 +525,63 @@ impl PluginInstance {
 			self.owned_arb_values.push(index);
 		}
 		self.arb_streams_live = true;
+		self.digest_arbitrary();
+	}
+
+	/// Hash each arbitrary-data value as the plugin flattens it
+	/// (`PF_Arbitrary_FLAT_SIZE_FUNC`, then `PF_Arbitrary_FLATTEN_FUNC`), so a
+	/// state covers what the value points to as well. Only between commands:
+	/// the plugin is never asked while another of its commands runs. A value
+	/// the plugin cannot flatten has no digest, and a state falls back to the
+	/// bytes of its handle.
+	pub(super) fn digest_arbitrary(&mut self) {
+		use std::hash::{DefaultHasher, Hash, Hasher};
+		self.arb_digests.clear();
+		if !self.arb_streams_live {
+			return;
+		}
+		for index in 0..self.params.len() {
+			if self.params[index].param_type != PF_Param_ARBITRARY_DATA as PF_ParamType {
+				continue;
+			}
+			// SAFETY: the parameter was verified to be arbitrary data above.
+			let arb = unsafe { self.params[index].u.arb_d };
+			if arb.value.is_null() {
+				continue;
+			}
+			let mut size: crate::sys::A_u_long = 0;
+			// SAFETY: `PF_ArbParamsExtra` is a plain C struct (integers, raw pointers, unions of those), for which all-zero bytes are a valid value.
+			let mut extra: PF_ArbParamsExtra = unsafe { std::mem::zeroed() };
+			extra.which_function = crate::sys::PF_Arbitrary_FLAT_SIZE_FUNC as _;
+			extra.id = arb.id;
+			extra.u.flat_size_func_params.refconPV = arb.refconPV;
+			extra.u.flat_size_func_params.arbH = arb.value;
+			extra.u.flat_size_func_params.flat_data_sizePLu = &mut size;
+			if let Err(err) = self.call_plugin(RawCommand::ArbitraryCallback, &mut extra as *mut _ as *mut c_void) {
+				log::debug!("arbitrary param #{index}: the plugin gave no flat size: {err:?}");
+				continue;
+			}
+			// A size beyond reason is a value the plugin did not write.
+			if size == 0 || size > 1 << 28 {
+				continue;
+			}
+			let mut flat = vec![0u8; size as usize];
+			// SAFETY: as above.
+			let mut extra: PF_ArbParamsExtra = unsafe { std::mem::zeroed() };
+			extra.which_function = crate::sys::PF_Arbitrary_FLATTEN_FUNC as _;
+			extra.id = arb.id;
+			extra.u.flatten_func_params.refconPV = arb.refconPV;
+			extra.u.flatten_func_params.arbH = arb.value;
+			extra.u.flatten_func_params.buf_sizeLu = size;
+			extra.u.flatten_func_params.flat_dataPV = flat.as_mut_ptr().cast();
+			if let Err(err) = self.call_plugin(RawCommand::ArbitraryCallback, &mut extra as *mut _ as *mut c_void) {
+				log::debug!("arbitrary param #{index}: the plugin did not flatten its value: {err:?}");
+				continue;
+			}
+			let mut hasher = DefaultHasher::new();
+			flat.hash(&mut hasher);
+			self.arb_digests.insert(index, hasher.finish());
+		}
 	}
 
 	/// Hand the arbitrary-data values created by [`Self::setup_arbitrary_params`]
@@ -535,13 +619,15 @@ impl PluginInstance {
 	fn setup_sequence(&mut self) -> Result<()> {
 		self.effect_state.reset_sequence();
 		self.out_data.sequence_data = null_mut();
-		self.call_plugin(RawCommand::SequenceSetup, null_mut())
+		self.call_plugin(RawCommand::SequenceSetup, null_mut())?;
+		self.sequence_setup_complete = true;
+		Ok(())
 	}
 
 	/// Ask the plugin what its real entry point symbol is via the modern
 	/// `PluginDataEntryFunction2` protocol -- the same self-description mechanism
 	/// After Effects itself uses instead of parsing a binary PiPL resource.
-	fn query_declared_entry_point(lib: &Library, pica: &crate::sys::SPBasicSuite) -> Option<String> {
+	fn query_declared_entry_point(lib: &Library, pica: &crate::sys::SPBasicSuite) -> Option<PluginDataInfo> {
 		// SAFETY: The SDK fixes `PluginDataEntryFunction2`'s signature as `PluginDataEntryFn`.
 		let entry_fn = unsafe { lib.symbol::<PluginDataEntryFn>(PLUGIN_DATA_ENTRY_SYMBOL) }.ok()?;
 
@@ -565,7 +651,7 @@ impl PluginInstance {
 			return None;
 		}
 
-		info.entry_point_name
+		Some(info)
 	}
 
 	/// Resolve the plugin's entry point. `PluginDataEntryFunction2` wins, then the
@@ -574,7 +660,7 @@ impl PluginInstance {
 		lib: &Library,
 		pica: &crate::sys::SPBasicSuite,
 		binary: &Path,
-	) -> Result<(PluginEntryPoint, String)> {
+	) -> Result<(PluginEntryPoint, String, Option<crate::suites::effect::EffectMetadata>)> {
 		let declared = Self::query_declared_entry_point(lib, pica);
 		let from_pipl = match crate::Pipl::read(binary) {
 			Ok(pipl) => pipl.and_then(|pipl| pipl.entry_point()),
@@ -587,7 +673,12 @@ impl PluginInstance {
 			log::debug!("PiPL entry point '{name}'.");
 		}
 		let mut names = Vec::new();
-		for name in declared.into_iter().chain(from_pipl) {
+		for name in declared
+			.as_ref()
+			.and_then(|info| info.entry_point_name.clone())
+			.into_iter()
+			.chain(from_pipl)
+		{
 			if !names.iter().any(|existing: &String| existing == &name) {
 				names.push(name);
 			}
@@ -604,7 +695,10 @@ impl PluginInstance {
 			match unsafe { lib.symbol::<PluginEntryPoint>(candidate) } {
 				Ok(symbol) => {
 					log::info!("Resolved entry point '{candidate}'.");
-					return Ok((symbol, candidate.clone()));
+					let metadata = declared
+						.filter(|info| info.entry_point_name.as_deref() == Some(candidate.as_str()))
+						.map(|info| info.metadata);
+					return Ok((symbol, candidate.clone(), metadata));
 				}
 				Err(err) => {
 					log::debug!("Entry point symbol '{}' not resolved: {}", candidate, err);
@@ -678,10 +772,11 @@ impl PluginInstance {
 			path: module_path.clone(),
 			source: Box::new(e),
 		})?;
-		let (entry_point, resolved_name) = Self::resolve_entry_point(&lib, self.pica.as_ref(), &module_path)?;
+		let (entry_point, resolved_name, metadata) = Self::resolve_entry_point(&lib, self.pica.as_ref(), &module_path)?;
 
 		self.entry_point = Some(entry_point);
 		self.entry_point_name = Some(resolved_name.clone());
+		self.installed_metadata = metadata;
 		self.raw_library = Some(lib);
 
 		// Remembered for the get_platform_data callback (plugin path queries).
@@ -719,7 +814,8 @@ impl PluginInstance {
 		}
 		let _aegp_scope = crate::suites::register::enter_owner(self.aegp_owner);
 		let effect_ref = self as *mut _ as PF_ProgPtr;
-		let _current_effect = crate::suites::enter_effect(effect_ref);
+		let source_token = (&raw mut *self.source_item_token).cast();
+		let _current_effect = crate::suites::enter_effect(effect_ref, source_token);
 
 		let entry_point_name = self.entry_point_name.as_deref().unwrap_or(DEFAULT_ENTRY_POINT_NAME);
 
@@ -802,6 +898,20 @@ impl PluginInstance {
 				log::debug!(
 					"Executed command '{command:?}' successfully ({entry_point_name} exited with code {result})."
 				);
+				// The commands in which a plugin changes its own values.
+				if matches!(
+					command,
+					RawCommand::UserChangedParam
+						| RawCommand::UpdateParamsUi
+						| RawCommand::Event
+						| RawCommand::DoDialog
+				) && self
+					.params
+					.iter()
+					.any(|param| param.param_type == PF_Param_ARBITRARY_DATA as PF_ParamType)
+				{
+					self.digest_arbitrary();
+				}
 			}
 			code => {
 				// The format! only runs on the failure path, never per frame.
@@ -821,6 +931,8 @@ impl PluginInstance {
 		// The entry point is missing only when `load` failed to resolve it,
 		// in which case the plugin was never set up.
 		if self.entry_point.is_none() || self.torn_down {
+			crate::suites::effect::remove_metadata(self.aegp_owner);
+			crate::suites::compute_cache::remove_owner(self.aegp_owner);
 			crate::suites::register::remove_owner(self.aegp_owner);
 			return;
 		}
@@ -835,18 +947,121 @@ impl PluginInstance {
 			log::warn!("PF_Cmd_GPU_DEVICE_SETDOWN failed during drop: {err:?}");
 		}
 
-		if let Err(err) = self.call_plugin(RawCommand::SequenceSetdown, null_mut()) {
-			log::warn!("PF_Cmd_SEQUENCE_SETDOWN failed during drop: {err:?}");
+		if self.sequence_setup_complete {
+			self.sequence_setup_complete = false;
+			if let Err(err) = self.call_plugin(RawCommand::SequenceSetdown, null_mut()) {
+				log::warn!("PF_Cmd_SEQUENCE_SETDOWN failed during drop: {err:?}");
+			}
 		}
 
 		self.dispose_arbitrary_params();
 
-		if let Err(err) = self.call_plugin(RawCommand::GlobalSetdown, null_mut()) {
-			log::warn!("PF_Cmd_GLOBAL_SETDOWN failed during drop: {err:?}");
+		if self.global_setup_complete {
+			self.global_setup_complete = false;
+			if let Err(err) = self.call_plugin(RawCommand::GlobalSetdown, null_mut()) {
+				log::warn!("PF_Cmd_GLOBAL_SETDOWN failed during drop: {err:?}");
+			}
 		}
+		crate::suites::compute_cache::remove_owner(self.aegp_owner);
+		crate::suites::effect::remove_metadata(self.aegp_owner);
 		crate::suites::register::remove_owner(self.aegp_owner);
 		if let Ok(mut tracker) = self.tracker.lock() {
 			tracker.torn_down();
 		}
+	}
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+	use super::*;
+	use std::sync::Mutex;
+
+	static COMMANDS: Mutex<Vec<crate::sys::PF_Cmd>> = Mutex::new(Vec::new());
+	static FAIL: Mutex<crate::sys::PF_Cmd> = Mutex::new(-1);
+
+	#[test]
+	fn plugin_registration_copies_identity_bytes() {
+		let mut info = PluginDataInfo::default();
+		let result = unsafe {
+			receive_plugin_data(
+				(&raw mut info).cast(),
+				c"Example".as_ptr().cast(),
+				c"Vendor Example".as_ptr().cast(),
+				c"Category".as_ptr().cast(),
+				c"EffectMain".as_ptr().cast(),
+				0,
+				0,
+				0,
+				0,
+				std::ptr::null(),
+			)
+		};
+		assert_eq!(result, PF_Err_NONE);
+		assert_eq!(info.entry_point_name.as_deref(), Some("EffectMain"));
+		assert_eq!(info.metadata.name.as_deref(), Some(&b"Example"[..]));
+		assert_eq!(info.metadata.match_name.as_deref(), Some(&b"Vendor Example"[..]));
+		assert_eq!(info.metadata.category.as_deref(), Some(&b"Category"[..]));
+	}
+
+	unsafe extern "C" fn entry(
+		cmd: crate::sys::PF_Cmd,
+		_: *mut crate::sys::PF_InData,
+		_: *mut crate::sys::PF_OutData,
+		_: crate::sys::PF_ParamList,
+		_: *mut crate::sys::PF_LayerDef,
+		_: *mut std::ffi::c_void,
+	) -> crate::sys::PF_Err {
+		COMMANDS.lock().unwrap().push(cmd);
+		if cmd == *FAIL.lock().unwrap() {
+			PF_Err_INVALID_CALLBACK
+		} else {
+			PF_Err_NONE
+		}
+	}
+
+	#[test]
+	fn setdown_only_follows_successful_setup() {
+		use crate::sys::*;
+		for (fail, expected) in [
+			(PF_Cmd_GLOBAL_SETUP, vec![PF_Cmd_GLOBAL_SETUP]),
+			(
+				PF_Cmd_PARAMS_SETUP,
+				vec![PF_Cmd_GLOBAL_SETUP, PF_Cmd_PARAMS_SETUP, PF_Cmd_GLOBAL_SETDOWN],
+			),
+			(
+				PF_Cmd_SEQUENCE_SETUP,
+				vec![
+					PF_Cmd_GLOBAL_SETUP,
+					PF_Cmd_PARAMS_SETUP,
+					PF_Cmd_SEQUENCE_SETUP,
+					PF_Cmd_GLOBAL_SETDOWN,
+				],
+			),
+		] {
+			COMMANDS.lock().unwrap().clear();
+			*FAIL.lock().unwrap() = fail;
+			let mut instance = PluginInstance::new(Path::new("test"));
+			instance.entry_point = Some(entry);
+			assert!(instance.finalize().is_err());
+			drop(instance);
+			assert_eq!(*COMMANDS.lock().unwrap(), expected);
+		}
+		COMMANDS.lock().unwrap().clear();
+		*FAIL.lock().unwrap() = -1;
+		let mut instance = PluginInstance::new(Path::new("test"));
+		instance.entry_point = Some(entry);
+		instance.finalize().unwrap();
+		instance.teardown();
+		drop(instance);
+		assert_eq!(
+			*COMMANDS.lock().unwrap(),
+			vec![
+				PF_Cmd_GLOBAL_SETUP,
+				PF_Cmd_PARAMS_SETUP,
+				PF_Cmd_SEQUENCE_SETUP,
+				PF_Cmd_SEQUENCE_SETDOWN,
+				PF_Cmd_GLOBAL_SETDOWN
+			]
+		);
 	}
 }

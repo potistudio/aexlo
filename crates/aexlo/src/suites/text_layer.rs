@@ -5,10 +5,9 @@
 //! `AEGP_GetNewTextOutlines` snapshots the layer's outlines into a boxed list
 //! the plugin owns until `AEGP_DisposeTextOutlines`. Each outline it hands out
 //! is a `PF_PathOutlinePtr` the "PF Path Data Suite" reads, valid until that
-//! dispose, with its tangents given as absolute points (see `path`). Text is
-//! static here, so the time is ignored.
+//! dispose, with its tangents given as absolute points (see `path`). The time
+//! is layer time, and null means now.
 
-use crate::PluginInstance;
 use crate::core::diagnostics::diag;
 use crate::mask::MaskPath;
 use crate::sys::*;
@@ -53,19 +52,19 @@ unsafe extern "C" fn get_new_text_outlines(
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
 		*out = std::ptr::null_mut();
-		// Layer handles are the effect's `PF_ProgPtr` (see `layer::layer_handle`).
-		let Some(instance) = PluginInstance::get_instance_ptr(layerH as PF_ProgPtr) else {
+		if super::layer::Timeline::of(layerH.cast()).is_none() {
 			return PF_Err_BAD_CALLBACK_PARAM;
-		};
-		// SAFETY: the handle is the live instance running the plugin call.
-		let Some(text) = unsafe { instance.as_ref() }.text_layer() else {
-			log::warn!("AEGP_TextLayerSuite1/AEGP_GetNewTextOutlines: the effect's layer is not a text layer");
+		}
+		let time = unsafe { layer_timePT.as_ref() }
+			.copied()
+			.and_then(crate::animation::TimePoint::from_sys);
+		let Some(text) = super::layer::text_at(layerH, time) else {
+			log::warn!("AEGP_TextLayerSuite1/AEGP_GetNewTextOutlines: not a text layer");
 			return A_Err_GENERIC;
 		};
 		let boxed = Box::new(TextOutlines {
 			paths: text.outlines().to_vec(),
 		});
-		super::path::register_absolute(&boxed.paths);
 		*out = Box::into_raw(boxed) as AEGP_TextOutlinesH;
 		live().push(*out as usize);
 		PF_Err_NONE
@@ -90,7 +89,6 @@ unsafe extern "C" fn dispose_text_outlines(outlinesH: AEGP_TextOutlinesH) -> A_E
 		// SAFETY: it was live, so it is a `Box<TextOutlines>` from
 		// `get_new_text_outlines`, and it is no longer listed.
 		let list = unsafe { Box::from_raw(outlinesH as *mut TextOutlines) };
-		super::path::unregister_absolute(&list.paths);
 		drop(list);
 		PF_Err_NONE
 	})

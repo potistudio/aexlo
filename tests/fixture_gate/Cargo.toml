@@ -1,0 +1,13 @@
+[package]
+name = "aexlo_fixture_gate"
+description = "Marks the workspace's tests ignored when what they need is absent from this machine."
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+publish = false
+
+[lib]
+proc-macro = true
+doctest = false

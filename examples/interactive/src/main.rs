@@ -6,6 +6,8 @@
 //! driven through [`PluginInstance::render_frame`], so both smart-render and
 //! legacy effects work.
 
+mod process;
+
 use std::path::PathBuf;
 
 use aexlo::{Depth8, Layer, ParamValue, PluginInstance};
@@ -141,7 +143,24 @@ struct ParamControl {
 	value: ParamValue,
 }
 
-fn main() -> eframe::Result<()> {
+fn main() {
+	// A panic has been printed by its hook and has dropped the plugin; it must
+	// still not leave through the plugin's detach (see `process`).
+	let code = match std::panic::catch_unwind(run) {
+		Ok(Ok(())) => 0,
+		Ok(Err(e)) => {
+			eprintln!("interactive: {e}");
+			1
+		}
+		Err(_) => PANICKED,
+	};
+	process::exit(code);
+}
+
+/// The status Rust itself exits with after a panic in `main`.
+const PANICKED: u8 = 101;
+
+fn run() -> eframe::Result<()> {
 	env_logger::init();
 
 	let requested = std::env::args()
@@ -759,6 +778,13 @@ fn param_widget(ui: &mut egui::Ui, control: &mut ParamControl) -> bool {
 }
 
 impl eframe::App for AexloApp {
+	// The last point at which the window the plugin was given is sure to exist.
+	fn on_exit(&mut self) {
+		self.instance = None;
+		// SAFETY: null clears the window, before eframe destroys it.
+		unsafe { aexlo::set_main_window(std::ptr::null_mut()) };
+	}
+
 	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
 		publish_main_window(frame);
 		self.update_fps();

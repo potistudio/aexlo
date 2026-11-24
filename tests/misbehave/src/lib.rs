@@ -12,6 +12,10 @@
 //! 5. `Defaults` button labelled `Reset Gain`: pressing it
 //!    (`PF_Cmd_USER_CHANGED_PARAM`) sets `Gain` back to 1.
 //!
+//! On Windows, `AEXLO_TEST_PIN_AT_EXIT` makes it keep itself loaded past
+//! `FreeLibrary` and fail in its process-exit detach, as effects with
+//! background threads do.
+//!
 //! Renders through `PF_Cmd_RENDER` and the smart pre-render/render pair, at
 //! 8 and 16 bpc. On the smart path it checks its parameters out and in
 //! with `PF_CHECKOUT_PARAM`, as After Effects requires there.
@@ -374,6 +378,44 @@ unsafe fn smart_render(in_data: *mut PF_InData, extra: *mut PF_SmartRenderExtra)
 	err
 }
 
+#[cfg(windows)]
+mod exit_detach {
+	use std::ffi::c_void;
+	use std::sync::atomic::{AtomicBool, Ordering};
+
+	const DLL_PROCESS_DETACH: u32 = 0;
+	const GET_MODULE_HANDLE_EX_FLAG_PIN: u32 = 1;
+	const GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS: u32 = 4;
+	const DETACH_FAILED: u32 = 97;
+
+	static PINNED: AtomicBool = AtomicBool::new(false);
+
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn GetModuleHandleExW(flags: u32, address: *const c_void, module: *mut *mut c_void) -> i32;
+		fn GetCurrentProcess() -> *mut c_void;
+		fn TerminateProcess(process: *mut c_void, code: u32) -> i32;
+	}
+
+	pub fn pin() {
+		let mut module = std::ptr::null_mut();
+		let flags = GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS;
+		// SAFETY: the address is inside this module, and `module` is a live out-slot.
+		let pinned = unsafe { GetModuleHandleExW(flags, (&raw const PINNED).cast(), &mut module) } != 0;
+		PINNED.store(pinned, Ordering::Relaxed);
+	}
+
+	#[unsafe(no_mangle)]
+	extern "system" fn DllMain(_module: *mut c_void, reason: u32, reserved: *mut c_void) -> i32 {
+		// A non-null `reserved` means the process is exiting.
+		if reason == DLL_PROCESS_DETACH && !reserved.is_null() && PINNED.load(Ordering::Relaxed) {
+			// SAFETY: ends this process; no loader state is touched.
+			unsafe { TerminateProcess(GetCurrentProcess(), DETACH_FAILED) };
+		}
+		1
+	}
+}
+
 /// `Reset Gain` sets `Gain` back to its default.
 unsafe fn user_changed_param(params: *mut *mut PF_ParamDef, extra: *mut PF_UserChangedParamExtra) -> PF_Err {
 	if unsafe { (*extra).param_index } as usize == PARAM_RESET {
@@ -415,6 +457,10 @@ pub unsafe extern "C" fn EffectMain(
 	#[allow(non_upper_case_globals)]
 	match cmd as _ {
 		PF_Cmd_GLOBAL_SETUP => {
+			#[cfg(windows)]
+			if std::env::var_os("AEXLO_TEST_PIN_AT_EXIT").is_some() {
+				exit_detach::pin();
+			}
 			let out = unsafe { &mut *out_data };
 			out.my_version = 1 << 19;
 			out.out_flags = (PF_OutFlag_DEEP_COLOR_AWARE | PF_OutFlag_PIX_INDEPENDENT) as PF_OutFlags;

@@ -20,6 +20,42 @@ fn inspect(scratch: &str, args: &[&str]) -> (bool, String) {
 	(out.status.success(), text)
 }
 
+/// A plugin whose threads keep it loaded must not decide how the CLI exits.
+#[cfg(windows)]
+#[test]
+fn exit_does_not_run_the_detach_of_a_plugin_that_stays_loaded() {
+	let plugin = common::misbehave_artifact();
+	for (commands, expected) in [("render", 0), ("set Mode Error; render", 1)] {
+		let dir = common::scratch("inspect_exit");
+		let out = std::process::Command::new(env!("CARGO_BIN_EXE_aexlo"))
+			.current_dir(&dir)
+			// The pinned plugin's staged copy cannot be deleted: keep it out of %TEMP%.
+			.env("TEMP", &dir)
+			.env("TMP", &dir)
+			.env("AEXLO_TEST_PIN_AT_EXIT", "1")
+			.arg("inspect")
+			.arg(&plugin)
+			.args(["--format", "json", "--exec", commands])
+			.output()
+			.expect("spawning aexlo");
+		assert_eq!(out.status.code(), Some(expected), "{commands}");
+		let stdout = String::from_utf8_lossy(&out.stdout);
+		let last = stdout.lines().last().expect("JSON output");
+		let last: serde_json::Value = serde_json::from_str(last).expect("a complete last line");
+		assert_eq!(last["event"], "report", "{commands}");
+		assert_eq!(
+			last["commands"]
+				.as_array()
+				.unwrap()
+				.iter()
+				.filter(|c| c["command"] == "PF_Cmd_GLOBAL_SETDOWN")
+				.count(),
+			1,
+			"the plugin is still set down"
+		);
+	}
+}
+
 #[test]
 fn exec_reports_commands_calls_memory_and_errors() {
 	let (ok, out) = inspect(

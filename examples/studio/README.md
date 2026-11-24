@@ -25,7 +25,8 @@ Use `--release`: debug builds composite several times slower.
   Japanese font), and adjustment layers whose effects process everything
   below them. Each has a transform, opacity, blend mode, and in/out points.
   Effects on a text layer see it as one (`AEGP_ObjectType_TEXT`) and can read
-  its glyph outlines, so text effects such as TextGrad work.
+  its glyph outlines, so text effects such as TextGrad work. On a shape
+  layer they read the items' paths (not strokes), as Extrude does.
 - **Masks**: drawn with the pen or shape tools on any layer, with Add,
   Subtract, Intersect, Lighten, Darken, Difference and None modes, inversion,
   opacity and feather. They cut the layer before its effects run, as in AE,
@@ -42,11 +43,15 @@ Use `--release`: debug builds composite several times slower.
   then `PF_Event_DRAG` until mouse-up). Layer parameters pick any layer in the comp,
   rendered with its masks and effects, even when hidden; picking the
   effect's own layer gives its source. Point parameters get handles in the
-  viewer.
+  viewer. *About…* sends `PF_Cmd_ABOUT`, which is never sent on load: some
+  plugins answer it with a modal dialog.
 - **Time**: every property and effect parameter has a stopwatch. Keyframes
   are Linear, Easy Ease or Hold, can be dragged in the timeline, and
   right-clicked to change. Effects see layer time (`frame - start`), so
-  sliding a layer slides its effects' clocks and keyframes with it.
+  sliding a layer slides its effects' clocks and keyframes with it. They
+  get the keyframes too (Easy Ease as one linear key per frame), so a
+  checkout at another time sees the value Studio shows. Source text is the
+  current frame's.
 - **Viewer**: zoom (scroll or pinch), pan (Alt-drag or middle-drag), select
   and move layers, scale from corners, rotate from the knob, edit mask and
   path points and tangents (hold Alt mid-drag to move one tangent alone),
@@ -75,9 +80,19 @@ Use `--release`: debug builds composite several times slower.
 `engine.rs` runs on its own thread and owns every `PluginInstance`; the UI
 sends it snapshots of the project and only the newest pending one renders.
 Per layer: source → masks → effects (each one `set_input_layer`,
-`set_time`, parameters, `set_mask_paths`, `set_text_layer`,
+`set_project`, `set_time`, parameter tracks, `set_mask_paths`,
 `set_layer_param`, `render_frame`) → transform and blend onto the comp with tiny-skia. Layer
 sources whose contents and masks don't change are cached across frames.
+
+Closing the window stops the render thread and waits for it to tear its
+plugins down (up to 10 seconds, in case one is stuck; on Windows, dialogs
+they left open are asked to close). On
+Windows the process then ends without running the DLL detach of plugins
+that stay loaded, which can hang or crash, as with the `aexlo` command.
+
+On Windows the UI draws with DX12, because sharing Vulkan with the plugins
+can deadlock under overlay layers such as RivaTuner's. Plugins still use
+Vulkan; `WGPU_BACKEND` overrides the UI's choice.
 
 For scripted checks, `AEXLO_STUDIO_SCREENSHOT=out.png` saves the window once
 the first frame is shown and quits; `AEXLO_STUDIO_SELECT=<n>` selects the
