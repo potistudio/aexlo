@@ -30,6 +30,7 @@ use anyhow::Context;
 use colored::Colorize;
 use serde_json::{Value, json};
 
+use crate::variant::Variant;
 use crate::{flag, option, workspace_root};
 
 /// The script template. `run_script` prepends the `var AEXLO = {...};` line.
@@ -38,9 +39,15 @@ const TRACE_JSX: &str = include_str!("../ae/trace.jsx");
 /// Frame rate of the comp the script builds. Render times are frame starts.
 const FPS: f64 = 30.0;
 
-/// The legacy probe: what `playground package` builds.
+/// The legacy probe: the variant `ae` installs and traces.
 const PROBE_FILE: &str = "AexloProbe.aex";
-const PROBE_MATCH_NAME: &str = aexlo_probe::MATCH_NAME;
+
+/// The legacy probe's match name, as the JSX passes it to `addProperty`.
+fn probe_match_name() -> &'static str {
+	aexlo_probe::MATCH_NAME
+		.to_str()
+		.expect("the probe's match name is ASCII")
+}
 
 pub fn ae(args: &[String]) -> anyhow::Result<()> {
 	let root = workspace_root();
@@ -89,7 +96,7 @@ pub fn ae(args: &[String]) -> anyhow::Result<()> {
 		anyhow::ensure!(path.exists(), "{} not found; drop --no-build", path.display());
 		path
 	} else {
-		crate::package_probe(true, &root.join("playground/dist"))?
+		crate::package_probe(true, Variant::Legacy, &root.join("playground/dist"))?
 	};
 
 	let plugin_dir = option(args, "--plugin-dir").map(PathBuf::from).unwrap_or_else(|| {
@@ -110,7 +117,7 @@ pub fn ae(args: &[String]) -> anyhow::Result<()> {
 	let result_path = run_dir.join("result.json");
 	let config = json!({
 		"input": jsx_path(&input_path),
-		"match_name": PROBE_MATCH_NAME,
+		"match_name": probe_match_name(),
 		"fps": FPS,
 		"times": (0..frames).map(|i| i as f64 / FPS).collect::<Vec<_>>(),
 		"params": params(width, height),

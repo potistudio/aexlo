@@ -55,6 +55,7 @@ fn flatten_into(summary: &mut Summary, prefix: &str, value: &Value) {
 pub fn summarize(events: &[Value]) -> Summary {
 	let mut summary = Summary::new();
 	let mut command_counts: BTreeMap<String, u64> = BTreeMap::new();
+	let mut pre_render_data_deleted: BTreeMap<String, u64> = BTreeMap::new();
 
 	for event in events {
 		let kind = event["event"].as_str().unwrap_or("");
@@ -63,6 +64,10 @@ pub fn summarize(events: &[Value]) -> Summary {
 				summary.insert("host/exe".into(), compact(&event["exe"]));
 				summary.insert("host/os".into(), compact(&event["os"]));
 				summary.insert("host/probe_version".into(), compact(&event["probe_version"]));
+				// Traces from before the smart variant existed have no field.
+				if !event["variant"].is_null() {
+					summary.insert("host/probe_variant".into(), compact(&event["variant"]));
+				}
 			}
 
 			"plugin_data_entry" => {
@@ -174,6 +179,47 @@ pub fn summarize(events: &[Value]) -> Summary {
 				}
 			}
 
+			// SmartRender context, one block per bit depth (and GPU framework
+			// for a GPU pre-render); the first frame at each wins. The facts
+			// these commands produce arrive as ordinary `fact` events.
+			"smart_pre_render" | "smart_render" => {
+				let input = &event["input"];
+				let mut slot = format!("bpc{}", compact(&input["bitdepth"]));
+				if input["what_gpu"].as_str().is_some_and(|gpu| gpu != "NONE") {
+					slot = format!("{slot}-gpu{}", compact(&input["what_gpu"]));
+				}
+				let stage = if kind == "smart_pre_render" { "pre" } else { "render" };
+				let prefix = format!("smart/{stage}/{slot}");
+				if !summary.contains_key(&format!("{prefix}/input/bitdepth")) {
+					for (key, value) in event.as_object().into_iter().flatten() {
+						if !matches!(key.as_str(), "seq" | "t_ms" | "tid" | "event") {
+							flatten_into(&mut summary, &format!("{prefix}/{key}"), value);
+						}
+					}
+				}
+			}
+
+			"pre_render_data" => {
+				let outcome = match event["magic_ok"].as_bool() {
+					Some(true) => "magic_ok",
+					Some(false) => "magic_bad",
+					None => "null",
+				};
+				*pre_render_data_deleted.entry(outcome.to_string()).or_default() += 1;
+			}
+
+			"gpu_device" => {
+				let what = event["what"].as_str().unwrap_or("?");
+				let prefix = format!("gpu/{what}");
+				if !summary.keys().any(|key| key.starts_with(&format!("{prefix}/"))) {
+					for (key, value) in event.as_object().into_iter().flatten() {
+						if !matches!(key.as_str(), "seq" | "t_ms" | "tid" | "event" | "what") {
+							flatten_into(&mut summary, &format!("{prefix}/{key}"), value);
+						}
+					}
+				}
+			}
+
 			"sequence" => {
 				let what = event["what"].as_str().unwrap_or("?").to_lowercase();
 				let mut fields: Vec<String> = Vec::new();
@@ -208,6 +254,9 @@ pub fn summarize(events: &[Value]) -> Summary {
 	for (name, count) in command_counts {
 		summary.insert(format!("cmd/{name}/seen"), count.to_string());
 	}
+	for (outcome, count) in pre_render_data_deleted {
+		summary.insert(format!("smart/pre_render_data/deleted/{outcome}"), count.to_string());
+	}
 
 	summary
 }
@@ -225,6 +274,7 @@ pub fn is_comparable(key: &str) -> bool {
 		|| key == "host/appl_id"
 		|| key == "host/spec_version"
 		|| key == "host/probe_version"  // comparing traces from different probe builds is a mistake
+		|| key == "host/probe_variant"  // ... and so is comparing the legacy effect with the smart one
 		|| key.starts_with("host/plugin_data/")
 }
 

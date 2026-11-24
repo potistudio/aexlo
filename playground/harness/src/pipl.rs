@@ -114,6 +114,16 @@ fn describe(key: &str, payload: &[u8]) -> String {
 			format!("\"{}\"", String::from_utf8_lossy(&payload[..end]))
 		}
 		"kind" => fourcc(payload),
+		// Global out flags, by name: what `pipl --variant smart` is run to see.
+		"eGLO" | "eGL2" if payload.len() == 4 => {
+			let value = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+			let names = if key == "eGLO" {
+				format!("{:?}", aexlo::OutFlags::from_bits(value))
+			} else {
+				format!("{:?}", aexlo::OutFlags2::from_bits(value))
+			};
+			format!("0x{value:08X} {names}")
+		}
 		"ePVR" | "eSVR" => {
 			let major = u16::from_le_bytes([payload[0], payload[1]]);
 			let minor = u16::from_le_bytes([payload[2], payload[3]]);
