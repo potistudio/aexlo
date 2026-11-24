@@ -7,12 +7,16 @@
 //! ```text
 //! cargo run -p playground -- run                 # trace the probe under aexlo
 //! cargo run -p playground -- package             # build dist/AexloProbe.aex for real AE
+//! cargo run -p playground -- ae                  # trace the probe in real AE (Windows)
 //! cargo run -p playground -- report <trace>      # summarize one trace
 //! cargo run -p playground -- diff <ae> <aexlo>   # compare real AE vs aexlo
 //! cargo run -p playground -- pipl                # verify the embedded PiPL resource
 //! ```
 
 mod summary;
+
+#[cfg(windows)]
+mod ae;
 
 #[cfg(windows)]
 mod pipl;
@@ -42,6 +46,11 @@ USAGE:
       Build the probe and drop AexloProbe.aex (default: playground/dist/).
   playground pipl [--release]
       Parse the PiPL resource back out of the built probe DLL (Windows).
+  playground ae [--ae <AfterFX.exe>] [--trace <file>] [--frames <n>] [--input <png>]
+                [--plugin-dir <dir>] [--timeout <secs>] [--no-build]
+      Install the probe into After Effects, apply it and render through
+      AfterFX.exe -r, and save the trace (Windows). Default trace:
+      target/probe/trace-ae.jsonl.
 ";
 
 fn main() -> anyhow::Result<()> {
@@ -53,6 +62,7 @@ fn main() -> anyhow::Result<()> {
 		Some("diff") => diff(&args[1..]),
 		Some("package") => package(&args[1..]),
 		Some("pipl") => pipl_cmd(&args[1..]),
+		Some("ae") => ae_cmd(&args[1..]),
 		_ => {
 			eprint!("{USAGE}");
 			std::process::exit(2);
@@ -310,23 +320,37 @@ fn diff(args: &[String]) -> anyhow::Result<()> {
 
 fn package(args: &[String]) -> anyhow::Result<()> {
 	let release = !flag(args, "--debug");
-	let dll = build_probe(release)?;
-
 	let dist = option(args, "--to")
 		.map(PathBuf::from)
 		.unwrap_or_else(|| workspace_root().join("playground/dist"));
-	std::fs::create_dir_all(&dist)?;
-
-	let target = dist.join("AexloProbe.aex");
-	std::fs::copy(&dll, &target)?;
+	let target = package_probe(release, &dist)?;
 
 	println!("{} {}", "packaged:".bold(), target.display());
 	println!();
-	println!("To test against real After Effects, copy it into a plugin folder, e.g.:");
+	println!("To test against real After Effects, run `playground ae`, or copy it into a plugin folder, e.g.:");
 	println!("  C:\\Program Files\\Adobe\\Common\\Plug-ins\\7.0\\MediaCore\\");
 	println!("then apply Effect > aexlo > Aexlo Probe to a layer and render a frame.");
 	println!("The trace lands in %TEMP%\\aexlo-probe\\ (the effect's About dialog shows the path).");
 	Ok(())
+}
+
+/// Build the probe and copy it to `<dist>/AexloProbe.aex`.
+fn package_probe(release: bool, dist: &Path) -> anyhow::Result<PathBuf> {
+	let dll = build_probe(release)?;
+	std::fs::create_dir_all(dist)?;
+	let target = dist.join("AexloProbe.aex");
+	std::fs::copy(&dll, &target)?;
+	Ok(target)
+}
+
+fn ae_cmd(_args: &[String]) -> anyhow::Result<()> {
+	#[cfg(windows)]
+	{
+		ae::ae(_args)
+	}
+
+	#[cfg(not(windows))]
+	anyhow::bail!("the ae command drives AfterFX.exe -r and is only available on Windows");
 }
 
 fn pipl_cmd(_args: &[String]) -> anyhow::Result<()> {
