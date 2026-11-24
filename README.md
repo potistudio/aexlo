@@ -367,6 +367,16 @@ hashes are provided, but their values are not guaranteed to match After Effects.
 
 Text uses a system sans-serif. `DrawString` draws nothing when none is installed.
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=potistudio%2Faexlo&type=date&legend=bottom-right">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=potistudio/aexlo&type=date&legend=bottom-right&theme=dark" />
+<source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=potistudio/aexlo&type=date&legend=bottom-right" />
+<img alt="Star History Chart" src="https://api.star-history.com/chart?repos=potistudio/aexlo&type=date&legend=bottom-right" />
+</picture>
+</a>
+
 ## License
 
 This project is licensed under the [MIT License](https://github.com/potistudio/aexlo/blob/master/LICENSE).

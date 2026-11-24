@@ -319,6 +319,16 @@ Effect Suite が扱うエフェクトはホスト中の 1 つと、ロード中�
 
 文字は OS のサンセリフを使います。見つからないとき、`DrawString` は何も描きません。
 
+## スター履歴
+
+<a href="https://www.star-history.com/?repos=potistudio%2Faexlo&type=date&legend=bottom-right">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=potistudio/aexlo&type=date&legend=bottom-right&theme=dark" />
+<source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=potistudio/aexlo&type=date&legend=bottom-right" />
+<img alt="スター履歴のグラフ" src="https://api.star-history.com/chart?repos=potistudio/aexlo&type=date&legend=bottom-right" />
+</picture>
+</a>
+
 ## ライセンス
 
 このプロジェクトは [MIT License](LICENSE) に基づいて公開されています。
