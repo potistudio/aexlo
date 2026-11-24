@@ -22,9 +22,11 @@
 //! depth is the one scenario value these answers may depend on.
 //!
 //! The probe makes only calls the SDK defines: no second checkin of one id,
-//! no `checkout_layer_pixels` on an id pre-render did not check out, and no
-//! null `GuidMixInPtr` buffer. A host may abort on those, and the probe runs
-//! inside live After Effects sessions.
+//! no `checkout_layer_pixels` on an id pre-render did not check out, no null
+//! `GuidMixInPtr` buffer, and no `checkout_layer` on an out-of-range parameter
+//! index. A host may abort on the first, and After Effects 27 throws a foreign
+//! exception on the last instead of answering; the probe runs inside live
+//! After Effects sessions.
 //!
 //! GPU: the smart variant declares `PF_OutFlag2_SUPPORTS_GPU_RENDER_F32`, so
 //! a host with a GPU sends `PF_Cmd_GPU_DEVICE_SETUP`. Its inputs and the GPU

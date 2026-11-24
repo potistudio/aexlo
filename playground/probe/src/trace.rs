@@ -12,10 +12,12 @@ use std::time::Instant;
 
 pub const PROBE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Bumped whenever events or fact names change, so `diff` refuses to compare
-/// traces whose keys do not line up. 2: SmartRender variant, per-depth
-/// `smart.<bpc>.*` facts. 3: drop `smart.<bpc>.checkout_layer.invalid_index(99)`;
-/// real hosts throw on that checkout instead of answering.
+/// Bumped whenever events, fact names or fact values change, so `diff`
+/// refuses to compare traces whose keys do not line up. 2: SmartRender
+/// variant, per-depth `smart.<bpc>.*` facts. 3: drop
+/// `smart.<bpc>.checkout_layer.invalid_index(99)` - real hosts throw on that
+/// checkout instead of answering - and give `world.iterate` its own fixed
+/// gray input instead of a world another check left behind.
 pub const TRACE_SCHEMA: u32 = 3;
 
 pub struct Trace {

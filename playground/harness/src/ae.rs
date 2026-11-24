@@ -342,6 +342,18 @@ fn run_script(
 	let script_path = run_dir.join("trace.jsx");
 	std::fs::write(&script_path, format!("var AEXLO = {config};\n{TRACE_JSX}"))?;
 	let _ = std::fs::remove_file(result_path);
+	// A complete left-over PNG from a previous run satisfies the signature
+	// check before this run's deferred write replaces the file.
+	for entry in std::fs::read_dir(run_dir).into_iter().flatten() {
+		if entry
+			.path()
+			.file_name()
+			.and_then(|name| name.to_str())
+			.is_some_and(|name| name.starts_with("render_"))
+		{
+			let _ = std::fs::remove_file(entry.path());
+		}
+	}
 
 	let mut command = Command::new(exe);
 	command.arg("-r").arg(&script_path);

@@ -302,9 +302,9 @@ unsafe fn dispatch(
 }
 
 /// The render-context facts, once per process: World Transform, Batch
-/// Sampling, premultiply and iterate. After Effects refuses these callbacks
-/// during GLOBAL_SETUP (PF_Err_INVALID_CALLBACK), so they run in the first
-/// render, legacy or smart.
+/// Sampling, premultiply, iterate and suite iterate8. After Effects refuses
+/// these callbacks during GLOBAL_SETUP (PF_Err_INVALID_CALLBACK), so they run
+/// in the first render, legacy or smart.
 fn render_checks_once(in_data: *mut ae::PF_InData) {
 	static RENDER_CHECKS: std::sync::Once = std::sync::Once::new();
 	RENDER_CHECKS.call_once(|| checks::guarded_render_checks(in_data));

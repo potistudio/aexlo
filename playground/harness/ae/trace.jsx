@@ -18,6 +18,10 @@
 	// The project depth is a project-wide setting; the run restores the value
 	// in effect when it started, whatever the cleanup path.
 	var originalDepth = null;
+	// saveFrameToPng's deferred write leaves truncated files behind; the PNG
+	// signature and the IEND trailer prove the write finished.
+	var PNG_SIGNATURE = String.fromCharCode(137, 80, 78, 71, 13, 10, 26, 10);
+	var PNG_IEND = String.fromCharCode(73, 69, 78, 68, 174, 66, 96, 130);
 
 	function quote(text) {
 		return '"' + String(text)
@@ -64,10 +68,6 @@
 	}
 
 	function isCompletePng(path) {
-		// The queued write leaves truncated files behind; the PNG signature and
-		// the IEND trailer are the proof that the write finished.
-		var signature = String.fromCharCode(137, 80, 78, 71, 13, 10, 26, 10);
-		var iend = String.fromCharCode(73, 69, 78, 68, 174, 66, 96, 130);
 		var file = new File(path);
 		if (!file.exists) {
 			return false;
@@ -82,7 +82,7 @@
 				var head = file.read(8);
 				file.seek(file.length - 8);
 				var tail = file.read(8);
-				ok = head === signature && tail === iend;
+				ok = head === PNG_SIGNATURE && tail === PNG_IEND;
 			}
 		} finally {
 			file.close();
@@ -91,8 +91,10 @@
 	}
 
 	function waitForPng(path, deadlineMs) {
-		// saveFrameToPng queues the frame render; After Effects writes the PNG
-		// in the background, so the script polls until the bytes are complete.
+		// saveFrameToPng's write is deferred: the call returns once the frame
+		// render is queued, and the render workers finish the PNG while this
+		// loop sleeps. $.sleep parks ExtendScript's thread for at most one
+		// deadline per frame, which a running instance takes as UI freeze.
 		var deadline = new Date().getTime() + deadlineMs;
 		while (new Date().getTime() < deadline) {
 			if (isCompletePng(path)) {
@@ -170,15 +172,16 @@
 				var suffix = depths[d] === null ? String(t) : depths[d] + "_" + t;
 				var out = new File(cfg.render_stem + "_" + suffix + ".png");
 				comp.saveFrameToPng(cfg.times[t], out);
-				result.renders.push(out.fsName);
-				if (!waitForPng(out.fsName, 30000)) {
+				if (waitForPng(out.fsName, 15000)) {
+					result.renders.push(out.fsName);
+				} else {
 					missing.push(out.fsName);
 				}
 			}
 		}
 		if (missing.length) {
 			throw new Error(
-				"saveFrameToPng wrote no file: " + missing[0] + (missing.length > 1 ? " and " + (missing.length - 1) + " more" : "")
+				"saveFrameToPng wrote no complete PNG: " + missing[0] + (missing.length > 1 ? " and " + (missing.length - 1) + " more" : "")
 			);
 		}
 

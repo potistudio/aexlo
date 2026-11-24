@@ -4,7 +4,9 @@
 //!
 //! `aexlo-probe` (`playground/probe`) is a purpose-built effect whose only
 //! job is to feed every host service *fixed inputs* and record the *exact
-//! output* as a `fact` during `GLOBAL_SETUP` (see `probe/src/checks.rs`).
+//! output* as a `fact` - during `GLOBAL_SETUP`, or during the first render for
+//! the calls real hosts refuse outside a render context (see
+//! `probe/src/checks.rs`).
 //! Loading it once and reading its trace back lets us assert aexlo's runtime
 //! is correct without a real After Effects install to diff against (that's
 //! what `playground -- diff` is for, and it's a manual, not-CI step).
@@ -22,9 +24,10 @@
 //!   returns), only the contract's bounds are asserted; `playground diff`
 //!   compares the exact answers with After Effects.
 //!
-//! The in-process probe is the legacy build with the smart path forced, so
-//! its `xform.*` / `batch.*` facts come from the first SMART_RENDER here and
-//! from the first RENDER under `playground run`. aexlo serves those suites the
+//! The in-process probe is the legacy build with the smart path forced, so its
+//! `xform.*`, `batch.*`, `world.premultiply`, `world.iterate` and
+//! `suite.iterate8.*` facts come from the first SMART_RENDER here and from the
+//! first RENDER under `playground run`. aexlo serves those suites the
 //! same way in both commands; a host that does not would make the two disagree
 //! for a reason unrelated to the facts themselves.
 

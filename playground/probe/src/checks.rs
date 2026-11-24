@@ -11,9 +11,9 @@
 //! (`utils.new_world`), keeping every check self-contained.
 //!
 //! `run_all` runs every check real hosts accept during GLOBAL_SETUP;
-//! `guarded_render_checks` collects the rest - callbacks whose host machinery
-//! polls the abort callback, valid only in render contexts - for the first
-//! render.
+//! `guarded_render_checks` collects the rest - the World Transform, Batch
+//! Sampling, premultiply, iterate and suite iterate8 facts, whose host
+//! machinery polls the abort callback, valid only in render contexts.
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -44,7 +44,8 @@ fn guarded(name: &str, run: impl FnOnce()) {
 /// apply), so all of these run in the first render.
 pub fn guarded_render_checks(in_data: *mut ae::PF_InData) {
 	guarded("xform", || unsafe { crate::xform::run(in_data) });
-	guarded("iterate", || unsafe { iterate_checks(in_data) });
+	guarded("world.premultiply", || unsafe { premultiply_check(in_data) });
+	guarded("world.iterate", || unsafe { world_iterate_check(in_data) });
 	guarded("suite.iterate8", || unsafe { suite_iterate8_checks(in_data) });
 }
 
@@ -511,11 +512,34 @@ unsafe fn world_checks(in_data: *mut ae::PF_InData) {
 	unsafe { dispose_world(in_data, &mut world) };
 }
 
-/// `world.premultiply` and `world.iterate`: host machinery that polls the
-/// abort callback, valid only in render contexts (see
-/// `guarded_render_checks`). The iterate input can not reuse the GLOBAL_SETUP
-/// master world, so this fills its own fixed input first.
-unsafe fn iterate_checks(in_data: *mut ae::PF_InData) {
+/// The world pair an iterate check runs on. When the host vends only one
+/// world, the half is freed and the named fact reports `worlds unavailable`
+/// instead of leaking memory or going silently missing.
+unsafe fn world_pair(in_data: *mut ae::PF_InData, name: &str) -> Option<(CheckWorld, CheckWorld)> {
+	let first = unsafe { make_world(in_data) };
+	let mut second = match unsafe { make_world(in_data) } {
+		Some(second) => second,
+		None => {
+			if let Some(mut world) = first {
+				unsafe { dispose_world(in_data, &mut world) };
+			}
+			fact(name, json!("worlds unavailable"));
+			return None;
+		}
+	};
+	match first {
+		Some(first) => Some((first, second)),
+		None => {
+			unsafe { dispose_world(in_data, &mut second) };
+			fact(name, json!("worlds unavailable"));
+			None
+		}
+	}
+}
+
+/// `world.premultiply`: host machinery that polls the abort callback, valid
+/// only in render contexts (see `guarded_render_checks`).
+unsafe fn premultiply_check(in_data: *mut ae::PF_InData) {
 	let Some(u) = (unsafe { (*in_data).utils.as_ref() }) else {
 		return;
 	};
@@ -541,10 +565,19 @@ unsafe fn iterate_checks(in_data: *mut ae::PF_InData) {
 	} else {
 		fact("world.premultiply", json!("unavailable"));
 	}
+}
+
+/// `world.iterate(16x8)`: host machinery that polls the abort callback, valid
+/// only in render contexts (see `guarded_render_checks`). The gray input is
+/// the host's own fill, so the fact is unavailable when either callback is.
+unsafe fn world_iterate_check(in_data: *mut ae::PF_InData) {
+	let Some(u) = (unsafe { (*in_data).utils.as_ref() }) else {
+		return;
+	};
+	let effect_ref = unsafe { (*in_data).effect_ref };
 
 	if let (Some(fill), Some(iterate)) = (u.fill, u.iterate) {
-		let (src, dst) = unsafe { (make_world(in_data), make_world(in_data)) };
-		if let (Some(mut src), Some(mut dst)) = (src, dst) {
+		if let Some((mut src, mut dst)) = unsafe { world_pair(in_data, "world.iterate") } {
 			// One gray everywhere: the fact depends only on the host's iterate.
 			let gray100 = ae::PF_Pixel {
 				alpha: 255,
@@ -794,9 +827,7 @@ unsafe fn suite_iterate8_checks(in_data: *mut ae::PF_InData) {
 		return;
 	};
 
-	let (src, dst) = unsafe { (make_world(in_data), make_world(in_data)) };
-	let (Some(mut src), Some(mut dst)) = (src, dst) else {
-		fact("suite.iterate8.iterate", json!("worlds unavailable"));
+	let Some((mut src, mut dst)) = (unsafe { world_pair(in_data, "suite.iterate8.iterate") }) else {
 		return;
 	};
 
