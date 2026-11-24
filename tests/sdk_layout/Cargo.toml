@@ -16,7 +16,6 @@ doctest = false
 [[bin]]
 name = "snapshot"
 path = "src/bin/snapshot/main.rs"
-test = true
 
 [dependencies]
 after-effects-sys = { workspace = true }

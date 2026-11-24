@@ -35,8 +35,13 @@ pub struct Bindings {
 
 impl Bindings {
 	/// Read every struct, union and type alias in `text`.
-	pub fn parse(text: &str) -> Bindings {
+	///
+	/// Fails when an item or field was seen but not read, so a change in
+	/// bindgen's formatting stops the generator instead of shrinking what the
+	/// snapshot covers.
+	pub fn parse(text: &str) -> Result<Bindings, String> {
 		let mut bindings = Bindings::default();
+		let mut aliases_seen = 0;
 		let mut lines = text.lines();
 		while let Some(line) = lines.next() {
 			let record = line
@@ -58,21 +63,36 @@ impl Bindings {
 					continue;
 				}
 				let fields = parse_fields(&body);
+				let declared = body.iter().filter(|line| starts_field(line)).count();
+				if fields.len() != declared {
+					return Err(format!(
+						"read {} of the {declared} fields of `{name}` in the bindings",
+						fields.len()
+					));
+				}
 				bindings.records.insert(name.to_string(), Record { union, fields });
 			} else if let Some(rest) = line.strip_prefix("pub type ") {
+				aliases_seen += 1;
 				let mut item = rest.to_string();
 				while !item.trim_end().ends_with(';') {
 					let Some(next) = lines.next() else { break };
 					item.push('\n');
 					item.push_str(next);
 				}
-				if let Some((name, rhs)) = item.split_once(" = ") {
-					let rhs = rhs.trim_end().trim_end_matches(';');
+				// bindgen breaks a long alias after the `=`.
+				if let Some((name, rhs)) = item.split_once('=') {
+					let rhs = rhs.trim().trim_end_matches(';');
 					bindings.aliases.insert(name.trim().to_string(), rhs.to_string());
 				}
 			}
 		}
-		bindings
+		if bindings.aliases.len() != aliases_seen {
+			return Err(format!(
+				"read {} of the {aliases_seen} type aliases in the bindings",
+				bindings.aliases.len()
+			));
+		}
+		Ok(bindings)
 	}
 
 	/// The names `name` refers to directly: field types of a record, or the
@@ -151,6 +171,21 @@ fn push_field(fields: &mut Vec<RecordField>, item: &str) {
 	}
 }
 
+/// Whether a line of a struct body starts a field: `    pub name: ...` or
+/// `    _name: ...` at bindgen's indent of four spaces.
+fn starts_field(line: &str) -> bool {
+	let Some(rest) = line.strip_prefix("    ") else {
+		return false;
+	};
+	let rest = rest.strip_prefix("pub ").unwrap_or(rest);
+	let name_len = rest
+		.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+		.unwrap_or(rest.len());
+	// rustfmt may break the line right after the colon.
+	let after = &rest[name_len..];
+	name_len > 0 && !rest.starts_with(|c: char| c.is_ascii_digit()) && (after.starts_with(": ") || after == ":")
+}
+
 /// Every identifier in `text`.
 pub fn identifiers(text: &str) -> impl Iterator<Item = String> + '_ {
 	text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
@@ -186,6 +221,8 @@ pub struct PF_Thing {
         unsafe extern "C" fn(a: *mut PF_Pixel, b: A_long) -> PF_Err,
     >,
     pub type_: [A_char; 32usize],
+    pub FreeBlock:
+        ::std::option::Option<unsafe extern "C" fn(block: *mut PF_Pixel) -> A_long>,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -196,28 +233,40 @@ pub type PF_World = PF_Thing;
 pub type PF_Func = ::std::option::Option<
     unsafe extern "C" fn(x: *mut _PF_Opaque) -> PF_Err,
 >;
+pub type PF_LongFunc =
+    ::std::option::Option<unsafe extern "C" fn(x: *mut PF_Thing) -> PF_Err>;
 "#;
 
 	#[test]
 	fn reads_fields_aliases_and_opaque_records() {
-		let bindings = Bindings::parse(SAMPLE);
+		let bindings = Bindings::parse(SAMPLE).unwrap();
 		let thing = &bindings.records["PF_Thing"];
 		let names: Vec<_> = thing.fields.iter().map(|f| f.name.as_str()).collect();
-		assert_eq!(names, ["inter", "cb", "type_"]);
+		assert_eq!(names, ["inter", "cb", "type_", "FreeBlock"]);
 		assert!(thing.fields[1].ty.contains("PF_Pixel"));
 		assert!(bindings.records["_PF_Opaque"].is_opaque());
 		assert_eq!(bindings.aliases["PF_World"], "PF_Thing");
 		assert!(bindings.aliases["PF_Func"].contains("_PF_Opaque"));
+		assert!(bindings.aliases["PF_LongFunc"].starts_with("::std::option::Option<"));
 		assert_eq!(c_name("type_"), "type");
 		assert_eq!(c_name("ui_flags_"), "ui_flags_");
 	}
 
 	#[test]
 	fn closure_follows_aliases_and_function_pointers() {
-		let bindings = Bindings::parse(SAMPLE);
+		let bindings = Bindings::parse(SAMPLE).unwrap();
 		let reached = bindings.closure(["PF_Func"]);
 		assert_eq!(reached.into_iter().collect::<Vec<_>>(), ["_PF_Opaque"]);
+		let reached = bindings.closure(["PF_LongFunc"]);
+		assert_eq!(reached.into_iter().collect::<Vec<_>>(), ["PF_Thing"]);
 		let reached = bindings.closure(["PF_World"]);
 		assert_eq!(reached.into_iter().collect::<Vec<_>>(), ["PF_Thing"]);
+	}
+
+	#[test]
+	fn fails_on_a_field_it_cannot_read() {
+		// An unbalanced bracket merges the two fields into one.
+		let text = "pub struct PF_Bad {\n    pub a: Weird<<,\n    pub b: A_long,\n}\n";
+		assert!(Bindings::parse(text).is_err());
 	}
 }

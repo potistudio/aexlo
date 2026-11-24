@@ -70,6 +70,8 @@ pub struct RustField {
 	pub rust: &'static str,
 	pub offset: usize,
 	pub size: usize,
+	/// `align_of` the field's type.
+	pub align: usize,
 }
 
 /// What differs.
@@ -92,6 +94,8 @@ pub enum Kind {
 	FieldOffset,
 	/// The field has another size.
 	FieldSize,
+	/// The field's type has another alignment.
+	FieldAlign,
 	/// The SDK struct has bytes no Rust field name accounts for: a field the
 	/// bindings lack, or name differently.
 	SdkFieldNotInRust,
@@ -108,6 +112,7 @@ impl Kind {
 			Kind::FieldNotInSdk => "Rust fields the SDK struct does not have",
 			Kind::FieldOffset => "field offsets differ",
 			Kind::FieldSize => "field sizes differ",
+			Kind::FieldAlign => "field alignments differ",
 			Kind::SdkFieldNotInRust => "SDK fields the Rust struct does not have",
 		}
 	}
@@ -208,7 +213,7 @@ pub fn compare(snapshot: &Snapshot, measured: &[RustStruct]) -> (Vec<Mismatch>, 
 				));
 			}
 			match field.sdk {
-				FieldSdk::Found { offset, size, .. } => {
+				FieldSdk::Found { offset, size, align } => {
 					compared += 1;
 					if offset != rust_field.offset {
 						out.push(mismatch(
@@ -222,6 +227,13 @@ pub fn compare(snapshot: &Snapshot, measured: &[RustStruct]) -> (Vec<Mismatch>, 
 							Kind::FieldSize,
 							name,
 							format!("size SDK {size}, Rust {}", rust_field.size),
+						));
+					}
+					if align != rust_field.align {
+						out.push(mismatch(
+							Kind::FieldAlign,
+							name,
+							format!("align SDK {align}, Rust {}", rust_field.align),
 						));
 					}
 				}
@@ -270,14 +282,20 @@ pub fn report(mismatches: &[&Mismatch]) -> String {
 }
 
 #[cfg(sdk_layout_snapshot)]
-macro_rules! field_size {
-	($ty:ty, $($field:ident).+) => {{
-		fn size<F>(_: *const F) -> usize {
-			::core::mem::size_of::<F>()
+macro_rules! field {
+	($rust:literal, $ty:ty, $($field:ident).+) => {{
+		fn layout<F>(_: *const F) -> (usize, usize) {
+			(::core::mem::size_of::<F>(), ::core::mem::align_of::<F>())
 		}
 		let value = ::core::mem::MaybeUninit::<$ty>::uninit();
 		// SAFETY: a raw borrow of a field reads nothing.
-		size(unsafe { &raw const (*value.as_ptr()).$($field).+ })
+		let (size, align) = layout(unsafe { &raw const (*value.as_ptr()).$($field).+ });
+		RustField {
+			rust: $rust,
+			offset: ::core::mem::offset_of!($ty, $($field).+),
+			size,
+			align,
+		}
 	}};
 }
 
@@ -292,7 +310,11 @@ mod measured {
 pub fn this_target_snapshot() -> Option<Snapshot> {
 	#[cfg(sdk_layout_snapshot)]
 	{
-		let text = include_str!(env!("SDK_LAYOUT_SNAPSHOT"));
+		let text = include_str!(concat!(
+			"../../../fixtures/sdk-layout/",
+			env!("SDK_LAYOUT_SNAPSHOT_NAME"),
+			".json"
+		));
 		Some(serde_json::from_str(text).expect("the snapshot parsed in build.rs"))
 	}
 	#[cfg(not(sdk_layout_snapshot))]
@@ -330,6 +352,12 @@ mod tests {
 	fn struct_layouts_match_the_sdk() {
 		let snapshot = snapshot();
 		let (mismatches, fields) = compare(&snapshot, &this_target_measured());
+		// A snapshot taken while the sources could not be read would cover
+		// nothing and pass.
+		assert!(
+			snapshot.structs.iter().any(|s| s.rust == "PF_OutData") && fields > 0,
+			"the snapshot does not cover PF_OutData: regenerate it (docs/sdk-layout.md)"
+		);
 
 		let mut unexpected = Vec::new();
 		let mut allowed = Vec::new();
@@ -404,12 +432,16 @@ mod tests {
 	)]
 	fn snapshot_covers_every_struct_the_sources_use() {
 		let snapshot = snapshot();
-		let used = source_identifiers(&workspace_root());
+		let root = workspace_root();
+		for dir in SOURCE_DIRS {
+			assert!(root.join(dir).is_dir(), "{dir} is not a directory: update SOURCE_DIRS");
+		}
+		let used = source_identifiers(&root);
 		let uncovered: Vec<&String> = snapshot.unchecked.iter().filter(|name| used.contains(*name)).collect();
 		assert!(
 			uncovered.is_empty(),
-			"{} use these names, which lead to structs the snapshot does not cover: {uncovered:?}\n\
-			 Regenerate it: `cargo run -p aexlo_sdk_layout --bin snapshot` (docs/sdk-layout.md)",
+			"{} mention these names (in code or comments), which lead to structs the snapshot does not cover: \
+			 {uncovered:?}\nRegenerate it: `cargo run -p aexlo_sdk_layout --bin snapshot` (docs/sdk-layout.md)",
 			SOURCE_DIRS.join(" and ")
 		);
 	}

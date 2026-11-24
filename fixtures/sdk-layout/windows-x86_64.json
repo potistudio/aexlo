@@ -5578,6 +5578,8 @@
     "PF_Iterate16Suite1",
     "PF_IterateFloatSuite1",
     "PF_PixelOpaquePtr",
-    "PR_DrawStringFunc"
+    "PR_DrawStringFunc",
+    "PR_Draw_BackColorFunc",
+    "PR_Draw_ForeColorFunc"
   ]
 }

@@ -125,10 +125,15 @@ fn run() -> Result<(), String> {
 	}
 
 	let target = env!("SDK_LAYOUT_TARGET");
-	let (version, bindings_path) = bindings_file(&root)?;
+	let (version, bindings_path) = bindings_file(&root, target)?;
 	let text = std::fs::read_to_string(&bindings_path).map_err(|e| format!("{}: {e}", bindings_path.display()))?;
-	let bindings = Bindings::parse(&text);
+	let bindings = Bindings::parse(&text).map_err(|e| format!("{}: {e}", bindings_path.display()))?;
 
+	for dir in aexlo_sdk_layout::SOURCE_DIRS {
+		if !root.join(dir).is_dir() {
+			return Err(format!("{dir} is not a directory: update SOURCE_DIRS"));
+		}
+	}
 	let used = aexlo_sdk_layout::source_identifiers(&root);
 	let reached = bindings.closure(used.iter().map(String::as_str).chain(EXTRA_ROOTS.iter().copied()));
 
@@ -153,7 +158,7 @@ fn run() -> Result<(), String> {
 		Spelling::Plain(name) => declared.contains(name),
 		Spelling::Member { .. } => true,
 	};
-	let output = compiler.build_and_run(&work, &cpp::program(&entries, present))?;
+	let output = compiler.build_and_run(&work, &cpp::program(&entries, target.contains("windows"), present))?;
 	let measured = Measured::parse(&output, &entries)?;
 
 	let mut structs: Vec<snapshot::Struct> = entries
@@ -233,7 +238,7 @@ fn run() -> Result<(), String> {
 
 /// The version of `after-effects-sys` in the lock file and its prebuilt
 /// bindings for this target.
-fn bindings_file(root: &Path) -> Result<(String, PathBuf), String> {
+fn bindings_file(root: &Path, target: &str) -> Result<(String, PathBuf), String> {
 	let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
 	let output = Command::new(cargo)
 		.args(["metadata", "--format-version", "1", "--locked"])
@@ -251,7 +256,7 @@ fn bindings_file(root: &Path) -> Result<(String, PathBuf), String> {
 	let version = package["version"].as_str().ok_or("no version")?.to_string();
 	let manifest = PathBuf::from(package["manifest_path"].as_str().ok_or("no manifest_path")?);
 	// As `after-effects-sys`'s lib.rs picks them.
-	let file = if cfg!(target_os = "windows") {
+	let file = if target.contains("windows") {
 		"bindings_win.rs"
 	} else {
 		"bindings_macos.rs"

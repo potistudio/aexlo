@@ -51,7 +51,6 @@ fn main() {
 	let snapshot: Snapshot =
 		serde_json::from_str(&text).unwrap_or_else(|e| panic!("{} is not a layout snapshot: {e}", path.display()));
 	println!("cargo::rustc-cfg=sdk_layout_snapshot");
-	println!("cargo::rustc-env=SDK_LAYOUT_SNAPSHOT={}", path.display());
 	std::fs::write(&out, measure(&snapshot)).unwrap();
 }
 
@@ -72,11 +71,7 @@ fn measure(snapshot: &Snapshot) -> String {
 		};
 		for field in fields {
 			let path = &field.rust;
-			writeln!(
-				out,
-				"\t\t\t\tRustField {{ rust: {path:?}, offset: ::core::mem::offset_of!({ty}, {path}), size: field_size!({ty}, {path}) }},"
-			)
-			.unwrap();
+			writeln!(out, "\t\t\t\tfield!({path:?}, {ty}, {path}),").unwrap();
 		}
 		writeln!(out, "\t\t\t],").unwrap();
 		writeln!(out, "\t\t}},").unwrap();
