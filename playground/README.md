@@ -47,17 +47,19 @@ is recorded only as context and excluded from the default comparison.
 # 1. Trace the probe under aexlo (builds it, renders a frame, prints a report)
 cargo run -p playground -- run
 
-# 2. Build the .aex for real After Effects
-cargo run -p playground -- package
-#    → playground/dist/AexloProbe.aex
-#    Copy it into e.g. C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore\
-#    Apply "Effect > aexlo > Aexlo Probe" to a layer, scrub/render a frame.
-#    The trace lands in %TEMP%\aexlo-probe\ — the effect's About dialog
-#    shows the exact path.
+# 2. Trace the same probe in real After Effects (Windows)
+cargo run -p playground -- ae
+#    → target/probe/trace-ae.jsonl
 
 # 3. Compare
-cargo run -p playground -- diff "%TEMP%\aexlo-probe\trace-....jsonl" target/probe/trace-aexlo.jsonl
+cargo run -p playground -- diff target/probe/trace-ae.jsonl target/probe/trace-aexlo.jsonl
 ```
+
+To do step 2 by hand instead, run `cargo run -p playground -- package`, copy
+`playground/dist/AexloProbe.aex` into a plugin folder such as
+`C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore\`, apply
+"Effect > aexlo > Aexlo Probe" to a layer, and render a frame. The trace lands
+in `%TEMP%\aexlo-probe\`; the effect's About dialog shows the exact path.
 
 `diff` exits non-zero when behavior diverges, so it can gate CI once a
 reference trace from real AE is checked in.
@@ -71,6 +73,42 @@ reference trace from real AE is checked in.
 | `diff <a> <b> [--all]` | Key-by-key comparison of two traces. Compares facts, suite availability, and callback presence by default; `--all` also compares context (command counts, render scenario, timing). |
 | `package [--debug] [--to <dir>]` | Build release and drop `playground/dist/AexloProbe.aex`. |
 | `pipl [--release]` | Parse the PiPL resource back out of the built DLL — preflight that real AE will accept it (Windows). |
+| `ae [--ae <AfterFX.exe>] [--trace <file>] [--frames <n>] [--input <png>] [--plugin-dir <dir>] [--timeout <secs>] [--no-build]` | Package the probe, install it into After Effects, apply it and render through `AfterFX.exe -r`, and save the trace to `target/probe/trace-ae.jsonl` (Windows). See [Recording in real After Effects](#recording-in-real-after-effects). |
+
+## Recording in real After Effects
+
+`playground ae` does what the manual steps do, without the GUI:
+
+1. Builds the release probe and copies it to
+   `<After Effects>\Support Files\Plug-ins\aexlo\AexloProbe.aex`, unless the
+   same bytes are already there. `--plugin-dir` picks another folder.
+2. Writes `target/probe/ae-run/trace.jsx` from
+   [`harness/ae/trace.jsx`](harness/ae/trace.jsx) and hands it to
+   `AfterFX.exe -r`. The script imports `fixtures/input.png` (or `--input`),
+   applies the probe, sets the same parameter values `run` sets under aexlo,
+   renders `--frames` frames with `saveFrameToPng`, and removes everything it
+   added. It reports back through `target/probe/ae-run/result.json`.
+3. Saves the trace and prints the report.
+
+Which After Effects it uses: `--ae`, then the `AEXLO_AE_EXE` environment
+variable, then the running instance, then the newest
+`C:\Program Files\Adobe\Adobe After Effects <year>` (beta builds only when
+named).
+
+How it runs depends on whether After Effects is already open:
+
+| After Effects | What happens | Trace |
+| --- | --- | --- |
+| Not running | `AfterFX.exe -r` starts a new instance with `AEXLO_PROBE_TRACE` set. The script quits it without saving. | One session, from plugin load to `GLOBAL_SETDOWN`. |
+| Running | `AfterFX.exe -r` forwards the script to it. The script works in the open project and leaves it as it was. | A copy of that instance's `%TEMP%\aexlo-probe\trace-*-pid<pid>.jsonl`, which holds the whole session so far. |
+
+After Effects loads plugins only at startup. If it is running and the probe
+it loaded is older than the build, `ae` stops and asks you to close it. Run
+it again and it starts a fresh instance.
+
+If no result arrives within `--timeout` seconds (default 600), a dialog is
+probably waiting in the After Effects window. Startup dialogs, such as crash
+recovery, are not suppressed.
 
 ## Facts: the unit under test
 

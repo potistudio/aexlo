@@ -37,17 +37,15 @@ cargo run -p playground -- report target/probe/trace-aexlo.jsonl
 # 1. aexlo 上でプローブをトレース（ビルド、1 フレームのレンダリング、レポート表示）
 cargo run -p playground -- run
 
-# 2. 実際の After Effects 用の .aex をビルド
-cargo run -p playground -- package
-#    → playground/dist/AexloProbe.aex
-#    たとえば C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore\ にコピーします。
-#    レイヤーに "Effect > aexlo > Aexlo Probe" を適用し、時間を動かすかフレームをレンダリングします。
-#    トレースは %TEMP%\aexlo-probe\ に保存されます。
-#    正確なパスはエフェクトの About ダイアログに表示されます。
+# 2. 同じプローブを実際の After Effects でトレース（Windows）
+cargo run -p playground -- ae
+#    → target/probe/trace-ae.jsonl
 
 # 3. 比較
-cargo run -p playground -- diff "%TEMP%\aexlo-probe\trace-....jsonl" target/probe/trace-aexlo.jsonl
+cargo run -p playground -- diff target/probe/trace-ae.jsonl target/probe/trace-aexlo.jsonl
 ```
+
+手順 2 を手作業で行う場合は、`cargo run -p playground -- package` を実行し、`playground/dist/AexloProbe.aex` を `C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore\` などのプラグインフォルダーにコピーします。レイヤーに "Effect > aexlo > Aexlo Probe" を適用し、フレームをレンダリングします。トレースは `%TEMP%\aexlo-probe\` に保存されます。正確なパスはエフェクトの About ダイアログに表示されます。
 
 `diff` は動作に差がある場合に非ゼロで終了します。実際の AE から取得した参照トレースをリポジトリに追加すれば、CI の合否判定にも使えます。
 
@@ -60,6 +58,28 @@ cargo run -p playground -- diff "%TEMP%\aexlo-probe\trace-....jsonl" target/prob
 | `diff <a> <b> [--all]` | 2 つのトレースをキーごとに比較します。既定では fact、スイートの利用可否、コールバックの有無を比較し、`--all` ではコンテキスト（コマンド回数、レンダリングシナリオ、タイミング）も比較します。 |
 | `package [--debug] [--to <dir>]` | リリースビルドし、`playground/dist/AexloProbe.aex` に出力します。 |
 | `pipl [--release]` | ビルドした DLL から PiPL リソースを再解析し、実際の AE が受け入れることを事前確認します（Windows）。 |
+| `ae [--ae <AfterFX.exe>] [--trace <file>] [--frames <n>] [--input <png>] [--plugin-dir <dir>] [--timeout <secs>] [--no-build]` | プローブをパッケージ化して After Effects にインストールし、`AfterFX.exe -r` で適用とレンダリングを行い、トレースを `target/probe/trace-ae.jsonl` に保存します（Windows）。詳しくは[実際の After Effects で記録する](#実際の-after-effects-で記録する)を参照してください。 |
+
+## 実際の After Effects で記録する
+
+`playground ae` は、手作業の手順を GUI を使わずに実行します。
+
+1. リリースビルドしたプローブを `<After Effects>\Support Files\Plug-ins\aexlo\AexloProbe.aex` にコピーします。同じ内容のファイルがすでにある場合はコピーしません。`--plugin-dir` で別のフォルダーを指定できます。
+2. [`harness/ae/trace.jsx`](harness/ae/trace.jsx) から `target/probe/ae-run/trace.jsx` を書き出し、`AfterFX.exe -r` に渡します。スクリプトは `fixtures/input.png`（または `--input`）を読み込み、プローブを適用し、`run` が aexlo 上で設定するのと同じパラメーター値を設定します。続いて `saveFrameToPng` で `--frames` 枚のフレームをレンダリングし、追加したものをすべて削除します。結果は `target/probe/ae-run/result.json` に書き出されます。
+3. トレースを保存し、レポートを表示します。
+
+使用する After Effects は、`--ae`、環境変数 `AEXLO_AE_EXE`、起動中のインスタンス、`C:\Program Files\Adobe\Adobe After Effects <year>` のうち最も新しいもの、の順に決まります。ベータ版は明示的に指定した場合だけ使います。
+
+After Effects がすでに起動しているかどうかで、動作が変わります。
+
+| After Effects | 動作 | トレース |
+| --- | --- | --- |
+| 起動していない | 新しいインスタンスを、`AEXLO_PROBE_TRACE` を設定した状態で `AfterFX.exe -r` から起動します。スクリプトは保存せずに終了させます。 | プラグインの読み込みから `GLOBAL_SETDOWN` までの、1 回分のセッションです。 |
+| 起動している | `AfterFX.exe -r` がスクリプトを起動中のインスタンスに渡します。スクリプトは開いているプロジェクトの中で作業し、元の状態に戻します。 | そのインスタンスの `%TEMP%\aexlo-probe\trace-*-pid<pid>.jsonl` をコピーしたものです。それまでのセッション全体が含まれます。 |
+
+After Effects はプラグインを起動時にしか読み込みません。起動中のインスタンスが読み込んだプローブがビルドより古い場合、`ae` は After Effects を閉じるように求めて止まります。閉じてからもう一度実行すると、新しいインスタンスを起動します。
+
+`--timeout` の秒数（既定は 600 秒）以内に結果が届かない場合は、After Effects のウィンドウでダイアログが待っている可能性があります。クラッシュからの復元など、起動時のダイアログは抑制されません。
 
 ## fact：検証の単位
 
