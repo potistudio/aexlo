@@ -66,6 +66,23 @@ plugin that is known to be wrong.
 The loop that closes one of these is in
 [compat-workflow.md](compat-workflow.md).
 
+## On Windows
+
+These plugins are Windows-only, so they are not in the macOS fixtures above.
+Measured on Windows 10 x64 with aexlo v0.3.0, on 2026-11-24:
+
+| Plugin | Scenarios | `ok` | `n/a` | `crash` | Depths | Smart render | GPU |
+| ------ | --------: | ---: | ----: | ------: | ------ | ------------ | --- |
+| HEISEI_DEMO | 60 | 52 | 7 | 1 | 8 | no | no |
+
+HEISEI_DEMO asks for no suite and renders every scenario except `size:1x1`.
+That crash is a bug in the plugin, not a gap in aexlo: the plugin's own code
+reads through a null pointer, whichever host runs it. The plugin shrinks the layer to `(width / Factor) x
+(height / Factor)` pixels, with `Factor` (4 by default) cut to a whole
+number. When the layer is narrower or shorter than `Factor`, that buffer is
+empty, and the plugin reads it through a null pointer. With `Factor` set to 1,
+a 1x1 layer renders. `tests/e2e/tests/heisei_demo.rs` checks both cases.
+
 ## Regenerating the list
 
 The fixtures live on each machine and are not committed, so this list is a
