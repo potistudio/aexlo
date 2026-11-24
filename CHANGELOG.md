@@ -153,6 +153,13 @@ plugin renders or returns.
   when the plugin declares smart render and returns a `PF_Err` from
   `PF_Cmd_RENDER`. After Effects never sends that command to a smart-render
   plugin, and Furikake refuses it outright.
+- `PF_UtilCallbacks::iterate` now uses `PF_Iterate8Suite2::iterate` instead
+  of keeping a second copy: the pixels and return values are unchanged. Its
+  trace event is named `Iterate8Suite/iterate` instead of
+  `UtilityCallbacks/iterate`, and reports the suite entry's arguments: no
+  `in_data` or progress range, and an `origin` of null. Implemented
+  callbacks that still carried a `_stub` suffix now use `_sys`, so `_stub`
+  marks only callbacks that return `PF_Err_INVALID_CALLBACK`.
 
 ### Fixed
 
@@ -160,6 +167,11 @@ plugin renders or returns.
   the process, as in After Effects. Before, each instance had its own,
   freed with it, so a plugin such as AutoFill2 that keeps the first one in a
   static called through freed memory once that instance was dropped.
+- The iterate suite entries run their body through the panic guard the other
+  suite callbacks use. A panic inside one, such as the debug assertion over a
+  plugin-built world whose `rowbytes` cannot hold a row, comes back as
+  `PF_Err_INTERNAL_STRUCT_DAMAGED` instead of unwinding out of an `extern "C"`
+  function and aborting the host.
 - `PF_GetCurrentState` covers arbitrary data as the plugin flattens it
   (`PF_Arbitrary_FLAT_SIZE_FUNC` and `PF_Arbitrary_FLATTEN_FUNC`), so a change
   in what a value points to is no longer called unchanged. The host flattens

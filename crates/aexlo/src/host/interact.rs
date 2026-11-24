@@ -18,7 +18,7 @@ use crate::host::app::with_app_host_ffi;
 /// host where both checkouts succeed. Indices beyond these are still errors.
 const TRAILING_PARAMS: usize = 2;
 
-unsafe extern "C" fn checkout_param_stub(
+unsafe extern "C" fn checkout_param_sys(
 	effect_ref: PF_ProgPtr,
 	index: PF_ParamIndex,
 	what_time: A_long,
@@ -26,7 +26,7 @@ unsafe extern "C" fn checkout_param_stub(
 	time_scale: A_u_long,
 	param: *mut PF_ParamDef,
 ) -> PF_Err {
-	crate::core::ffi::guard("checkout_param_stub", || {
+	crate::core::ffi::guard("checkout_param_sys", || {
 		let index = index as usize;
 
 		//== Validation ==//
@@ -106,8 +106,8 @@ unsafe extern "C" fn checkout_param_stub(
 	})
 }
 
-unsafe extern "C" fn checkin_param_stub(_effect_ref: PF_ProgPtr, _param: *mut PF_ParamDef) -> PF_Err {
-	crate::core::ffi::guard("checkin_param_stub", || {
+unsafe extern "C" fn checkin_param_sys(_effect_ref: PF_ProgPtr, _param: *mut PF_ParamDef) -> PF_Err {
+	crate::core::ffi::guard("checkin_param_sys", || {
 		if _param.is_null() {
 			log::warn!("checkin_param: param pointer is null");
 			return PF_Err_BAD_CALLBACK_PARAM;
@@ -150,8 +150,13 @@ unsafe extern "C" fn add_param_sys(effect_ref: PF_ProgPtr, _index: PF_ParamIndex
 }
 
 /// `PF_ABORT`: `PF_Interrupt_CANCEL` once the host reports the user cancelled.
-unsafe extern "C" fn abort_stub(effect_ref: PF_ProgPtr) -> PF_Err {
-	crate::core::ffi::guard("abort_stub", || {
+///
+/// # Safety
+///
+/// `effect_ref` is an opaque key and is never dereferenced, so any value,
+/// null included, is accepted.
+unsafe extern "C" fn abort_sys(effect_ref: PF_ProgPtr) -> PF_Err {
+	crate::core::ffi::guard("abort_sys", || {
 		with_app_host_ffi(|host| {
 			if host.abort_requested(effect_ref as usize) {
 				PF_Interrupt_CANCEL
@@ -164,8 +169,13 @@ unsafe extern "C" fn abort_stub(effect_ref: PF_ProgPtr) -> PF_Err {
 
 /// `PF_PROGRESS`: report progress to the host; `PF_Interrupt_CANCEL` if it
 /// cancels the render.
-unsafe extern "C" fn progress_stub(effect_ref: PF_ProgPtr, current: A_long, total: A_long) -> PF_Err {
-	crate::core::ffi::guard("progress_stub", || {
+///
+/// # Safety
+///
+/// `effect_ref` is an opaque key and is never dereferenced, so any value,
+/// null included, is accepted.
+unsafe extern "C" fn progress_sys(effect_ref: PF_ProgPtr, current: A_long, total: A_long) -> PF_Err {
+	crate::core::ffi::guard("progress_sys", || {
 		with_app_host_ffi(|host| {
 			if host.render_progress(effect_ref as usize, current, total) {
 				PF_Err_NONE
@@ -179,8 +189,8 @@ unsafe extern "C" fn progress_stub(effect_ref: PF_ProgPtr, current: A_long, tota
 /// Accept a custom-UI registration. aexlo has no UI and never sends
 /// `PF_Cmd_EVENT`, so the registration has nothing to drive; succeeding lets
 /// plugins with custom controls (e.g. status readouts) set up normally.
-unsafe extern "C" fn register_ui_stub(_effect_ref: PF_ProgPtr, custom_info: *mut PF_CustomUIInfo) -> PF_Err {
-	crate::core::ffi::guard("register_ui_stub", || {
+unsafe extern "C" fn register_ui_sys(_effect_ref: PF_ProgPtr, custom_info: *mut PF_CustomUIInfo) -> PF_Err {
+	crate::core::ffi::guard("register_ui_sys", || {
 		// SAFETY: `as_ref` handles null; otherwise `custom_info` points at the plugin's `PF_CustomUIInfo` for this call.
 		if let Some(info) = unsafe { custom_info.as_ref() } {
 			log::info!(
@@ -198,6 +208,12 @@ unsafe extern "C" fn register_ui_stub(_effect_ref: PF_ProgPtr, custom_info: *mut
 	})
 }
 
+/// `PF_InteractCallbacks::checkout_layer_audio`: aexlo carries no audio, so
+/// the checkout is refused.
+///
+/// # Safety
+///
+/// No argument is read or written; `_audio` is never dereferenced.
 unsafe extern "C" fn checkout_layer_audio_stub(
 	_effect_ref: PF_ProgPtr,
 	_index: PF_ParamIndex,
@@ -216,6 +232,12 @@ unsafe extern "C" fn checkout_layer_audio_stub(
 	})
 }
 
+/// `PF_InteractCallbacks::checkin_layer_audio`: refused, since no audio was
+/// ever checked out.
+///
+/// # Safety
+///
+/// No argument is read; `_audio` is never dereferenced.
 unsafe extern "C" fn checkin_layer_audio_stub(_effect_ref: PF_ProgPtr, _audio: PF_LayerAudio) -> PF_Err {
 	crate::core::ffi::guard("checkin_layer_audio_stub", || {
 		log::warn!("STUB: checkin_layer_audio called");
@@ -223,6 +245,12 @@ unsafe extern "C" fn checkin_layer_audio_stub(_effect_ref: PF_ProgPtr, _audio: P
 	})
 }
 
+/// `PF_InteractCallbacks::get_audio_data`: refused, since no audio was ever
+/// checked out.
+///
+/// # Safety
+///
+/// No argument is read or written; none of the out-pointers is dereferenced.
 unsafe extern "C" fn get_audio_data_stub(
 	_effect_ref: PF_ProgPtr,
 	_audio: PF_LayerAudio,
@@ -246,12 +274,12 @@ unsafe extern "C" fn get_audio_data_stub(
 /// Creates a `PF_InteractCallbacks` instance with all callbacks populated.
 pub fn create_interact_callbacks() -> PF_InteractCallbacks {
 	PF_InteractCallbacks {
-		checkout_param: Some(checkout_param_stub),
-		checkin_param: Some(checkin_param_stub),
+		checkout_param: Some(checkout_param_sys),
+		checkin_param: Some(checkin_param_sys),
 		add_param: Some(add_param_sys),
-		abort: Some(abort_stub),
-		progress: Some(progress_stub),
-		register_ui: Some(register_ui_stub),
+		abort: Some(abort_sys),
+		progress: Some(progress_sys),
+		register_ui: Some(register_ui_sys),
 		checkout_layer_audio: Some(checkout_layer_audio_stub),
 		checkin_layer_audio: Some(checkin_layer_audio_stub),
 		get_audio_data: Some(get_audio_data_stub),
