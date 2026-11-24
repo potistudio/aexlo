@@ -133,10 +133,11 @@ plugin renders or returns.
   do not increase it. AutoFill2 asks for it in `PF_Cmd_SMART_PRE_RENDER`.
 - `AEGP_HasItemChangedSinceTimestamp` answers from that timestamp, where it
   was refused: it answers "changed" when the current timestamp differs from
-  the one the plugin passes. It does not look at the item or the time span,
-  so it can answer "changed" for an item that did not change but never
-  "unchanged" after a change aexlo recorded. It refuses an unknown item
-  handle or a null pointer.
+  the one the plugin passes. The item handle must be one aexlo knows, but
+  the answer does not depend on the item or the time span, so it can be
+  "changed" for an item that did not change but never "unchanged" after a
+  change aexlo recorded. It refuses an unknown item handle and a null
+  timestamp or result pointer; the time span may be null.
 
 ### Changed
 

@@ -546,9 +546,10 @@ unsafe extern "C" fn get_current_timestamp(stamp_out: *mut AEGP_TimeStamp) -> A_
 /// [`crate::timestamp`]).
 ///
 /// aexlo keeps one timestamp for the whole process, so any change since
-/// `stamp` counts, regardless of the item or time span. The answer can be
-/// "changed" when the item did not change but never "unchanged" after a
-/// change aexlo recorded.
+/// `stamp` counts. The item handle must be one aexlo knows, but the answer
+/// does not depend on the item or the time span, and the span is not read.
+/// The answer can be "changed" when the item did not change but never
+/// "unchanged" after a change aexlo recorded.
 unsafe extern "C" fn has_item_changed(
 	itemH: AEGP_ItemH,
 	_start: *const A_Time,
