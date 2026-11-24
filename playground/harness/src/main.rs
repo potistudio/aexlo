@@ -6,8 +6,8 @@
 //!
 //! ```text
 //! cargo run -p playground -- run                 # trace the probe under aexlo
-//! cargo run -p playground -- package             # build dist/AexloProbe.aex for real AE
-//! cargo run -p playground -- ae                  # trace the probe in real AE (Windows)
+//! cargo run -p playground -- package             # build both dist/*.aex for real AE
+//! cargo run -p playground -- ae                  # trace the legacy probe in real AE (Windows)
 //! cargo run -p playground -- report <trace>      # summarize one trace
 //! cargo run -p playground -- diff <ae> <aexlo>   # compare real AE vs aexlo
 //! cargo run -p playground -- pipl                # verify the embedded PiPL resource
@@ -24,6 +24,9 @@ mod pipl;
 #[cfg(test)]
 mod runtime_facts_test;
 
+mod variant;
+use variant::Variant;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -36,15 +39,16 @@ const USAGE: &str = "\
 playground - aexlo probe-plugin harness
 
 USAGE:
-  playground run [--release] [--in-process] [--trace <file>] [--input <png>]
+  playground run [--release] [--in-process] [--variant legacy|smart] [--trace <file>] [--input <png>]
       Build the probe, load it under aexlo, render a frame, and report the trace.
+      --variant smart runs the SmartRender effect at 8, 16 and 32 bpc.
   playground report <trace.jsonl>
       Summarize a single trace (from aexlo or from real After Effects).
   playground diff <a.jsonl> <b.jsonl> [--all]
       Compare two traces key-by-key. Exits 1 if they differ.
   playground package [--debug] [--to <dir>]
-      Build the probe and drop AexloProbe.aex (default: playground/dist/).
-  playground pipl [--release]
+      Build both probes: AexloProbe.aex and AexloProbeSmart.aex (default: playground/dist/).
+  playground pipl [--release] [--variant legacy|smart]
       Parse the PiPL resource back out of the built probe DLL (Windows).
   playground ae [--ae <AfterFX.exe>] [--trace <file>] [--frames <n>] [--input <png>]
                 [--plugin-dir <dir>] [--timeout <secs>] [--no-build]
@@ -88,16 +92,21 @@ fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 		.map(String::as_str)
 }
 
-/// `cargo build -p aexlo-probe` and return the built cdylib path.
-fn build_probe(release: bool) -> anyhow::Result<PathBuf> {
+/// `cargo build -p aexlo-probe` for `variant` and return the built cdylib path.
+fn build_probe(release: bool, variant: Variant) -> anyhow::Result<PathBuf> {
 	let root = workspace_root();
 
 	let mut cmd = Command::new("cargo");
-	cmd.current_dir(&root).args(["build", "-p", "aexlo-probe"]);
+	cmd.current_dir(&root)
+		.args(["build", "-p", "aexlo-probe"])
+		.args(variant.cargo_args(&root));
 	if release {
 		cmd.arg("--release");
 	}
-	anyhow::ensure!(cmd.status()?.success(), "cargo build -p aexlo-probe failed");
+	anyhow::ensure!(
+		cmd.status()?.success(),
+		"cargo build -p aexlo-probe ({variant:?}) failed"
+	);
 
 	let profile = if release { "release" } else { "debug" };
 	let file = format!(
@@ -105,7 +114,7 @@ fn build_probe(release: bool) -> anyhow::Result<PathBuf> {
 		std::env::consts::DLL_PREFIX,
 		std::env::consts::DLL_SUFFIX
 	);
-	let path = root.join("target").join(profile).join(file);
+	let path = variant.target_dir(&root).join(profile).join(file);
 	anyhow::ensure!(path.exists(), "built probe not found at {}", path.display());
 	Ok(path)
 }
@@ -114,10 +123,17 @@ fn run(args: &[String]) -> anyhow::Result<()> {
 	let root = workspace_root();
 	let release = flag(args, "--release");
 	let in_process = flag(args, "--in-process");
+	let variant = Variant::from_args(args)?;
+	// The in-process probe is the harness's own rlib dependency, built without
+	// the `smart` feature, so only the legacy effect can run in-process.
+	anyhow::ensure!(
+		!(in_process && variant == Variant::Smart),
+		"--in-process runs the legacy build only; run --variant smart without it"
+	);
 
 	let trace_path = option(args, "--trace")
 		.map(PathBuf::from)
-		.unwrap_or_else(|| root.join("target/probe/trace-aexlo.jsonl"));
+		.unwrap_or_else(|| root.join("target/probe").join(variant.trace_file()));
 	let input_path = option(args, "--input")
 		.map(PathBuf::from)
 		.unwrap_or_else(|| root.join("fixtures/input.png"));
@@ -134,7 +150,7 @@ fn run(args: &[String]) -> anyhow::Result<()> {
 		println!("{}", "loading probe in-process (breakpoint-friendly)".dimmed());
 		unsafe { aexlo::Host::get().from_entry_raw(aexlo_probe::EffectMain as *const () as usize) }?
 	} else {
-		let dll = build_probe(release)?;
+		let dll = build_probe(release, variant)?;
 		println!("{} {}", "loading".dimmed(), dll.display());
 		aexlo::Host::get().load(&dll)?
 	};
@@ -145,7 +161,8 @@ fn run(args: &[String]) -> anyhow::Result<()> {
 		.with_context(|| format!("failed to open input image {}", input_path.display()))?
 		.to_rgba8();
 	let (width, height) = img.dimensions();
-	instance.set_input_layer(Layer::<Depth8>::from_rgba8(img.into_raw(), width, height)?);
+	let input = Layer::<Depth8>::from_rgba8(img.into_raw(), width, height)?;
+	instance.set_input_layer(input.clone());
 
 	// Nudge every control off its default so parameter plumbing shows up in
 	// the trace and in the picture.
@@ -172,9 +189,9 @@ fn run(args: &[String]) -> anyhow::Result<()> {
 		}
 	}
 
-	instance.render_frame()?;
+	variant.render(&mut instance, &input)?;
 
-	let preview_path = root.join("target/probe/preview-aexlo.png");
+	let preview_path = root.join("target/probe").join(variant.preview_file());
 	aexlo_harness::preview::save_preview(&instance, &preview_path).map_err(anyhow::Error::msg)?;
 
 	// Unload triggers SEQUENCE_SETDOWN/GLOBAL_SETDOWN so the trace is complete.
@@ -254,6 +271,17 @@ fn print_report(path: &Path) -> anyhow::Result<()> {
 		println!("  {key} = {value}");
 	}
 
+	let smart: Vec<_> = summary
+		.range("gpu/".to_string().."gpu/~".to_string())
+		.chain(summary.range("smart/".to_string().."smart/~".to_string()))
+		.collect();
+	if !smart.is_empty() {
+		section("SmartRender / GPU (context - the smart.* facts are listed above)");
+		for (key, value) in smart {
+			println!("  {key} = {value}");
+		}
+	}
+
 	let panics: Vec<_> = summary.range("panic/".to_string().."panic/~".to_string()).collect();
 	if !panics.is_empty() {
 		section("Panics");
@@ -323,22 +351,31 @@ fn package(args: &[String]) -> anyhow::Result<()> {
 	let dist = option(args, "--to")
 		.map(PathBuf::from)
 		.unwrap_or_else(|| workspace_root().join("playground/dist"));
-	let target = package_probe(release, &dist)?;
 
-	println!("{} {}", "packaged:".bold(), target.display());
+	// Copy each build right after it finishes, under its own name, so both
+	// effects can be installed side by side.
+	for variant in Variant::ALL {
+		let target = package_probe(release, variant, &dist)?;
+		println!("{} {}", "packaged:".bold(), target.display());
+	}
+
 	println!();
-	println!("To test against real After Effects, run `playground ae`, or copy it into a plugin folder, e.g.:");
+	println!("To test against real After Effects, run `playground ae`, or copy them into a plugin folder, e.g.:");
 	println!("  C:\\Program Files\\Adobe\\Common\\Plug-ins\\7.0\\MediaCore\\");
-	println!("then apply Effect > aexlo > Aexlo Probe to a layer and render a frame.");
+	let names: Vec<_> = Variant::ALL.iter().map(|v| v.effect_name()).collect();
+	println!(
+		"then apply Effect > aexlo > {} to a layer and render a frame.",
+		names.join(" or ")
+	);
 	println!("The trace lands in %TEMP%\\aexlo-probe\\ (the effect's About dialog shows the path).");
 	Ok(())
 }
 
-/// Build the probe and copy it to `<dist>/AexloProbe.aex`.
-fn package_probe(release: bool, dist: &Path) -> anyhow::Result<PathBuf> {
-	let dll = build_probe(release)?;
+/// Build `variant` and copy it to `<dist>/<its file name in After Effects>`.
+fn package_probe(release: bool, variant: Variant, dist: &Path) -> anyhow::Result<PathBuf> {
+	let dll = build_probe(release, variant)?;
 	std::fs::create_dir_all(dist)?;
-	let target = dist.join("AexloProbe.aex");
+	let target = dist.join(variant.aex_name());
 	std::fs::copy(&dll, &target)?;
 	Ok(target)
 }
@@ -356,7 +393,7 @@ fn ae_cmd(_args: &[String]) -> anyhow::Result<()> {
 fn pipl_cmd(_args: &[String]) -> anyhow::Result<()> {
 	#[cfg(windows)]
 	{
-		let dll = build_probe(flag(_args, "--release"))?;
+		let dll = build_probe(flag(_args, "--release"), Variant::from_args(_args)?)?;
 		pipl::dump(&dll)
 	}
 

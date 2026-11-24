@@ -14,6 +14,14 @@ description = "Instrumented AE effect plugin that records host behavior to a JSO
 name = "aexlo_probe"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# Builds the SmartRender variant: a second effect ("Aexlo Probe Smart") that
+# declares PF_OutFlag2_SUPPORTS_SMART_RENDER, deep/float color and GPU
+# support. Out flags must match the PiPL, so the variant is a separate build,
+# not a runtime switch. `playground run --variant smart` builds it into its
+# own target dir so the two builds never overwrite each other.
+smart = []
+
 [dependencies]
 # Same version as the `aexlo` crate, so `after_effects::sys` struct layouts
 # match the host exactly. The probe deliberately talks to the raw `sys` ABI -

@@ -18,6 +18,7 @@ mod checks;
 mod inspect;
 mod probes;
 mod render;
+mod smart;
 mod trace;
 mod xform;
 
@@ -28,18 +29,49 @@ use trace::trace;
 
 // ---- Identity ----------------------------------------------------------
 // Keep in sync with build.rs: AE cross-checks the PiPL resource against what
-// GLOBAL_SETUP writes into out_data.
+// GLOBAL_SETUP writes into out_data. The `smart` feature builds the
+// SmartRender variant, a second effect with its own names and flags.
 
-pub const EFFECT_NAME: &str = "Aexlo Probe";
-pub const MATCH_NAME: &str = "AEXLO Probe";
+#[cfg(not(feature = "smart"))]
+mod identity {
+	use after_effects::sys as ae;
+
+	pub const VARIANT: &str = "legacy";
+	pub const EFFECT_NAME: &std::ffi::CStr = c"Aexlo Probe";
+	pub const MATCH_NAME: &std::ffi::CStr = c"AEXLO Probe";
+	pub const OUT_FLAGS: ae::PF_OutFlags = 0;
+	/// PF_OutFlag2_SUPPORTS_THREADED_RENDERING - also probes multi-frame
+	/// rendering: concurrent RENDERs show up as interleaved `tid`s in the trace.
+	pub const OUT_FLAGS2: ae::PF_OutFlags2 = ae::PF_OutFlag2_SUPPORTS_THREADED_RENDERING as ae::PF_OutFlags2;
+}
+
+#[cfg(feature = "smart")]
+mod identity {
+	use after_effects::sys as ae;
+
+	pub const VARIANT: &str = "smart";
+	pub const EFFECT_NAME: &std::ffi::CStr = c"Aexlo Probe Smart";
+	pub const MATCH_NAME: &std::ffi::CStr = c"AEXLO Probe Smart";
+	/// 16 bpc needs PF_OutFlag_DEEP_COLOR_AWARE.
+	pub const OUT_FLAGS: ae::PF_OutFlags = ae::PF_OutFlag_DEEP_COLOR_AWARE as ae::PF_OutFlags;
+	/// Threaded rendering as in the legacy variant, plus SmartRender, 32 bpc,
+	/// and GPU support. The GPU flag only gets the host to send
+	/// GPU_DEVICE_SETUP and a GPU pre-render, whose inputs are recorded as
+	/// context: the pre-render never sets PF_RenderOutputFlag_GPU_RENDER_POSSIBLE,
+	/// so every frame renders on the CPU.
+	pub const OUT_FLAGS2: ae::PF_OutFlags2 = (ae::PF_OutFlag2_SUPPORTS_THREADED_RENDERING
+		| ae::PF_OutFlag2_SUPPORTS_SMART_RENDER
+		| ae::PF_OutFlag2_FLOAT_COLOR_AWARE
+		| ae::PF_OutFlag2_SUPPORTS_GPU_RENDER_F32) as ae::PF_OutFlags2;
+}
+
+pub use identity::{EFFECT_NAME, MATCH_NAME, VARIANT};
+use identity::{OUT_FLAGS, OUT_FLAGS2};
+
 pub const CATEGORY: &str = "aexlo";
 
 /// PF_VERSION(1, 0, 0, PF_Stage_RELEASE, 1)
 const PROBE_PF_VERSION: u32 = (1 << 19) | (3 << 9) | 1;
-const OUT_FLAGS: ae::PF_OutFlags = 0;
-/// PF_OutFlag2_SUPPORTS_THREADED_RENDERING - also probes multi-frame
-/// rendering: concurrent RENDERs show up as interleaved `tid`s in the trace.
-const OUT_FLAGS2: ae::PF_OutFlags2 = 0x0800_0000;
 
 /// Marker written into sequence data so RESETUP/SETDOWN can verify the host
 /// preserved our handle contents.
@@ -86,8 +118,8 @@ pub unsafe extern "C" fn PluginDataEntryFunction2(
 	unsafe {
 		callback(
 			in_ptr,
-			c"Aexlo Probe".as_ptr() as *const ae::A_u_char,
-			c"AEXLO Probe".as_ptr() as *const ae::A_u_char,
+			EFFECT_NAME.as_ptr() as *const ae::A_u_char,
+			MATCH_NAME.as_ptr() as *const ae::A_u_char,
 			c"aexlo".as_ptr() as *const ae::A_u_char,
 			c"EffectMain".as_ptr() as *const ae::A_u_char,
 			i32::from_be_bytes(*b"eFKT"),
@@ -228,11 +260,22 @@ unsafe fn dispatch(
 		}
 
 		ae::PF_Cmd_RENDER => unsafe {
-			// After Effects refuses the World Transform Suite during
-			// GLOBAL_SETUP (PF_Err_INVALID_CALLBACK), so these run once, here.
-			static XFORM: std::sync::Once = std::sync::Once::new();
-			XFORM.call_once(|| checks::guarded_xform(in_data));
+			xform_once(in_data);
 			render::render(in_data, params, output)
+		},
+
+		ae::PF_Cmd_SMART_PRE_RENDER => unsafe { smart::pre_render(in_data, extra.cast()) },
+
+		ae::PF_Cmd_SMART_RENDER => unsafe {
+			xform_once(in_data);
+			smart::render(in_data, extra.cast())
+		},
+
+		ae::PF_Cmd_GPU_DEVICE_SETUP => unsafe { smart::gpu_device_setup(in_data, out_data, extra.cast(), OUT_FLAGS2) },
+
+		ae::PF_Cmd_GPU_DEVICE_SETDOWN => unsafe {
+			smart::gpu_device_setdown(extra.cast());
+			none
 		},
 
 		ae::PF_Cmd_USER_CHANGED_PARAM => {
@@ -248,6 +291,14 @@ unsafe fn dispatch(
 		// Everything else is already fully captured by the begin/end events.
 		_ => none,
 	}
+}
+
+/// The World Transform and Batch Sampling facts, once per process. After
+/// Effects refuses the World Transform Suite during GLOBAL_SETUP
+/// (PF_Err_INVALID_CALLBACK), so they run in the first render, legacy or smart.
+unsafe fn xform_once(in_data: *mut ae::PF_InData) {
+	static XFORM: std::sync::Once = std::sync::Once::new();
+	XFORM.call_once(|| checks::guarded_xform(in_data));
 }
 
 /// About text doubles as discovery UX: inside AE, the effect's About dialog
