@@ -1,6 +1,6 @@
 //! `AEGP Layer Render Options Suite` (wire version 2), `AEGP Render Options
-//! Suite` (wire version 4) and `AEGP Render Suite` (wire version 8,
-//! `AEGP_RenderSuite5`).
+//! Suite` (wire version 4) and `AEGP Render Suite` (wire version 5,
+//! `AEGP_RenderSuite4`, and wire version 8, `AEGP_RenderSuite5`).
 //!
 //! Looks checks out the upstream frame at 16 or 32 bits per channel and blurs
 //! that copy for Edge Softness. The effect's own input is often 8-bit, which
@@ -16,8 +16,8 @@ use crate::sys::{
 	AEGP_CancelRefcon, AEGP_ChannelOrder, AEGP_EffectRefH, AEGP_FrameReceiptH, AEGP_ItemH, AEGP_ItemQuality,
 	AEGP_ItemQuality_BEST, AEGP_LayerH, AEGP_LayerRenderOptionsH, AEGP_LayerRenderOptionsSuite2, AEGP_MatteMode,
 	AEGP_MemHandle, AEGP_PlatformWorldH, AEGP_PluginID, AEGP_RenderOptionsH, AEGP_RenderOptionsSuite4,
-	AEGP_RenderSuite5, AEGP_RenderSuiteCheckForCancel, AEGP_SoundDataFormat, AEGP_SoundDataH, AEGP_TimeStamp,
-	AEGP_WorldH, AEGP_WorldType, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_Field, PF_ProgPtr,
+	AEGP_RenderSuite4, AEGP_RenderSuite5, AEGP_RenderSuiteCheckForCancel, AEGP_SoundDataFormat, AEGP_SoundDataH,
+	AEGP_TimeStamp, AEGP_WorldH, AEGP_WorldType, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_Field, PF_ProgPtr,
 };
 
 use super::aegp_world;
@@ -415,6 +415,31 @@ unsafe extern "C" fn render_and_checkout_layer_frame(
 	})
 }
 
+/// `AEGP_RenderSuite4`'s layer checkout, which `AEGP_RenderSuite5` dropped the
+/// flag from. `false` asks for the effect's input, as `AEGP_RenderSuite5`
+/// always does. `true` asks for the layer's own frame; the SDK does not say
+/// which of the layer's effects and masks that frame includes, so it is
+/// declined.
+unsafe extern "C" fn render_and_checkout_layer_frame_4(
+	optionsH: AEGP_LayerRenderOptionsH,
+	render_plain_layer_frameB: A_Boolean,
+	cancel: AEGP_RenderSuiteCheckForCancel,
+	refcon: AEGP_CancelRefcon,
+	receipt_out: *mut AEGP_FrameReceiptH,
+) -> A_Err {
+	if render_plain_layer_frameB != 0 {
+		return crate::core::ffi::guard("render_and_checkout_layer_frame_4", || {
+			crate::observe::unsupported(
+				crate::observe::UnsupportedKind::Declined,
+				"AEGP_RenderSuite4/AEGP_RenderAndCheckoutLayerFrame",
+				"render_plain_layer_frameB = true (the layer's own frame) is not served",
+			);
+			crate::sys::A_Err_GENERIC
+		});
+	}
+	unsafe { render_and_checkout_layer_frame(optionsH, cancel, refcon, receipt_out) }
+}
+
 unsafe extern "C" fn render_layer_async(
 	_optionsH: AEGP_LayerRenderOptionsH,
 	_callback: crate::sys::AEGP_AsyncFrameReadyCallback,
@@ -520,6 +545,23 @@ unsafe extern "C" fn checkin_rendered_frame(
 
 unsafe extern "C" fn get_receipt_guid(_receiptH: AEGP_FrameReceiptH, _guid_out: *mut AEGP_MemHandle) -> A_Err {
 	crate::core::ffi::guard("get_receipt_guid", || PF_Err_BAD_CALLBACK_PARAM)
+}
+
+pub const fn render_suite_4() -> AEGP_RenderSuite4 {
+	AEGP_RenderSuite4 {
+		AEGP_RenderAndCheckoutFrame: Some(render_and_checkout_frame),
+		AEGP_RenderAndCheckoutLayerFrame: Some(render_and_checkout_layer_frame_4),
+		AEGP_CheckinFrame: Some(checkin_frame),
+		AEGP_GetReceiptWorld: Some(get_receipt_world),
+		AEGP_GetRenderedRegion: Some(get_rendered_region),
+		AEGP_IsRenderedFrameSufficient: Some(is_rendered_sufficient),
+		AEGP_RenderNewItemSoundData: Some(render_new_item_sound),
+		AEGP_GetCurrentTimestamp: Some(get_current_timestamp),
+		AEGP_HasItemChangedSinceTimestamp: Some(has_item_changed),
+		AEGP_IsItemWorthwhileToRender: Some(is_item_worthwhile),
+		AEGP_CheckinRenderedFrame: Some(checkin_rendered_frame),
+		AEGP_GetReceiptGuid: Some(get_receipt_guid),
+	}
 }
 
 pub const fn render_suite_5() -> AEGP_RenderSuite5 {
@@ -923,6 +965,33 @@ mod tests {
 		assert_eq!(kind, 2);
 		assert_eq!(unsafe { suite.AEGP_Dispose.unwrap()(copy) }, PF_Err_NONE);
 		assert_eq!(unsafe { suite.AEGP_Dispose.unwrap()(options) }, PF_Err_NONE);
+	}
+
+	/// AutoFill2 reads `AEGP_GetCurrentTimestamp` at offset 0x38 of the suite
+	/// it acquires as wire version 5: `AEGP_RenderSuite4`, without the two
+	/// async entries of `AEGP_RenderSuite5`.
+	#[test]
+	fn render_suite_4_uses_its_own_abi_layout() {
+		assert_eq!(std::mem::offset_of!(AEGP_RenderSuite4, AEGP_GetCurrentTimestamp), 0x38);
+		assert_eq!(std::mem::offset_of!(AEGP_RenderSuite5, AEGP_GetCurrentTimestamp), 0x48);
+		let suite = render_suite_4();
+		assert!(suite.AEGP_RenderAndCheckoutFrame.is_some() && suite.AEGP_GetReceiptGuid.is_some());
+	}
+
+	#[test]
+	fn render_suite_4_declines_the_plain_layer_frame() {
+		let checkout = render_suite_4().AEGP_RenderAndCheckoutLayerFrame.unwrap();
+		let options = publish_options(fresh_options(std::ptr::null_mut()));
+		let mut receipt = std::ptr::null_mut();
+		let err = unsafe { checkout(options, 1, None, std::ptr::null_mut(), &mut receipt) };
+		assert_eq!(err, crate::sys::A_Err_GENERIC);
+		assert!(receipt.is_null());
+		// The effect input goes through `AEGP_RenderSuite5`'s checkout, which
+		// refuses options that name no instance.
+		let err = unsafe { checkout(options, 0, None, std::ptr::null_mut(), &mut receipt) };
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
+		assert!(receipt.is_null());
+		assert_eq!(unsafe { dispose_options(options) }, PF_Err_NONE);
 	}
 
 	#[test]

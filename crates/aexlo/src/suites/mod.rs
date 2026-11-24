@@ -138,6 +138,7 @@ static AEGP_ITEM_8: AEGP_ItemSuite8 = aegp_item::suite_8();
 static AEGP_ITEM_9: AEGP_ItemSuite9 = aegp_item::suite_9();
 static AEGP_LAYER_RENDER_OPTIONS_2: AEGP_LayerRenderOptionsSuite2 = aegp_render::layer_render_options_suite_2();
 static AEGP_RENDER_OPTIONS_4: AEGP_RenderOptionsSuite4 = aegp_render::render_options_suite_4();
+static AEGP_RENDER_4: AEGP_RenderSuite4 = aegp_render::render_suite_4();
 static AEGP_RENDER_5: AEGP_RenderSuite5 = aegp_render::render_suite_5();
 static COLOR_SETTINGS_5: AEGP_ColorSettingsSuite5 = color_settings::create_color_settings_suite_5();
 use std::ffi::CStr;
@@ -525,6 +526,10 @@ pub unsafe extern "C" fn rusty_acquire_suite(name: *const i8, version: i32, suit
 			unsafe { *suite = &AEGP_RENDER_OPTIONS_4 as *const _ as *const c_void };
 			PF_Err_NONE
 		}
+		("AEGP Render Suite", v) if v == kAEGPRenderSuiteVersion4 as i32 => {
+			unsafe { *suite = &AEGP_RENDER_4 as *const _ as *const c_void };
+			PF_Err_NONE
+		}
 		("AEGP Render Suite", v) if v == kAEGPRenderSuiteVersion5 as i32 => {
 			unsafe { *suite = &AEGP_RENDER_5 as *const _ as *const c_void };
 			PF_Err_NONE
@@ -809,6 +814,7 @@ mod tests {
 			("AEGP Layer Render Options Suite", 1),
 			("AEGP Layer Render Options Suite", 2),
 			("AEGP Render Options Suite", 4),
+			("AEGP Render Suite", 5),
 			("AEGP Render Suite", 8),
 			("AEGP World Suite", 3),
 			("AEGP Utility Suite", 3),

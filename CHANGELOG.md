@@ -117,6 +117,11 @@ plugin renders or returns.
   takes an installed-effect key and is refused like the rest of the
   installed-effect registry. Falloff needs v5 to free its effect handle in
   `PF_Cmd_SMART_PRE_RENDER`.
+- "AEGP Render Suite" at wire version 5 (`AEGP_RenderSuite4`). It serves what
+  wire version 8 does; its `AEGP_RenderAndCheckoutLayerFrame` checks out the
+  effect's input, and declines `render_plain_layer_frameB = true`. AutoFill2
+  acquires it in `PF_Cmd_SMART_PRE_RENDER` and crashed when the acquire
+  failed.
 
 ### Changed
 
