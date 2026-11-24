@@ -22,7 +22,7 @@ const SIZE: (u32, u32) = (128, 96);
 
 #[derive(Default)]
 struct Record {
-	/// What each `AEGP_GetCurrentTimestamp` returned.
+	/// What each `AEGP_GetCurrentTimestamp` call returned.
 	stamps: Mutex<Vec<Option<String>>>,
 	gaps: Mutex<Vec<String>>,
 }

@@ -126,10 +126,11 @@ plugin renders or returns.
 - `AEGP_GetCurrentTimestamp` returns a project timestamp, where it was
   refused. One counter serves the whole process. It increases when an
   instance's parameters, input layer, layer parameters, masks, text layer,
-  project or output size change, and after each `PF_Cmd_USER_CHANGED_PARAM`,
-  `PF_Cmd_UPDATE_PARAMS_UI`, `PF_Cmd_DO_DIALOG`, and `PF_Cmd_EVENT` for a
-  click or a drag, in which a plugin may change its own values. Drawing a
-  custom control and `PluginInstance::set_time` do not increase it. AutoFill2 asks for it in `PF_Cmd_SMART_PRE_RENDER`.
+  project or output size change, and after the commands in which a plugin
+  may change its own values: `PF_Cmd_USER_CHANGED_PARAM`,
+  `PF_Cmd_UPDATE_PARAMS_UI`, `PF_Cmd_DO_DIALOG` and `PF_Cmd_EVENT` for a
+  click or a drag. Drawing a custom control and `PluginInstance::set_time`
+  do not increase it. AutoFill2 asks for it in `PF_Cmd_SMART_PRE_RENDER`.
 
 ### Changed
 

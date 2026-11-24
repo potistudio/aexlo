@@ -907,12 +907,12 @@ impl PluginInstance {
 			command,
 			RawCommand::UserChangedParam | RawCommand::UpdateParamsUi | RawCommand::Event | RawCommand::DoDialog
 		);
-		// aexlo cannot tell whether the plugin did, so each of them, even a
-		// failed one, moves the project timestamp. That includes
-		// `PF_Cmd_UPDATE_PARAMS_UI`: the SDK forbids changing values there,
-		// but the plugin holds the `params` array and can write to it anyway.
-		// `dispatch_effect_event` moves it for the events that may change
-		// values, so that drawing a control leaves it alone.
+		// aexlo cannot tell whether the plugin changed any values, so each of
+		// the commands below, even a failed one, moves the project timestamp.
+		// That includes `PF_Cmd_UPDATE_PARAMS_UI`: the SDK forbids changing
+		// values there, but the plugin holds the `params` array and can write
+		// to it anyway. `dispatch_effect_event` moves it only for the events
+		// that may change values, so drawing a control leaves it unchanged.
 		if matches!(
 			command,
 			RawCommand::UserChangedParam | RawCommand::UpdateParamsUi | RawCommand::DoDialog
