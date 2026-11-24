@@ -403,7 +403,7 @@ fn has_item_changed_answers_from_the_project_timestamp() {
 			(err, out)
 		};
 		// Other tests move the shared timestamp too: only an answer given while
-		// it stood still has to be "unchanged".
+		// it did not change has to be "unchanged".
 		let unchanged = (0..1000).find_map(|_| {
 			let before = stamp();
 			let answer = changed_since(item, before);
@@ -414,7 +414,8 @@ fn has_item_changed_answers_from_the_project_timestamp() {
 		let changed = changed_since(item, old);
 		let refused = [
 			changed_since(std::ptr::null_mut(), old).0,
-			// SAFETY: aexlo refuses the null pointers before it reads anything.
+			// SAFETY: the non-null pointers are live, and aexlo refuses a null
+			// pointer before it dereferences it.
 			unsafe { ask(item, &time, &time, std::ptr::null(), &mut 0) },
 			unsafe { ask(item, &time, &time, &AEGP_TimeStamp { a: old }, std::ptr::null_mut()) },
 		];

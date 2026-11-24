@@ -542,12 +542,13 @@ unsafe extern "C" fn get_current_timestamp(stamp_out: *mut AEGP_TimeStamp) -> A_
 	})
 }
 
-/// Whether the project changed since `stamp` (see [`crate::timestamp`]).
+/// Whether the project timestamp changed since `stamp` (see
+/// [`crate::timestamp`]).
 ///
-/// aexlo keeps one timestamp for the whole process, so any change since then
-/// counts, whatever the item and the time span asked about. The answer may
-/// be "changed" when the item did not change, but never "unchanged" when it
-/// did.
+/// aexlo keeps one timestamp for the whole process, so any change since
+/// `stamp` counts, regardless of the item or time span. The answer can be
+/// "changed" when the item did not change but never "unchanged" after a
+/// change aexlo recorded.
 unsafe extern "C" fn has_item_changed(
 	itemH: AEGP_ItemH,
 	_start: *const A_Time,
@@ -558,7 +559,7 @@ unsafe extern "C" fn has_item_changed(
 	crate::core::ffi::guard("has_item_changed", || {
 		diag!("AEGP_RenderSuite/AEGP_HasItemChangedSinceTimestamp",
 			"itemH" => format!("{:#x}", itemH as usize));
-		// SAFETY: a non-null stamp is the caller's, for this call.
+		// SAFETY: a non-null stamp is the caller's for this call.
 		let Some(stamp) = (unsafe { stamp.as_ref() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
