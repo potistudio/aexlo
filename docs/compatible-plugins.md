@@ -84,8 +84,9 @@ host runs it. The plugin shrinks the layer into a buffer of
 `(width / Factor) x (height / Factor)` pixels, with `Factor` (4 by default)
 truncated to an integer. When the layer is narrower or shorter than `Factor`,
 that buffer is empty, and the plugin reads its null data. With `Factor` set
-to 1, a 1x1 layer renders. `tests/e2e/tests/heisei_demo.rs` checks that the
-layers `Factor` fits render; the crash itself is what `compat` measured.
+to 1, a 1x1 layer renders. `tests/e2e/tests/heisei_demo.rs` checks that a
+layer renders when `Factor` fits in it; the crash itself was measured with
+`compat`.
 
 Only its 8 bpc output is right. The plugin declares 16 bpc
 (`PF_OutFlag_DEEP_COLOR_AWARE`), but reads and writes a 16 bpc world as if
