@@ -49,9 +49,10 @@ fn render(instance: &mut PluginInstance) -> Vec<u8> {
 	out
 }
 
-/// The sample frame renders opaque and changed. The render calls nothing on
-/// the host (loading only registers parameters through `add_param`), and the
-/// plugin asks for nothing aexlo does not serve.
+/// The sample frame renders opaque and changed. On the thread that dispatches
+/// it, the render calls nothing on the host (loading only registers parameters
+/// through `add_param`); `ObserveLevel::Calls` does not see iterate worker
+/// threads. The plugin asks for nothing aexlo does not serve.
 #[needs_fixture("HEISEI_DEMO")]
 #[test]
 fn renders_the_sample_frame() {
@@ -78,9 +79,9 @@ fn renders_the_sample_frame() {
 	assert!(unsupported.is_empty(), "unsupported calls: {unsupported:?}");
 }
 
-/// A layer smaller than `Factor` renders once `Factor` fits in it, so the
-/// crash at the default `Factor` comes from the plugin's own integer division,
-/// not from a gap in aexlo.
+/// A layer no bigger than `Factor` renders once `trunc(Factor)` fits in it,
+/// so the crash at the default `Factor` comes from the plugin's own integer
+/// division, not from a gap in aexlo.
 #[needs_fixture("HEISEI_DEMO")]
 #[test]
 fn renders_a_tiny_layer_when_factor_fits() {
