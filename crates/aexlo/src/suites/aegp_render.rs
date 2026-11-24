@@ -529,10 +529,11 @@ unsafe extern "C" fn render_new_item_sound(
 /// The project timestamp (see [`crate::timestamp`]).
 unsafe extern "C" fn get_current_timestamp(stamp_out: *mut AEGP_TimeStamp) -> A_Err {
 	crate::core::ffi::guard("get_current_timestamp", || {
+		let stamp = crate::timestamp::current();
 		if stamp_out.is_null() {
+			diag!("AEGP_RenderSuite/AEGP_GetCurrentTimestamp"; result: "refused: stamp_out is null");
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
-		let stamp = crate::timestamp::current();
 		diag!("AEGP_RenderSuite/AEGP_GetCurrentTimestamp"; result: u32::from_le_bytes(stamp));
 		let a = stamp.map(|byte| byte as crate::sys::A_char);
 		// SAFETY: checked non-null; the caller owns the timestamp.
@@ -1117,6 +1118,7 @@ mod tests {
 
 	#[test]
 	fn unserved_render_functions_report_themselves() {
+		use std::ptr::null_mut;
 		#[derive(Default)]
 		struct Gaps(Mutex<Vec<String>>);
 		impl crate::Observer for Gaps {
@@ -1126,22 +1128,47 @@ mod tests {
 			}
 		}
 		let gaps = std::sync::Arc::new(Gaps::default());
-		let changed = render_suite_5().AEGP_HasItemChangedSinceTimestamp.unwrap();
+		let suite = render_suite_5();
 		let stamp = AEGP_TimeStamp { a: [0; 4] };
 		let time = A_Time { value: 0, scale: 1 };
-		let mut out: A_Boolean = 0;
-		let err = {
+		let mut flag: A_Boolean = 0;
+		let errs = {
 			let installed = crate::observe::Installed {
 				observer: gaps.clone(),
 				level: crate::ObserveLevel::Commands,
 			};
 			let _guard = crate::observe::enter(Some(&installed));
-			unsafe { changed(std::ptr::null_mut(), &time, &time, &stamp, &mut out) }
+			// SAFETY: every one of them refuses before it reads an argument.
+			unsafe {
+				[
+					suite.AEGP_IsRenderedFrameSufficient.unwrap()(null_mut(), null_mut(), &mut flag),
+					suite.AEGP_RenderNewItemSoundData.unwrap()(
+						null_mut(),
+						&time,
+						&time,
+						std::ptr::null(),
+						None,
+						null_mut(),
+						null_mut(),
+					),
+					suite.AEGP_HasItemChangedSinceTimestamp.unwrap()(null_mut(), &time, &time, &stamp, &mut flag),
+					suite.AEGP_IsItemWorthwhileToRender.unwrap()(null_mut(), &stamp, &mut flag),
+					suite.AEGP_CheckinRenderedFrame.unwrap()(null_mut(), &stamp, 0, null_mut()),
+					suite.AEGP_GetReceiptGuid.unwrap()(null_mut(), null_mut()),
+				]
+			}
 		};
-		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
+		assert_eq!(errs, [PF_Err_BAD_CALLBACK_PARAM; 6]);
 		assert_eq!(
 			*gaps.0.lock().unwrap(),
-			["Stub AEGP_RenderSuite/AEGP_HasItemChangedSinceTimestamp"]
+			[
+				"Stub AEGP_RenderSuite/AEGP_IsRenderedFrameSufficient",
+				"Stub AEGP_RenderSuite/AEGP_RenderNewItemSoundData",
+				"Stub AEGP_RenderSuite/AEGP_HasItemChangedSinceTimestamp",
+				"Stub AEGP_RenderSuite/AEGP_IsItemWorthwhileToRender",
+				"Stub AEGP_RenderSuite/AEGP_CheckinRenderedFrame",
+				"Stub AEGP_RenderSuite/AEGP_GetReceiptGuid",
+			]
 		);
 	}
 

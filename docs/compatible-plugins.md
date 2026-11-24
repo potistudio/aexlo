@@ -79,8 +79,8 @@ Measured on Windows 10 x64 with aexlo v0.3.0, on 2026-11-24, over
 AutoFill2 is compatible on Windows. In `PF_Cmd_SMART_PRE_RENDER` it acquires
 "AEGP Render Suite" at wire version 5 (`AEGP_RenderSuite4`) and calls
 `AEGP_GetCurrentTimestamp` through it. aexlo returns a project timestamp to
-it, which increases whenever something that affects rendering changes. The fixture
-is unlicensed, so its output carries a red cross.
+it, which increases whenever something that affects rendering changes. The
+fixture is unlicensed, so its output carries a red cross.
 
 HEISEI_DEMO is Windows-only, so it is not in the macOS fixtures above. Its
 coverage is 98.1%, so it is not on the list either: one scenario crashes in

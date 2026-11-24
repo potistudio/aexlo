@@ -127,9 +127,9 @@ plugin renders or returns.
   refused. One counter serves the whole process. It increases when an
   instance's parameters, input layer, layer parameters, masks, text layer,
   project or output size change, and after each `PF_Cmd_USER_CHANGED_PARAM`,
-  `PF_Cmd_UPDATE_PARAMS_UI`, `PF_Cmd_EVENT` and `PF_Cmd_DO_DIALOG`, in which
-  a plugin may change its own values. `PluginInstance::set_time` does not
-  increase it. AutoFill2 asks for it in `PF_Cmd_SMART_PRE_RENDER`.
+  `PF_Cmd_UPDATE_PARAMS_UI`, `PF_Cmd_DO_DIALOG`, and `PF_Cmd_EVENT` for a
+  click or a drag, in which a plugin may change its own values. Drawing a
+  custom control and `PluginInstance::set_time` do not increase it. AutoFill2 asks for it in `PF_Cmd_SMART_PRE_RENDER`.
 
 ### Changed
 
@@ -139,7 +139,8 @@ plugin renders or returns.
   `AEGP_IsItemWorthwhileToRender`, `AEGP_CheckinRenderedFrame` and
   `AEGP_GetReceiptGuid`. They still return `PF_Err_BAD_CALLBACK_PARAM`, but
   `aexlo compat` now counts a scenario in which a plugin calls them and
-  still runs as `partial`.
+  still runs as `partial`. Such a scenario was `ok` in a baseline saved
+  before this change, so `--baseline` reports it as worse and exits 1.
 - `aexlo compat` counts a `render:legacy@*` scenario as `n/a`, not `error`,
   when the plugin declares smart render and returns a `PF_Err` from
   `PF_Cmd_RENDER`. After Effects never sends that command to a smart-render

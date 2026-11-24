@@ -902,14 +902,21 @@ impl PluginInstance {
 
 		self.effect_state.absorb(&self.out_data);
 
-		// The commands in which a plugin changes its own values. aexlo cannot
-		// tell whether it did, so each of them, even a failed one, moves the
-		// project timestamp.
+		// The commands in which a plugin changes its own values.
 		let may_change_values = matches!(
 			command,
 			RawCommand::UserChangedParam | RawCommand::UpdateParamsUi | RawCommand::Event | RawCommand::DoDialog
 		);
-		if may_change_values {
+		// aexlo cannot tell whether the plugin did, so each of them, even a
+		// failed one, moves the project timestamp. That includes
+		// `PF_Cmd_UPDATE_PARAMS_UI`: the SDK forbids changing values there,
+		// but the plugin holds the `params` array and can write to it anyway.
+		// `dispatch_effect_event` moves it for the events that may change
+		// values, so that drawing a control leaves it alone.
+		if matches!(
+			command,
+			RawCommand::UserChangedParam | RawCommand::UpdateParamsUi | RawCommand::DoDialog
+		) {
 			crate::timestamp::touch();
 		}
 

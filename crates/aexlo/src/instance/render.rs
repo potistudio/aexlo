@@ -98,6 +98,11 @@ impl PluginInstance {
 			};
 		}
 		let result = self.call_plugin(RawCommand::Event, (&mut extra as *mut crate::sys::PF_EventExtra).cast());
+		// A click or drag may change values; drawing and setting up a
+		// context do not.
+		if matches!(event, crate::sys::PF_Event_DO_CLICK | crate::sys::PF_Event_DRAG) {
+			crate::timestamp::touch();
+		}
 		// The draw ref is only valid for this DRAW. A later click must not
 		// see a surface the rasteriser has already finished.
 		kept.clear_draw_ref();

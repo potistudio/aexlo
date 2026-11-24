@@ -511,3 +511,39 @@ fn every_change_that_affects_rendering_moves_the_timestamp() {
 	fx.set_project(None);
 	assert_eq!(touches_on_this_thread(), before);
 }
+
+#[test]
+fn commands_in_which_a_plugin_may_change_values_move_the_timestamp() {
+	use crate::timestamp::touches_on_this_thread as touches;
+	unsafe extern "C" fn entry(
+		_cmd: PF_Cmd,
+		_input: *mut crate::sys::PF_InData,
+		_output: *mut crate::sys::PF_OutData,
+		_params: crate::sys::PF_ParamList,
+		_world: *mut crate::sys::PF_LayerDef,
+		_extra: *mut c_void,
+	) -> crate::sys::PF_Err {
+		PF_Err_NONE
+	}
+	let mut fx = unsafe { Host::get().entry_loader(entry) }.size(16, 16).load().unwrap();
+	for command in [
+		RawCommand::UserChangedParam,
+		RawCommand::UpdateParamsUi,
+		RawCommand::DoDialog,
+	] {
+		let before = touches();
+		fx.call_plugin(command, std::ptr::null_mut()).unwrap();
+		assert!(touches() > before, "{command:?} left the timestamp alone");
+	}
+	let before = touches();
+	fx.click_custom_control(1, 4, 4, 32, 16).unwrap();
+	assert!(touches() > before, "a click left the timestamp alone");
+
+	// Drawing a control, rendering and asking for the about box change nothing.
+	let before = touches();
+	fx.draw_custom_control(1, 32, 16).unwrap();
+	fx.draw_custom_control(2, 32, 16).unwrap();
+	fx.render_frame().unwrap();
+	fx.about().unwrap();
+	assert_eq!(touches(), before);
+}

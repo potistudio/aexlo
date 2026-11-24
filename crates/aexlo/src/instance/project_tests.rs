@@ -364,3 +364,17 @@ fn a_comp_without_a_camera_has_the_default_one() {
 	);
 	assert_eq!(kind, A_Err_GENERIC, "a layer that is no camera has no camera type");
 }
+
+#[test]
+fn a_new_project_moves_the_timestamp_and_the_same_one_does_not() {
+	use crate::timestamp::touches_on_this_thread as touches;
+	let mut fx = PluginInstance::new(std::path::Path::new("<test>"));
+	let before = touches();
+	fx.set_project(Some(three_layers()));
+	assert!(touches() > before, "a new project left the timestamp alone");
+	let before = touches();
+	fx.set_project(Some(three_layers()));
+	assert_eq!(touches(), before, "the same project moved the timestamp");
+	fx.set_project(None);
+	assert!(touches() > before, "dropping the project left the timestamp alone");
+}

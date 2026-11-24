@@ -22,14 +22,16 @@ const SIZE: (u32, u32) = (128, 96);
 
 #[derive(Default)]
 struct Record {
-	calls: Mutex<Vec<String>>,
+	/// What each `AEGP_GetCurrentTimestamp` returned.
+	stamps: Mutex<Vec<Option<String>>>,
 	gaps: Mutex<Vec<String>>,
 }
 
 impl Observer for Record {
 	fn suite_call(&self, event: &SuiteCallEvent) {
-		let call = format!("{}::{}", event.suite, event.function);
-		self.calls.lock().unwrap().push(call);
+		if (event.suite, event.function) == ("AEGP_RenderSuite", "AEGP_GetCurrentTimestamp") {
+			self.stamps.lock().unwrap().push(event.result.clone());
+		}
 	}
 
 	fn unsupported(&self, event: &UnsupportedEvent) {
@@ -57,7 +59,7 @@ fn gradient_with_blue(blue: u8) -> Layer<Depth8> {
 fn load(record: Arc<Record>) -> PluginInstance {
 	let mut instance = aexlo::Host::get()
 		.loader(test_e2e::fixture("AutoFill2"))
-		.observer(record, ObserveLevel::Calls)
+		.observer(record, ObserveLevel::Arguments)
 		.size(SIZE.0, SIZE.1)
 		.load()
 		.expect("failed to load plugin");
@@ -74,8 +76,9 @@ fn render_at(instance: &mut PluginInstance, frame: i32) -> Vec<u8> {
 	out
 }
 
-/// The fill grows over time, the plugin calls `AEGP_GetCurrentTimestamp`, and
-/// nothing it asks for is reported unsupported.
+/// The fill grows over time, the plugin gets a timestamp from every
+/// `AEGP_GetCurrentTimestamp` call, and nothing it asks for is reported
+/// unsupported.
 #[needs_fixture("AutoFill2")]
 #[test]
 fn grows_a_fill_through_smart_render() {
@@ -84,12 +87,13 @@ fn grows_a_fill_through_smart_render() {
 	let start = render_at(&mut instance, 0);
 	let later = render_at(&mut instance, 45);
 	assert_ne!(start, later, "the fill did not grow between frames 0 and 45");
-	let calls = record.calls.lock().unwrap();
+	let stamps = record.stamps.lock().unwrap();
+	assert!(!stamps.is_empty(), "the plugin never asked for the timestamp");
 	assert!(
-		calls
+		stamps
 			.iter()
-			.any(|call| call == "AEGP_RenderSuite::AEGP_GetCurrentTimestamp"),
-		"the plugin never asked for the timestamp: {calls:?}"
+			.all(|stamp| stamp.as_deref().is_some_and(|s| s.parse::<u32>().is_ok())),
+		"a timestamp call was refused: {stamps:?}"
 	);
 	let gaps = record.gaps.lock().unwrap();
 	assert!(gaps.is_empty(), "unsupported calls: {gaps:?}");
