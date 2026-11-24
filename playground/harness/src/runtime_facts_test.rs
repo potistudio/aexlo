@@ -9,21 +9,31 @@
 //! is correct without a real After Effects install to diff against (that's
 //! what `playground -- diff` is for, and it's a manual, not-CI step).
 //!
-//! Facts fall into two groups, and this file has one test per group:
+//! Facts fall into three groups, and this file has one test per group:
 //! - Implemented suites/callbacks: asserted against independently-derived
 //!   expected values (std math, the documented premultiply formula, plain
 //!   pixel-rect arithmetic) -- never copied from a previous run's output.
 //! - Callback behaviour: checked against the current supported
 //!   semantics, including approximate Gaussian weights.
+//! - SmartRender callbacks (`probe/src/smart.rs`): rectangle arithmetic on a
+//!   layer of known size and the pixel formats the SDK assigns to each depth.
 
 use std::sync::LazyLock;
 
 use serde_json::{Value, json};
 
+use aexlo::{Depth8, Depth16, Depth32, Layer, Pixel, RenderPath};
+
 use crate::summary::{self, Summary};
 
-/// Load the probe in-process (no dlopen/cdylib needed) and read back the
-/// facts `checks::run_all` wrote during `GLOBAL_SETUP`.
+/// The input layer of the smart frames: larger than the probe's fixed
+/// 10x9 checkout, so that request lies inside it.
+const SMART_LAYER_W: u32 = 32;
+const SMART_LAYER_H: u32 = 24;
+
+/// Load the probe in-process (no dlopen/cdylib needed), render one smart
+/// frame at each depth, and read back the facts: `checks::run_all` writes
+/// its facts during `GLOBAL_SETUP`, `smart.rs` during the smart frames.
 ///
 /// The probe's trace sink is a process-global `OnceLock` keyed off
 /// `AEXLO_PROBE_TRACE` (see `probe/src/trace.rs`): the env var only takes
@@ -39,8 +49,29 @@ fn run_probe_and_summarize() -> Summary {
 	// could read the environment wait for it.
 	unsafe { std::env::set_var("AEXLO_PROBE_TRACE", &trace_path) };
 
-	let _instance = unsafe { aexlo::Host::get().from_entry_raw(aexlo_probe::EffectMain as *const () as usize) }
+	let mut instance = unsafe { aexlo::Host::get().from_entry_raw(aexlo_probe::EffectMain as *const () as usize) }
 		.expect("failed to load aexlo-probe in-process");
+
+	// The in-process probe is the legacy build, which does not claim
+	// SmartRender, so the smart path is forced. Its smart handlers are the
+	// same code the smart build runs.
+	let input = Layer::<Depth8>::from_fn(SMART_LAYER_W, SMART_LAYER_H, |x, y| Pixel {
+		alpha: 255,
+		red: (x * 8) as u8,
+		green: (y * 10) as u8,
+		blue: 64,
+	});
+	for bpc in [8, 16, 32] {
+		match bpc {
+			8 => instance.set_input_layer(input.clone()),
+			16 => instance.set_input_layer(input.convert::<Depth16>()),
+			_ => instance.set_input_layer(input.convert::<Depth32>()),
+		}
+		instance
+			.render_with(RenderPath::Smart)
+			.unwrap_or_else(|e| panic!("smart render at {bpc} bpc failed: {e}"));
+	}
+	drop(instance);
 
 	let events = summary::load_events(&trace_path).expect("failed to read probe trace");
 	summary::summarize(&events)
@@ -180,4 +211,83 @@ fn probe_facts_document_known_runtime_gaps() {
 	assert_eq!(kernel["err"], 0);
 	assert_eq!(kernel["diameter"], 5);
 	assert!((kernel["sum"].as_i64().unwrap() - 65536).abs() <= 25);
+}
+
+/// `PF_PixelFormat` as the probe prints it: the four bytes, high byte first.
+fn fourcc(format: aexlo::PixelFormat) -> String {
+	format.fourcc().to_be_bytes().iter().map(|&b| b as char).collect()
+}
+
+#[test]
+fn probe_smart_render_facts_match_known_correct_values() {
+	let summary = &*FACTS;
+
+	// ---- Pre-render checkouts against the 32x24 input layer ----
+	// A request inside the layer comes back as requested.
+	let inner = fact_json(summary, "smart.checkout_layer.inner(2,3,10,9)");
+	assert_eq!(inner["err"], 0);
+	assert_eq!(inner["result_rect"], json!({ "l": 2, "t": 3, "r": 10, "b": 9 }));
+	assert_eq!(inner["max_matches_main"], true, "one layer has one max_result_rect");
+
+	// A request 4 pixels past every edge is clipped to the layer: the result
+	// is the layer's max_result_rect.
+	let overhang = fact_json(summary, "smart.checkout_layer.overhang(max+-4)");
+	assert_eq!(overhang["err"], 0);
+	assert_eq!(overhang["result_minus_max"], json!([0, 0, 0, 0]));
+
+	// An empty request covers no pixels.
+	let empty = fact_json(summary, "smart.checkout_layer.empty(5,5,5,5)");
+	let r = &empty["result_rect"];
+	let area =
+		(r["r"].as_i64().unwrap() - r["l"].as_i64().unwrap()) * (r["b"].as_i64().unwrap() - r["t"].as_i64().unwrap());
+	assert_eq!(area, 0, "{empty}");
+
+	// The probe has 7 parameters; index 99 is not one of them.
+	assert_ne!(fact_json(summary, "smart.checkout_layer.invalid_index(99)")["err"], 0);
+
+	assert_eq!(fact_json(summary, "smart.guid_mix_in(4 bytes)")["err"], 0);
+	assert_eq!(fact_json(summary, "smart.guid_mix_in(0 bytes,null)")["err"], 0);
+
+	// ---- Render ----
+	// SMART_RENDER receives the block SMART_PRE_RENDER returned.
+	assert_eq!(
+		fact_json(summary, "smart.pre_render_data"),
+		json!({ "nonnull": true, "magic_ok": true })
+	);
+
+	// Pre-render never checked out id 77, so there are no pixels for it.
+	let undeclared = fact_json(summary, "smart.checkout_layer_pixels.undeclared_id(77)");
+	assert_ne!(undeclared["err"], 0);
+	assert_ne!(undeclared["pixels"], "a world");
+
+	let inner_pixels = fact_json(summary, "smart.checkout_layer_pixels.inner(2,3,10,9)");
+	assert_eq!(inner_pixels["err"], 0);
+	assert_eq!(inner_pixels["nonnull"], true);
+	// Checking in a checked-out id succeeds. What a second checkin returns
+	// is not specified, so only the first is asserted.
+	assert_eq!(fact_json(summary, "smart.checkin_layer_pixels.twice")["first"], 0);
+
+	// Each project depth has one SDK pixel format, for input and output alike;
+	// 16 bpc worlds carry PF_WorldFlag_DEEP and 8 bpc worlds do not.
+	let deep = aexlo::sys::PF_WorldFlag_DEEP as i64;
+	for (bpc, format) in [
+		(8, aexlo::PixelFormat::ARGB32),
+		(16, aexlo::PixelFormat::ARGB64),
+		(32, aexlo::PixelFormat::ARGB128),
+	] {
+		for which in ["checkout_layer_pixels[main]", "checkout_output"] {
+			let name = format!("smart.{bpc}.{which}");
+			let layout = fact_json(summary, &name);
+			assert_eq!(layout["err"], 0, "{name}");
+			assert_eq!(layout["nonnull"], true, "{name}");
+			assert_eq!(layout["format_err"], 0, "{name}");
+			assert_eq!(layout["format"], fourcc(format), "{name}");
+			let flags = layout["world_flags"].as_i64().unwrap();
+			match bpc {
+				8 => assert_eq!(flags & deep, 0, "{name}"),
+				16 => assert_eq!(flags & deep, deep, "{name}"),
+				_ => {}
+			}
+		}
+	}
 }
