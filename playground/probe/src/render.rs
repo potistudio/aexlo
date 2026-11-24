@@ -1,4 +1,5 @@
-//! Parameter registration and the legacy-render implementation.
+//! Parameter registration, the legacy-render implementation, and the test
+//! pattern both render paths write.
 //!
 //! The render output is a deterministic test pattern driven by the params, so
 //! host-side parameter plumbing is visible both in the trace (exact values)
@@ -119,7 +120,7 @@ pub unsafe fn setup_params(in_data: *mut ae::PF_InData, out_data: *mut ae::PF_Ou
 	ae::PF_Err_NONE as ae::PF_Err
 }
 
-struct Settings {
+pub(crate) struct Settings {
 	gain: f64,
 	invert: bool,
 	mode: i32,
@@ -128,7 +129,7 @@ struct Settings {
 	center: (f64, f64),
 }
 
-unsafe fn param_at(params: ae::PF_ParamList, index: usize) -> Option<*const ae::PF_ParamDef> {
+pub(crate) unsafe fn param_at(params: ae::PF_ParamList, index: usize) -> Option<*const ae::PF_ParamDef> {
 	if params.is_null() {
 		return None;
 	}
@@ -136,7 +137,7 @@ unsafe fn param_at(params: ae::PF_ParamList, index: usize) -> Option<*const ae::
 	(!ptr.is_null()).then_some(ptr as *const _)
 }
 
-unsafe fn read_settings(params: ae::PF_ParamList, num_params: usize) -> Settings {
+pub(crate) unsafe fn read_settings(params: ae::PF_ParamList, num_params: usize) -> Settings {
 	let mut settings = Settings {
 		gain: 1.0,
 		invert: false,
@@ -216,7 +217,11 @@ pub unsafe fn render(
 	}
 
 	let settings = unsafe { read_settings(params, num_params) };
-	unsafe { fill_pattern(output, input, &settings) };
+	// The legacy path has no PF_GetPixelFormat answer to go by; the deep flag
+	// is all a legacy world says about its depth.
+	let in_bpc = unsafe { input.as_ref() }.map_or(Bpc::Eight, Bpc::from_world_flags);
+	let out_bpc = Bpc::from_world_flags(unsafe { &*output });
+	unsafe { fill_pattern(output, out_bpc, input, in_bpc, &settings) };
 
 	trace().emit(
 		"world",
@@ -226,9 +231,49 @@ pub unsafe fn render(
 	ae::PF_Err_NONE as ae::PF_Err
 }
 
-/// Read the 8-bit pixel at (x, y), clamped to the world bounds. Deep (16-bit)
-/// input worlds are down-converted so the pattern math stays in one depth.
-unsafe fn sample_input(input: *const ae::PF_LayerDef, x: i32, y: i32) -> Option<ae::PF_Pixel> {
+/// Channel depth of a world the pattern reads or writes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Bpc {
+	Eight,
+	Sixteen,
+	Float,
+}
+
+impl Bpc {
+	/// From `PF_WorldFlag_DEEP` alone, which cannot tell 32 bpc apart.
+	pub(crate) fn from_world_flags(world: &ae::PF_LayerDef) -> Self {
+		if world.world_flags & ae::PF_WorldFlag_DEEP as ae::PF_WorldFlags != 0 {
+			Bpc::Sixteen
+		} else {
+			Bpc::Eight
+		}
+	}
+
+	/// From a `PF_GetPixelFormat` answer; `None` for formats the pattern does
+	/// not write (GPU and video formats).
+	#[allow(non_upper_case_globals)]
+	pub(crate) fn from_pixel_format(format: ae::PF_PixelFormat) -> Option<Self> {
+		match format as _ {
+			ae::PF_PixelFormat_ARGB32 => Some(Bpc::Eight),
+			ae::PF_PixelFormat_ARGB64 => Some(Bpc::Sixteen),
+			ae::PF_PixelFormat_ARGB128 => Some(Bpc::Float),
+			_ => None,
+		}
+	}
+
+	pub(crate) fn bytes_per_pixel(self) -> usize {
+		match self {
+			Bpc::Eight => 4,
+			Bpc::Sixteen => 8,
+			Bpc::Float => 16,
+		}
+	}
+}
+
+/// Read the pixel at (x, y), clamped to the world bounds. Deep (16-bit) and
+/// float input worlds are down-converted so the pattern math stays in one
+/// depth.
+unsafe fn sample_input(input: *const ae::PF_LayerDef, bpc: Bpc, x: i32, y: i32) -> Option<ae::PF_Pixel> {
 	if input.is_null() {
 		return None;
 	}
@@ -241,28 +286,46 @@ unsafe fn sample_input(input: *const ae::PF_LayerDef, x: i32, y: i32) -> Option<
 	let y = y.clamp(0, w.height - 1) as usize;
 	let row = unsafe { (w.data as *const u8).add(y * w.rowbytes as usize) };
 
-	if w.world_flags & ae::PF_WorldFlag_DEEP as ae::PF_WorldFlags != 0 {
-		let px = unsafe { &*(row as *const ae::PF_Pixel16).add(x) };
-		let to8 = |v: u16| ((v as u32 * 255) / 32768).min(255) as u8;
-		Some(ae::PF_Pixel {
-			alpha: to8(px.alpha),
-			red: to8(px.red),
-			green: to8(px.green),
-			blue: to8(px.blue),
-		})
-	} else {
-		Some(unsafe { *(row as *const ae::PF_Pixel).add(x) })
+	match bpc {
+		Bpc::Sixteen => {
+			let px = unsafe { &*(row as *const ae::PF_Pixel16).add(x) };
+			let to8 = |v: u16| ((v as u32 * 255) / 32768).min(255) as u8;
+			Some(ae::PF_Pixel {
+				alpha: to8(px.alpha),
+				red: to8(px.red),
+				green: to8(px.green),
+				blue: to8(px.blue),
+			})
+		}
+		Bpc::Float => {
+			let px = unsafe { &*(row as *const ae::PF_PixelFloat).add(x) };
+			let to8 = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+			Some(ae::PF_Pixel {
+				alpha: to8(px.alpha),
+				red: to8(px.red),
+				green: to8(px.green),
+				blue: to8(px.blue),
+			})
+		}
+		Bpc::Eight => Some(unsafe { *(row as *const ae::PF_Pixel).add(x) }),
 	}
 }
 
-unsafe fn fill_pattern(output: *mut ae::PF_LayerDef, input: *const ae::PF_LayerDef, settings: &Settings) {
+/// Write the test pattern into `output`. Every depth gets the same 8-bit
+/// values, scaled, so the picture is the same at 8, 16 and 32 bpc.
+pub(crate) unsafe fn fill_pattern(
+	output: *mut ae::PF_LayerDef,
+	out_bpc: Bpc,
+	input: *const ae::PF_LayerDef,
+	in_bpc: Bpc,
+	settings: &Settings,
+) {
 	let out = unsafe { &*output };
 	if out.data.is_null() || out.width <= 0 || out.height <= 0 || out.rowbytes <= 0 {
 		trace().emit("note", json!({ "msg": "output world has no writable pixels" }));
 		return;
 	}
 
-	let deep = out.world_flags & ae::PF_WorldFlag_DEEP as ae::PF_WorldFlags != 0;
 	let (width, height) = (out.width, out.height);
 
 	for y in 0..height {
@@ -274,7 +337,7 @@ unsafe fn fill_pattern(output: *mut ae::PF_LayerDef, input: *const ae::PF_LayerD
 					(v, v, v, 255)
 				}
 				MODE_COPY_INPUT => {
-					let px = unsafe { sample_input(input, x, y) }.unwrap_or(ae::PF_Pixel {
+					let px = unsafe { sample_input(input, in_bpc, x, y) }.unwrap_or(ae::PF_Pixel {
 						alpha: 255,
 						red: 0,
 						green: 0,
@@ -310,21 +373,33 @@ unsafe fn fill_pattern(output: *mut ae::PF_LayerDef, input: *const ae::PF_LayerD
 
 			unsafe {
 				let row = (out.data as *mut u8).add(y as usize * out.rowbytes as usize);
-				if deep {
-					let to16 = |v: u8| ((v as u32 * 32768) / 255) as u16;
-					*(row as *mut ae::PF_Pixel16).add(x as usize) = ae::PF_Pixel16 {
-						alpha: to16(alpha),
-						red: to16(red),
-						green: to16(green),
-						blue: to16(blue),
-					};
-				} else {
-					*(row as *mut ae::PF_Pixel).add(x as usize) = ae::PF_Pixel {
-						alpha,
-						red,
-						green,
-						blue,
-					};
+				match out_bpc {
+					Bpc::Sixteen => {
+						let to16 = |v: u8| ((v as u32 * 32768) / 255) as u16;
+						*(row as *mut ae::PF_Pixel16).add(x as usize) = ae::PF_Pixel16 {
+							alpha: to16(alpha),
+							red: to16(red),
+							green: to16(green),
+							blue: to16(blue),
+						};
+					}
+					Bpc::Float => {
+						let to_float = |v: u8| v as f32 / 255.0;
+						*(row as *mut ae::PF_PixelFloat).add(x as usize) = ae::PF_PixelFloat {
+							alpha: to_float(alpha),
+							red: to_float(red),
+							green: to_float(green),
+							blue: to_float(blue),
+						};
+					}
+					Bpc::Eight => {
+						*(row as *mut ae::PF_Pixel).add(x as usize) = ae::PF_Pixel {
+							alpha,
+							red,
+							green,
+							blue,
+						};
+					}
 				}
 			}
 		}

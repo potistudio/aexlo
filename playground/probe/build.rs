@@ -9,15 +9,41 @@
 //!
 //! Keep the values in sync with `src/lib.rs`: AE cross-checks the PiPL
 //! against what GLOBAL_SETUP writes into out_data and complains on mismatch.
+//!
+//! The `smart` feature selects the SmartRender variant: another effect with
+//! its own name and match name, so both variants can be installed in After
+//! Effects side by side.
 
 use pipl::*;
 
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 
+	let smart = std::env::var_os("CARGO_FEATURE_SMART").is_some();
+
+	// Mirrors EFFECT_NAME / MATCH_NAME / OUT_FLAGS / OUT_FLAGS2 in lib.rs.
+	let (name, match_name, out_flags, out_flags2) = if smart {
+		(
+			"Aexlo Probe Smart",
+			"AEXLO Probe Smart",
+			OutFlags::DeepColorAware,
+			OutFlags2::SupportsThreadedRendering
+				| OutFlags2::SupportsSmartRender
+				| OutFlags2::FloatColorAware
+				| OutFlags2::SupportsGpuRenderF32,
+		)
+	} else {
+		(
+			"Aexlo Probe",
+			"AEXLO Probe",
+			OutFlags::empty(),
+			OutFlags2::SupportsThreadedRendering,
+		)
+	};
+
 	plugin_build(vec![
 		Property::Kind(PIPLType::AEEffect),
-		Property::Name("Aexlo Probe"),
+		Property::Name(name),
 		Property::Category("aexlo"),
 		Property::CodeWin64X86("EffectMain"),
 		Property::CodeMacIntel64("EffectMain"),
@@ -34,10 +60,9 @@ fn main() {
 			build: 1,
 		},
 		Property::AE_Effect_Info_Flags(0),
-		// Mirrors OUT_FLAGS / OUT_FLAGS2 in lib.rs.
-		Property::AE_Effect_Global_OutFlags(OutFlags::empty()),
-		Property::AE_Effect_Global_OutFlags_2(OutFlags2::SupportsThreadedRendering),
-		Property::AE_Effect_Match_Name("AEXLO Probe"),
+		Property::AE_Effect_Global_OutFlags(out_flags),
+		Property::AE_Effect_Global_OutFlags_2(out_flags2),
+		Property::AE_Effect_Match_Name(match_name),
 		Property::AE_Reserved_Info(0),
 		Property::AE_Effect_Support_URL("https://github.com/potistudio/aexlo"),
 	]);

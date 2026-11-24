@@ -40,6 +40,7 @@ pub fn trace() -> &'static Trace {
 			"trace_open",
 			serde_json::json!({
 				"probe_version": PROBE_VERSION,
+				"variant": crate::VARIANT,
 				"pid": std::process::id(),
 				"exe": std::env::current_exe().ok().map(|p| p.display().to_string()),
 				"os": std::env::consts::OS,
@@ -54,7 +55,9 @@ pub fn trace() -> &'static Trace {
 /// Trace destination: `AEXLO_PROBE_TRACE` (exact file path) wins, then
 /// `AEXLO_PROBE_DIR`, then the OS temp dir. Inside After Effects neither env
 /// var is usually set, so traces land in `%TEMP%/aexlo-probe/`. The effect's
-/// About dialog echoes the resolved path.
+/// About dialog echoes the resolved path. Auto-named files carry the variant,
+/// so the legacy and smart effects in one After Effects process never share
+/// a file.
 fn resolve_path() -> PathBuf {
 	if let Ok(path) = std::env::var("AEXLO_PROBE_TRACE") {
 		return PathBuf::from(path);
@@ -64,7 +67,12 @@ fn resolve_path() -> PathBuf {
 		.map(PathBuf::from)
 		.unwrap_or_else(|_| std::env::temp_dir().join("aexlo-probe"));
 
-	dir.join(format!("trace-{}-pid{}.jsonl", unix_time(), std::process::id()))
+	let tag = if crate::VARIANT == "legacy" {
+		String::new()
+	} else {
+		format!("{}-", crate::VARIANT)
+	};
+	dir.join(format!("trace-{tag}{}-pid{}.jsonl", unix_time(), std::process::id()))
 }
 
 fn unix_time() -> u64 {
