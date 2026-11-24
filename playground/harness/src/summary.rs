@@ -64,7 +64,11 @@ pub fn summarize(events: &[Value]) -> Summary {
 				summary.insert("host/exe".into(), compact(&event["exe"]));
 				summary.insert("host/os".into(), compact(&event["os"]));
 				summary.insert("host/probe_version".into(), compact(&event["probe_version"]));
-				// Traces from before the smart variant existed have no field.
+				// Traces from before schema 2 have neither field; the missing
+				// `host/trace_schema` then shows up in `diff`.
+				if !event["trace_schema"].is_null() {
+					summary.insert("host/trace_schema".into(), compact(&event["trace_schema"]));
+				}
 				if !event["variant"].is_null() {
 					summary.insert("host/probe_variant".into(), compact(&event["variant"]));
 				}
@@ -275,6 +279,7 @@ pub fn is_comparable(key: &str) -> bool {
 		|| key == "host/spec_version"
 		|| key == "host/probe_version"  // comparing traces from different probe builds is a mistake
 		|| key == "host/probe_variant"  // ... and so is comparing the legacy effect with the smart one
+		|| key == "host/trace_schema"   // ... and traces whose event and fact names differ
 		|| key.starts_with("host/plugin_data/")
 }
 

@@ -84,8 +84,10 @@ impl Variant {
 	}
 
 	/// Render the frames this variant is measured on. Legacy: one frame at
-	/// the input's 8 bpc. Smart: one frame at each depth the effect declares,
-	/// so every `smart.<bpc>.*` fact appears in one trace.
+	/// the input's 8 bpc. Smart: one frame at 8, 16 and 32 bpc, so every
+	/// `smart.<bpc>.*` fact appears in one trace. The smart build must declare
+	/// all three depths; a missing one is a broken build, not a host
+	/// difference, so it fails here instead of leaving a gap for `diff`.
 	pub fn render(self, instance: &mut PluginInstance, input: &Layer<Depth8>) -> anyhow::Result<()> {
 		if self == Variant::Legacy {
 			instance.render_frame()?;
@@ -93,10 +95,10 @@ impl Variant {
 		}
 
 		for depth in [PixelDepthKind::U8, PixelDepthKind::U16, PixelDepthKind::F32] {
-			if !instance.supports_depth(depth) {
-				println!("skipping {depth:?}: the effect does not declare it");
-				continue;
-			}
+			anyhow::ensure!(
+				instance.supports_depth(depth),
+				"the smart probe does not declare {depth:?}; check OUT_FLAGS / OUT_FLAGS2 in probe/src/lib.rs 				 and the PiPL in probe/build.rs"
+			);
 			match depth {
 				PixelDepthKind::U8 => instance.set_input_layer(input.clone()),
 				PixelDepthKind::U16 => instance.set_input_layer(input.convert::<Depth16>()),

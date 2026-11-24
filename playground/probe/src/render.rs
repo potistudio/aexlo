@@ -273,14 +273,25 @@ impl Bpc {
 /// Read the pixel at (x, y), clamped to the world bounds. Deep (16-bit) and
 /// float input worlds are down-converted so the pattern math stays in one
 /// depth.
+/// Whether `world` has pixels and each row of `width` pixels at `bpc` fits
+/// in `rowbytes`. A host that reports a pixel format the buffer does not
+/// have would otherwise make the probe read or write past its end.
+pub(crate) unsafe fn rows_fit(world: *const ae::PF_LayerDef, bpc: Bpc) -> bool {
+	let Some(w) = (unsafe { world.as_ref() }) else {
+		return false;
+	};
+	!w.data.is_null()
+		&& w.width > 0
+		&& w.height > 0
+		&& w.rowbytes > 0
+		&& w.rowbytes as usize >= w.width as usize * bpc.bytes_per_pixel()
+}
+
 unsafe fn sample_input(input: *const ae::PF_LayerDef, bpc: Bpc, x: i32, y: i32) -> Option<ae::PF_Pixel> {
-	if input.is_null() {
+	if !unsafe { rows_fit(input, bpc) } {
 		return None;
 	}
 	let w = unsafe { &*input };
-	if w.data.is_null() || w.width <= 0 || w.height <= 0 {
-		return None;
-	}
 
 	let x = x.clamp(0, w.width - 1) as usize;
 	let y = y.clamp(0, w.height - 1) as usize;
@@ -320,11 +331,14 @@ pub(crate) unsafe fn fill_pattern(
 	in_bpc: Bpc,
 	settings: &Settings,
 ) {
-	let out = unsafe { &*output };
-	if out.data.is_null() || out.width <= 0 || out.height <= 0 || out.rowbytes <= 0 {
-		trace().emit("note", json!({ "msg": "output world has no writable pixels" }));
+	if !unsafe { rows_fit(output, out_bpc) } {
+		trace().emit(
+			"note",
+			json!({ "msg": "output world has no writable pixels, or rowbytes is short for its pixel format" }),
+		);
 		return;
 	}
+	let out = unsafe { &*output };
 
 	let (width, height) = (out.width, out.height);
 

@@ -163,20 +163,28 @@ The harness builds it into `<target>/probe-smart/`, so the two builds never
 overwrite each other, and both effects can be installed side by side.
 
 `probe/src/smart.rs` records the host's answers to requests the probe
-builds itself as facts (`smart.*`):
+builds itself as facts, one set per bit depth (`smart.8.*`, `smart.16.*`,
+`smart.32.*`). In After Effects, switch the project depth to record each.
 
 - `checkout_layer` with a fixed rectangle inside any layer of at least 10x9
   pixels, with an empty rectangle, and with parameter index 99;
 - `checkout_layer` 4 pixels past every edge of the layer, reported relative
   to the layer's `max_result_rect` so that the layer size cancels out;
-- `checkout_layer_pixels` on an id that pre-render never checked out, the
-  layout of the fixed-rectangle checkout, and `checkin_layer_pixels` called
-  twice;
+- the layout of the fixed-rectangle checkout, and `checkin_layer_pixels`
+  on it;
 - `GuidMixInPtr` with fixed bytes, and whether `pre_render_data` reaches
   SMART_RENDER intact;
 - the `PF_GetPixelFormat` answer and world flags of the checked-out input
-  and output worlds, one fact per bit depth (`smart.8.*`, `smart.16.*`,
-  `smart.32.*`). In After Effects, switch the project depth to record each.
+  and output worlds.
+
+The probe makes only calls the SDK defines. It does not check in one id
+twice, check out pixels for an id that pre-render did not check out, or pass
+`GuidMixInPtr` a null buffer, because a host may abort on those. It writes
+and hashes pixels only when `PF_GetPixelFormat` answered and every row fits
+in `rowbytes`.
+
+The facts line up only when the effect sits on a plain footage or solid
+layer of at least 10x9 pixels, with nothing that grows the layer.
 
 Everything that depends on the scenario is context, excluded from the
 default diff: the `PF_PreRenderExtra` input (output request, field,
@@ -200,6 +208,11 @@ CPU; the probe does not render on the GPU.
    (`trace-smart-<time>-pid<pid>.jsonl` for the smart variant).
 
 The harness builds into `CARGO_TARGET_DIR` when it is set, else `target/`.
+Traces and previews stay in `<workspace>/target/probe/` either way.
+
+Each trace starts with `trace_schema`, which changes whenever events or
+fact names change. `diff` compares it, so traces from different schemas
+show up as a difference instead of as missing facts.
 
 ## Layout
 

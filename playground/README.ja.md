@@ -103,13 +103,17 @@ After Effects はプラグインを起動時にしか読み込みません。起
 
 out flags は PiPL と一致している必要があるため、SmartRender 経路は実行時の切り替えではなく、2 つ目のエフェクトで計測します。`probe` の `smart` フィーチャーを有効にすると、"Aexlo Probe Smart"（マッチ名 "AEXLO Probe Smart"、ファイル名 `AexloProbeSmart.aex`）がビルドされます。このエフェクトは `PF_OutFlag2_SUPPORTS_SMART_RENDER`、`PF_OutFlag_DEEP_COLOR_AWARE`、`PF_OutFlag2_FLOAT_COLOR_AWARE`、`PF_OutFlag2_SUPPORTS_GPU_RENDER_F32` を宣言します。GLOBAL_SETUP のチェックは legacy 版とすべて同じで、同じテストパターンを 8、16、32 bpc でレンダリングします。ハーネスはこの版を `<target>/probe-smart/` にビルドするため、2 つのビルドが互いを上書きすることはありません。2 つのエフェクトは AE に並べてインストールできます。
 
-`probe/src/smart.rs` は、プローブ自身が組み立てた要求に対するホストの応答を fact（`smart.*`）として記録します。
+`probe/src/smart.rs` は、プローブ自身が組み立てた要求に対するホストの応答を fact として記録します。fact はビット深度ごとに 1 組（`smart.8.*`、`smart.16.*`、`smart.32.*`）になります。After Effects では、プロジェクトのビット深度を切り替えてそれぞれを記録してください。
 
 - 10x9 ピクセル以上のどのレイヤーにも収まる固定矩形、空の矩形、パラメーター番号 99 での `checkout_layer`。
 - レイヤーの各辺から 4 ピクセルはみ出す `checkout_layer`。レイヤーサイズが打ち消されるように、結果はレイヤーの `max_result_rect` からの差で記録します。
-- プリレンダーでチェックアウトしていない ID に対する `checkout_layer_pixels`、固定矩形でチェックアウトした world のレイアウト、2 回続けて呼んだ `checkin_layer_pixels`。
+- 固定矩形でチェックアウトした world のレイアウトと、その ID に対する `checkin_layer_pixels`。
 - 固定バイト列を渡した `GuidMixInPtr` と、`pre_render_data` が SMART_RENDER まで壊れずに届くかどうか。
-- チェックアウトした入力と出力の world に対する `PF_GetPixelFormat` の応答と world flags。ビット深度ごとに 1 つの fact（`smart.8.*`、`smart.16.*`、`smart.32.*`）になります。After Effects では、プロジェクトのビット深度を切り替えてそれぞれを記録してください。
+- チェックアウトした入力と出力の world に対する `PF_GetPixelFormat` の応答と world flags。
+
+プローブは、SDK が動作を定めている呼び出しだけを行います。同じ ID の 2 回目のチェックイン、プリレンダーでチェックアウトしていない ID のピクセル取得、`GuidMixInPtr` への null バッファーの受け渡しは行いません。ホストがこれらで異常終了する可能性があるためです。ピクセルの書き込みとハッシュの計算は、`PF_GetPixelFormat` が応答し、かつ各行が `rowbytes` に収まる場合だけ行います。
+
+fact の値がそろうのは、エフェクトを 10x9 ピクセル以上の通常のフッテージレイヤーか平面レイヤーに適用し、レイヤーを広げる処理がない場合だけです。
 
 シナリオに依存する値はすべてコンテキストとして扱い、既定の差分から除外します。対象は `PF_PreRenderExtra` の入力（出力要求、フィールド、チャンネルマスク、ビット深度、GPU フレームワーク）、チェックアウト結果の全体（`par`、`solid`、`ref_width`/`ref_height`）、プローブが返す `PF_PreRenderOutput`、レンダリング時の入力と出力の world のレイアウトとハッシュです。`report` ではこれらを `smart/` のキーで表示します。
 
@@ -121,7 +125,9 @@ GPU：GPU のあるホストは `PF_Cmd_GPU_DEVICE_SETUP` を送ります。プ�
 2. `AEXLO_PROBE_DIR`：ディレクトリを指定し、ファイル名は自動生成。
 3. どちらも指定しなければ `%TEMP%/aexlo-probe/trace-<time>-pid<pid>.jsonl`（SmartRender 版は `trace-smart-<time>-pid<pid>.jsonl`）。
 
-ハーネスは、`CARGO_TARGET_DIR` が設定されていればそこに、設定されていなければ `target/` にビルドします。
+ハーネスは、`CARGO_TARGET_DIR` が設定されていればそこに、設定されていなければ `target/` にビルドします。どちらの場合も、トレースとプレビューは `<workspace>/target/probe/` に保存されます。
+
+各トレースの先頭には `trace_schema` が記録されます。この値は、イベントや fact の名前が変わるたびに変わります。`diff` はこの値も比較するため、スキーマの異なるトレースは fact の欠落ではなく差分として表示されます。
 
 ## 構成
 

@@ -12,6 +12,11 @@ use std::time::Instant;
 
 pub const PROBE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Bumped whenever events or fact names change, so `diff` refuses to compare
+/// traces whose keys do not line up. 2: SmartRender variant, per-depth
+/// `smart.<bpc>.*` facts.
+pub const TRACE_SCHEMA: u32 = 2;
+
 pub struct Trace {
 	writer: Mutex<Option<BufWriter<File>>>,
 	path: PathBuf,
@@ -40,6 +45,7 @@ pub fn trace() -> &'static Trace {
 			"trace_open",
 			serde_json::json!({
 				"probe_version": PROBE_VERSION,
+				"trace_schema": TRACE_SCHEMA,
 				"variant": crate::VARIANT,
 				"pid": std::process::id(),
 				"exe": std::env::current_exe().ok().map(|p| p.display().to_string()),

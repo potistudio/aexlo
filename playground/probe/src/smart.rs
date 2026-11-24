@@ -12,13 +12,19 @@
 //!   pixels, an empty rectangle, and an out-of-range parameter index;
 //! - a checkout that overhangs the layer by 4 pixels on every side, reported
 //!   relative to the layer's `max_result_rect`, so the layer size cancels out;
-//! - `checkout_layer_pixels` on an id never checked out, and
-//!   `checkin_layer_pixels` called twice on one id;
+//! - `checkin_layer_pixels` on a checked-out id;
 //! - `GuidMixInPtr` with fixed bytes;
 //! - whether `pre_render_data` reaches SMART_RENDER intact;
 //! - the pixel format and world flags of the checked-out input and output
-//!   worlds, one fact per bit depth (`smart.<bpc>.*`), since the depth is the
-//!   one scenario value these answers are expected to depend on.
+//!   worlds.
+//!
+//! Every fact is recorded once per bit depth (`smart.<bpc>.*`), since the
+//! depth is the one scenario value these answers may depend on.
+//!
+//! The probe makes only calls the SDK defines: no second checkin of one id,
+//! no `checkout_layer_pixels` on an id pre-render did not check out, and no
+//! null `GuidMixInPtr` buffer. A host may abort on those, and the probe runs
+//! inside live After Effects sessions.
 //!
 //! GPU: the smart variant declares `PF_OutFlag2_SUPPORTS_GPU_RENDER_F32`, so
 //! a host with a GPU sends `PF_Cmd_GPU_DEVICE_SETUP`. Its inputs and the GPU
@@ -30,7 +36,7 @@
 //! command's begin/end events in the trace show it.
 
 use std::ffi::c_void;
-use std::ptr::{null, null_mut};
+use std::ptr::null_mut;
 
 use after_effects::sys as ae;
 use serde_json::{Value, json};
@@ -52,8 +58,6 @@ const ID_OVERHANG: ae::A_long = 2;
 const ID_EMPTY: ae::A_long = 3;
 /// A parameter index past the last parameter.
 const ID_INVALID: ae::A_long = 4;
-/// An id that pre-render never checks out.
-const ID_UNDECLARED: ae::A_long = 77;
 
 const INNER: ae::PF_LRect = ae::PF_LRect {
 	left: 2,
@@ -69,10 +73,6 @@ const EMPTY: ae::PF_LRect = ae::PF_LRect {
 };
 const OVERHANG: ae::A_long = 4;
 const INVALID_INDEX: ae::PF_ParamIndex = 99;
-
-/// Written into a `PF_EffectWorld*` out slot before a call, to tell "left
-/// alone" from "set to null". Never dereferenced.
-const MARKER: usize = 0x5A5A_1234;
 
 const PRE_RENDER_MAGIC: u64 = u64::from_be_bytes(*b"AXSMART1");
 
@@ -144,14 +144,14 @@ fn same_rect(a: &ae::PF_LRect, b: &ae::PF_LRect) -> bool {
 	(a.left, a.top, a.right, a.bottom) == (b.left, b.top, b.right, b.bottom)
 }
 
-/// What happened to an out slot that held [`MARKER`].
-fn out_slot(ptr: *mut ae::PF_EffectWorld) -> &'static str {
-	if ptr as usize == MARKER {
-		"untouched"
-	} else if ptr.is_null() {
-		"null"
-	} else {
-		"a world"
+/// A world snapshot with a pixel hash only when the pixel size is known and
+/// every row fits in `rowbytes`; otherwise the layout alone.
+unsafe fn snapshot_known(world: *mut ae::PF_EffectWorld, bpc: Option<Bpc>) -> Value {
+	match bpc {
+		Some(bpc) if unsafe { render::rows_fit(world, bpc) } => unsafe {
+			inspect::snapshot_world_bpp(world, bpc.bytes_per_pixel())
+		},
+		_ => unsafe { inspect::snapshot_world(world, false) },
 	}
 }
 
@@ -176,6 +176,10 @@ pub unsafe fn pre_render(in_data: *mut ae::PF_InData, extra: *mut ae::PF_PreRend
 	};
 
 	let d = unsafe { &*in_data };
+	// One set of checkout facts per project depth: a host may answer the
+	// same request differently at another depth, and the summary keeps only
+	// the last value written under a name.
+	let bpc = input.bitdepth;
 	let checkout = |index: ae::PF_ParamIndex, id: ae::A_long, request: &ae::PF_RenderRequest| {
 		let mut result: ae::PF_CheckoutResult = unsafe { std::mem::zeroed() };
 		let err = unsafe {
@@ -209,7 +213,7 @@ pub unsafe fn pre_render(in_data: *mut ae::PF_InData, extra: *mut ae::PF_PreRend
 
 	let (inner_err, inner) = checkout(0, ID_INNER, &fixed(INNER));
 	fact(
-		"smart.checkout_layer.inner(2,3,10,9)",
+		&format!("smart.{bpc}.checkout_layer.inner(2,3,10,9)"),
 		json!({
 			"err": inner_err,
 			"result_rect": rect(&inner.result_rect),
@@ -228,7 +232,7 @@ pub unsafe fn pre_render(in_data: *mut ae::PF_InData, extra: *mut ae::PF_PreRend
 		let (err, result) = checkout(0, ID_OVERHANG, &fixed(grown));
 		let r = result.result_rect;
 		fact(
-			"smart.checkout_layer.overhang(max+-4)",
+			&format!("smart.{bpc}.checkout_layer.overhang(max+-4)"),
 			json!({
 				"err": err,
 				// [0,0,0,0]: clipped to the layer; [-4,-4,4,4]: as requested.
@@ -238,27 +242,31 @@ pub unsafe fn pre_render(in_data: *mut ae::PF_InData, extra: *mut ae::PF_PreRend
 		(err, result)
 	});
 	if overhang.is_none() {
-		fact("smart.checkout_layer.overhang(max+-4)", json!("main checkout failed"));
+		fact(
+			&format!("smart.{bpc}.checkout_layer.overhang(max+-4)"),
+			json!("main checkout failed"),
+		);
 	}
 
 	let (empty_err, empty) = checkout(0, ID_EMPTY, &fixed(EMPTY));
 	fact(
-		"smart.checkout_layer.empty(5,5,5,5)",
+		&format!("smart.{bpc}.checkout_layer.empty(5,5,5,5)"),
 		json!({ "err": empty_err, "result_rect": rect(&empty.result_rect) }),
 	);
 
 	let (invalid_err, invalid) = checkout(INVALID_INDEX, ID_INVALID, &fixed(INNER));
-	fact("smart.checkout_layer.invalid_index(99)", json!({ "err": invalid_err }));
+	fact(
+		&format!("smart.{bpc}.checkout_layer.invalid_index(99)"),
+		json!({ "err": invalid_err }),
+	);
 
 	match cb.GuidMixInPtr {
 		Some(mix_in) => {
 			let bytes = *b"AXPR";
 			let err = unsafe { mix_in(d.effect_ref, bytes.len() as ae::A_u_long, bytes.as_ptr().cast()) };
-			fact("smart.guid_mix_in(4 bytes)", json!({ "err": err }));
-			let err = unsafe { mix_in(d.effect_ref, 0, null()) };
-			fact("smart.guid_mix_in(0 bytes,null)", json!({ "err": err }));
+			fact(&format!("smart.{bpc}.guid_mix_in(4 bytes)"), json!({ "err": err }));
 		}
-		None => fact("smart.guid_mix_in", json!("unavailable")),
+		None => fact(&format!("smart.{bpc}.guid_mix_in"), json!("unavailable")),
 	}
 
 	// The output covers what the main checkout delivered, as in the SDK
@@ -435,19 +443,9 @@ pub unsafe fn render(in_data: *mut ae::PF_InData, extra: *mut ae::PF_SmartRender
 	let data = unsafe { (input.pre_render_data as *const PreRenderData).as_ref() };
 	let data = data.filter(|d| d.magic == PRE_RENDER_MAGIC);
 	fact(
-		"smart.pre_render_data",
+		&format!("smart.{bpc}.pre_render_data"),
 		json!({ "nonnull": !input.pre_render_data.is_null(), "magic_ok": data.is_some() }),
 	);
-
-	let mut undeclared = MARKER as *mut ae::PF_EffectWorld;
-	let err = unsafe { checkout_pixels(effect_ref, ID_UNDECLARED, &mut undeclared) };
-	fact(
-		"smart.checkout_layer_pixels.undeclared_id(77)",
-		json!({ "err": err, "pixels": out_slot(undeclared) }),
-	);
-	if err == ae::PF_Err_NONE as ae::PF_Err && out_slot(undeclared) == "a world" {
-		unsafe { checkin_pixels(effect_ref, ID_UNDECLARED) };
-	}
 
 	match data.and_then(|d| d.inner) {
 		Some(inner) => {
@@ -456,7 +454,7 @@ pub unsafe fn render(in_data: *mut ae::PF_InData, extra: *mut ae::PF_SmartRender
 			let w = unsafe { world.as_ref() };
 			let main_max = data.and_then(|d| d.main_max);
 			fact(
-				"smart.checkout_layer_pixels.inner(2,3,10,9)",
+				&format!("smart.{bpc}.checkout_layer_pixels.inner(2,3,10,9)"),
 				json!({
 					"err": err,
 					"nonnull": w.is_some(),
@@ -470,16 +468,15 @@ pub unsafe fn render(in_data: *mut ae::PF_InData, extra: *mut ae::PF_SmartRender
 				}),
 			);
 			if err == ae::PF_Err_NONE as ae::PF_Err {
-				let first = unsafe { checkin_pixels(effect_ref, ID_INNER) };
-				let second = unsafe { checkin_pixels(effect_ref, ID_INNER) };
-				fact(
-					"smart.checkin_layer_pixels.twice",
-					json!({ "first": first, "second": second }),
-				);
+				// Checked in once only: the SDK leaves a second checkin of the
+				// same id undefined, and a measuring instrument must not risk
+				// the host's session on it.
+				let err = unsafe { checkin_pixels(effect_ref, ID_INNER) };
+				fact(&format!("smart.{bpc}.checkin_layer_pixels"), json!({ "err": err }));
 			}
 		}
 		None => fact(
-			"smart.checkout_layer_pixels.inner(2,3,10,9)",
+			&format!("smart.{bpc}.checkout_layer_pixels.inner(2,3,10,9)"),
 			json!("not checked out in pre-render"),
 		),
 	}
@@ -504,18 +501,13 @@ pub unsafe fn render(in_data: *mut ae::PF_InData, extra: *mut ae::PF_SmartRender
 		layout_json(out_err, output_world, out_format),
 	);
 
-	// Without a format answer, the bit depth the host announced decides.
-	let announced = match bpc {
-		16 => Bpc::Sixteen,
-		32 => Bpc::Float,
-		_ => Bpc::Eight,
-	};
-	let in_bpc = in_format.1.and_then(Bpc::from_pixel_format).unwrap_or(announced);
-	// `None`: a format the pattern does not write (a GPU or video format).
-	let out_bpc = match out_format.1 {
-		Some(format) => Bpc::from_pixel_format(format),
-		None => Some(announced),
-	};
+	// The pixel size comes from PF_GetPixelFormat only. Guessing it from the
+	// announced depth would write past the end of a world whose depth the
+	// host got wrong, inside the host. `None`: no answer, or a format the
+	// pattern does not handle (a GPU or video format).
+	let in_bpc = in_format.1.and_then(Bpc::from_pixel_format);
+	let out_bpc = out_format.1.and_then(Bpc::from_pixel_format);
+	let input_for_pattern = if in_bpc.is_some() { input_world } else { null_mut() };
 
 	let mut params = unsafe { CheckedOutParams::checkout(in_data) };
 	if out_err != ae::PF_Err_NONE as ae::PF_Err || output_world.is_null() {
@@ -526,11 +518,12 @@ pub unsafe fn render(in_data: *mut ae::PF_InData, extra: *mut ae::PF_SmartRender
 	} else if let Some(out_bpc) = out_bpc {
 		let mut list = params.list();
 		let settings = unsafe { render::read_settings(list.as_mut_ptr(), list.len()) };
-		unsafe { render::fill_pattern(output_world, out_bpc, input_world, in_bpc, &settings) };
+		let in_bpc = in_bpc.unwrap_or(Bpc::Eight); // unused when the input is null
+		unsafe { render::fill_pattern(output_world, out_bpc, input_for_pattern, in_bpc, &settings) };
 	} else {
 		trace().emit(
 			"note",
-			json!({ "msg": "output pixel format is not ARGB32/64/128; nothing rendered" }),
+			json!({ "msg": "output pixel format unknown or not ARGB32/64/128; nothing rendered" }),
 		);
 	}
 	unsafe { params.checkin() };
@@ -545,10 +538,8 @@ pub unsafe fn render(in_data: *mut ae::PF_InData, extra: *mut ae::PF_SmartRender
 				"device_index": input.device_index,
 				"gpu_data": !input.gpu_data.is_null(),
 			},
-			"input_world": unsafe { inspect::snapshot_world_bpp(input_world, in_bpc.bytes_per_pixel()) },
-			"output_world": unsafe {
-				inspect::snapshot_world_bpp(output_world, out_bpc.unwrap_or(announced).bytes_per_pixel())
-			},
+			"input_world": unsafe { snapshot_known(input_world, in_bpc) },
+			"output_world": unsafe { snapshot_known(output_world, out_bpc) },
 			"formats": {
 				"input": in_format.1.map(inspect::fourcc),
 				"output": out_format.1.map(inspect::fourcc),
@@ -610,8 +601,14 @@ pub unsafe fn gpu_device_setup(
 	};
 
 	let gpu_f32 = ae::PF_OutFlag2_SUPPORTS_GPU_RENDER_F32 as ae::PF_OutFlags2;
+	// OR-ed in: the flag is documented for GLOBAL_SETUP and GPU_DEVICE_SETUP
+	// alike, and the other out_flags2 bits must not be cleared here.
 	if let Some(out) = unsafe { out_data.as_mut() } {
-		out.out_flags2 = out_flags2 & gpu_f32;
+		out.out_flags2 |= out_flags2 & gpu_f32;
+	}
+	// The probe allocates no GPU data, whatever the host left in the slot.
+	if let Some(output) = extra.and_then(|e| unsafe { e.output.as_mut() }) {
+		output.gpu_data = null_mut();
 	}
 
 	trace().emit(

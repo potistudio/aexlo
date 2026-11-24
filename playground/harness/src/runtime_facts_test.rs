@@ -15,8 +15,18 @@
 //!   pixel-rect arithmetic) -- never copied from a previous run's output.
 //! - Callback behaviour: checked against the current supported
 //!   semantics, including approximate Gaussian weights.
-//! - SmartRender callbacks (`probe/src/smart.rs`): rectangle arithmetic on a
-//!   layer of known size and the pixel formats the SDK assigns to each depth.
+//! - SmartRender callbacks (`probe/src/smart.rs`): what the SDK contract
+//!   implies for checkouts on a layer of known size, and the pixel formats
+//!   the SDK assigns to each depth. Where the SDK leaves a choice to the host
+//!   (how far a result may exceed the request, what an empty request
+//!   returns), only the contract's bounds are asserted; `playground diff`
+//!   compares the exact answers with After Effects.
+//!
+//! The in-process probe is the legacy build with the smart path forced, so
+//! its `xform.*` / `batch.*` facts come from the first SMART_RENDER here and
+//! from the first RENDER under `playground run`. aexlo serves those suites the
+//! same way in both commands; a host that does not would make the two disagree
+//! for a reason unrelated to the facts themselves.
 
 use std::sync::LazyLock;
 
@@ -74,7 +84,15 @@ fn run_probe_and_summarize() -> Summary {
 	drop(instance);
 
 	let events = summary::load_events(&trace_path).expect("failed to read probe trace");
-	summary::summarize(&events)
+	let summary = summary::summarize(&events);
+	// `cargo test --all-features` would link the smart build instead, and
+	// the smart path would no longer be forced but chosen.
+	assert_eq!(
+		summary.get("host/probe_variant").map(String::as_str),
+		Some("legacy"),
+		"the in-process probe must be the legacy build"
+	);
+	summary
 }
 
 fn fact_str<'a>(summary: &'a Summary, name: &str) -> &'a str {
@@ -213,6 +231,16 @@ fn probe_facts_document_known_runtime_gaps() {
 	assert!((kernel["sum"].as_i64().unwrap() - 65536).abs() <= 25);
 }
 
+/// A `{l,t,r,b}` fact rectangle as `[l, t, r, b]`.
+fn rect_of(value: &Value) -> [i64; 4] {
+	["l", "t", "r", "b"].map(|k| value[k].as_i64().unwrap_or_else(|| panic!("rect without {k}: {value}")))
+}
+
+/// Whether `outer` covers `inner`, both as `[l, t, r, b]`.
+fn contains(outer: [i64; 4], inner: [i64; 4]) -> bool {
+	outer[0] <= inner[0] && outer[1] <= inner[1] && outer[2] >= inner[2] && outer[3] >= inner[3]
+}
+
 /// `PF_PixelFormat` as the probe prints it: the four bytes, high byte first.
 fn fourcc(format: aexlo::PixelFormat) -> String {
 	format.fourcc().to_be_bytes().iter().map(|&b| b as char).collect()
@@ -222,50 +250,67 @@ fn fourcc(format: aexlo::PixelFormat) -> String {
 fn probe_smart_render_facts_match_known_correct_values() {
 	let summary = &*FACTS;
 
-	// ---- Pre-render checkouts against the 32x24 input layer ----
-	// A request inside the layer comes back as requested.
-	let inner = fact_json(summary, "smart.checkout_layer.inner(2,3,10,9)");
-	assert_eq!(inner["err"], 0);
-	assert_eq!(inner["result_rect"], json!({ "l": 2, "t": 3, "r": 10, "b": 9 }));
-	assert_eq!(inner["max_matches_main"], true, "one layer has one max_result_rect");
+	for bpc in [8, 16, 32] {
+		let name = |what: &str| format!("smart.{bpc}.{what}");
 
-	// A request 4 pixels past every edge is clipped to the layer: the result
-	// is the layer's max_result_rect.
-	let overhang = fact_json(summary, "smart.checkout_layer.overhang(max+-4)");
-	assert_eq!(overhang["err"], 0);
-	assert_eq!(overhang["result_minus_max"], json!([0, 0, 0, 0]));
+		// ---- Pre-render checkouts against the 32x24 input layer ----
+		// The result covers what was asked for inside the layer: here the
+		// whole request, since (2,3,10,9) lies inside 32x24.
+		let inner = fact_json(summary, &name("checkout_layer.inner(2,3,10,9)"));
+		assert_eq!(inner["err"], 0, "{bpc}");
+		let r = rect_of(&inner["result_rect"]);
+		assert!(contains(r, [2, 3, 10, 9]), "{bpc}: {inner}");
+		assert_eq!(
+			inner["max_matches_main"], true,
+			"{bpc}: one layer has one max_result_rect"
+		);
 
-	// An empty request covers no pixels.
-	let empty = fact_json(summary, "smart.checkout_layer.empty(5,5,5,5)");
-	let r = &empty["result_rect"];
-	let area =
-		(r["r"].as_i64().unwrap() - r["l"].as_i64().unwrap()) * (r["b"].as_i64().unwrap() - r["t"].as_i64().unwrap());
-	assert_eq!(area, 0, "{empty}");
+		// A request 4 pixels past every edge still covers the whole layer.
+		// Whether the result also keeps the overhang is the host's choice.
+		let overhang = fact_json(summary, &name("checkout_layer.overhang(max+-4)"));
+		assert_eq!(overhang["err"], 0, "{bpc}");
+		let d: Vec<i64> = overhang["result_minus_max"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.map(|v| v.as_i64().unwrap())
+			.collect();
+		assert!(d[0] <= 0 && d[1] <= 0 && d[2] >= 0 && d[3] >= 0, "{bpc}: {overhang}");
+		assert!(
+			d.iter().all(|v| v.abs() <= 4),
+			"{bpc}: wider than the request: {overhang}"
+		);
 
-	// The probe has 7 parameters; index 99 is not one of them.
-	assert_ne!(fact_json(summary, "smart.checkout_layer.invalid_index(99)")["err"], 0);
+		// An empty request either fails or succeeds with no pixels.
+		let empty = fact_json(summary, &name("checkout_layer.empty(5,5,5,5)"));
+		if empty["err"] == 0 {
+			let [l, t, r, b] = rect_of(&empty["result_rect"]);
+			assert!(r <= l || b <= t, "{bpc}: an empty request returned pixels: {empty}");
+		}
 
-	assert_eq!(fact_json(summary, "smart.guid_mix_in(4 bytes)")["err"], 0);
-	assert_eq!(fact_json(summary, "smart.guid_mix_in(0 bytes,null)")["err"], 0);
+		// The probe has 7 parameters; index 99 is not one of them.
+		assert_ne!(
+			fact_json(summary, &name("checkout_layer.invalid_index(99)"))["err"],
+			0,
+			"{bpc}"
+		);
 
-	// ---- Render ----
-	// SMART_RENDER receives the block SMART_PRE_RENDER returned.
-	assert_eq!(
-		fact_json(summary, "smart.pre_render_data"),
-		json!({ "nonnull": true, "magic_ok": true })
-	);
+		assert_eq!(fact_json(summary, &name("guid_mix_in(4 bytes)"))["err"], 0, "{bpc}");
 
-	// Pre-render never checked out id 77, so there are no pixels for it.
-	let undeclared = fact_json(summary, "smart.checkout_layer_pixels.undeclared_id(77)");
-	assert_ne!(undeclared["err"], 0);
-	assert_ne!(undeclared["pixels"], "a world");
+		// ---- Render ----
+		// SMART_RENDER receives the block SMART_PRE_RENDER returned.
+		assert_eq!(
+			fact_json(summary, &name("pre_render_data")),
+			json!({ "nonnull": true, "magic_ok": true }),
+			"{bpc}"
+		);
 
-	let inner_pixels = fact_json(summary, "smart.checkout_layer_pixels.inner(2,3,10,9)");
-	assert_eq!(inner_pixels["err"], 0);
-	assert_eq!(inner_pixels["nonnull"], true);
-	// Checking in a checked-out id succeeds. What a second checkin returns
-	// is not specified, so only the first is asserted.
-	assert_eq!(fact_json(summary, "smart.checkin_layer_pixels.twice")["first"], 0);
+		let inner_pixels = fact_json(summary, &name("checkout_layer_pixels.inner(2,3,10,9)"));
+		assert_eq!(inner_pixels["err"], 0, "{bpc}");
+		assert_eq!(inner_pixels["nonnull"], true, "{bpc}");
+		// Checking in a checked-out id succeeds.
+		assert_eq!(fact_json(summary, &name("checkin_layer_pixels"))["err"], 0, "{bpc}");
+	}
 
 	// Each project depth has one SDK pixel format, for input and output alike;
 	// 16 bpc worlds carry PF_WorldFlag_DEEP and 8 bpc worlds do not.
