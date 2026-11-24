@@ -59,11 +59,11 @@ pub fn cstr_field(bytes: &[i8]) -> String {
 	String::from_utf8_lossy(&unsigned).into_owned()
 }
 
-fn rect(r: &ae::PF_LRect) -> Value {
+pub fn rect(r: &ae::PF_LRect) -> Value {
 	json!({ "l": r.left, "t": r.top, "r": r.right, "b": r.bottom })
 }
 
-fn rational(r: &ae::PF_RationalScale) -> Value {
+pub fn rational(r: &ae::PF_RationalScale) -> Value {
 	json!({ "num": r.num, "den": r.den })
 }
 
@@ -147,17 +147,35 @@ pub unsafe fn snapshot_world(world: *const ae::PF_LayerDef, with_hash: bool) -> 
 	value
 }
 
+/// Like [`snapshot_world`] with the hash, for a world whose depth is known
+/// from `PF_GetPixelFormat` rather than from the deep flag (which cannot
+/// describe 32 bpc).
+pub unsafe fn snapshot_world_bpp(world: *const ae::PF_LayerDef, bytes_per_pixel: usize) -> Value {
+	let mut value = unsafe { snapshot_world(world, false) };
+	if let Some(w) = unsafe { world.as_ref() }
+		&& let Some(hash) = unsafe { world_pixels_fnv1a_bpp(w, bytes_per_pixel) }
+	{
+		value["pixels_fnv1a"] = json!(format!("{hash:016x}"));
+	}
+	value
+}
+
 /// FNV-1a over the meaningful bytes of each row (skips rowbytes padding).
 pub unsafe fn world_pixels_fnv1a(w: &ae::PF_LayerDef) -> Option<u64> {
-	if w.data.is_null() || w.width <= 0 || w.height <= 0 || w.rowbytes <= 0 {
-		return None;
-	}
-
 	let bytes_per_pixel = if w.world_flags & ae::PF_WorldFlag_DEEP as ae::PF_WorldFlags != 0 {
 		8
 	} else {
 		4
 	};
+	unsafe { world_pixels_fnv1a_bpp(w, bytes_per_pixel) }
+}
+
+/// [`world_pixels_fnv1a`] with an explicit pixel size.
+pub unsafe fn world_pixels_fnv1a_bpp(w: &ae::PF_LayerDef, bytes_per_pixel: usize) -> Option<u64> {
+	if w.data.is_null() || w.width <= 0 || w.height <= 0 || w.rowbytes <= 0 {
+		return None;
+	}
+
 	let row_len = (w.width as usize) * bytes_per_pixel;
 	if row_len > w.rowbytes as usize {
 		return None;

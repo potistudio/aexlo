@@ -21,7 +21,7 @@ cargo run -p playground -- report target/probe/trace-aexlo.jsonl
 
 考え方は、*プラグインを計測器とし、ホストを変数とする*ことです。
 `playground/probe` は、PiPL も含めて Rust で実装された、実際に読み込める AE エフェクトプラグインです。**関数、スイート、変数を 1 つずつ**検証します。各チェックはホストのサービスに固定入力を渡し、正確な出力を JSONL トレースの `fact` として記録します。たとえば `sin(0.5)` の最下位ビット、`sprintf` の各変換、rowbytes のレイアウト方針、`blend` の丸め、iterate の呼び出し回数などです。
-同じバイナリを実際の AE と aexlo に読み込み、2 つのトレースの差分を取ります。fact は設計上決定的なので、差があればエミュレーションの動作差を示し、シナリオ由来のノイズではありません。ヘッドレスの aexlo と GUI の AE セッションでは、コマンドの順序、タイミング、UI のやり取りなど、プラグインの駆動方法が大きく異なります。これらはすべてコンテキストとしてのみ記録し、既定の比較対象から除外します。
+同じバイナリを実際の AE と aexlo に読み込み、2 つのトレースの差分を取ります。fact は設計上決定的なので、差が出た場合はエミュレーションの動作差であり、シナリオ由来のノイズではありません。ヘッドレスの aexlo と GUI の AE セッションでは、コマンドの順序、タイミング、UI のやり取りなど、プラグインの駆動方法が大きく異なります。これらはすべてコンテキストとしてのみ記録し、既定の比較対象から除外します。
 
 ```text
 ┌───────────────┐         ┌─────────────────┐         trace-ae.jsonl ───┐
@@ -36,6 +36,8 @@ cargo run -p playground -- report target/probe/trace-aexlo.jsonl
 ```bash
 # 1. aexlo 上でプローブをトレース（ビルド、1 フレームのレンダリング、レポート表示）
 cargo run -p playground -- run
+#    SmartRender 版（後述）は 8、16、32 bpc でレンダリングします。
+cargo run -p playground -- run --variant smart
 
 # 2. 同じプローブを実際の After Effects でトレース（Windows）
 cargo run -p playground -- ae
@@ -45,7 +47,7 @@ cargo run -p playground -- ae
 cargo run -p playground -- diff target/probe/trace-ae.jsonl target/probe/trace-aexlo.jsonl
 ```
 
-手順 2 を手作業で行う場合は、`cargo run -p playground -- package` を実行し、`playground/dist/AexloProbe.aex` を `C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore\` などのプラグインフォルダーにコピーします。レイヤーに "Effect > aexlo > Aexlo Probe" を適用し、フレームをレンダリングします。トレースは `%TEMP%\aexlo-probe\` に保存されます。正確なパスはエフェクトの About ダイアログに表示されます。
+手順 2 を手作業で行う場合は、`cargo run -p playground -- package` を実行します。`playground/dist/AexloProbe.aex` と `playground/dist/AexloProbeSmart.aex` が出力されるので、どちらかを `C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore\` などのプラグインフォルダーにコピーします。レイヤーに "Effect > aexlo > Aexlo Probe"（または "Aexlo Probe Smart"）を適用し、フレームをレンダリングします。トレースは `%TEMP%\aexlo-probe\` に保存されます。正確なパスはエフェクトの About ダイアログに表示されます。
 
 `diff` は動作に差がある場合に非ゼロで終了します。実際の AE から取得した参照トレースをリポジトリに追加すれば、CI の合否判定にも使えます。
 
@@ -53,12 +55,12 @@ cargo run -p playground -- diff target/probe/trace-ae.jsonl target/probe/trace-a
 
 | コマンド | 動作 |
 | --- | --- |
-| `run [--release] [--in-process] [--trace <file>] [--input <png>]` | プローブをビルドして aexlo 上で読み込み、すべてのパラメーターを既定値から変更して `fixtures/input.png` をレンダリングします。`target/probe/trace-aexlo.jsonl` とプレビュー PNG を保存し、レポートを表示します。`--in-process` は `dlopen` を使わずにエントリーポイントを実行するため、プローブ内のブレークポイントを使えます。 |
+| `run [--release] [--in-process] [--variant legacy\|smart] [--trace <file>] [--input <png>]` | プローブをビルドして aexlo 上で読み込み、すべてのパラメーターを既定値から変更して `fixtures/input.png` をレンダリングします。`target/probe/trace-aexlo.jsonl` とプレビュー PNG を保存し、レポートを表示します。`--variant smart` を指定すると SmartRender 版のエフェクトを 8、16、32 bpc で 1 回ずつレンダリングし、`trace-aexlo-smart.jsonl` と `preview-aexlo-smart.png` を保存します。`--in-process` は `dlopen` を使わずにエントリーポイントを実行するため、プローブ内のブレークポイントを使えます。ただし legacy 版のビルドだけが対象です。 |
 | `report <trace.jsonl>` | 1 つのトレースを読みやすく要約します（ホスト識別情報、コマンド・エラー表、スイートの利用可否、コールバックの結果、world のレイアウト、パラメーター値）。 |
 | `diff <a> <b> [--all]` | 2 つのトレースをキーごとに比較します。既定では fact、スイートの利用可否、コールバックの有無を比較し、`--all` ではコンテキスト（コマンド回数、レンダリングシナリオ、タイミング）も比較します。 |
-| `package [--debug] [--to <dir>]` | リリースビルドし、`playground/dist/AexloProbe.aex` に出力します。 |
-| `pipl [--release]` | ビルドした DLL から PiPL リソースを再解析し、実際の AE が受け入れることを事前確認します（Windows）。 |
-| `ae [--ae <AfterFX.exe>] [--trace <file>] [--frames <n>] [--input <png>] [--plugin-dir <dir>] [--timeout <secs>] [--no-build]` | プローブをパッケージ化して After Effects にインストールし、`AfterFX.exe -r` で適用とレンダリングを行い、トレースを `target/probe/trace-ae.jsonl` に保存します（Windows）。詳しくは[実際の After Effects で記録する](#実際の-after-effects-で記録する)を参照してください。 |
+| `package [--debug] [--to <dir>]` | 2 つの版をリリースビルドし、`playground/dist/AexloProbe.aex` と `playground/dist/AexloProbeSmart.aex` に出力します。 |
+| `pipl [--release] [--variant legacy\|smart]` | ビルドした DLL から PiPL リソースを再解析し、実際の AE が受け入れることを事前確認します（Windows）。out flags はフラグ名で表示します。 |
+| `ae [--ae <AfterFX.exe>] [--trace <file>] [--frames <n>] [--input <png>] [--plugin-dir <dir>] [--timeout <secs>] [--no-build]` | legacy 版のプローブをパッケージ化して After Effects にインストールし、`AfterFX.exe -r` で適用とレンダリングを行い、トレースを `target/probe/trace-ae.jsonl` に保存します（Windows）。詳しくは[実際の After Effects で記録する](#実際の-after-effects-で記録する)を参照してください。 |
 
 ## 実際の After Effects で記録する
 
@@ -97,11 +99,35 @@ After Effects はプラグインを起動時にしか読み込みません。起
 
 プローブは、パラメーターに応じた決定的なテストパターン（浮動小数点スライダー、チェックボックス、ポップアップ、色、角度、ポイント）もレンダリングするため、AE 内の画面でもパラメーターの受け渡しを確認できます。
 
+## SmartRender 版
+
+out flags は PiPL と一致している必要があるため、SmartRender 経路は実行時の切り替えではなく、2 つ目のエフェクトで計測します。`probe` の `smart` フィーチャーを有効にすると、"Aexlo Probe Smart"（マッチ名 "AEXLO Probe Smart"、ファイル名 `AexloProbeSmart.aex`）がビルドされます。このエフェクトは `PF_OutFlag2_SUPPORTS_SMART_RENDER`、`PF_OutFlag_DEEP_COLOR_AWARE`、`PF_OutFlag2_FLOAT_COLOR_AWARE`、`PF_OutFlag2_SUPPORTS_GPU_RENDER_F32` を宣言します。legacy 版と同じ GLOBAL_SETUP のチェックをすべて実行し、同じテストパターンを 8、16、32 bpc でレンダリングします。ハーネスはこの版を `<target>/probe-smart/` にビルドするため、2 つのビルドが互いを上書きすることはありません。2 つのエフェクトは AE に並べてインストールできます。
+
+`probe/src/smart.rs` は、プローブ自身が組み立てた要求に対するホストの応答を fact として記録します。fact はビット深度ごとに 1 組（`smart.8.*`、`smart.16.*`、`smart.32.*`）になります。After Effects では、プロジェクトのビット深度を切り替えてそれぞれを記録してください。
+
+- 10x9 ピクセル以上のどのレイヤーにも収まる固定矩形、空の矩形、パラメーター番号 99 での `checkout_layer`。
+- レイヤーの各辺から 4 ピクセルはみ出す `checkout_layer`。レイヤーサイズが打ち消されるように、結果はレイヤーの `max_result_rect` からの差で記録します。
+- 固定矩形でチェックアウトした world のレイアウトと、その ID に対する `checkin_layer_pixels`。
+- 固定バイト列を渡した `GuidMixInPtr` と、`pre_render_data` が SMART_RENDER まで壊れずに届くかどうか。
+- チェックアウトした入力と出力の world に対する `PF_GetPixelFormat` の応答と world flags。
+
+プローブは、SDK が動作を定めている呼び出しだけを行います。同じ ID の 2 回目のチェックイン、プリレンダーでチェックアウトしていない ID のピクセル取得、`GuidMixInPtr` への null バッファーの受け渡しは行いません。ホストがこれらで異常終了する可能性があるためです。ピクセルの書き込みとハッシュの計算は、`PF_GetPixelFormat` が既知のピクセル形式を返し、かつ各行が `rowbytes` に収まる場合だけ行います。
+
+fact の値がそろうのは、エフェクトを 10x9 ピクセル以上の通常のフッテージレイヤーか平面レイヤーに適用し、レイヤーを広げる処理がない場合だけです。
+
+シナリオに依存する値はすべてコンテキストとして扱い、既定の差分から除外します。対象は `PF_PreRenderExtra` の入力（出力要求、フィールド、チャンネルマスク、ビット深度、GPU フレームワーク）、チェックアウト結果の全体（`par`、`solid`、`ref_width`/`ref_height`）、プローブが返す `PF_PreRenderOutput`、レンダリング時の入力と出力の world のレイアウトとハッシュです。`report` ではこれらを `smart/` のキーで表示します。
+
+GPU：GPU のあるホストは `PF_Cmd_GPU_DEVICE_SETUP` を送ります。プローブはフレームワーク、デバイス番号、GPU Device Suite が返すデバイス数とデバイス情報を、`gpu/` のコンテキストとして記録します。デバイスのポインターは null かどうかだけを記録し、ポインター先は読み取りません。プリレンダーでは `PF_RenderOutputFlag_GPU_RENDER_POSSIBLE` を設定しないため、すべてのフレームは CPU でレンダリングされます。プローブは GPU ではレンダリングしません。
+
 ## トレースの保存先
 
 1. `AEXLO_PROBE_TRACE`：ファイルの完全なパス（ハーネスが設定）。
 2. `AEXLO_PROBE_DIR`：ディレクトリを指定し、ファイル名は自動生成。
-3. どちらも指定しなければ `%TEMP%/aexlo-probe/trace-<time>-pid<pid>.jsonl`。
+3. どちらも指定しなければ `%TEMP%/aexlo-probe/trace-<time>-pid<pid>.jsonl`（SmartRender 版は `trace-smart-<time>-pid<pid>.jsonl`）。
+
+ハーネスは、`CARGO_TARGET_DIR` が設定されていればそこに、設定されていなければ `target/` にビルドします。どちらの場合も、トレースとプレビューは `<workspace>/target/probe/` に保存されます。
+
+各トレースの先頭には `trace_schema` が記録されます。この値は、イベントや fact の名前が変わるたびに変わります。`diff` はこの値も比較するため、スキーマの異なるトレースは fact の欠落ではなく差分として表示されます。
 
 ## 構成
 
@@ -110,11 +136,12 @@ playground/
   probe/     Rust cdylib → .aex。build.rs が `pipl` クレートを使って
              PiPL リソースを埋め込みます。--in-process 用の rlib にもなります。
   harness/   `playground` CLI：run / report / diff / package / pipl。
-  dist/      パッケージ化した AexloProbe.aex（Git 管理対象外のビルド出力）。
+  dist/      パッケージ化した AexloProbe.aex と AexloProbeSmart.aex
+             （Git 管理対象外のビルド出力）。
 ```
 
 ## 補足
 
 - プローブは aexlo と同じ `after-effects 0.4.0` に依存していますが、高水準のラッパーではなく、再エクスポートされた生の `sys` API を意図的に使っています。プローブはホストを計測するため、間にラッパーを挟むとラッパーを計測することになってしまいます。同じクレートバージョンを使うことで、ABI の両側で構造体のレイアウトを一致させています。
-- 現在は legacy レンダリング経路のみです（`PF_OutFlag2_SUPPORTS_SMART_RENDER` を宣言していません）。次の段階として SmartRender / GPU の計測が考えられます。
+- legacy 版は `PF_Cmd_RENDER` を計測します。SmartRender 版は `PF_Cmd_SMART_PRE_RENDER`、`PF_Cmd_SMART_RENDER`、GPU デバイスのセットアップを計測しますが、GPU でのレンダリング（`PF_Cmd_SMART_RENDER_GPU`）は対象外です。
 - macOS のパッケージ化（`.plugin` バンドルと rsrc PiPL）はまだ実装していません。プローブ自体はプラットフォームに依存しません。
