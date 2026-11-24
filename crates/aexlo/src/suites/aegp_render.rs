@@ -26,6 +26,7 @@ use crate::sys::{
 use super::aegp_world;
 use super::effect::effect_ref_of;
 use crate::PluginInstance;
+use crate::core::diagnostics::diag;
 
 struct Options {
 	effect_ref: PF_ProgPtr,
@@ -495,12 +496,22 @@ unsafe extern "C" fn get_rendered_region(receiptH: AEGP_FrameReceiptH, region_ou
 	})
 }
 
+/// Report a Render Suite function aexlo does not implement, and refuse it.
+fn unserved(name: &str) -> A_Err {
+	crate::observe::unsupported(
+		crate::observe::UnsupportedKind::Stub,
+		format!("AEGP_RenderSuite/{name}"),
+		"",
+	);
+	PF_Err_BAD_CALLBACK_PARAM
+}
+
 unsafe extern "C" fn is_rendered_sufficient(
 	_rendered: AEGP_RenderOptionsH,
 	_proposed: AEGP_RenderOptionsH,
 	_out: *mut A_Boolean,
 ) -> A_Err {
-	crate::core::ffi::guard("is_rendered_sufficient", || PF_Err_BAD_CALLBACK_PARAM)
+	crate::core::ffi::guard("is_rendered_sufficient", || unserved("AEGP_IsRenderedFrameSufficient"))
 }
 
 unsafe extern "C" fn render_new_item_sound(
@@ -512,11 +523,22 @@ unsafe extern "C" fn render_new_item_sound(
 	_refcon: AEGP_CancelRefcon,
 	_sound_out: *mut AEGP_SoundDataH,
 ) -> A_Err {
-	crate::core::ffi::guard("render_new_item_sound", || PF_Err_BAD_CALLBACK_PARAM)
+	crate::core::ffi::guard("render_new_item_sound", || unserved("AEGP_RenderNewItemSoundData"))
 }
 
-unsafe extern "C" fn get_current_timestamp(_stamp_out: *mut AEGP_TimeStamp) -> A_Err {
-	crate::core::ffi::guard("get_current_timestamp", || PF_Err_BAD_CALLBACK_PARAM)
+/// The project timestamp (see [`crate::timestamp`]).
+unsafe extern "C" fn get_current_timestamp(stamp_out: *mut AEGP_TimeStamp) -> A_Err {
+	crate::core::ffi::guard("get_current_timestamp", || {
+		if stamp_out.is_null() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		let stamp = crate::timestamp::current();
+		diag!("AEGP_RenderSuite/AEGP_GetCurrentTimestamp"; result: u32::from_le_bytes(stamp));
+		let a = stamp.map(|byte| byte as crate::sys::A_char);
+		// SAFETY: checked non-null; the caller owns the timestamp.
+		unsafe { stamp_out.write(AEGP_TimeStamp { a }) };
+		PF_Err_NONE
+	})
 }
 
 unsafe extern "C" fn has_item_changed(
@@ -526,7 +548,7 @@ unsafe extern "C" fn has_item_changed(
 	_stamp: *const AEGP_TimeStamp,
 	_changed_out: *mut A_Boolean,
 ) -> A_Err {
-	crate::core::ffi::guard("has_item_changed", || PF_Err_BAD_CALLBACK_PARAM)
+	crate::core::ffi::guard("has_item_changed", || unserved("AEGP_HasItemChangedSinceTimestamp"))
 }
 
 unsafe extern "C" fn is_item_worthwhile(
@@ -534,7 +556,7 @@ unsafe extern "C" fn is_item_worthwhile(
 	_stamp: *const AEGP_TimeStamp,
 	_worthwhile_out: *mut A_Boolean,
 ) -> A_Err {
-	crate::core::ffi::guard("is_item_worthwhile", || PF_Err_BAD_CALLBACK_PARAM)
+	crate::core::ffi::guard("is_item_worthwhile", || unserved("AEGP_IsItemWorthwhileToRender"))
 }
 
 unsafe extern "C" fn checkin_rendered_frame(
@@ -543,11 +565,11 @@ unsafe extern "C" fn checkin_rendered_frame(
 	_ticks: A_u_long,
 	_imageH: AEGP_PlatformWorldH,
 ) -> A_Err {
-	crate::core::ffi::guard("checkin_rendered_frame", || PF_Err_BAD_CALLBACK_PARAM)
+	crate::core::ffi::guard("checkin_rendered_frame", || unserved("AEGP_CheckinRenderedFrame"))
 }
 
 unsafe extern "C" fn get_receipt_guid(_receiptH: AEGP_FrameReceiptH, _guid_out: *mut AEGP_MemHandle) -> A_Err {
-	crate::core::ffi::guard("get_receipt_guid", || PF_Err_BAD_CALLBACK_PARAM)
+	crate::core::ffi::guard("get_receipt_guid", || unserved("AEGP_GetReceiptGuid"))
 }
 
 pub const fn render_suite_1() -> AEGP_RenderSuite1 {
@@ -1076,6 +1098,51 @@ mod tests {
 		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
 		assert!(receipt.is_null());
 		assert_eq!(unsafe { dispose_options(options) }, PF_Err_NONE);
+	}
+
+	#[test]
+	fn get_current_timestamp_hands_out_the_project_timestamp() {
+		let get = render_suite_5().AEGP_GetCurrentTimestamp.unwrap();
+		let read = || {
+			let mut stamp = AEGP_TimeStamp { a: [0; 4] };
+			assert_eq!(unsafe { get(&mut stamp) }, PF_Err_NONE);
+			u32::from_le_bytes(stamp.a.map(|byte| byte as u8))
+		};
+		let before = read();
+		assert!(before >= 1, "the timestamp starts at 1");
+		crate::timestamp::touch();
+		assert!(read() > before);
+		assert_eq!(unsafe { get(std::ptr::null_mut()) }, PF_Err_BAD_CALLBACK_PARAM);
+	}
+
+	#[test]
+	fn unserved_render_functions_report_themselves() {
+		#[derive(Default)]
+		struct Gaps(Mutex<Vec<String>>);
+		impl crate::Observer for Gaps {
+			fn unsupported(&self, event: &crate::UnsupportedEvent) {
+				let gap = format!("{:?} {}", event.kind, event.name);
+				self.0.lock().unwrap().push(gap);
+			}
+		}
+		let gaps = std::sync::Arc::new(Gaps::default());
+		let changed = render_suite_5().AEGP_HasItemChangedSinceTimestamp.unwrap();
+		let stamp = AEGP_TimeStamp { a: [0; 4] };
+		let time = A_Time { value: 0, scale: 1 };
+		let mut out: A_Boolean = 0;
+		let err = {
+			let installed = crate::observe::Installed {
+				observer: gaps.clone(),
+				level: crate::ObserveLevel::Commands,
+			};
+			let _guard = crate::observe::enter(Some(&installed));
+			unsafe { changed(std::ptr::null_mut(), &time, &time, &stamp, &mut out) }
+		};
+		assert_eq!(err, PF_Err_BAD_CALLBACK_PARAM);
+		assert_eq!(
+			*gaps.0.lock().unwrap(),
+			["Stub AEGP_RenderSuite/AEGP_HasItemChangedSinceTimestamp"]
+		);
 	}
 
 	#[test]

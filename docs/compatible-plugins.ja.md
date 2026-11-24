@@ -77,8 +77,9 @@ Windows 10 x64、aexlo v0.3.0、2026-11-24 に `fixtures/plugins/windows` を
 
 AutoFill2 は Windows で互換です。`PF_Cmd_SMART_PRE_RENDER` で、
 ワイヤーバージョン 5（`AEGP_RenderSuite4`）の "AEGP Render Suite" を
-取得し、それを通して `AEGP_GetCurrentTimestamp` を呼びます。aexlo はこの呼び出しを
-断りますが、プラグインはタイムスタンプなしで処理を続けます。
+取得し、それを通して `AEGP_GetCurrentTimestamp` を呼びます。aexlo はこれに
+プロジェクトのタイムスタンプを返します。この値は、レンダリングに影響する
+ものが変わるたびに増えます。
 フィクスチャはライセンス未登録のため、出力に赤い × 印が入ります。
 
 HEISEI_DEMO は Windows 専用のため、上の macOS フィクスチャには含まれません。

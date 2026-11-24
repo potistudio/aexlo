@@ -15,6 +15,7 @@ impl PluginInstance {
 	/// layer size (AE declares point defaults as layer percentages), so e.g. a
 	/// "centre" stays centred; edited points keep their pixel values.
 	pub fn set_input_layer<D: PixelDepth>(&mut self, input: Layer<D>) {
+		crate::timestamp::touch();
 		let (old_w, old_h) = self.input_size();
 		let depth_changed = D::KIND != self.output_layer.kind();
 		self.input_layer = HostLayer::new(AnyLayer::new(input));
@@ -134,6 +135,7 @@ impl PluginInstance {
 	/// mask (its id, mode, inversion and name) is its value at the current
 	/// time, so keep the id the same on every keyframe.
 	pub fn set_mask_tracks(&mut self, tracks: Vec<crate::Track<crate::MaskPath>>) {
+		crate::timestamp::touch();
 		self.masks = tracks;
 		self.apply_mask_tracks();
 	}
@@ -194,6 +196,7 @@ impl PluginInstance {
 	/// to [`TextLayer::rasterize`](crate::TextLayer::rasterize) to match what
 	/// After Effects would hand the effect.
 	pub fn set_text_layer(&mut self, text: Option<crate::TextLayer>) {
+		crate::timestamp::touch();
 		self.text_layer = text;
 	}
 
@@ -222,6 +225,7 @@ impl PluginInstance {
 		if self.project() == project.as_ref() {
 			return;
 		}
+		crate::timestamp::touch();
 		let duration = project.as_ref().map(|project| {
 			let layer = project.effect_layer();
 			layer
@@ -272,6 +276,7 @@ impl PluginInstance {
 			None => unlinked,
 		};
 		self.params[index].u = PF_ParamDefUnion { ld: def };
+		crate::timestamp::touch();
 		Ok(())
 	}
 

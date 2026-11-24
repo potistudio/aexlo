@@ -123,9 +123,22 @@ plugin renders or returns.
   effect's input and declines `render_plain_layer_frameB = true`. AutoFill2
   acquires v4 in `PF_Cmd_SMART_PRE_RENDER` and crashed when the acquire
   failed.
+- `AEGP_GetCurrentTimestamp` hands out a project timestamp, where it was
+  refused. One counter serves the whole process. It goes up when an
+  instance's parameters, input or layer parameters, masks, text layer,
+  project or output size change, and after each `PF_Cmd_USER_CHANGED_PARAM`,
+  `PF_Cmd_UPDATE_PARAMS_UI`, `PF_Cmd_EVENT` and `PF_Cmd_DO_DIALOG`, in which
+  a plugin may change its own values. `PluginInstance::set_time` leaves it
+  alone. AutoFill2 asks for it in `PF_Cmd_SMART_PRE_RENDER`.
 
 ### Changed
 
+- The Render Suite functions aexlo does not implement report themselves as
+  `UnsupportedKind::Stub`: `AEGP_IsRenderedFrameSufficient`,
+  `AEGP_RenderNewItemSoundData`, `AEGP_HasItemChangedSinceTimestamp`,
+  `AEGP_IsItemWorthwhileToRender`, `AEGP_CheckinRenderedFrame` and
+  `AEGP_GetReceiptGuid`. They still return `PF_Err_BAD_CALLBACK_PARAM`, but
+  `aexlo compat` now counts a plugin that calls them as `partial`.
 - `aexlo compat` counts a `render:legacy@*` scenario as `n/a`, not `error`,
   when the plugin declares smart render and returns a `PF_Err` from
   `PF_Cmd_RENDER`. After Effects never sends that command to a smart-render

@@ -459,3 +459,55 @@ fn every_instance_gets_the_same_pica_suite_and_it_outlives_them() {
 	assert_eq!(err, PF_Err_NONE);
 	assert!(!suite.is_null());
 }
+
+#[test]
+fn every_change_that_affects_rendering_moves_the_timestamp() {
+	use crate::timestamp::touches_on_this_thread;
+	let mut fx = bare_instance();
+	let mut float_def = param_of_type(crate::sys::PF_Param_FLOAT_SLIDER as PF_ParamType);
+	float_def.u.fs_d.value = 1.5;
+	fx.add_instance_param(float_def);
+	let mut layer_def = param_of_type(crate::sys::PF_Param_LAYER as PF_ParamType);
+	layer_def.u.ld = unsafe { std::mem::zeroed() };
+	fx.add_instance_param(layer_def);
+
+	let layer = || crate::Layer::<crate::Depth8>::from_rgba8(vec![0; 4], 1, 1).unwrap();
+	let track = crate::Track::keyed(vec![
+		crate::Keyframe::linear(crate::TimePoint::frame(0, 30), ParamValue::Float(0.0)),
+		crate::Keyframe::linear(crate::TimePoint::frame(30, 30), ParamValue::Float(1.0)),
+	])
+	.unwrap();
+	type Change = Box<dyn Fn(&mut PluginInstance)>;
+	let changes: Vec<(&str, Change)> = vec![
+		(
+			"set_param",
+			Box::new(|fx| fx.set_param(1, ParamValue::Float(2.0)).unwrap()),
+		),
+		(
+			"set_param_track",
+			Box::new(move |fx| fx.set_param_track(1, track.clone()).unwrap()),
+		),
+		("set_input_layer", Box::new(move |fx| fx.set_input_layer(layer()))),
+		(
+			"set_layer_param",
+			Box::new(move |fx| fx.set_layer_param(2, Some(layer())).unwrap()),
+		),
+		("clear_layer_param", Box::new(|fx| fx.clear_layer_param(2).unwrap())),
+		("set_mask_paths", Box::new(|fx| fx.set_mask_paths(Vec::new()))),
+		("set_text_layer", Box::new(|fx| fx.set_text_layer(None))),
+		("set_render_size", Box::new(|fx| fx.set_render_size(4, 4))),
+	];
+	for (name, change) in &changes {
+		let before = touches_on_this_thread();
+		change(&mut fx);
+		assert!(touches_on_this_thread() > before, "{name} left the timestamp alone");
+	}
+
+	// Moving the playhead and failing to change anything are not changes.
+	let before = touches_on_this_thread();
+	fx.set_time(Time::frame(12, 30));
+	assert!(fx.set_param(1, ParamValue::Checkbox(true)).is_err());
+	assert!(fx.set_param(9, ParamValue::Float(0.0)).is_err());
+	fx.set_project(None);
+	assert_eq!(touches_on_this_thread(), before);
+}

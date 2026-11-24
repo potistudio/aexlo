@@ -902,6 +902,17 @@ impl PluginInstance {
 
 		self.effect_state.absorb(&self.out_data);
 
+		// The commands in which a plugin changes its own values. aexlo cannot
+		// tell whether it did, so each of them, even a failed one, moves the
+		// project timestamp.
+		let may_change_values = matches!(
+			command,
+			RawCommand::UserChangedParam | RawCommand::UpdateParamsUi | RawCommand::Event | RawCommand::DoDialog
+		);
+		if may_change_values {
+			crate::timestamp::touch();
+		}
+
 		//* ---- Check for errors ---------------------- *//
 		#[allow(non_upper_case_globals)]
 		match result {
@@ -909,17 +920,11 @@ impl PluginInstance {
 				log::debug!(
 					"Executed command '{command:?}' successfully ({entry_point_name} exited with code {result})."
 				);
-				// The commands in which a plugin changes its own values.
-				if matches!(
-					command,
-					RawCommand::UserChangedParam
-						| RawCommand::UpdateParamsUi
-						| RawCommand::Event
-						| RawCommand::DoDialog
-				) && self
-					.params
-					.iter()
-					.any(|param| param.param_type == PF_Param_ARBITRARY_DATA as PF_ParamType)
+				if may_change_values
+					&& self
+						.params
+						.iter()
+						.any(|param| param.param_type == PF_Param_ARBITRARY_DATA as PF_ParamType)
 				{
 					self.digest_arbitrary();
 				}

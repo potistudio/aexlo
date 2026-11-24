@@ -45,6 +45,7 @@ impl PluginInstance {
 		unsafe { write_value(&mut self.params[index], value) };
 		// A value replaces the keyframes there were.
 		self.param_tracks.remove(&index);
+		crate::timestamp::touch();
 		Ok(())
 	}
 
@@ -104,6 +105,7 @@ impl PluginInstance {
 		// SAFETY: every key was checked, and `now` has a key's kind.
 		unsafe { write_value(&mut self.params[index], now) };
 		self.param_tracks.insert(index, track);
+		crate::timestamp::touch();
 		Ok(())
 	}
 

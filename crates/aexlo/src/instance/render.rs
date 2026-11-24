@@ -554,6 +554,7 @@ impl PluginInstance {
 	/// default size ([`Self::output_size`] after load), which plugins tolerate --
 	/// After Effects itself resizes freely between renders.
 	pub fn set_render_size(&mut self, width: u32, height: u32) {
+		crate::timestamp::touch();
 		let kind = self.output_layer.kind();
 		self.output_layer = HostLayer::new(AnyLayer::filled(kind, width, height, OPAQUE_BLACK));
 

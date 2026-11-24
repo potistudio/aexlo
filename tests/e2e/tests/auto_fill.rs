@@ -4,25 +4,37 @@
 //!
 //! In `PF_Cmd_SMART_PRE_RENDER` it acquires `AEGP Render Suite` at wire
 //! version 5 (`AEGP_RenderSuite4`) and calls `AEGP_GetCurrentTimestamp`
-//! through it without checking that the acquire succeeded.
+//! through it without checking that the acquire succeeded. It also caches
+//! its simulation between renders.
 //!
 //! Parameter indices: [28] Radius.
 
 use std::sync::{Arc, Mutex};
 
-use aexlo::{Depth8, Layer, ObserveLevel, Observer, ParamValue, PluginInstance, RenderPath, Time, UnsupportedEvent};
+use aexlo::{
+	Depth8, Layer, ObserveLevel, Observer, ParamValue, PluginInstance, RenderPath, SuiteCallEvent, Time,
+	UnsupportedEvent,
+};
 use aexlo_fixture_gate::needs_fixture;
 
 const RADIUS: usize = 28;
 const SIZE: (u32, u32) = (128, 96);
 
 #[derive(Default)]
-struct Gaps(Mutex<Vec<String>>);
+struct Record {
+	calls: Mutex<Vec<String>>,
+	gaps: Mutex<Vec<String>>,
+}
 
-impl Observer for Gaps {
+impl Observer for Record {
+	fn suite_call(&self, event: &SuiteCallEvent) {
+		let call = format!("{}::{}", event.suite, event.function);
+		self.calls.lock().unwrap().push(call);
+	}
+
 	fn unsupported(&self, event: &UnsupportedEvent) {
 		let gap = format!("{:?} {} {}", event.kind, event.name, event.detail);
-		self.0.lock().unwrap().push(gap);
+		self.gaps.lock().unwrap().push(gap);
 	}
 }
 
@@ -42,10 +54,10 @@ fn gradient_with_blue(blue: u8) -> Layer<Depth8> {
 	Layer::<Depth8>::from_rgba8(px, w, h).unwrap()
 }
 
-fn load(gaps: Arc<Gaps>) -> PluginInstance {
+fn load(record: Arc<Record>) -> PluginInstance {
 	let mut instance = aexlo::Host::get()
 		.loader(test_e2e::fixture("AutoFill2"))
-		.observer(gaps, ObserveLevel::Commands)
+		.observer(record, ObserveLevel::Calls)
 		.size(SIZE.0, SIZE.1)
 		.load()
 		.expect("failed to load plugin");
@@ -62,25 +74,30 @@ fn render_at(instance: &mut PluginInstance, frame: i32) -> Vec<u8> {
 	out
 }
 
-/// The fill grows over time, and nothing it asks for is reported unsupported.
-/// (aexlo refuses `AEGP_GetCurrentTimestamp` without reporting it, so this
-/// cannot see that call.)
+/// The fill grows over time, the plugin gets its timestamp, and nothing it
+/// asks for is reported unsupported.
 #[needs_fixture("AutoFill2")]
 #[test]
 fn grows_a_fill_through_smart_render() {
-	let gaps = Arc::new(Gaps::default());
-	let mut instance = load(gaps.clone());
+	let record = Arc::new(Record::default());
+	let mut instance = load(record.clone());
 	let start = render_at(&mut instance, 0);
 	let later = render_at(&mut instance, 45);
 	assert_ne!(start, later, "the fill did not grow between frames 0 and 45");
-	let gaps = gaps.0.lock().unwrap();
+	let calls = record.calls.lock().unwrap();
+	assert!(
+		calls
+			.iter()
+			.any(|call| call == "AEGP_RenderSuite::AEGP_GetCurrentTimestamp"),
+		"the plugin never asked for the timestamp: {calls:?}"
+	);
+	let gaps = record.gaps.lock().unwrap();
 	assert!(gaps.is_empty(), "unsupported calls: {gaps:?}");
 }
 
 /// A render after a parameter change matches a fresh instance with that
-/// value, at a frame where the fill has not covered the layer yet. The plugin
-/// caches its simulation, and `AEGP_GetCurrentTimestamp` does not give it a
-/// timestamp to invalidate that cache with.
+/// value, at a frame where the fill has not covered the layer yet, so the
+/// plugin did not reuse its cached simulation.
 #[needs_fixture("AutoFill2")]
 #[test]
 fn re_renders_after_a_parameter_change() {
