@@ -165,9 +165,9 @@ overwrite each other, and both effects can be installed side by side.
 `probe/src/smart.rs` records as facts the host's answers to requests the
 probe builds itself, one set per bit depth (`smart.8.*`, `smart.16.*`,
 `smart.32.*`). `cargo run -p playground -- ae --variant smart` switches the
-project depth to 8, 16 and 32 bpc in one session, so a single trace carries
-all three sets. A manual run installs `AexloProbeSmart.aex` from `package`
-and renders a frame at each depth:
+project depth and renders at 8, 16 and 32 bpc in one session, so a single
+trace carries all three sets. For a manual run, install `AexloProbeSmart.aex`
+from `package` and render a frame at each depth:
 
 - `checkout_layer` with a fixed rectangle inside any layer of at least 10x9
   pixels, with an empty rectangle, and with parameter index 99;
