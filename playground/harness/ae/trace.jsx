@@ -112,9 +112,13 @@
 		}
 
 		originalDepth = app.project.bitsPerChannel;
+		// saveFrameToPng renders the frame as shown in a comp viewer: without an
+		// active viewer After Effects returns without writing anything.
+		comp.openInViewer();
 		// cfg.depths is empty in the legacy run: [null] renders one frame
 		// sequence at the depth in effect, without changing the project.
 		var depths = cfg.depths && cfg.depths.length ? cfg.depths : [null];
+		var missing = [];
 		for (var d = 0; d < depths.length; d++) {
 			if (depths[d] !== null) {
 				app.project.bitsPerChannel = depths[d];
@@ -130,7 +134,15 @@
 				var out = new File(cfg.render_stem + "_" + suffix + ".png");
 				comp.saveFrameToPng(cfg.times[t], out);
 				result.renders.push(out.fsName);
+				if (!out.exists) {
+					missing.push(out.fsName);
+				}
 			}
+		}
+		if (missing.length) {
+			throw new Error(
+				"saveFrameToPng wrote no file: " + missing[0] + (missing.length > 1 ? " and " + (missing.length - 1) + " more" : "")
+			);
 		}
 
 		result.ok = true;
