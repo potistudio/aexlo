@@ -607,6 +607,10 @@ impl PluginInstance {
 		// SAFETY: the layer's buffer is exactly `w * h * bpp` bytes.
 		let bytes = unsafe { std::slice::from_raw_parts(layer.data_ptr(), w * h * bpp) };
 		guarded.load_rows(bytes);
+		// Suites that read a world's depth from its allocation (the World
+		// Transform Suite, `PF_GetPixelFormat`) must see the output's depth
+		// in the guarded copy too.
+		crate::suites::world::tag_host_world(guarded.data_ptr() as usize, guarded.rowbytes() * h, layer.kind());
 		self.world.data = guarded.data_ptr() as *mut crate::sys::PF_Pixel;
 		self.world.rowbytes = guarded.rowbytes() as i32;
 		self.output_guard = Some(guarded);
@@ -614,9 +618,10 @@ impl PluginInstance {
 
 	/// Copy the guarded output back and report overwritten guard bands.
 	pub(super) fn end_output_guard(&mut self) {
-		let Some(guarded) = self.output_guard.take() else {
+		let Some(mut guarded) = self.output_guard.take() else {
 			return;
 		};
+		crate::suites::world::untag_host_world(guarded.data_ptr() as usize);
 		let layer = self.output_layer.layer_mut();
 		let len = layer.width() as usize * layer.height() as usize * layer.kind().bytes_per_pixel();
 		// SAFETY: as in `begin_output_guard`.
