@@ -63,6 +63,46 @@
 		return text;
 	}
 
+	function isCompletePng(path) {
+		// The queued write leaves truncated files behind; the PNG signature and
+		// the IEND trailer are the proof that the write finished.
+		var signature = String.fromCharCode(137, 80, 78, 71, 13, 10, 26, 10);
+		var iend = String.fromCharCode(73, 69, 78, 68, 174, 66, 96, 130);
+		var file = new File(path);
+		if (!file.exists) {
+			return false;
+		}
+		file.encoding = "BINARY";
+		if (!file.open("r")) {
+			return false;
+		}
+		var ok = false;
+		try {
+			if (file.length >= 16) {
+				var head = file.read(8);
+				file.seek(file.length - 8);
+				var tail = file.read(8);
+				ok = head === signature && tail === iend;
+			}
+		} finally {
+			file.close();
+		}
+		return ok;
+	}
+
+	function waitForPng(path, deadlineMs) {
+		// saveFrameToPng queues the frame render; After Effects writes the PNG
+		// in the background, so the script polls until the bytes are complete.
+		var deadline = new Date().getTime() + deadlineMs;
+		while (new Date().getTime() < deadline) {
+			if (isCompletePng(path)) {
+				return true;
+			}
+			$.sleep(100);
+		}
+		return isCompletePng(path);
+	}
+
 	function writeResult() {
 		var file = new File(cfg.result);
 		file.encoding = "UTF-8";
@@ -112,9 +152,6 @@
 		}
 
 		originalDepth = app.project.bitsPerChannel;
-		// saveFrameToPng renders the frame as shown in a comp viewer: without an
-		// active viewer After Effects returns without writing anything.
-		comp.openInViewer();
 		// cfg.depths is empty in the legacy run: [null] renders one frame
 		// sequence at the depth in effect, without changing the project.
 		var depths = cfg.depths && cfg.depths.length ? cfg.depths : [null];
@@ -134,7 +171,7 @@
 				var out = new File(cfg.render_stem + "_" + suffix + ".png");
 				comp.saveFrameToPng(cfg.times[t], out);
 				result.renders.push(out.fsName);
-				if (!out.exists) {
+				if (!waitForPng(out.fsName, 30000)) {
 					missing.push(out.fsName);
 				}
 			}
