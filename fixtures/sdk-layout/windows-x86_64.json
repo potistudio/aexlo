@@ -1799,6 +1799,89 @@
     },
     {
       "align": 8,
+      "cpp": "AEGP_RenderSuite1",
+      "fields": [
+        {"align":8,"cpp":"AEGP_RenderAndCheckoutFrame","offset":0,"rust":"AEGP_RenderAndCheckoutFrame","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_CheckinFrame","offset":8,"rust":"AEGP_CheckinFrame","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_GetReceiptWorld","offset":16,"rust":"AEGP_GetReceiptWorld","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_GetRenderedRegion","offset":24,"rust":"AEGP_GetRenderedRegion","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_IsRenderedFrameSufficient","offset":32,"rust":"AEGP_IsRenderedFrameSufficient","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_RenderNewItemSoundData","offset":40,"rust":"AEGP_RenderNewItemSoundData","sdk":"found","size":8}
+      ],
+      "holes": [],
+      "rust": "AEGP_RenderSuite1",
+      "sdk": "found",
+      "size": 48,
+      "union": false
+    },
+    {
+      "align": 8,
+      "cpp": "AEGP_RenderSuite2",
+      "fields": [
+        {"align":8,"cpp":"AEGP_RenderAndCheckoutFrame","offset":0,"rust":"AEGP_RenderAndCheckoutFrame","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_CheckinFrame","offset":8,"rust":"AEGP_CheckinFrame","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_GetReceiptWorld","offset":16,"rust":"AEGP_GetReceiptWorld","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_GetRenderedRegion","offset":24,"rust":"AEGP_GetRenderedRegion","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_IsRenderedFrameSufficient","offset":32,"rust":"AEGP_IsRenderedFrameSufficient","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_RenderNewItemSoundData","offset":40,"rust":"AEGP_RenderNewItemSoundData","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_GetCurrentTimestamp","offset":48,"rust":"AEGP_GetCurrentTimestamp","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_HasItemChangedSinceTimestamp","offset":56,"rust":"AEGP_HasItemChangedSinceTimestamp","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_IsItemWorthwhileToRender","offset":64,"rust":"AEGP_IsItemWorthwhileToRender","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_CheckinRenderedFrame","offset":72,"rust":"AEGP_CheckinRenderedFrame","sdk":"found","size":8}
+      ],
+      "holes": [],
+      "rust": "AEGP_RenderSuite2",
+      "sdk": "found",
+      "size": 80,
+      "union": false
+    },
+    {
+      "align": 8,
+      "cpp": "AEGP_RenderSuite3",
+      "fields": [
+        {"align":8,"cpp":"AEGP_RenderAndCheckoutFrame","offset":0,"rust":"AEGP_RenderAndCheckoutFrame","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_CheckinFrame","offset":8,"rust":"AEGP_CheckinFrame","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_GetReceiptWorld","offset":16,"rust":"AEGP_GetReceiptWorld","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_GetRenderedRegion","offset":24,"rust":"AEGP_GetRenderedRegion","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_IsRenderedFrameSufficient","offset":32,"rust":"AEGP_IsRenderedFrameSufficient","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_RenderNewItemSoundData","offset":40,"rust":"AEGP_RenderNewItemSoundData","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_GetCurrentTimestamp","offset":48,"rust":"AEGP_GetCurrentTimestamp","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_HasItemChangedSinceTimestamp","offset":56,"rust":"AEGP_HasItemChangedSinceTimestamp","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_IsItemWorthwhileToRender","offset":64,"rust":"AEGP_IsItemWorthwhileToRender","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_CheckinRenderedFrame","offset":72,"rust":"AEGP_CheckinRenderedFrame","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_GetReceiptGuid","offset":80,"rust":"AEGP_GetReceiptGuid","sdk":"found","size":8}
+      ],
+      "holes": [],
+      "rust": "AEGP_RenderSuite3",
+      "sdk": "found",
+      "size": 88,
+      "union": false
+    },
+    {
+      "align": 8,
+      "cpp": "AEGP_RenderSuite4",
+      "fields": [
+        {"align":8,"cpp":"AEGP_RenderAndCheckoutFrame","offset":0,"rust":"AEGP_RenderAndCheckoutFrame","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_RenderAndCheckoutLayerFrame","offset":8,"rust":"AEGP_RenderAndCheckoutLayerFrame","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_CheckinFrame","offset":16,"rust":"AEGP_CheckinFrame","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_GetReceiptWorld","offset":24,"rust":"AEGP_GetReceiptWorld","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_GetRenderedRegion","offset":32,"rust":"AEGP_GetRenderedRegion","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_IsRenderedFrameSufficient","offset":40,"rust":"AEGP_IsRenderedFrameSufficient","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_RenderNewItemSoundData","offset":48,"rust":"AEGP_RenderNewItemSoundData","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_GetCurrentTimestamp","offset":56,"rust":"AEGP_GetCurrentTimestamp","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_HasItemChangedSinceTimestamp","offset":64,"rust":"AEGP_HasItemChangedSinceTimestamp","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_IsItemWorthwhileToRender","offset":72,"rust":"AEGP_IsItemWorthwhileToRender","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_CheckinRenderedFrame","offset":80,"rust":"AEGP_CheckinRenderedFrame","sdk":"found","size":8},
+        {"align":8,"cpp":"AEGP_GetReceiptGuid","offset":88,"rust":"AEGP_GetReceiptGuid","sdk":"found","size":8}
+      ],
+      "holes": [],
+      "rust": "AEGP_RenderSuite4",
+      "sdk": "found",
+      "size": 96,
+      "union": false
+    },
+    {
+      "align": 8,
       "cpp": "AEGP_RenderSuite5",
       "fields": [
         {"align":8,"cpp":"AEGP_RenderAndCheckoutFrame","offset":0,"rust":"AEGP_RenderAndCheckoutFrame","sdk":"found","size":8},
@@ -5492,10 +5575,6 @@
     "AEGP_RenderOptionsSuite3",
     "AEGP_RenderQueueMonitorSuite1",
     "AEGP_RenderQueueSuite1",
-    "AEGP_RenderSuite1",
-    "AEGP_RenderSuite2",
-    "AEGP_RenderSuite3",
-    "AEGP_RenderSuite4",
     "AEGP_SoundDataSuite1",
     "AEGP_StreamCollectionItem",
     "AEGP_StreamCollectionItem__bindgen_ty_1",
