@@ -95,7 +95,7 @@ fn keep_ui_off_vulkan(options: &mut eframe::NativeOptions) {
 fn publish_main_window(handle: &impl raw_window_handle::HasWindowHandle) {
 	#[cfg(windows)]
 	{
-		use raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
+		use raw_window_handle::RawWindowHandle;
 		let Ok(window) = handle.window_handle() else {
 			return;
 		};

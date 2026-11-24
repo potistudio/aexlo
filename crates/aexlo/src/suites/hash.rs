@@ -19,8 +19,9 @@ unsafe fn hash(size: A_u_longlong, data: *const c_void, out: *mut AEGP_GUID, mix
 	}
 	let bytes = digest.finalize();
 	let mut words = [0; 4];
-	for (index, chunk) in bytes[..16].chunks_exact(4).enumerate() {
-		words[index] = i32::from_le_bytes(chunk.try_into().unwrap());
+	let (chunks, _) = bytes[..16].as_chunks::<4>();
+	for (word, chunk) in words.iter_mut().zip(chunks) {
+		*word = i32::from_le_bytes(*chunk);
 	}
 	unsafe {
 		(*out).bytes = words;

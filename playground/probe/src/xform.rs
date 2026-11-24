@@ -314,7 +314,7 @@ pub unsafe fn run(in_data: *mut ae::PF_InData) {
 		};
 		unsafe { src.fill(source) };
 
-		let mut transfer = |name: String, how: ae::PF_CompositeMode, flags: i32| {
+		let mut transfer = |name: String, how: ae::PF_CompositeMode, flags: ae::PF_ModeFlags| {
 			let Some(transfer_rect) = suite.transfer_rect else {
 				return;
 			};
@@ -324,7 +324,7 @@ pub unsafe fn run(in_data: *mut ae::PF_InData) {
 				transfer_rect(
 					effect_ref,
 					ae::PF_Quality_HI as ae::PF_Quality,
-					flags as ae::PF_ModeFlags,
+					flags,
 					ae::PF_Field_FRAME as ae::PF_Field,
 					&full,
 					&src.world,
@@ -339,7 +339,7 @@ pub unsafe fn run(in_data: *mut ae::PF_InData) {
 		};
 
 		let d = depth.name();
-		let straight = ae::PF_MF_Alpha_STRAIGHT;
+		let straight = ae::PF_MF_Alpha_STRAIGHT as ae::PF_ModeFlags;
 		for &(name, xfer) in MODES {
 			transfer(
 				format!("xform.{d}.transfer[{name}]"),
@@ -379,7 +379,7 @@ pub unsafe fn run(in_data: *mut ae::PF_InData) {
 			transfer(
 				format!("xform.{d}.transfer[{name},premul]"),
 				mode(xfer, 255, 0, false),
-				ae::PF_MF_Alpha_PREMUL,
+				ae::PF_MF_Alpha_PREMUL as ae::PF_ModeFlags,
 			);
 		}
 

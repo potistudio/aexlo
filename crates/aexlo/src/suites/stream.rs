@@ -400,19 +400,19 @@ impl StreamValue {
 	}
 
 	fn stream_type(self) -> AEGP_StreamType {
-		(match self {
-			Self::NoData => AEGP_StreamType_NO_DATA,
-			Self::OneD(_) => AEGP_StreamType_OneD,
-			Self::TwoD { spatial: true, .. } => AEGP_StreamType_TwoD_SPATIAL,
-			Self::TwoD { .. } => AEGP_StreamType_TwoD,
-			Self::ThreeD { spatial: true, .. } => AEGP_StreamType_ThreeD_SPATIAL,
-			Self::ThreeD { .. } => AEGP_StreamType_ThreeD,
-			Self::Color { .. } => AEGP_StreamType_COLOR,
-			Self::LayerId(_) => AEGP_StreamType_LAYER_ID,
-			Self::Outline => AEGP_StreamType_MASK,
-			Self::TextDocument => AEGP_StreamType_TEXT_DOCUMENT,
-			Self::Arb(_) => AEGP_StreamType_ARB,
-		}) as AEGP_StreamType
+		match self {
+			Self::NoData => AEGP_StreamType_NO_DATA as AEGP_StreamType,
+			Self::OneD(_) => AEGP_StreamType_OneD as AEGP_StreamType,
+			Self::TwoD { spatial: true, .. } => AEGP_StreamType_TwoD_SPATIAL as AEGP_StreamType,
+			Self::TwoD { .. } => AEGP_StreamType_TwoD as AEGP_StreamType,
+			Self::ThreeD { spatial: true, .. } => AEGP_StreamType_ThreeD_SPATIAL as AEGP_StreamType,
+			Self::ThreeD { .. } => AEGP_StreamType_ThreeD as AEGP_StreamType,
+			Self::Color { .. } => AEGP_StreamType_COLOR as AEGP_StreamType,
+			Self::LayerId(_) => AEGP_StreamType_LAYER_ID as AEGP_StreamType,
+			Self::Outline => AEGP_StreamType_MASK as AEGP_StreamType,
+			Self::TextDocument => AEGP_StreamType_TEXT_DOCUMENT as AEGP_StreamType,
+			Self::Arb(_) => AEGP_StreamType_ARB as AEGP_StreamType,
+		}
 	}
 
 	/// Number of values in one sample (`AEGP_GetStreamValueDimensionality`).

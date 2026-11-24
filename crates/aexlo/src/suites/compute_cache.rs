@@ -36,8 +36,9 @@ struct Class {
 	changed: Condvar,
 }
 static CLASSES: LazyLock<Mutex<HashMap<Vec<u8>, Arc<Class>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
-static RECEIPTS: LazyLock<Mutex<HashMap<usize, (Arc<Class>, Arc<Value>)>>> =
-	LazyLock::new(|| Mutex::new(HashMap::new()));
+/// A checked-out value by its receipt, with the class it came from.
+type Receipts = HashMap<usize, (Arc<Class>, Arc<Value>)>;
+static RECEIPTS: LazyLock<Mutex<Receipts>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 static NEXT_RECEIPT: AtomicUsize = AtomicUsize::new(1);
 
 struct Operation(Arc<Class>);
@@ -239,7 +240,7 @@ unsafe fn checkout(
 			}
 			Some(Slot::Computing) if compute && wait => state = class.changed.wait(state).unwrap(),
 			Some(Slot::Computing) | None if !compute || !wait && state.entries.contains_key(&key) => {
-				return A_Err_NOT_IN_CACHE_OR_COMPUTE_PENDING;
+				return A_Err_NOT_IN_CACHE_OR_COMPUTE_PENDING as A_Err;
 			}
 			None => {
 				state.entries.insert(key, Slot::Computing);
@@ -261,7 +262,7 @@ unsafe fn checkout(
 				drop(state);
 				return receipt(class.clone(), value, out);
 			}
-			Some(Slot::Computing) => return A_Err_NOT_IN_CACHE_OR_COMPUTE_PENDING,
+			Some(Slot::Computing) => return A_Err_NOT_IN_CACHE_OR_COMPUTE_PENDING as A_Err,
 		}
 	}
 }
@@ -384,7 +385,7 @@ mod tests {
 		let mut pending = std::ptr::null_mut();
 		assert_eq!(
 			unsafe { compute(id, 7usize as _, false, &mut pending) },
-			A_Err_NOT_IN_CACHE_OR_COMPUTE_PENDING
+			A_Err_NOT_IN_CACHE_OR_COMPUTE_PENDING as A_Err
 		);
 		let waiter = std::thread::spawn(|| {
 			let mut receipt = std::ptr::null_mut();

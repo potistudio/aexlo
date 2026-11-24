@@ -35,8 +35,9 @@ pub(crate) struct EffectMetadata {
 	pub match_name: Option<Vec<u8>>,
 	pub category: Option<Vec<u8>>,
 }
-static INSTALLED: LazyLock<Mutex<BTreeMap<AEGP_InstalledEffectKey, (Option<EffectMetadata>, HashSet<u64>)>>> =
-	LazyLock::new(|| Mutex::new(BTreeMap::new()));
+/// Each installed effect's metadata, with the instances that registered it.
+type Installed = BTreeMap<AEGP_InstalledEffectKey, (Option<EffectMetadata>, HashSet<u64>)>;
+static INSTALLED: LazyLock<Mutex<Installed>> = LazyLock::new(|| Mutex::new(BTreeMap::new()));
 static NEXT_KEY: AtomicI32 = AtomicI32::new(1);
 pub(crate) fn register_metadata(owner: u64, metadata: Option<EffectMetadata>) {
 	let mut entries = INSTALLED.lock().unwrap();
@@ -44,11 +45,10 @@ pub(crate) fn register_metadata(owner: u64, metadata: Option<EffectMetadata>) {
 		.as_ref()
 		.and_then(|m| m.match_name.as_ref())
 		.is_some_and(|name| !name.is_empty())
+		&& let Some((_, (_, owners))) = entries.iter_mut().find(|(_, (existing, _))| *existing == metadata)
 	{
-		if let Some((_, (_, owners))) = entries.iter_mut().find(|(_, (existing, _))| *existing == metadata) {
-			owners.insert(owner);
-			return;
-		}
+		owners.insert(owner);
+		return;
 	}
 	let key = NEXT_KEY.fetch_add(1, Ordering::Relaxed);
 	if key > 0 {

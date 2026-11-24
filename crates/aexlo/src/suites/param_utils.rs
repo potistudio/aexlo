@@ -200,12 +200,11 @@ unsafe extern "C" fn find_keyframe_time(
 		diag!("PF_ParamUtilsSuite3/PF_FindKeyframeTime", "param_index" => param_index);
 		let keys = unsafe { keys_of(effect_ref, param_index) };
 		let at = TimePoint::new(what_time, time_scale);
-		#[allow(non_upper_case_globals)]
 		let found = at.and_then(|at| match time_dir {
-			PF_TimeDir_GREATER_THAN => keys.iter().position(|key| key.0 > at),
-			PF_TimeDir_GREATER_THAN_OR_EQUAL => keys.iter().position(|key| key.0 >= at),
-			PF_TimeDir_LESS_THAN => keys.iter().rposition(|key| key.0 < at),
-			PF_TimeDir_LESS_THAN_OR_EQUAL => keys.iter().rposition(|key| key.0 <= at),
+			d if d == PF_TimeDir_GREATER_THAN as PF_TimeDir => keys.iter().position(|key| key.0 > at),
+			d if d == PF_TimeDir_GREATER_THAN_OR_EQUAL as PF_TimeDir => keys.iter().position(|key| key.0 >= at),
+			d if d == PF_TimeDir_LESS_THAN as PF_TimeDir => keys.iter().rposition(|key| key.0 < at),
+			d if d == PF_TimeDir_LESS_THAN_OR_EQUAL as PF_TimeDir => keys.iter().rposition(|key| key.0 <= at),
 			_ => None,
 		});
 		unsafe {

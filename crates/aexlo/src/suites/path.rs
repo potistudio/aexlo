@@ -496,7 +496,7 @@ mod tests {
 
 	#[test]
 	fn vertex_tangents_are_points_in_layer_space() {
-		let paths = vec![MaskPath {
+		let paths = [MaskPath {
 			vertices: vec![
 				MaskVertex {
 					x: 10.0,

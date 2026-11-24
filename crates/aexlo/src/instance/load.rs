@@ -47,6 +47,8 @@ unsafe extern "C" fn receive_plugin_data(
 			if ptr.is_null() {
 				None
 			} else {
+				// SAFETY: `ptr` is non-null (checked above) and is one of the plugin's
+				// NUL-terminated strings, valid for this call.
 				Some(unsafe { CStr::from_ptr(ptr.cast()) }.to_bytes().to_vec())
 			}
 		};

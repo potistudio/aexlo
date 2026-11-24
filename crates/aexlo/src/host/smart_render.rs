@@ -73,6 +73,7 @@ unsafe extern "C" fn checkout_layer_stub(
 			None => (WIDTH as i32, HEIGHT as i32),
 		};
 
+		// SAFETY: `req` is non-null (checked above) and is the plugin's `PF_RenderRequest`.
 		let requested = unsafe { &(*req).rect };
 		let left = requested.left.clamp(0, layer_w);
 		let top = requested.top.clamp(0, layer_h);
@@ -207,6 +208,7 @@ unsafe extern "C" fn checkout_layer_pixels_stub(
 		// SAFETY: `effect_ref` is the `PluginInstance` aexlo handed the plugin in `in_data`, and the plugin calls back during one of that instance's commands (see `PluginInstance::get_instance_ptr`). `pixels` is non-null (checked above).
 		let instance = unsafe { instance.as_mut() };
 		if !instance.has_layer_checkout(_checkout_idL) {
+			// SAFETY: `pixels` is non-null (checked above) and is the plugin's out-slot for the world pointer.
 			unsafe { *pixels = null_mut() };
 			return PF_Err_BAD_CALLBACK_PARAM;
 		}
@@ -584,6 +586,8 @@ impl SmartRenderData {
 		} else if !data.is_null() && crate::suites::handle::is_owned_handle(data as usize) {
 			// Some effects return a host handle without a delete callback. Its
 			// ownership transfers to the host with the pre-render result.
+			// SAFETY: `data` is a live handle aexlo allocated (checked above), and
+			// `mem::replace` cleared every other reference to it.
 			unsafe { crate::suites::handle::host_dispose_handle_impl(data.cast()) };
 		}
 	}

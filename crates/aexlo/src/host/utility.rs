@@ -171,6 +171,8 @@ unsafe extern "C" fn gaussian_kernel_sys(
 		};
 		for index in 0..count {
 			let value = weight(index) / norm * multiplier * scale;
+			// SAFETY: `kernel` is non-null (checked above) and, by the SDK contract,
+			// holds `count` entries of the format `flags` asks for.
 			unsafe {
 				if format == PF_KernelFlag_USE_CHAR {
 					*kernel.cast::<u8>().add(index) = value.round().clamp(0.0, u8::MAX as f64) as u8;
@@ -180,6 +182,7 @@ unsafe extern "C" fn gaussian_kernel_sys(
 				}
 			}
 		}
+		// SAFETY: `diameter` is non-null (checked above) and is the plugin's out-slot.
 		unsafe {
 			*diameter = width as A_long;
 		}
@@ -320,6 +323,7 @@ unsafe extern "C" fn get_callback_addr(
 	fn_ptr: *mut PF_CallbackFunc,
 ) -> PF_Err {
 	crate::core::ffi::guard("get_callback_addr", || {
+		// SAFETY: `fn_ptr` is null or the plugin's out-slot for the callback address.
 		let Some(out) = (unsafe { fn_ptr.as_mut() }) else {
 			return PF_Err_BAD_CALLBACK_PARAM;
 		};
@@ -339,45 +343,54 @@ unsafe extern "C" fn get_callback_addr(
 					.map_or(std::ptr::null_mut(), |f| f as *const () as PF_CallbackFunc)
 			};
 		}
-		*out = match which_callback {
-			PF_Callback_BEGIN_SAMPLING => addr!(begin_sampling),
-			PF_Callback_SUBPIXEL_SAMPLE => addr!(subpixel_sample),
-			PF_Callback_AREA_SAMPLE => addr!(area_sample),
-			PF_Callback_END_SAMPLING => addr!(end_sampling),
-			PF_Callback_COMPOSITE_RECT => addr!(composite_rect),
-			PF_Callback_BLEND => addr!(blend),
-			PF_Callback_CONVOLVE => addr!(convolve),
-			PF_Callback_COPY => addr!(copy),
-			PF_Callback_FILL => addr!(fill),
-			PF_Callback_GAUSSIAN => addr!(gaussian_kernel),
-			PF_Callback_ITERATE => addr!(iterate),
-			PF_Callback_PREMUL => addr!(premultiply),
-			PF_Callback_PREMUL_COLOR => addr!(premultiply_color),
-			PF_Callback_RGB_TO_HLS => color_addr!(RGBtoHLS),
-			PF_Callback_HLS_TO_RGB => color_addr!(HLStoRGB),
-			PF_Callback_RGB_TO_YIQ => color_addr!(RGBtoYIQ),
-			PF_Callback_YIQ_TO_RGB => color_addr!(YIQtoRGB),
-			PF_Callback_LUMINANCE => color_addr!(Luminance),
-			PF_Callback_HUE => color_addr!(Hue),
-			PF_Callback_LIGHTNESS => color_addr!(Lightness),
-			PF_Callback_SATURATION => color_addr!(Saturation),
-			PF_Callback_NEW_WORLD => addr!(new_world),
-			PF_Callback_DISPOSE_WORLD => addr!(dispose_world),
-			PF_Callback_ITERATE_ORIGIN => addr!(iterate_origin),
-			PF_Callback_ITERATE_LUT => addr!(iterate_lut),
-			PF_Callback_TRANSFER_RECT => addr!(transfer_rect),
-			PF_Callback_TRANSFORM_WORLD => addr!(transform_world),
-			PF_Callback_ITERATE_ORIGIN_NON_CLIP_SRC => addr!(iterate_origin_non_clip_src),
-			PF_Callback_ITERATE_GENERIC => addr!(iterate_generic),
-			PF_Callback_SUBPIXEL_SAMPLE16 => addr!(subpixel_sample16),
-			PF_Callback_AREA_SAMPLE16 => addr!(area_sample16),
-			PF_Callback_FILL16 => addr!(fill16),
-			PF_Callback_PREMUL_COLOR16 => addr!(premultiply_color16),
-			PF_Callback_ITERATE16 => addr!(iterate16),
-			PF_Callback_ITERATE_ORIGIN16 => addr!(iterate_origin16),
-			PF_Callback_ITERATE_ORIGIN_NON_CLIP_SRC16 => addr!(iterate_origin_non_clip_src16),
-			_ => std::ptr::null_mut(),
-		};
+		let table = [
+			(PF_Callback_BEGIN_SAMPLING, addr!(begin_sampling)),
+			(PF_Callback_SUBPIXEL_SAMPLE, addr!(subpixel_sample)),
+			(PF_Callback_AREA_SAMPLE, addr!(area_sample)),
+			(PF_Callback_END_SAMPLING, addr!(end_sampling)),
+			(PF_Callback_COMPOSITE_RECT, addr!(composite_rect)),
+			(PF_Callback_BLEND, addr!(blend)),
+			(PF_Callback_CONVOLVE, addr!(convolve)),
+			(PF_Callback_COPY, addr!(copy)),
+			(PF_Callback_FILL, addr!(fill)),
+			(PF_Callback_GAUSSIAN, addr!(gaussian_kernel)),
+			(PF_Callback_ITERATE, addr!(iterate)),
+			(PF_Callback_PREMUL, addr!(premultiply)),
+			(PF_Callback_PREMUL_COLOR, addr!(premultiply_color)),
+			(PF_Callback_RGB_TO_HLS, color_addr!(RGBtoHLS)),
+			(PF_Callback_HLS_TO_RGB, color_addr!(HLStoRGB)),
+			(PF_Callback_RGB_TO_YIQ, color_addr!(RGBtoYIQ)),
+			(PF_Callback_YIQ_TO_RGB, color_addr!(YIQtoRGB)),
+			(PF_Callback_LUMINANCE, color_addr!(Luminance)),
+			(PF_Callback_HUE, color_addr!(Hue)),
+			(PF_Callback_LIGHTNESS, color_addr!(Lightness)),
+			(PF_Callback_SATURATION, color_addr!(Saturation)),
+			(PF_Callback_NEW_WORLD, addr!(new_world)),
+			(PF_Callback_DISPOSE_WORLD, addr!(dispose_world)),
+			(PF_Callback_ITERATE_ORIGIN, addr!(iterate_origin)),
+			(PF_Callback_ITERATE_LUT, addr!(iterate_lut)),
+			(PF_Callback_TRANSFER_RECT, addr!(transfer_rect)),
+			(PF_Callback_TRANSFORM_WORLD, addr!(transform_world)),
+			(
+				PF_Callback_ITERATE_ORIGIN_NON_CLIP_SRC,
+				addr!(iterate_origin_non_clip_src),
+			),
+			(PF_Callback_ITERATE_GENERIC, addr!(iterate_generic)),
+			(PF_Callback_SUBPIXEL_SAMPLE16, addr!(subpixel_sample16)),
+			(PF_Callback_AREA_SAMPLE16, addr!(area_sample16)),
+			(PF_Callback_FILL16, addr!(fill16)),
+			(PF_Callback_PREMUL_COLOR16, addr!(premultiply_color16)),
+			(PF_Callback_ITERATE16, addr!(iterate16)),
+			(PF_Callback_ITERATE_ORIGIN16, addr!(iterate_origin16)),
+			(
+				PF_Callback_ITERATE_ORIGIN_NON_CLIP_SRC16,
+				addr!(iterate_origin_non_clip_src16),
+			),
+		];
+		*out = table
+			.iter()
+			.find(|(id, _)| *id as PF_CallbackID == which_callback)
+			.map_or(std::ptr::null_mut(), |&(_, addr)| addr);
 		if out.is_null() {
 			PF_Err_INVALID_CALLBACK
 		} else {
@@ -713,12 +726,28 @@ mod tests {
 		let lookup = callbacks.get_callback_addr.unwrap();
 		let mut addr: PF_CallbackFunc = std::ptr::null_mut();
 		assert_eq!(
-			unsafe { lookup(std::ptr::null_mut(), 0, 0, PF_Callback_GAUSSIAN, &mut addr) },
+			unsafe {
+				lookup(
+					std::ptr::null_mut(),
+					0,
+					0,
+					PF_Callback_GAUSSIAN as PF_CallbackID,
+					&mut addr,
+				)
+			},
 			PF_Err_NONE
 		);
 		assert_eq!(addr as *const (), gaussian_kernel_sys as *const ());
 		assert_eq!(
-			unsafe { lookup(std::ptr::null_mut(), 0, 0, PF_Callback_RGB_TO_HLS, &mut addr) },
+			unsafe {
+				lookup(
+					std::ptr::null_mut(),
+					0,
+					0,
+					PF_Callback_RGB_TO_HLS as PF_CallbackID,
+					&mut addr,
+				)
+			},
 			PF_Err_NONE
 		);
 		assert_eq!(

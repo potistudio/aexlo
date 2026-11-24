@@ -711,10 +711,10 @@ unsafe extern "C" fn get_layer_flags(layerH: AEGP_LayerH, layer_flagsP: *mut AEG
 		answer(layerH as _, layer_flagsP, |t| {
 			let mut flags = 0;
 			if t.visible {
-				flags |= AEGP_LayerFlag_VIDEO_ACTIVE;
+				flags |= AEGP_LayerFlag_VIDEO_ACTIVE as AEGP_LayerFlags;
 			}
 			if t.kind == Kind::Null {
-				flags |= AEGP_LayerFlag_NULL_LAYER;
+				flags |= AEGP_LayerFlag_NULL_LAYER as AEGP_LayerFlags;
 			}
 			flags
 		})
