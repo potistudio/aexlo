@@ -388,7 +388,7 @@ fn has_item_changed_answers_from_the_project_timestamp() {
 			render.AEGP_GetCurrentTimestamp.unwrap(),
 			render.AEGP_HasItemChangedSinceTimestamp.unwrap(),
 		);
-		// The comp, and the footage under the effect's layer.
+		// The comp and the footage item of the effect's layer.
 		let comp = crate::suites::layer::item_handle(p.effect);
 		let footage = crate::suites::layer::source_item_handle(p.effect);
 		let time = A_Time { value: 0, scale: 1 };
@@ -439,7 +439,7 @@ fn has_item_changed_answers_from_the_project_timestamp() {
 	let (unchanged, changed, refused) = seen;
 	let (stamp_err, unchanged, stable) = unchanged.expect("the loop ran");
 	assert_eq!(stamp_err, PF_Err_NONE, "AEGP_GetCurrentTimestamp failed");
-	assert!(stable, "other tests moved the timestamp during all 1000 tries");
+	assert!(stable, "other tests moved the timestamp on all 1000 tries");
 	assert_eq!(unchanged, [(PF_Err_NONE, 0); 2], "comp, footage");
 	// The last one passes a null time span, which aexlo does not read.
 	assert_eq!(changed, [(PF_Err_NONE, 1); 3], "comp, footage, null span");

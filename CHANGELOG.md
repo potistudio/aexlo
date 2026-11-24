@@ -137,7 +137,7 @@ plugin renders or returns.
   the answer does not depend on the item or the time span, so it can be
   "changed" for an item that did not change but never "unchanged" after a
   change aexlo recorded. It refuses an unknown item handle and a null
-  timestamp or result pointer; the time span may be null.
+  timestamp or result pointer; the time span pointers may be null.
 
 ### Changed
 
