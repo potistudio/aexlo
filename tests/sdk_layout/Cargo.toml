@@ -1,0 +1,30 @@
+[package]
+name = "aexlo_sdk_layout"
+description = "Checks the struct layouts of after-effects-sys against a snapshot measured from the After Effects SDK headers."
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+publish = false
+
+[lib]
+doctest = false
+
+# Measures the SDK and writes the snapshot. Needs the SDK headers and a C++
+# compiler, so only a maintainer runs it (docs/sdk-layout.md).
+[[bin]]
+name = "snapshot"
+path = "src/bin/snapshot/main.rs"
+
+[dependencies]
+after-effects-sys = { workspace = true }
+# Finds the C++ compiler for the snapshot binary, as `crates/aexlo/build.rs`
+# does for its SEH shim.
+cc = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[build-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -11,6 +11,7 @@ members = [
   "tests/e2e",
   "tests/fixture_gate",
   "tests/misbehave",
+  "tests/sdk_layout",
   "playground/probe",
   "playground/harness",
 ]
