@@ -1,0 +1,92 @@
+name: Plugin compatibility report
+description: Report an After Effects plugin that fails to load, crashes, renders incorrectly, or hits a missing suite / stub.
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a plugin compatibility issue!
+        English or Japanese is welcome. (日本語での記入も歓迎します。)
+
+        > Please do **not** attach commercial or proprietary plugin binaries (`.aex` / `.plugin`).
+
+  - type: input
+    id: plugin
+    attributes:
+      label: Plugin name and version
+      description: Name, version, and vendor of the plugin.
+      placeholder: "e.g., MyGlow 1.2.0 (MyGlow.plugin / MyGlow.aex)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS (arm64)
+        - Windows (x64)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: aexlo version or commit
+      placeholder: "e.g., 0.3.0 or git commit SHA"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: Symptom
+      options:
+        - Failed to load
+        - Crash / signal
+        - Error (PF_Err)
+        - Missing suite / stub / declined (partial)
+        - Wrong pixels / rendering difference
+        - Timeout / hang
+    validations:
+      required: true
+
+  - type: input
+    id: conditions
+    attributes:
+      label: Render conditions
+      description: Render path, bit depth, layer type/size, or specific parameters that trigger the issue.
+      placeholder: "e.g., smart render, 16 bpc, 1920x1080, Radius = 50"
+    validations:
+      required: false
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Description and reproduction steps
+      description: What happened vs. what you expected (for example, compared to After Effects).
+      placeholder: |
+        1. Load the plugin with ...
+        2. Set parameter ...
+        3. Render ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: "`aexlo compat` / `aexlo inspect` output"
+      description: |
+        If available, paste the relevant output from `aexlo compat <plugin> --all` or `aexlo inspect <plugin> --exec "render"`.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Link to source code, free/trial download (if applicable), or After Effects version used as reference.
+    validations:
+      required: false

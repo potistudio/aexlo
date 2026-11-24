@@ -1,0 +1,48 @@
+name: Feature / Suite request
+description: Propose a new feature, host API improvement, or unimplemented AE / AEGP suite.
+labels: ["request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English or Japanese is welcome. (日本語での記入も歓迎します。)
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Unimplemented AE / AEGP / Drawbot suite
+        - Host / embedder API (aexlo)
+        - CLI / toolkit (aexlo-cli)
+        - Performance
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to do, or which plugin / workflow needs this?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution or suite details
+      description: |
+        Describe the API, CLI behavior, or suite details you have in mind.
+        For suite requests, include the suite name, version(s), and required functions (e.g., `AEGP Stream Suite v11`).
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: References to the After Effects SDK, related issues, or alternatives considered.
+    validations:
+      required: false
