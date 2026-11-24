@@ -15,8 +15,9 @@ aexlo と `playground/probe` は、After Effects SDK の同じ Rust バインデ
    バイナリはそれを `fixtures/sdk-layout/<os>-<arch>.json` に書き出します。
    SDK と C++ コンパイラが必要なので、メンテナーが実行して結果をコミットします。
    スナップショットに入るのは数値と名前だけで、ヘッダーの本文は入りません。
-2. テストが、実行中のターゲットのスナップショットと、`after_effects_sys` の `size_of`・`align_of`・`offset_of!` を比べます。
-   SDK なしで CI でも実行します。
+2. テストが、実行中のターゲットのスナップショットと `after_effects_sys` を比べます。
+   比べるのは、各構造体の `size_of` と `align_of`、各フィールドの `offset_of!`・サイズ・アラインメントです。
+   SDK がいらないので CI でも実行します。スナップショットのないターゲットでは ignored として報告されます。
 
 ```bash
 cargo test -p aexlo_sdk_layout                         # 比較（スナップショットがあるターゲット）
@@ -121,6 +122,11 @@ Windows では、`after-effects-sys` と同じく `_WINDOWS` を定義します�
 また Windows では `Mach-O_prefix.h` を include しません。
 `wrapper.hpp` はどの OS でもこれを include しますが、23.4 の SDK では `__MACH__` を定義するだけで、Windows のプラグインは include しないからです。
 
+`wrapper.hpp` は、After Effects SDK にない `PrSDKStringSuite` を、Premiere SDK からコピーして自分で定義しています。
+プログラムはこれを定義しません。
+そのため、ソースが `PrSDKStringSuite` を使い始めると、再生成したスナップショットはこれを「SDK ヘッダーが宣言していない構造体」として報告します。
+この場合は allowlist にエントリを加えます。新しい After Effects のヘッダーで測っても解決しません。
+
 ## 4. 制限
 
 - ビットフィールドにはバイト単位のオフセットがありません。
@@ -132,4 +138,4 @@ Windows では、`after-effects-sys` と同じく `_WINDOWS` を定義します�
   `#pragma pack` の下では、フィールド本来のアラインメントで位置を見積もるので、さらに見逃しやすくなります。
 - 生成器は Windows の MSVC でしか実行していません。
   macOS のスナップショットには Mac での実行が必要です。
-  コードはホストに合わせてバインディングのファイルとコンパイラのフラグを選びますが、その経路は試していません。
+  コードはビルド先のターゲットに合わせて、バインディングのファイル、コンパイラのフラグ、スナップショットの名前を選びますが、その経路は試していません。

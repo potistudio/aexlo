@@ -18,9 +18,10 @@ prebuilt bindings, so nothing else compares them with the real headers. The
    `fixtures/sdk-layout/<os>-<arch>.json`. It needs the SDK and a C++
    compiler, so a maintainer runs it and commits the result. The snapshot
    holds only numbers and names, no header text.
-2. A test compares `size_of`, `align_of` and `offset_of!` of
-   `after_effects_sys` with the snapshot for the target it runs on. It runs
-   in CI, with no SDK.
+2. A test compares `size_of` and `align_of` of each struct, and the
+   `offset_of!`, size and alignment of each field, in `after_effects_sys`
+   with the snapshot for the target it runs on. It needs no SDK, so it runs
+   in CI; on a target without a snapshot it is reported as ignored.
 
 ```bash
 cargo test -p aexlo_sdk_layout                         # compare (where a snapshot exists)
@@ -138,6 +139,12 @@ name into a macro. On Windows it also leaves out `Mach-O_prefix.h`:
 `wrapper.hpp` includes it on every OS, but in the 23.4 SDK it only defines
 `__MACH__`, and a Windows plugin never includes it.
 
+`wrapper.hpp` also defines `PrSDKStringSuite` itself, copied from the
+Premiere SDK, because the After Effects SDK lacks it. The program does not,
+so if the sources start to use `PrSDKStringSuite`, the regenerated snapshot
+reports it as a struct the SDK headers do not declare. That needs an
+allowlist entry; newer After Effects headers do not fix it.
+
 ## 4. Limits
 
 - A bitfield has no byte offset. Its field is listed as `bitfield`, and that
@@ -149,5 +156,5 @@ name into a macro. On Windows it also leaves out `Mach-O_prefix.h`:
   and Rust `{ a: i32, c: f64 }` both put `c` at 8. Under `#pragma pack` the
   bound uses the field's natural alignment, so it is looser still.
 - The generator has only run with MSVC on Windows. A macOS snapshot needs a
-  run on a Mac; the code takes the bindings file and compiler flags for the
-  host, but that path is untested.
+  run on a Mac; the code picks the bindings file, compiler flags and snapshot
+  name from the target it is built for, but that path is untested.
