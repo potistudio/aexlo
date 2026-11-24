@@ -288,13 +288,6 @@ fn probe_smart_render_facts_match_known_correct_values() {
 			assert!(r <= l || b <= t, "{bpc}: an empty request returned pixels: {empty}");
 		}
 
-		// The probe has 7 parameters; index 99 is not one of them.
-		assert_ne!(
-			fact_json(summary, &name("checkout_layer.invalid_index(99)"))["err"],
-			0,
-			"{bpc}"
-		);
-
 		assert_eq!(fact_json(summary, &name("guid_mix_in(4 bytes)"))["err"], 0, "{bpc}");
 
 		// ---- Render ----

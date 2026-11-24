@@ -174,7 +174,7 @@ trace carries all three sets. For a manual run, install `AexloProbeSmart.aex`
 from `package` and render a frame at each depth:
 
 - `checkout_layer` with a fixed rectangle inside any layer of at least 10x9
-  pixels, with an empty rectangle, and with parameter index 99;
+  pixels, and with an empty rectangle;
 - `checkout_layer` 4 pixels past every edge of the layer, reported relative
   to the layer's `max_result_rect` so that the layer size cancels out;
 - the layout of the fixed-rectangle checkout, and `checkin_layer_pixels`

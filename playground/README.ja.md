@@ -107,7 +107,7 @@ out flags は PiPL と一致している必要があるため、SmartRender 経�
 
 `probe/src/smart.rs` は、プローブ自身が組み立てた要求に対するホストの応答を fact として記録します。fact はビット深度ごとに 1 組（`smart.8.*`、`smart.16.*`、`smart.32.*`）になります。`cargo run -p playground -- ae --variant smart` を実行すると、1 回のセッションでプロジェクトのビット深度を 8、16、32 bpc に切り替えながらレンダリングし、3 組すべてを 1 つのトレースに記録します。手動で行う場合は、`package` で作成した `AexloProbeSmart.aex` をインストールし、各深度でフレームをレンダリングしてください。
 
-- 10x9 ピクセル以上のどのレイヤーにも収まる固定矩形、空の矩形、パラメーター番号 99 での `checkout_layer`。
+- 10x9 ピクセル以上のどのレイヤーにも収まる固定矩形と空の矩形での `checkout_layer`。
 - レイヤーの各辺から 4 ピクセルはみ出す `checkout_layer`。レイヤーサイズが打ち消されるように、結果はレイヤーの `max_result_rect` からの差で記録します。
 - 固定矩形でチェックアウトした world のレイアウトと、その ID に対する `checkin_layer_pixels`。
 - 固定バイト列を渡した `GuidMixInPtr` と、`pre_render_data` が SMART_RENDER まで壊れずに届くかどうか。

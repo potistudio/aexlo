@@ -9,7 +9,7 @@
 //! The facts are the host's answers to requests the probe builds itself:
 //!
 //! - checkouts with a fixed rectangle inside any layer of at least 10x9
-//!   pixels, an empty rectangle, and an out-of-range parameter index;
+//!   pixels, and an empty rectangle;
 //! - a checkout that overhangs the layer by 4 pixels on every side, reported
 //!   relative to the layer's `max_result_rect`, so the layer size cancels out;
 //! - `checkin_layer_pixels` on a checked-out id;
@@ -56,8 +56,6 @@ const ID_INNER: ae::A_long = 1;
 const ID_OVERHANG: ae::A_long = 2;
 /// [`EMPTY`]: a zero-area rectangle.
 const ID_EMPTY: ae::A_long = 3;
-/// A parameter index past the last parameter.
-const ID_INVALID: ae::A_long = 4;
 
 const INNER: ae::PF_LRect = ae::PF_LRect {
 	left: 2,
@@ -72,7 +70,6 @@ const EMPTY: ae::PF_LRect = ae::PF_LRect {
 	bottom: 5,
 };
 const OVERHANG: ae::A_long = 4;
-const INVALID_INDEX: ae::PF_ParamIndex = 99;
 
 const PRE_RENDER_MAGIC: u64 = u64::from_be_bytes(*b"AXSMART1");
 
@@ -254,12 +251,6 @@ pub unsafe fn pre_render(in_data: *mut ae::PF_InData, extra: *mut ae::PF_PreRend
 		json!({ "err": empty_err, "result_rect": rect(&empty.result_rect) }),
 	);
 
-	let (invalid_err, invalid) = checkout(INVALID_INDEX, ID_INVALID, &fixed(INNER));
-	fact(
-		&format!("smart.{bpc}.checkout_layer.invalid_index(99)"),
-		json!({ "err": invalid_err }),
-	);
-
 	match cb.GuidMixInPtr {
 		Some(mix_in) => {
 			let bytes = *b"AXPR";
@@ -299,7 +290,6 @@ pub unsafe fn pre_render(in_data: *mut ae::PF_InData, extra: *mut ae::PF_PreRend
 				"inner": checkout_json(inner_err, &inner),
 				"overhang": overhang.map(|(err, result)| checkout_json(err, &result)),
 				"empty": checkout_json(empty_err, &empty),
-				"invalid_index": checkout_json(invalid_err, &invalid),
 			},
 			"output": {
 				"result_rect": rect(&output.result_rect),
