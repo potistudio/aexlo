@@ -343,7 +343,6 @@ impl PluginInstance {
 	pub(super) fn new(path: &Path) -> Self {
 		let interact_callbacks = crate::host::interact::create_interact_callbacks();
 		let utility_callbacks = crate::host::utility::create_utility_callbacks();
-		let pica = Self::build_pica_suite();
 
 		let input_layer = HostLayer::new(AnyLayer::new(Self::build_layer(
 			WIDTH,
@@ -363,7 +362,6 @@ impl PluginInstance {
 				binary_file_path: path.to_path_buf(),
 				resolved_binary_path: None,
 				utility_callbacks,
-				pica,
 				host_info: InDataHost::new(interact_callbacks),
 				effect_state: EffectState::default(),
 				// Match the output world / default layers so the frame size the plugin
@@ -432,17 +430,27 @@ impl PluginInstance {
 		}
 	}
 
-	/// Build the `SPBasicSuite` vtable handed to the plugin for acquiring host suites.
-	fn build_pica_suite() -> Box<crate::sys::SPBasicSuite> {
-		Box::new(crate::sys::SPBasicSuite {
-			AcquireSuite: Some(crate::suites::rusty_acquire_suite),
-			ReleaseSuite: Some(crate::suites::rusty_release_suite),
-			IsEqual: None,
-			AllocateBlock: None,
-			FreeBlock: None,
-			ReallocateBlock: None,
-			Undefined: None,
-		})
+	/// The `SPBasicSuite` handed to every plugin for acquiring host suites. As
+	/// in After Effects, there is one for the whole process and it is never
+	/// freed: plugins keep `in_data->pica_basicP` in a static on their first
+	/// command and use it from every instance after (AutoFill2 does), so one
+	/// per instance left them calling through freed memory once the first
+	/// instance was dropped.
+	pub(crate) fn pica_suite() -> *mut crate::sys::SPBasicSuite {
+		static PICA: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+		let address = *PICA.get_or_init(|| {
+			let suite = Box::leak(Box::new(crate::sys::SPBasicSuite {
+				AcquireSuite: Some(crate::suites::rusty_acquire_suite),
+				ReleaseSuite: Some(crate::suites::rusty_release_suite),
+				IsEqual: None,
+				AllocateBlock: None,
+				FreeBlock: None,
+				ReallocateBlock: None,
+				Undefined: None,
+			}));
+			suite as *mut crate::sys::SPBasicSuite as usize
+		});
+		address as *mut crate::sys::SPBasicSuite
 	}
 
 	fn wire_self_pointers(&mut self) {
@@ -635,7 +643,7 @@ impl PluginInstance {
 		let host_name = CString::new(HOST_NAME).ok()?;
 		let host_version = CString::new(HOST_VERSION).ok()?;
 
-		// SAFETY: `entry_fn` has the SDK's signature; every argument is a live local or the instance's PICA suite.
+		// SAFETY: `entry_fn` has the SDK's signature; every argument is a live local or the process's PICA suite.
 		let result = unsafe {
 			entry_fn(
 				&mut info as *mut PluginDataInfo as crate::sys::PF_PluginDataPtr,
@@ -772,7 +780,9 @@ impl PluginInstance {
 			path: module_path.clone(),
 			source: Box::new(e),
 		})?;
-		let (entry_point, resolved_name, metadata) = Self::resolve_entry_point(&lib, self.pica.as_ref(), &module_path)?;
+		// SAFETY: `pica_suite` is never freed, and nothing writes through it.
+		let pica = unsafe { &*Self::pica_suite() };
+		let (entry_point, resolved_name, metadata) = Self::resolve_entry_point(&lib, pica, &module_path)?;
 
 		self.entry_point = Some(entry_point);
 		self.entry_point_name = Some(resolved_name.clone());
@@ -835,7 +845,7 @@ impl PluginInstance {
 			CallBindings {
 				effect_ref,
 				utils: self.utility_callbacks.as_mut() as *mut _,
-				pica: self.pica.as_mut() as *mut _,
+				pica: Self::pica_suite(),
 				num_params: self.params.len() as i32,
 			},
 		);

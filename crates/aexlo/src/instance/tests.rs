@@ -419,3 +419,42 @@ fn an_observer_hears_about_missing_suites_and_stubs_at_any_level() {
 		["MissingSuite AEGP Nonexistent Suite v3", "Stub get_filter_instance_id "]
 	);
 }
+
+/// After Effects hands every effect the same `SPBasicSuite` for the life of
+/// the process. Plugins keep the first `pica_basicP` in a static and use it
+/// from later instances (AutoFill2 does), so it must outlive the instance it
+/// was handed to.
+#[test]
+fn every_instance_gets_the_same_pica_suite_and_it_outlives_them() {
+	use std::sync::Mutex;
+	static SEEN: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+	unsafe extern "C" fn entry(
+		cmd: PF_Cmd,
+		input: *mut crate::sys::PF_InData,
+		_output: *mut crate::sys::PF_OutData,
+		_params: crate::sys::PF_ParamList,
+		_world: *mut crate::sys::PF_LayerDef,
+		_extra: *mut c_void,
+	) -> crate::sys::PF_Err {
+		if cmd == RawCommand::GlobalSetup.to_sys() {
+			SEEN.lock().unwrap().push(unsafe { (*input).pica_basicP } as usize);
+		}
+		PF_Err_NONE
+	}
+	// Both alive at once, so that the allocator cannot hand the second
+	// instance the first one's freed block and make two suites look like one.
+	let first = unsafe { Host::get().entry_loader(entry) }.size(8, 8).load().unwrap();
+	let second = unsafe { Host::get().entry_loader(entry) }.size(8, 8).load().unwrap();
+	drop(first);
+
+	let seen = SEEN.lock().unwrap().clone();
+	assert_eq!(seen.len(), 2, "{seen:?}");
+	assert_eq!(seen[0], seen[1], "each instance got its own pica suite");
+	// The first instance is gone; its pointer still acquires suites.
+	let pica = unsafe { &*(seen[0] as *const crate::sys::SPBasicSuite) };
+	let mut suite: *const c_void = std::ptr::null();
+	let err = unsafe { pica.AcquireSuite.unwrap()(c"PF ANSI Suite".as_ptr(), 1, &mut suite) };
+	assert_eq!(err, PF_Err_NONE);
+	assert!(!suite.is_null());
+	drop(second);
+}
