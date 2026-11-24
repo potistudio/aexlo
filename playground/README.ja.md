@@ -21,7 +21,7 @@ cargo run -p playground -- report target/probe/trace-aexlo.jsonl
 
 考え方は、*プラグインを計測器とし、ホストを変数とする*ことです。
 `playground/probe` は、PiPL も含めて Rust で実装された、実際に読み込める AE エフェクトプラグインです。**関数、スイート、変数を 1 つずつ**検証します。各チェックはホストのサービスに固定入力を渡し、正確な出力を JSONL トレースの `fact` として記録します。たとえば `sin(0.5)` の最下位ビット、`sprintf` の各変換、rowbytes のレイアウト方針、`blend` の丸め、iterate の呼び出し回数などです。
-同じバイナリを実際の AE と aexlo に読み込み、2 つのトレースの差分を取ります。fact は設計上決定的なので、差があればエミュレーションの動作差を示し、シナリオ由来のノイズではありません。ヘッドレスの aexlo と GUI の AE セッションでは、コマンドの順序、タイミング、UI のやり取りなど、プラグインの駆動方法が大きく異なります。これらはすべてコンテキストとしてのみ記録し、既定の比較対象から除外します。
+同じバイナリを実際の AE と aexlo に読み込み、2 つのトレースの差分を取ります。fact は設計上決定的なので、差が出た場合はエミュレーションの動作差であり、シナリオ由来のノイズではありません。ヘッドレスの aexlo と GUI の AE セッションでは、コマンドの順序、タイミング、UI のやり取りなど、プラグインの駆動方法が大きく異なります。これらはすべてコンテキストとしてのみ記録し、既定の比較対象から除外します。
 
 ```text
 ┌───────────────┐         ┌─────────────────┐         trace-ae.jsonl ───┐
@@ -101,7 +101,7 @@ After Effects はプラグインを起動時にしか読み込みません。起
 
 ## SmartRender 版
 
-out flags は PiPL と一致している必要があるため、SmartRender 経路は実行時の切り替えではなく、2 つ目のエフェクトで計測します。`probe` の `smart` フィーチャーを有効にすると、"Aexlo Probe Smart"（マッチ名 "AEXLO Probe Smart"、ファイル名 `AexloProbeSmart.aex`）がビルドされます。このエフェクトは `PF_OutFlag2_SUPPORTS_SMART_RENDER`、`PF_OutFlag_DEEP_COLOR_AWARE`、`PF_OutFlag2_FLOAT_COLOR_AWARE`、`PF_OutFlag2_SUPPORTS_GPU_RENDER_F32` を宣言します。GLOBAL_SETUP のチェックは legacy 版とすべて同じで、同じテストパターンを 8、16、32 bpc でレンダリングします。ハーネスはこの版を `<target>/probe-smart/` にビルドするため、2 つのビルドが互いを上書きすることはありません。2 つのエフェクトは AE に並べてインストールできます。
+out flags は PiPL と一致している必要があるため、SmartRender 経路は実行時の切り替えではなく、2 つ目のエフェクトで計測します。`probe` の `smart` フィーチャーを有効にすると、"Aexlo Probe Smart"（マッチ名 "AEXLO Probe Smart"、ファイル名 `AexloProbeSmart.aex`）がビルドされます。このエフェクトは `PF_OutFlag2_SUPPORTS_SMART_RENDER`、`PF_OutFlag_DEEP_COLOR_AWARE`、`PF_OutFlag2_FLOAT_COLOR_AWARE`、`PF_OutFlag2_SUPPORTS_GPU_RENDER_F32` を宣言します。legacy 版と同じ GLOBAL_SETUP のチェックをすべて実行し、同じテストパターンを 8、16、32 bpc でレンダリングします。ハーネスはこの版を `<target>/probe-smart/` にビルドするため、2 つのビルドが互いを上書きすることはありません。2 つのエフェクトは AE に並べてインストールできます。
 
 `probe/src/smart.rs` は、プローブ自身が組み立てた要求に対するホストの応答を fact として記録します。fact はビット深度ごとに 1 組（`smart.8.*`、`smart.16.*`、`smart.32.*`）になります。After Effects では、プロジェクトのビット深度を切り替えてそれぞれを記録してください。
 
@@ -111,13 +111,13 @@ out flags は PiPL と一致している必要があるため、SmartRender 経�
 - 固定バイト列を渡した `GuidMixInPtr` と、`pre_render_data` が SMART_RENDER まで壊れずに届くかどうか。
 - チェックアウトした入力と出力の world に対する `PF_GetPixelFormat` の応答と world flags。
 
-プローブは、SDK が動作を定めている呼び出しだけを行います。同じ ID の 2 回目のチェックイン、プリレンダーでチェックアウトしていない ID のピクセル取得、`GuidMixInPtr` への null バッファーの受け渡しは行いません。ホストがこれらで異常終了する可能性があるためです。ピクセルの書き込みとハッシュの計算は、`PF_GetPixelFormat` が応答し、かつ各行が `rowbytes` に収まる場合だけ行います。
+プローブは、SDK が動作を定めている呼び出しだけを行います。同じ ID の 2 回目のチェックイン、プリレンダーでチェックアウトしていない ID のピクセル取得、`GuidMixInPtr` への null バッファーの受け渡しは行いません。ホストがこれらで異常終了する可能性があるためです。ピクセルの書き込みとハッシュの計算は、`PF_GetPixelFormat` が既知のピクセル形式を返し、かつ各行が `rowbytes` に収まる場合だけ行います。
 
 fact の値がそろうのは、エフェクトを 10x9 ピクセル以上の通常のフッテージレイヤーか平面レイヤーに適用し、レイヤーを広げる処理がない場合だけです。
 
 シナリオに依存する値はすべてコンテキストとして扱い、既定の差分から除外します。対象は `PF_PreRenderExtra` の入力（出力要求、フィールド、チャンネルマスク、ビット深度、GPU フレームワーク）、チェックアウト結果の全体（`par`、`solid`、`ref_width`/`ref_height`）、プローブが返す `PF_PreRenderOutput`、レンダリング時の入力と出力の world のレイアウトとハッシュです。`report` ではこれらを `smart/` のキーで表示します。
 
-GPU：GPU のあるホストは `PF_Cmd_GPU_DEVICE_SETUP` を送ります。プローブはフレームワーク、デバイス番号、GPU Device Suite が返すデバイス数とデバイス情報を、`gpu/` のコンテキストとして記録します。デバイスのポインターは null かどうかだけを記録し、参照はしません。プリレンダーでは `PF_RenderOutputFlag_GPU_RENDER_POSSIBLE` を設定しないため、すべてのフレームは CPU でレンダリングされます。プローブは GPU ではレンダリングしません。
+GPU：GPU のあるホストは `PF_Cmd_GPU_DEVICE_SETUP` を送ります。プローブはフレームワーク、デバイス番号、GPU Device Suite が返すデバイス数とデバイス情報を、`gpu/` のコンテキストとして記録します。デバイスのポインターは null かどうかだけを記録し、ポインター先は読み取りません。プリレンダーでは `PF_RenderOutputFlag_GPU_RENDER_POSSIBLE` を設定しないため、すべてのフレームは CPU でレンダリングされます。プローブは GPU ではレンダリングしません。
 
 ## トレースの保存先
 
@@ -143,5 +143,5 @@ playground/
 ## 補足
 
 - プローブは aexlo と同じ `after-effects 0.4.0` に依存していますが、高水準のラッパーではなく、再エクスポートされた生の `sys` API を意図的に使っています。プローブはホストを計測するため、間にラッパーを挟むとラッパーを計測することになってしまいます。同じクレートバージョンを使うことで、ABI の両側で構造体のレイアウトを一致させています。
-- legacy 版は `PF_Cmd_RENDER` を計測します。SmartRender 版は SMART_PRE_RENDER、SMART_RENDER、GPU デバイスのセットアップを計測しますが、GPU でのレンダリング（`PF_Cmd_SMART_RENDER_GPU`）は対象外です。
+- legacy 版は `PF_Cmd_RENDER` を計測します。SmartRender 版は `PF_Cmd_SMART_PRE_RENDER`、`PF_Cmd_SMART_RENDER`、GPU デバイスのセットアップを計測しますが、GPU でのレンダリング（`PF_Cmd_SMART_RENDER_GPU`）は対象外です。
 - macOS のパッケージ化（`.plugin` バンドルと rsrc PiPL）はまだ実装していません。プローブ自体はプラットフォームに依存しません。
