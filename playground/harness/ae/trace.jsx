@@ -2,7 +2,8 @@
 //
 // `playground ae` prepends one line, `var AEXLO = {...};`, with the run
 // configuration (input image, effect match name, parameter values, frames to
-// render, result path) and hands the script to AfterFX.exe with `-r`.
+// render, project depths for the smart variant, result path) and hands the
+// script to AfterFX.exe with `-r`.
 //
 // The script only adds items to the open project and removes them again: it
 // never creates, closes or saves a project unless `AEXLO.quit` is set, which
@@ -14,6 +15,7 @@
 	var cfg = AEXLO;
 	var result = { ok: false, ae_version: app.version, renders: [], params: [] };
 	var folder = null;
+	var originalDepth = null;
 
 	function quote(text) {
 		return '"' + String(text)
@@ -107,10 +109,18 @@
 			}
 		}
 
-		for (var t = 0; t < cfg.times.length; t++) {
-			var out = new File(cfg.render_stem + "_" + t + ".png");
-			comp.saveFrameToPng(cfg.times[t], out);
-			result.renders.push(out.fsName);
+		originalDepth = app.project.bitsPerChannel;
+		var depths = cfg.depths && cfg.depths.length ? cfg.depths : [null];
+		for (var d = 0; d < depths.length; d++) {
+			if (depths[d] !== null) {
+				app.project.bitsPerChannel = depths[d];
+			}
+			for (var t = 0; t < cfg.times.length; t++) {
+				var suffix = depths[d] === null ? String(t) : depths[d] + "_" + t;
+				var out = new File(cfg.render_stem + "_" + suffix + ".png");
+				comp.saveFrameToPng(cfg.times[t], out);
+				result.renders.push(out.fsName);
+			}
 		}
 
 		result.ok = true;
@@ -129,8 +139,18 @@
 	}
 
 	try {
+		if (originalDepth !== null) {
+			app.project.bitsPerChannel = originalDepth;
+		}
+	} catch (depthError) {
+		result.cleanup_error = describe(depthError);
+	}
+
+	try {
 		app.endSuppressDialogs(false);
-	} catch (ignored) {}
+	} catch (suppressError) {
+		result.cleanup_error = describe(suppressError);
+	}
 
 	writeResult();
 

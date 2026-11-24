@@ -77,7 +77,7 @@ reference trace from real AE is checked in.
 | `diff <a> <b> [--all]` | Key-by-key comparison of two traces. Compares facts, suite availability, and callback presence by default; `--all` also compares context (command counts, render scenario, timing). |
 | `package [--debug] [--to <dir>]` | Build both variants in release mode and write `playground/dist/AexloProbe.aex` and `playground/dist/AexloProbeSmart.aex`. |
 | `pipl [--release] [--variant legacy\|smart]` | Parse the PiPL resource back out of the built DLL — preflight that real AE will accept it (Windows). The out flags are printed by name. |
-| `ae [--ae <AfterFX.exe>] [--trace <file>] [--frames <n>] [--input <png>] [--plugin-dir <dir>] [--timeout <secs>] [--no-build]` | Package the legacy probe, install it into After Effects, apply it and render through `AfterFX.exe -r`, and save the trace to `target/probe/trace-ae.jsonl` (Windows). See [Recording in real After Effects](#recording-in-real-after-effects). |
+| `ae [--ae <AfterFX.exe>] [--trace <file>] [--frames <n>] [--input <png>] [--plugin-dir <dir>] [--timeout <secs>] [--no-build] [--variant legacy\|smart]` | Package the probe, install it into After Effects, apply it and render through `AfterFX.exe -r`, and save the trace to `target/probe/trace-ae.jsonl` (Windows). `--variant smart` renders the SmartRender effect at project depths 8, 16 and 32 bpc and saves `trace-ae-smart.jsonl`. See [Recording in real After Effects](#recording-in-real-after-effects). |
 
 ## Recording in real After Effects
 
@@ -164,8 +164,10 @@ overwrite each other, and both effects can be installed side by side.
 
 `probe/src/smart.rs` records as facts the host's answers to requests the
 probe builds itself, one set per bit depth (`smart.8.*`, `smart.16.*`,
-`smart.32.*`). In After Effects, switch the project depth to record each
-set:
+`smart.32.*`). `cargo run -p playground -- ae --variant smart` switches the
+project depth to 8, 16 and 32 bpc in one session, so a single trace carries
+all three sets. A manual run installs `AexloProbeSmart.aex` from `package`
+and renders a frame at each depth:
 
 - `checkout_layer` with a fixed rectangle inside any layer of at least 10x9
   pixels, with an empty rectangle, and with parameter index 99;

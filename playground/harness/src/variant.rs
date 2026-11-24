@@ -61,6 +61,25 @@ impl Variant {
 		}
 	}
 
+	/// Default trace file under `target/probe/` for a `playground ae` run.
+	pub fn ae_trace_file(self) -> &'static str {
+		match self {
+			Variant::Legacy => "trace-ae.jsonl",
+			Variant::Smart => "trace-ae-smart.jsonl",
+		}
+	}
+
+	/// Project depths, in bpc, that the After Effects script renders one frame
+	/// sequence at: the smart effect's checkout facts are per depth
+	/// (`smart.<bpc>.*`). The legacy render leaves the project depth alone, so
+	/// its list is empty.
+	pub fn depths(self) -> &'static [u32] {
+		match self {
+			Variant::Legacy => &[],
+			Variant::Smart => &[8, 16, 32],
+		}
+	}
+
 	/// The cargo target dir this variant builds into.
 	pub fn target_dir(self, root: &Path) -> PathBuf {
 		let base = cargo_target_dir(root);

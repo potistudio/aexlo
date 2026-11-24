@@ -8,6 +8,7 @@
 //! cargo run -p playground -- run                 # trace the probe under aexlo
 //! cargo run -p playground -- package             # build both dist/*.aex for real AE
 //! cargo run -p playground -- ae                  # trace the legacy probe in real AE (Windows)
+//! cargo run -p playground -- ae --variant smart  # trace the smart probe at 8/16/32 bpc (Windows)
 //! cargo run -p playground -- report <trace>      # summarize one trace
 //! cargo run -p playground -- diff <ae> <aexlo>   # compare real AE vs aexlo
 //! cargo run -p playground -- pipl                # verify the embedded PiPL resource
@@ -51,9 +52,11 @@ USAGE:
   playground pipl [--release] [--variant legacy|smart]
       Parse the PiPL resource back out of the built probe DLL (Windows).
   playground ae [--ae <AfterFX.exe>] [--trace <file>] [--frames <n>] [--input <png>]
-                [--plugin-dir <dir>] [--timeout <secs>] [--no-build]
+                [--plugin-dir <dir>] [--timeout <secs>] [--no-build] [--variant legacy|smart]
       Install the probe into After Effects, apply it and render through
-      AfterFX.exe -r, and save the trace (Windows). Default trace:
+      AfterFX.exe -r, and save the trace (Windows). --variant smart renders
+      the SmartRender effect at project depths 8, 16 and 32 bpc and saves
+      target/probe/trace-ae-smart.jsonl; the default legacy run saves
       target/probe/trace-ae.jsonl.
 ";
 

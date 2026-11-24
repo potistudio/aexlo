@@ -60,7 +60,7 @@ cargo run -p playground -- diff target/probe/trace-ae.jsonl target/probe/trace-a
 | `diff <a> <b> [--all]` | 2 つのトレースをキーごとに比較します。既定では fact、スイートの利用可否、コールバックの有無を比較し、`--all` ではコンテキスト（コマンド回数、レンダリングシナリオ、タイミング）も比較します。 |
 | `package [--debug] [--to <dir>]` | 2 つの版をリリースビルドし、`playground/dist/AexloProbe.aex` と `playground/dist/AexloProbeSmart.aex` に出力します。 |
 | `pipl [--release] [--variant legacy\|smart]` | ビルドした DLL から PiPL リソースを再解析し、実際の AE が受け入れることを事前確認します（Windows）。out flags はフラグ名で表示します。 |
-| `ae [--ae <AfterFX.exe>] [--trace <file>] [--frames <n>] [--input <png>] [--plugin-dir <dir>] [--timeout <secs>] [--no-build]` | legacy 版のプローブをパッケージ化して After Effects にインストールし、`AfterFX.exe -r` で適用とレンダリングを行い、トレースを `target/probe/trace-ae.jsonl` に保存します（Windows）。詳しくは[実際の After Effects で記録する](#実際の-after-effects-で記録する)を参照してください。 |
+| `ae [--ae <AfterFX.exe>] [--trace <file>] [--frames <n>] [--input <png>] [--plugin-dir <dir>] [--timeout <secs>] [--no-build] [--variant legacy\|smart]` | プローブをパッケージ化して After Effects にインストールし、`AfterFX.exe -r` で適用とレンダリングを行い、トレースを `target/probe/trace-ae.jsonl` に保存します（Windows）。`--variant smart` は SmartRender 版をプロジェクトのビット深度 8、16、32 bpc でレンダリングし、`trace-ae-smart.jsonl` に保存します。詳しくは[実際の After Effects で記録する](#実際の-after-effects-で記録する)を参照してください。 |
 
 ## 実際の After Effects で記録する
 
@@ -103,7 +103,7 @@ After Effects はプラグインを起動時にしか読み込みません。起
 
 out flags は PiPL と一致している必要があるため、SmartRender 経路は実行時の切り替えではなく、2 つ目のエフェクトで計測します。`probe` の `smart` フィーチャーを有効にすると、"Aexlo Probe Smart"（マッチ名 "AEXLO Probe Smart"、ファイル名 `AexloProbeSmart.aex`）がビルドされます。このエフェクトは `PF_OutFlag2_SUPPORTS_SMART_RENDER`、`PF_OutFlag_DEEP_COLOR_AWARE`、`PF_OutFlag2_FLOAT_COLOR_AWARE`、`PF_OutFlag2_SUPPORTS_GPU_RENDER_F32` を宣言します。legacy 版と同じ GLOBAL_SETUP のチェックをすべて実行し、同じテストパターンを 8、16、32 bpc でレンダリングします。ハーネスはこの版を `<target>/probe-smart/` にビルドするため、2 つのビルドが互いを上書きすることはありません。2 つのエフェクトは AE に並べてインストールできます。
 
-`probe/src/smart.rs` は、プローブ自身が組み立てた要求に対するホストの応答を fact として記録します。fact はビット深度ごとに 1 組（`smart.8.*`、`smart.16.*`、`smart.32.*`）になります。After Effects では、プロジェクトのビット深度を切り替えてそれぞれを記録してください。
+`probe/src/smart.rs` は、プローブ自身が組み立てた要求に対するホストの応答を fact として記録します。fact はビット深度ごとに 1 組（`smart.8.*`、`smart.16.*`、`smart.32.*`）になります。`cargo run -p playground -- ae --variant smart` は、1 回のセッションでプロジェクトのビット深度を 8、16、32 bpc に切り替え、3 組すべてを 1 つのトレースに記録します。手動で行う場合は、`package` で作成した AexloProbeSmart.aex をインストールし、各深度でフレームをレンダリングしてください:
 
 - 10x9 ピクセル以上のどのレイヤーにも収まる固定矩形、空の矩形、パラメーター番号 99 での `checkout_layer`。
 - レイヤーの各辺から 4 ピクセルはみ出す `checkout_layer`。レイヤーサイズが打ち消されるように、結果はレイヤーの `max_result_rect` からの差で記録します。

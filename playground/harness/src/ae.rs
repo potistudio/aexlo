@@ -10,6 +10,10 @@
 //!    everything it added.
 //! 3. Collect the trace and print the report.
 //!
+//! `--variant smart` measures the SmartRender effect: the script renders one
+//! frame sequence at each of the depths in `variant.depths()` (8, 16 and 32
+//! bpc), so a single trace carries all three `smart.<bpc>.*` fact sets.
+//!
 //! `AfterFX.exe -r` behaves in two ways. If no After Effects is running, the
 //! spawned process becomes the instance: it starts, runs the script, and the
 //! script quits it. The harness sets `AEXLO_PROBE_TRACE` for that process,
@@ -39,18 +43,20 @@ const TRACE_JSX: &str = include_str!("../ae/trace.jsx");
 /// Frame rate of the comp the script builds. Render times are frame starts.
 const FPS: f64 = 30.0;
 
-/// The legacy probe: the variant `ae` installs and traces.
-const PROBE_FILE: &str = "AexloProbe.aex";
-
-/// The legacy probe's match name, as the JSX passes it to `addProperty`.
-fn probe_match_name() -> &'static str {
-	aexlo_probe::MATCH_NAME
-		.to_str()
-		.expect("the probe's match name is ASCII")
+/// The measured variant's match name, as the JSX passes it to `addProperty`.
+/// The harness links the legacy rlib, so the smart name comes from its own
+/// constant rather than from a build with the `smart` feature.
+fn probe_match_name(variant: Variant) -> &'static str {
+	let name = match variant {
+		Variant::Legacy => aexlo_probe::MATCH_NAME,
+		Variant::Smart => aexlo_probe::SMART_MATCH_NAME,
+	};
+	name.to_str().expect("the probe's match name is ASCII")
 }
 
 pub fn ae(args: &[String]) -> anyhow::Result<()> {
 	let root = workspace_root();
+	let variant = Variant::from_args(args)?;
 	let timeout = Duration::from_secs(
 		option(args, "--timeout")
 			.map(str::parse)
@@ -67,7 +73,7 @@ pub fn ae(args: &[String]) -> anyhow::Result<()> {
 
 	let trace_path = option(args, "--trace")
 		.map(PathBuf::from)
-		.unwrap_or_else(|| root.join("target/probe/trace-ae.jsonl"));
+		.unwrap_or_else(|| root.join("target/probe").join(variant.ae_trace_file()));
 	let input_path = option(args, "--input")
 		.map(PathBuf::from)
 		.unwrap_or_else(|| root.join("fixtures/input.png"));
@@ -92,11 +98,11 @@ pub fn ae(args: &[String]) -> anyhow::Result<()> {
 	}
 
 	let packaged = if flag(args, "--no-build") {
-		let path = root.join("playground/dist").join(PROBE_FILE);
+		let path = root.join("playground/dist").join(variant.aex_name());
 		anyhow::ensure!(path.exists(), "{} not found; drop --no-build", path.display());
 		path
 	} else {
-		crate::package_probe(true, Variant::Legacy, &root.join("playground/dist"))?
+		crate::package_probe(true, variant, &root.join("playground/dist"))?
 	};
 
 	let plugin_dir = option(args, "--plugin-dir").map(PathBuf::from).unwrap_or_else(|| {
@@ -104,7 +110,16 @@ pub fn ae(args: &[String]) -> anyhow::Result<()> {
 			.map(|support| support.join("Plug-ins").join("aexlo"))
 			.unwrap_or_default()
 	});
-	install(&packaged, &plugin_dir.join(PROBE_FILE), running.is_some())?;
+	install(&packaged, &plugin_dir.join(variant.aex_name()), running.is_some())?;
+
+	// A fresh instance reads `AEXLO_PROBE_TRACE`, and every installed probe
+	// writes to that one file; remove the probe that is not measured so its
+	// events stay out of the trace. A running instance never sets the
+	// variable - each probe writes its own auto-named file - so there is
+	// nothing to correct in that case.
+	if running.is_none() {
+		remove_other_probe(&plugin_dir, variant);
+	}
 
 	let run_dir = root.join("target/probe/ae-run");
 	std::fs::create_dir_all(&run_dir)?;
@@ -117,7 +132,8 @@ pub fn ae(args: &[String]) -> anyhow::Result<()> {
 	let result_path = run_dir.join("result.json");
 	let config = json!({
 		"input": jsx_path(&input_path),
-		"match_name": probe_match_name(),
+		"match_name": probe_match_name(variant),
+		"depths": variant.depths(),
 		"fps": FPS,
 		"times": (0..frames).map(|i| i as f64 / FPS).collect::<Vec<_>>(),
 		"params": params(width, height),
@@ -137,7 +153,7 @@ pub fn ae(args: &[String]) -> anyhow::Result<()> {
 	)?;
 
 	if let Some(process) = &running {
-		let source = running_trace(process.pid)?;
+		let source = running_trace(process.pid, variant == Variant::Smart)?;
 		std::fs::copy(&source, &trace_path)
 			.with_context(|| format!("failed to copy {} to {}", source.display(), trace_path.display()))?;
 		println!("{} {}", "copied:".dimmed(), source.display());
@@ -156,8 +172,9 @@ pub fn ae(args: &[String]) -> anyhow::Result<()> {
 	println!();
 	crate::print_report(&trace_path)?;
 	println!(
-		"compare with aexlo: cargo run -p playground -- diff {} target/probe/trace-aexlo.jsonl",
-		trace_path.display()
+		"compare with aexlo: cargo run -p playground -- diff {} target/probe/{}",
+		trace_path.display(),
+		variant.trace_file()
 	);
 	Ok(())
 }
@@ -308,6 +325,22 @@ fn install(packaged: &Path, installed: &Path, running: bool) -> anyhow::Result<(
 	Ok(())
 }
 
+/// Delete the probe build not being measured from the harness-managed plugin
+/// folder. Only files with the exact `AEXLO Probe` install names are removed.
+fn remove_other_probe(plugin_dir: &Path, keep: Variant) {
+	for variant in Variant::ALL {
+		if variant == keep {
+			continue;
+		}
+		let path = plugin_dir.join(variant.aex_name());
+		match std::fs::remove_file(&path) {
+			Ok(()) => println!("{} {} (one probe per trace)", "removed:".dimmed(), path.display()),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+			Err(error) => eprintln!("{} removing {}: {error}", "warn:".yellow(), path.display()),
+		}
+	}
+}
+
 /// Write the configured script, hand it to After Effects, and wait for the
 /// result file it writes last.
 fn run_script(
@@ -403,8 +436,9 @@ fn read_result(path: &Path) -> Option<Value> {
 }
 
 /// The trace the probe in a running instance writes: the newest
-/// `trace-*-pid<pid>.jsonl` in the default directory.
-fn running_trace(pid: u32) -> anyhow::Result<PathBuf> {
+/// `trace-*-pid<pid>.jsonl` in the default directory, filtered to the
+/// variant's own name (smart traces carry a `smart-` tag, legacy ones none).
+fn running_trace(pid: u32, smart: bool) -> anyhow::Result<PathBuf> {
 	let dir = std::env::var_os("AEXLO_PROBE_DIR")
 		.map(PathBuf::from)
 		.unwrap_or_else(|| std::env::temp_dir().join("aexlo-probe"));
@@ -415,7 +449,12 @@ fn running_trace(pid: u32) -> anyhow::Result<PathBuf> {
 		.filter_map(|entry| {
 			let entry = entry.ok()?;
 			let name = entry.file_name().into_string().ok()?;
-			(name.starts_with("trace-") && name.ends_with(&suffix))
+			let wanted = if smart {
+				name.starts_with("trace-smart-")
+			} else {
+				name.starts_with("trace-") && !name.starts_with("trace-smart-")
+			};
+			(wanted && name.ends_with(&suffix))
 				.then(|| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))?
 		})
 		.max_by_key(|(modified, _)| *modified)

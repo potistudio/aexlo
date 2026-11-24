@@ -51,7 +51,7 @@ mod identity {
 
 	pub const VARIANT: &str = "smart";
 	pub const EFFECT_NAME: &std::ffi::CStr = c"Aexlo Probe Smart";
-	pub const MATCH_NAME: &std::ffi::CStr = c"AEXLO Probe Smart";
+	pub const MATCH_NAME: &std::ffi::CStr = crate::SMART_MATCH_NAME;
 	/// 16 bpc needs PF_OutFlag_DEEP_COLOR_AWARE.
 	pub const OUT_FLAGS: ae::PF_OutFlags = ae::PF_OutFlag_DEEP_COLOR_AWARE as ae::PF_OutFlags;
 	/// Threaded rendering as in the legacy variant, plus SmartRender, 32 bpc,
@@ -69,6 +69,11 @@ pub use identity::{EFFECT_NAME, MATCH_NAME, VARIANT};
 use identity::{OUT_FLAGS, OUT_FLAGS2};
 
 pub const CATEGORY: &str = "aexlo";
+
+/// Match name of the SmartRender variant. Both builds export it so the
+/// playground harness can target the smart effect through the legacy rlib
+/// it links; the smart identity uses it as its MATCH_NAME.
+pub const SMART_MATCH_NAME: &std::ffi::CStr = c"AEXLO Probe Smart";
 
 /// PF_VERSION(1, 0, 0, PF_Stage_RELEASE, 1)
 const PROBE_PF_VERSION: u32 = (1 << 19) | (3 << 9) | 1;
@@ -296,7 +301,7 @@ unsafe fn dispatch(
 /// The World Transform and Batch Sampling facts, once per process. After
 /// Effects refuses the World Transform Suite during GLOBAL_SETUP
 /// (PF_Err_INVALID_CALLBACK), so they run in the first render, legacy or smart.
-unsafe fn xform_once(in_data: *mut ae::PF_InData) {
+fn xform_once(in_data: *mut ae::PF_InData) {
 	static XFORM: std::sync::Once = std::sync::Once::new();
 	XFORM.call_once(|| checks::guarded_xform(in_data));
 }
