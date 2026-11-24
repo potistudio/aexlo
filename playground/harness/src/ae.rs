@@ -344,7 +344,7 @@ fn run_script(
 	let _ = std::fs::remove_file(result_path);
 	// A complete left-over PNG from a previous run satisfies the signature
 	// check before this run's deferred write replaces the file.
-	for entry in std::fs::read_dir(run_dir).into_iter().flatten() {
+	for entry in std::fs::read_dir(run_dir).into_iter().flatten().flatten() {
 		if entry
 			.path()
 			.file_name()
