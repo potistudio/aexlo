@@ -40,8 +40,22 @@ impl Variant {
 	/// The effect's name in the Effect menu.
 	pub fn effect_name(self) -> &'static str {
 		match self {
-			Variant::Legacy => "Aexlo Probe",
-			Variant::Smart => "Aexlo Probe Smart",
+			Variant::Legacy => aexlo_probe::EFFECT_NAME
+				.to_str()
+				.expect("the probe's effect name is ASCII"),
+			Variant::Smart => aexlo_probe::SMART_EFFECT_NAME
+				.to_str()
+				.expect("the probe's effect name is ASCII"),
+		}
+	}
+
+	/// The variant tag the probe writes into `trace_open` events and auto-named
+	/// trace files. `playground ae` passes it in `AEXLO_PROBE_VARIANT`, which
+	/// silences the probe not being measured.
+	pub fn tag(self) -> &'static str {
+		match self {
+			Variant::Legacy => aexlo_probe::VARIANT,
+			Variant::Smart => aexlo_probe::SMART_VARIANT,
 		}
 	}
 
@@ -69,10 +83,10 @@ impl Variant {
 		}
 	}
 
-	/// Project depths, in bpc, that the After Effects script renders one frame
-	/// sequence at: the smart effect's checkout facts are per depth
-	/// (`smart.<bpc>.*`). The legacy render leaves the project depth alone, so
-	/// its list is empty.
+	/// Project depths, in bpc, at which the After Effects script renders one
+	/// frame sequence each: the smart effect's checkout facts are per depth
+	/// (`smart.<bpc>.*`). The legacy render leaves the project depth alone,
+	/// so its list is empty.
 	pub fn depths(self) -> &'static [u32] {
 		match self {
 			Variant::Legacy => &[],

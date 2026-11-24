@@ -26,6 +26,18 @@ pub struct Trace {
 
 static TRACE: OnceLock<Trace> = OnceLock::new();
 
+/// `AEXLO_PROBE_VARIANT` names the variant a scripted run measures; a probe
+/// whose variant does not match it writes no trace. `playground ae` sets it
+/// so two installed probes cannot interleave their events into the one
+/// `AEXLO_PROBE_TRACE` file. An unset variable keeps every other caller's
+/// behavior: trace exactly as before.
+fn writes_enabled() -> bool {
+	match std::env::var("AEXLO_PROBE_VARIANT") {
+		Ok(variant) => variant == crate::VARIANT,
+		Err(_) => true,
+	}
+}
+
 /// Global trace instance; the sink file is created on first access.
 pub fn trace() -> &'static Trace {
 	TRACE.get_or_init(|| {
@@ -34,8 +46,9 @@ pub fn trace() -> &'static Trace {
 			let _ = fs::create_dir_all(parent);
 		}
 
+		let writer = writes_enabled().then(|| File::create(&path).ok().map(BufWriter::new));
 		let trace = Trace {
-			writer: Mutex::new(File::create(&path).ok().map(BufWriter::new)),
+			writer: Mutex::new(writer.flatten()),
 			path,
 			seq: AtomicU64::new(0),
 			started: Instant::now(),

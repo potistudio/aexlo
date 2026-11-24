@@ -49,8 +49,8 @@ mod identity {
 mod identity {
 	use after_effects::sys as ae;
 
-	pub const VARIANT: &str = "smart";
-	pub const EFFECT_NAME: &std::ffi::CStr = c"Aexlo Probe Smart";
+	pub const VARIANT: &str = crate::SMART_VARIANT;
+	pub const EFFECT_NAME: &std::ffi::CStr = crate::SMART_EFFECT_NAME;
 	pub const MATCH_NAME: &std::ffi::CStr = crate::SMART_MATCH_NAME;
 	/// 16 bpc needs PF_OutFlag_DEEP_COLOR_AWARE.
 	pub const OUT_FLAGS: ae::PF_OutFlags = ae::PF_OutFlag_DEEP_COLOR_AWARE as ae::PF_OutFlags;
@@ -70,10 +70,13 @@ use identity::{OUT_FLAGS, OUT_FLAGS2};
 
 pub const CATEGORY: &str = "aexlo";
 
-/// Match name of the SmartRender variant. Both builds export it so the
-/// playground harness can target the smart effect through the legacy rlib
-/// it links; the smart identity uses it as its MATCH_NAME.
+/// SmartRender-variant identity: display name, match name and variant tag.
+/// Every build exports it so the playground harness can address the smart
+/// effect through the legacy rlib it links; the smart identity uses these as
+/// its EFFECT_NAME, MATCH_NAME and VARIANT.
+pub const SMART_EFFECT_NAME: &std::ffi::CStr = c"Aexlo Probe Smart";
 pub const SMART_MATCH_NAME: &std::ffi::CStr = c"AEXLO Probe Smart";
+pub const SMART_VARIANT: &str = "smart";
 
 /// PF_VERSION(1, 0, 0, PF_Stage_RELEASE, 1)
 const PROBE_PF_VERSION: u32 = (1 << 19) | (3 << 9) | 1;

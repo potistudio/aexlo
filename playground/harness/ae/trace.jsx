@@ -13,8 +13,10 @@
 
 (function () {
 	var cfg = AEXLO;
-	var result = { ok: false, ae_version: app.version, renders: [], params: [] };
+	var result = { ok: false, ae_version: app.version, renders: [], params: [], depths: [] };
 	var folder = null;
+	// The project depth is a project-wide setting; the run restores the value
+	// in effect when it started, whatever the cleanup path.
 	var originalDepth = null;
 
 	function quote(text) {
@@ -110,10 +112,18 @@
 		}
 
 		originalDepth = app.project.bitsPerChannel;
+		// cfg.depths is empty in the legacy run: [null] renders one frame
+		// sequence at the depth in effect, without changing the project.
 		var depths = cfg.depths && cfg.depths.length ? cfg.depths : [null];
 		for (var d = 0; d < depths.length; d++) {
 			if (depths[d] !== null) {
 				app.project.bitsPerChannel = depths[d];
+				if (app.project.bitsPerChannel !== depths[d]) {
+					throw new Error(
+						"project depth " + depths[d] + " bpc was refused (now " + app.project.bitsPerChannel + ")"
+					);
+				}
+				result.depths.push(app.project.bitsPerChannel);
 			}
 			for (var t = 0; t < cfg.times.length; t++) {
 				var suffix = depths[d] === null ? String(t) : depths[d] + "_" + t;
@@ -135,7 +145,9 @@
 			folder.remove();
 		}
 	} catch (cleanupError) {
-		result.cleanup_error = describe(cleanupError);
+		result.cleanup_error = result.cleanup_error ?
+			result.cleanup_error + "; " + describe(cleanupError) :
+			describe(cleanupError);
 	}
 
 	try {
@@ -143,13 +155,17 @@
 			app.project.bitsPerChannel = originalDepth;
 		}
 	} catch (depthError) {
-		result.cleanup_error = describe(depthError);
+		result.cleanup_error = result.cleanup_error ?
+			result.cleanup_error + "; " + describe(depthError) :
+			describe(depthError);
 	}
 
 	try {
 		app.endSuppressDialogs(false);
 	} catch (suppressError) {
-		result.cleanup_error = describe(suppressError);
+		result.cleanup_error = result.cleanup_error ?
+			result.cleanup_error + "; " + describe(suppressError) :
+			describe(suppressError);
 	}
 
 	writeResult();

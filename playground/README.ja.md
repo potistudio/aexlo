@@ -124,6 +124,7 @@ GPU：GPU のあるホストは `PF_Cmd_GPU_DEVICE_SETUP` を送ります。プ�
 1. `AEXLO_PROBE_TRACE`：ファイルの完全なパス（ハーネスが設定）。
 2. `AEXLO_PROBE_DIR`：ディレクトリを指定し、ファイル名は自動生成。
 3. どちらも指定しなければ `%TEMP%/aexlo-probe/trace-<time>-pid<pid>.jsonl`（SmartRender 版は `trace-smart-<time>-pid<pid>.jsonl`）。
+4. `AEXLO_PROBE_VARIANT`（`legacy` / `smart`）：読み込まれたプローブの版と一致しないとき、プローブはトレースを書きません。`playground ae` が設定します。両方の版がインストールされていても、計測しない側が黙り、1 つのトレースファイルへのイベント混入が起きません。
 
 ハーネスは、`CARGO_TARGET_DIR` が設定されていればそこに、設定されていなければ `target/` にビルドします。どちらの場合も、トレースとプレビューは `<workspace>/target/probe/` に保存されます。
 

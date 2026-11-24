@@ -209,6 +209,10 @@ CPU; the probe does not render on the GPU.
 2. `AEXLO_PROBE_DIR` — directory, auto-named file,
 3. otherwise `%TEMP%/aexlo-probe/trace-<time>-pid<pid>.jsonl`
    (`trace-smart-<time>-pid<pid>.jsonl` for the smart variant).
+4. `AEXLO_PROBE_VARIANT` (`legacy` / `smart`): a probe whose variant does not
+   match it writes no trace. `playground ae` sets it, so with both variants
+   installed the one not being measured stays silent and its events cannot
+   mix into the trace.
 
 The harness builds into `CARGO_TARGET_DIR` when it is set, or `target/`
 otherwise.

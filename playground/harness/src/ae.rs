@@ -90,6 +90,14 @@ pub fn ae(args: &[String]) -> anyhow::Result<()> {
 	);
 	let running = running.into_iter().next();
 
+	// Recording the smart variant switches the project bit depth and restores
+	// it afterwards; a crash in between leaves an open project at the wrong
+	// depth, so the smart variant requires a fresh instance.
+	anyhow::ensure!(
+		variant == Variant::Legacy || running.is_none(),
+		"--variant smart switches the project bit depth while it records; close After Effects so the run records in its own session"
+	);
+
 	let exe = choose_after_effects(option(args, "--ae"), running.as_ref())?;
 	println!("{} {}", "after effects:".bold(), exe.display());
 	match &running {
@@ -111,15 +119,6 @@ pub fn ae(args: &[String]) -> anyhow::Result<()> {
 			.unwrap_or_default()
 	});
 	install(&packaged, &plugin_dir.join(variant.aex_name()), running.is_some())?;
-
-	// A fresh instance reads `AEXLO_PROBE_TRACE`, and every installed probe
-	// writes to that one file; remove the probe that is not measured so its
-	// events stay out of the trace. A running instance never sets the
-	// variable - each probe writes its own auto-named file - so there is
-	// nothing to correct in that case.
-	if running.is_none() {
-		remove_other_probe(&plugin_dir, variant);
-	}
 
 	let run_dir = root.join("target/probe/ae-run");
 	std::fs::create_dir_all(&run_dir)?;
@@ -148,12 +147,13 @@ pub fn ae(args: &[String]) -> anyhow::Result<()> {
 		&config,
 		&result_path,
 		&trace_path,
+		variant,
 		running.as_ref(),
 		timeout,
 	)?;
 
 	if let Some(process) = &running {
-		let source = running_trace(process.pid, variant == Variant::Smart)?;
+		let source = running_trace(process.pid, variant)?;
 		std::fs::copy(&source, &trace_path)
 			.with_context(|| format!("failed to copy {} to {}", source.display(), trace_path.display()))?;
 		println!("{} {}", "copied:".dimmed(), source.display());
@@ -168,6 +168,8 @@ pub fn ae(args: &[String]) -> anyhow::Result<()> {
 			result["error"].as_str().unwrap_or("no error message")
 		);
 	}
+
+	verify_trace(&trace_path, variant)?;
 
 	println!();
 	crate::print_report(&trace_path)?;
@@ -325,22 +327,6 @@ fn install(packaged: &Path, installed: &Path, running: bool) -> anyhow::Result<(
 	Ok(())
 }
 
-/// Delete the probe build not being measured from the harness-managed plugin
-/// folder. Only files with the exact `AEXLO Probe` install names are removed.
-fn remove_other_probe(plugin_dir: &Path, keep: Variant) {
-	for variant in Variant::ALL {
-		if variant == keep {
-			continue;
-		}
-		let path = plugin_dir.join(variant.aex_name());
-		match std::fs::remove_file(&path) {
-			Ok(()) => println!("{} {} (one probe per trace)", "removed:".dimmed(), path.display()),
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-			Err(error) => eprintln!("{} removing {}: {error}", "warn:".yellow(), path.display()),
-		}
-	}
-}
-
 /// Write the configured script, hand it to After Effects, and wait for the
 /// result file it writes last.
 fn run_script(
@@ -349,6 +335,7 @@ fn run_script(
 	config: &Value,
 	result_path: &Path,
 	trace_path: &Path,
+	variant: Variant,
 	running: Option<&AeProcess>,
 	timeout: Duration,
 ) -> anyhow::Result<Value> {
@@ -363,6 +350,10 @@ fn run_script(
 		// very process, so the whole session goes to one fresh file.
 		let _ = std::fs::remove_file(trace_path);
 		command.env("AEXLO_PROBE_TRACE", trace_path);
+		// Read by every installed probe: the one whose variant does not match
+		// writes nothing, so two installed probes cannot interleave their
+		// events into the one trace file.
+		command.env("AEXLO_PROBE_VARIANT", variant.tag());
 	}
 
 	let mut child = command
@@ -437,22 +428,23 @@ fn read_result(path: &Path) -> Option<Value> {
 
 /// The trace the probe in a running instance writes: the newest
 /// `trace-*-pid<pid>.jsonl` in the default directory, filtered to the
-/// variant's own name (smart traces carry a `smart-` tag, legacy ones none).
-fn running_trace(pid: u32, smart: bool) -> anyhow::Result<PathBuf> {
+/// variant's own auto-name prefix (smart traces carry the variant tag,
+/// legacy ones none).
+fn running_trace(pid: u32, variant: Variant) -> anyhow::Result<PathBuf> {
 	let dir = std::env::var_os("AEXLO_PROBE_DIR")
 		.map(PathBuf::from)
 		.unwrap_or_else(|| std::env::temp_dir().join("aexlo-probe"));
 	let suffix = format!("-pid{pid}.jsonl");
+	let smart = format!("trace-{}-", aexlo_probe::SMART_VARIANT);
 
 	std::fs::read_dir(&dir)
 		.with_context(|| format!("failed to list {}", dir.display()))?
 		.filter_map(|entry| {
 			let entry = entry.ok()?;
 			let name = entry.file_name().into_string().ok()?;
-			let wanted = if smart {
-				name.starts_with("trace-smart-")
-			} else {
-				name.starts_with("trace-") && !name.starts_with("trace-smart-")
+			let wanted = match variant {
+				Variant::Smart => name.starts_with(&smart),
+				Variant::Legacy => name.starts_with("trace-") && !name.starts_with(&smart),
 			};
 			(wanted && name.ends_with(&suffix))
 				.then(|| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))?
@@ -466,6 +458,43 @@ fn running_trace(pid: u32, smart: bool) -> anyhow::Result<PathBuf> {
 				dir.display()
 			)
 		})
+}
+
+/// Fail before `diff` sees a gap: the trace must record exactly the measured
+/// probe, and a smart run must carry every requested depth's facts. A refused
+/// project depth or a second probe's events otherwise surface as an
+/// aexlo-side difference.
+fn verify_trace(trace_path: &Path, variant: Variant) -> anyhow::Result<()> {
+	let events = crate::summary::load_events(trace_path)?;
+
+	let opens: Vec<&str> = events
+		.iter()
+		.filter(|event| event.get("event").and_then(Value::as_str) == Some("trace_open"))
+		.filter_map(|event| event.get("variant").and_then(Value::as_str))
+		.collect();
+	anyhow::ensure!(
+		opens.len() == 1 && opens[0] == variant.tag(),
+		"the trace records {} probe start(s) ({}) instead of one {} run",
+		opens.len(),
+		opens.join(", "),
+		variant.tag()
+	);
+
+	for depth in variant.depths() {
+		let prefix = format!("smart.{depth}.");
+		let covered = events.iter().any(|event| {
+			event.get("event").and_then(Value::as_str) == Some("fact")
+				&& event
+					.get("name")
+					.and_then(Value::as_str)
+					.is_some_and(|name| name.starts_with(&prefix))
+		});
+		anyhow::ensure!(
+			covered,
+			"no {prefix}* facts in the trace: After Effects rendered no frame at {depth} bpc"
+		);
+	}
+	Ok(())
 }
 
 fn print_result(result: &Value) {
