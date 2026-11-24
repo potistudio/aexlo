@@ -1,6 +1,8 @@
 //! `AEGP Layer Render Options Suite` (wire version 2), `AEGP Render Options
-//! Suite` (wire version 4) and `AEGP Render Suite` (wire version 5,
-//! `AEGP_RenderSuite4`, and wire version 8, `AEGP_RenderSuite5`).
+//! Suite` (wire version 4) and `AEGP Render Suite` (wire versions 1 to 3 for
+//! `AEGP_RenderSuite1` to `3`, wire version 5 for `AEGP_RenderSuite4`, and
+//! wire version 8 for `AEGP_RenderSuite5`). Every version serves the same
+//! functions; each lays out the ones it has.
 //!
 //! Looks checks out the upstream frame at 16 or 32 bits per channel and blurs
 //! that copy for Edge Softness. The effect's own input is often 8-bit, which
@@ -16,8 +18,9 @@ use crate::sys::{
 	AEGP_CancelRefcon, AEGP_ChannelOrder, AEGP_EffectRefH, AEGP_FrameReceiptH, AEGP_ItemH, AEGP_ItemQuality,
 	AEGP_ItemQuality_BEST, AEGP_LayerH, AEGP_LayerRenderOptionsH, AEGP_LayerRenderOptionsSuite2, AEGP_MatteMode,
 	AEGP_MemHandle, AEGP_PlatformWorldH, AEGP_PluginID, AEGP_RenderOptionsH, AEGP_RenderOptionsSuite4,
-	AEGP_RenderSuite4, AEGP_RenderSuite5, AEGP_RenderSuiteCheckForCancel, AEGP_SoundDataFormat, AEGP_SoundDataH,
-	AEGP_TimeStamp, AEGP_WorldH, AEGP_WorldType, PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_Field, PF_ProgPtr,
+	AEGP_RenderSuite1, AEGP_RenderSuite2, AEGP_RenderSuite3, AEGP_RenderSuite4, AEGP_RenderSuite5,
+	AEGP_RenderSuiteCheckForCancel, AEGP_SoundDataFormat, AEGP_SoundDataH, AEGP_TimeStamp, AEGP_WorldH, AEGP_WorldType,
+	PF_Err_BAD_CALLBACK_PARAM, PF_Err_NONE, PF_Field, PF_ProgPtr,
 };
 
 use super::aegp_world;
@@ -547,6 +550,48 @@ unsafe extern "C" fn get_receipt_guid(_receiptH: AEGP_FrameReceiptH, _guid_out: 
 	crate::core::ffi::guard("get_receipt_guid", || PF_Err_BAD_CALLBACK_PARAM)
 }
 
+pub const fn render_suite_1() -> AEGP_RenderSuite1 {
+	AEGP_RenderSuite1 {
+		AEGP_RenderAndCheckoutFrame: Some(render_and_checkout_frame),
+		AEGP_CheckinFrame: Some(checkin_frame),
+		AEGP_GetReceiptWorld: Some(get_receipt_world),
+		AEGP_GetRenderedRegion: Some(get_rendered_region),
+		AEGP_IsRenderedFrameSufficient: Some(is_rendered_sufficient),
+		AEGP_RenderNewItemSoundData: Some(render_new_item_sound),
+	}
+}
+
+pub const fn render_suite_2() -> AEGP_RenderSuite2 {
+	AEGP_RenderSuite2 {
+		AEGP_RenderAndCheckoutFrame: Some(render_and_checkout_frame),
+		AEGP_CheckinFrame: Some(checkin_frame),
+		AEGP_GetReceiptWorld: Some(get_receipt_world),
+		AEGP_GetRenderedRegion: Some(get_rendered_region),
+		AEGP_IsRenderedFrameSufficient: Some(is_rendered_sufficient),
+		AEGP_RenderNewItemSoundData: Some(render_new_item_sound),
+		AEGP_GetCurrentTimestamp: Some(get_current_timestamp),
+		AEGP_HasItemChangedSinceTimestamp: Some(has_item_changed),
+		AEGP_IsItemWorthwhileToRender: Some(is_item_worthwhile),
+		AEGP_CheckinRenderedFrame: Some(checkin_rendered_frame),
+	}
+}
+
+pub const fn render_suite_3() -> AEGP_RenderSuite3 {
+	AEGP_RenderSuite3 {
+		AEGP_RenderAndCheckoutFrame: Some(render_and_checkout_frame),
+		AEGP_CheckinFrame: Some(checkin_frame),
+		AEGP_GetReceiptWorld: Some(get_receipt_world),
+		AEGP_GetRenderedRegion: Some(get_rendered_region),
+		AEGP_IsRenderedFrameSufficient: Some(is_rendered_sufficient),
+		AEGP_RenderNewItemSoundData: Some(render_new_item_sound),
+		AEGP_GetCurrentTimestamp: Some(get_current_timestamp),
+		AEGP_HasItemChangedSinceTimestamp: Some(has_item_changed),
+		AEGP_IsItemWorthwhileToRender: Some(is_item_worthwhile),
+		AEGP_CheckinRenderedFrame: Some(checkin_rendered_frame),
+		AEGP_GetReceiptGuid: Some(get_receipt_guid),
+	}
+}
+
 pub const fn render_suite_4() -> AEGP_RenderSuite4 {
 	AEGP_RenderSuite4 {
 		AEGP_RenderAndCheckoutFrame: Some(render_and_checkout_frame),
@@ -976,6 +1021,25 @@ mod tests {
 		assert_eq!(std::mem::offset_of!(AEGP_RenderSuite5, AEGP_GetCurrentTimestamp), 0x48);
 		let suite = render_suite_4();
 		assert!(suite.AEGP_RenderAndCheckoutFrame.is_some() && suite.AEGP_GetReceiptGuid.is_some());
+	}
+
+	/// Versions 1 to 3 add entries at the end, so each keeps the offsets of
+	/// the one before. Version 4 inserts `AEGP_RenderAndCheckoutLayerFrame`
+	/// second, which moves the rest down by one.
+	#[test]
+	fn render_suites_1_to_3_use_their_own_abi_layouts() {
+		use std::mem::{offset_of, size_of};
+		assert_eq!(size_of::<AEGP_RenderSuite1>(), 6 * 8);
+		assert_eq!(size_of::<AEGP_RenderSuite2>(), 10 * 8);
+		assert_eq!(size_of::<AEGP_RenderSuite3>(), 11 * 8);
+		assert_eq!(offset_of!(AEGP_RenderSuite1, AEGP_CheckinFrame), 0x08);
+		assert_eq!(offset_of!(AEGP_RenderSuite2, AEGP_GetCurrentTimestamp), 0x30);
+		assert_eq!(offset_of!(AEGP_RenderSuite3, AEGP_GetReceiptGuid), 0x50);
+		assert_eq!(offset_of!(AEGP_RenderSuite4, AEGP_CheckinFrame), 0x10);
+		let (one, two, three) = (render_suite_1(), render_suite_2(), render_suite_3());
+		assert!(one.AEGP_RenderNewItemSoundData.is_some());
+		assert!(two.AEGP_CheckinRenderedFrame.is_some());
+		assert!(three.AEGP_GetReceiptGuid.is_some());
 	}
 
 	#[test]
