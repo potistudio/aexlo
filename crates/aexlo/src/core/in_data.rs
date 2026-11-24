@@ -189,7 +189,9 @@ impl RenderContext {
 	}
 }
 
-/// Pointers into the calling instance, valid only for the duration of one call.
+/// What one call hands the plugin. `effect_ref` and `utils` point into the
+/// calling instance and are valid only for the duration of the call; `pica`
+/// is the process-wide suite, shared by every instance and never freed.
 pub(crate) struct CallBindings {
 	pub effect_ref: PF_ProgPtr,
 	pub utils: *mut _PF_UtilCallbacks,

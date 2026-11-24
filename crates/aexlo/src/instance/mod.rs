@@ -220,9 +220,6 @@ pub struct PluginInstance {
 
 	utility_callbacks: Box<crate::sys::_PF_UtilCallbacks>,
 
-	/// Basic Suite pointer.
-	pica: Box<crate::sys::SPBasicSuite>,
-
 	/// Host-wide constants composed into every `PF_InData`.
 	host_info: InDataHost,
 	/// Plugin-owned handles carried across commands.

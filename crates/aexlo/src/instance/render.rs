@@ -98,6 +98,11 @@ impl PluginInstance {
 			};
 		}
 		let result = self.call_plugin(RawCommand::Event, (&mut extra as *mut crate::sys::PF_EventExtra).cast());
+		// A click or drag may change values; drawing and setting up a
+		// context do not.
+		if matches!(event, crate::sys::PF_Event_DO_CLICK | crate::sys::PF_Event_DRAG) {
+			crate::timestamp::touch();
+		}
 		// The draw ref is only valid for this DRAW. A later click must not
 		// see a surface the rasteriser has already finished.
 		kept.clear_draw_ref();
@@ -554,6 +559,7 @@ impl PluginInstance {
 	/// default size ([`Self::output_size`] after load), which plugins tolerate --
 	/// After Effects itself resizes freely between renders.
 	pub fn set_render_size(&mut self, width: u32, height: u32) {
+		crate::timestamp::touch();
 		let kind = self.output_layer.kind();
 		self.output_layer = HostLayer::new(AnyLayer::filled(kind, width, height, OPAQUE_BLACK));
 

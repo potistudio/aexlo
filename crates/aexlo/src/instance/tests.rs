@@ -419,3 +419,131 @@ fn an_observer_hears_about_missing_suites_and_stubs_at_any_level() {
 		["MissingSuite AEGP Nonexistent Suite v3", "Stub get_filter_instance_id "]
 	);
 }
+
+/// After Effects hands every effect the same `SPBasicSuite` for the life of
+/// the process. Plugins keep the first `pica_basicP` in a static and use it
+/// from later instances (AutoFill2 does), so it must outlive the instance it
+/// was handed to.
+#[test]
+fn every_instance_gets_the_same_pica_suite_and_it_outlives_them() {
+	use std::sync::Mutex;
+	static SEEN: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+	unsafe extern "C" fn entry(
+		cmd: PF_Cmd,
+		input: *mut crate::sys::PF_InData,
+		_output: *mut crate::sys::PF_OutData,
+		_params: crate::sys::PF_ParamList,
+		_world: *mut crate::sys::PF_LayerDef,
+		_extra: *mut c_void,
+	) -> crate::sys::PF_Err {
+		if cmd == RawCommand::GlobalSetup.to_sys() {
+			SEEN.lock().unwrap().push(unsafe { (*input).pica_basicP } as usize);
+		}
+		PF_Err_NONE
+	}
+	// Both alive at once, so that the allocator cannot hand the second
+	// instance the first one's freed block and make two suites look like one.
+	let first = unsafe { Host::get().entry_loader(entry) }.size(8, 8).load().unwrap();
+	let second = unsafe { Host::get().entry_loader(entry) }.size(8, 8).load().unwrap();
+	drop(first);
+
+	let seen = SEEN.lock().unwrap().clone();
+	assert_eq!(seen.len(), 2, "{seen:?}");
+	assert_eq!(seen[0], seen[1], "each instance got its own pica suite");
+	// Both instances are gone; the pointer they were handed still acquires
+	// suites.
+	drop(second);
+	let pica = unsafe { &*(seen[0] as *const crate::sys::SPBasicSuite) };
+	let mut suite: *const c_void = std::ptr::null();
+	let err = unsafe { pica.AcquireSuite.unwrap()(c"PF ANSI Suite".as_ptr(), 1, &mut suite) };
+	assert_eq!(err, PF_Err_NONE);
+	assert!(!suite.is_null());
+}
+
+#[test]
+fn every_change_that_affects_rendering_moves_the_timestamp() {
+	use crate::timestamp::touches_on_this_thread;
+	let mut fx = bare_instance();
+	let mut float_def = param_of_type(crate::sys::PF_Param_FLOAT_SLIDER as PF_ParamType);
+	float_def.u.fs_d.value = 1.5;
+	fx.add_instance_param(float_def);
+	let mut layer_def = param_of_type(crate::sys::PF_Param_LAYER as PF_ParamType);
+	layer_def.u.ld = unsafe { std::mem::zeroed() };
+	fx.add_instance_param(layer_def);
+
+	let layer = || crate::Layer::<crate::Depth8>::from_rgba8(vec![0; 4], 1, 1).unwrap();
+	let track = crate::Track::keyed(vec![
+		crate::Keyframe::linear(crate::TimePoint::frame(0, 30), ParamValue::Float(0.0)),
+		crate::Keyframe::linear(crate::TimePoint::frame(30, 30), ParamValue::Float(1.0)),
+	])
+	.unwrap();
+	type Change = Box<dyn Fn(&mut PluginInstance)>;
+	let changes: Vec<(&str, Change)> = vec![
+		(
+			"set_param",
+			Box::new(|fx| fx.set_param(1, ParamValue::Float(2.0)).unwrap()),
+		),
+		(
+			"set_param_track",
+			Box::new(move |fx| fx.set_param_track(1, track.clone()).unwrap()),
+		),
+		("set_input_layer", Box::new(move |fx| fx.set_input_layer(layer()))),
+		(
+			"set_layer_param",
+			Box::new(move |fx| fx.set_layer_param(2, Some(layer())).unwrap()),
+		),
+		("clear_layer_param", Box::new(|fx| fx.clear_layer_param(2).unwrap())),
+		("set_mask_paths", Box::new(|fx| fx.set_mask_paths(Vec::new()))),
+		("set_text_layer", Box::new(|fx| fx.set_text_layer(None))),
+		("set_render_size", Box::new(|fx| fx.set_render_size(4, 4))),
+	];
+	for (name, change) in &changes {
+		let before = touches_on_this_thread();
+		change(&mut fx);
+		assert!(touches_on_this_thread() > before, "{name} left the timestamp alone");
+	}
+
+	// Moving the playhead and failing to change anything are not changes.
+	let before = touches_on_this_thread();
+	fx.set_time(Time::frame(12, 30));
+	assert!(fx.set_param(1, ParamValue::Checkbox(true)).is_err());
+	assert!(fx.set_param(9, ParamValue::Float(0.0)).is_err());
+	fx.set_project(None);
+	assert_eq!(touches_on_this_thread(), before);
+}
+
+#[test]
+fn commands_in_which_a_plugin_may_change_values_move_the_timestamp() {
+	use crate::timestamp::touches_on_this_thread as touches;
+	unsafe extern "C" fn entry(
+		_cmd: PF_Cmd,
+		_input: *mut crate::sys::PF_InData,
+		_output: *mut crate::sys::PF_OutData,
+		_params: crate::sys::PF_ParamList,
+		_world: *mut crate::sys::PF_LayerDef,
+		_extra: *mut c_void,
+	) -> crate::sys::PF_Err {
+		PF_Err_NONE
+	}
+	let mut fx = unsafe { Host::get().entry_loader(entry) }.size(16, 16).load().unwrap();
+	for command in [
+		RawCommand::UserChangedParam,
+		RawCommand::UpdateParamsUi,
+		RawCommand::DoDialog,
+	] {
+		let before = touches();
+		fx.call_plugin(command, std::ptr::null_mut()).unwrap();
+		assert!(touches() > before, "{command:?} left the timestamp alone");
+	}
+	let before = touches();
+	fx.click_custom_control(1, 4, 4, 32, 16).unwrap();
+	assert!(touches() > before, "a click left the timestamp alone");
+
+	// Drawing a control, rendering and asking for the about box change nothing.
+	let before = touches();
+	fx.draw_custom_control(1, 32, 16).unwrap();
+	fx.draw_custom_control(2, 32, 16).unwrap();
+	fx.render_frame().unwrap();
+	fx.about().unwrap();
+	assert_eq!(touches(), before);
+}

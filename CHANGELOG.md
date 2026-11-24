@@ -117,9 +117,38 @@ plugin renders or returns.
   takes an installed-effect key and is refused like the rest of the
   installed-effect registry. Falloff needs v5 to free its effect handle in
   `PF_Cmd_SMART_PRE_RENDER`.
+- "AEGP Render Suite" at wire versions 1, 2, 3 and 5 (`AEGP_RenderSuite1` to
+  `AEGP_RenderSuite4`). Each serves what wire version 8 does, laid out as
+  that version is. v4's `AEGP_RenderAndCheckoutLayerFrame` checks out the
+  effect's input and declines `render_plain_layer_frameB = true`. AutoFill2
+  acquires v4 in `PF_Cmd_SMART_PRE_RENDER` and crashed when the acquire
+  failed.
+- `AEGP_GetCurrentTimestamp` returns a project timestamp, where it was
+  refused. One counter serves the whole process. It increases when an
+  instance's parameters, input layer, layer parameters, masks, text layer,
+  project or output size change, and after the commands in which a plugin
+  may change its own values: `PF_Cmd_USER_CHANGED_PARAM`,
+  `PF_Cmd_UPDATE_PARAMS_UI`, `PF_Cmd_DO_DIALOG` and `PF_Cmd_EVENT` for a
+  click or a drag. Drawing a custom control and `PluginInstance::set_time`
+  do not increase it. AutoFill2 asks for it in `PF_Cmd_SMART_PRE_RENDER`.
+- `AEGP_HasItemChangedSinceTimestamp` answers from that timestamp, where it
+  was refused: it answers "changed" when the current timestamp differs from
+  the one the plugin passes. The item handle must be one aexlo knows, but
+  the answer does not depend on the item or the time span, so it can be
+  "changed" for an item that did not change but never "unchanged" after a
+  change aexlo recorded. It refuses an unknown item handle and a null
+  timestamp or result pointer; the time span pointers may be null.
 
 ### Changed
 
+- The Render Suite functions aexlo does not implement report themselves as
+  `UnsupportedKind::Stub`: `AEGP_IsRenderedFrameSufficient`,
+  `AEGP_RenderNewItemSoundData`, `AEGP_IsItemWorthwhileToRender`,
+  `AEGP_CheckinRenderedFrame` and `AEGP_GetReceiptGuid`. They still return
+  `PF_Err_BAD_CALLBACK_PARAM`, but `aexlo compat` now counts a scenario in
+  which a plugin calls them and still runs as `partial`. Such a scenario
+  was `ok` in a baseline saved before this change, so `--baseline` reports
+  it as worse and exits 1.
 - `aexlo compat` counts a `render:legacy@*` scenario as `n/a`, not `error`,
   when the plugin declares smart render and returns a `PF_Err` from
   `PF_Cmd_RENDER`. After Effects never sends that command to a smart-render
@@ -127,6 +156,10 @@ plugin renders or returns.
 
 ### Fixed
 
+- Every instance shares one `in_data->pica_basicP`, which lives as long as
+  the process, as in After Effects. Before, each instance had its own,
+  freed with it, so a plugin such as AutoFill2 that keeps the first one in a
+  static called through freed memory once that instance was dropped.
 - `PF_GetCurrentState` covers arbitrary data as the plugin flattens it
   (`PF_Arbitrary_FLAT_SIZE_FUNC` and `PF_Arbitrary_FLATTEN_FUNC`), so a change
   in what a value points to is no longer called unchanged. The host flattens

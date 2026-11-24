@@ -364,3 +364,84 @@ fn a_comp_without_a_camera_has_the_default_one() {
 	);
 	assert_eq!(kind, A_Err_GENERIC, "a layer that is no camera has no camera type");
 }
+
+#[test]
+fn a_new_project_moves_the_timestamp_and_the_same_one_does_not() {
+	use crate::timestamp::touches_on_this_thread as touches;
+	let mut fx = PluginInstance::new(std::path::Path::new("<test>"));
+	let before = touches();
+	fx.set_project(Some(three_layers()));
+	assert!(touches() > before, "a new project left the timestamp alone");
+	let before = touches();
+	fx.set_project(Some(three_layers()));
+	assert_eq!(touches(), before, "the same project moved the timestamp");
+	fx.set_project(None);
+	assert!(touches() > before, "dropping the project left the timestamp alone");
+}
+
+#[test]
+fn has_item_changed_answers_from_the_project_timestamp() {
+	let mut fx = load();
+	let seen = during(&mut fx, |p| {
+		let render: &AEGP_RenderSuite5 = p.suite(c"AEGP Render Suite", kAEGPRenderSuiteVersion5);
+		let (now, ask) = (
+			render.AEGP_GetCurrentTimestamp.unwrap(),
+			render.AEGP_HasItemChangedSinceTimestamp.unwrap(),
+		);
+		// The comp and the footage item of the effect's layer.
+		let comp = crate::suites::layer::item_handle(p.effect);
+		let footage = crate::suites::layer::source_item_handle(p.effect);
+		let time = A_Time { value: 0, scale: 1 };
+		let stamp = || {
+			let mut stamp = AEGP_TimeStamp { a: [0; 4] };
+			// SAFETY: the out pointer is live.
+			let err = unsafe { now(&mut stamp) };
+			(err, stamp.a)
+		};
+		let changed_since = |item, span: *const A_Time, a| {
+			let mut out: A_Boolean = 7;
+			// SAFETY: the stamp and the out pointer are live; aexlo does not
+			// read the span.
+			let err = unsafe { ask(item, span, span, &AEGP_TimeStamp { a }, &mut out) };
+			(err, out)
+		};
+		// Other tests move the shared timestamp too: only an answer given while
+		// it did not change has to be "unchanged".
+		let mut unchanged = None;
+		for _ in 0..1000 {
+			let before = stamp();
+			let answers = [
+				changed_since(comp, &time, before.1),
+				changed_since(footage, &time, before.1),
+			];
+			let stable = stamp() == before;
+			unchanged = Some((before.0, answers, stable));
+			if stable {
+				break;
+			}
+		}
+		let (_, old) = stamp();
+		crate::timestamp::touch();
+		let changed = [
+			changed_since(comp, &time, old),
+			changed_since(footage, &time, old),
+			changed_since(comp, std::ptr::null(), old),
+		];
+		let refused = [
+			changed_since(std::ptr::null_mut(), &time, old).0,
+			// SAFETY: the non-null pointers are live, and aexlo refuses a null
+			// pointer before it dereferences it.
+			unsafe { ask(comp, &time, &time, std::ptr::null(), &mut 0) },
+			unsafe { ask(comp, &time, &time, &AEGP_TimeStamp { a: old }, std::ptr::null_mut()) },
+		];
+		(unchanged, changed, refused)
+	});
+	let (unchanged, changed, refused) = seen;
+	let (stamp_err, unchanged, stable) = unchanged.expect("the loop ran");
+	assert_eq!(stamp_err, PF_Err_NONE, "AEGP_GetCurrentTimestamp failed");
+	assert!(stable, "other tests moved the timestamp on all 1000 tries");
+	assert_eq!(unchanged, [(PF_Err_NONE, 0); 2], "comp, footage");
+	// The last one passes a null time span, which aexlo does not read.
+	assert_eq!(changed, [(PF_Err_NONE, 1); 3], "comp, footage, null span");
+	assert_eq!(refused, [PF_Err_BAD_CALLBACK_PARAM; 3]);
+}
