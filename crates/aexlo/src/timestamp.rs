@@ -2,13 +2,15 @@
 //!
 //! After Effects increases it whenever something in the project that affects
 //! rendering changes. aexlo keeps one counter for the whole process and
-//! increases it whenever an instance's parameters, layers, masks, text,
-//! project or output size change, and after each command in which a plugin may
-//! change its own values. Moving the current time does not increase it.
+//! increases it whenever an instance's parameters, input layer, layer
+//! parameters, masks, text layer, project or output size change, and after
+//! each command in which a plugin may change its own values. Moving the
+//! current time does not increase it.
 //!
-//! One counter for every instance means that a change to one instance also
-//! moves the timestamp the others see. A plugin that compares timestamps then
-//! renders again when it did not need to, never less often than it should.
+//! All instances share the one counter, so a change to one instance also
+//! increases the timestamp the others see. A plugin that compares timestamps
+//! may then render again when it did not need to, but it never misses a
+//! change that aexlo records.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 

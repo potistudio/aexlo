@@ -74,8 +74,8 @@ fn render_at(instance: &mut PluginInstance, frame: i32) -> Vec<u8> {
 	out
 }
 
-/// The fill grows over time, the plugin gets its timestamp, and nothing it
-/// asks for is reported unsupported.
+/// The fill grows over time, the plugin calls `AEGP_GetCurrentTimestamp`, and
+/// nothing it asks for is reported unsupported.
 #[needs_fixture("AutoFill2")]
 #[test]
 fn grows_a_fill_through_smart_render() {
@@ -95,9 +95,9 @@ fn grows_a_fill_through_smart_render() {
 	assert!(gaps.is_empty(), "unsupported calls: {gaps:?}");
 }
 
-/// A render after a parameter change matches a fresh instance with that
-/// value, at a frame where the fill has not covered the layer yet, so the
-/// plugin did not reuse its cached simulation.
+/// A render after a parameter change matches one from a fresh instance with
+/// that value, at a frame where the fill has not covered the layer yet. This
+/// shows that the plugin does not reuse its cached simulation.
 #[needs_fixture("AutoFill2")]
 #[test]
 fn re_renders_after_a_parameter_change() {
