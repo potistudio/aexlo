@@ -29,4 +29,3 @@ Verified on:
 - [ ] `cargo fmt --all -- --check`
 - [ ] `cargo clippy --workspace --all-targets --locked -- -D warnings` (and `-p aexlo --features diagnostics`)
 - [ ] `cargo test --workspace`
-- [ ] Checked `aexlo compat --baseline` with no regressions (if applicable)
