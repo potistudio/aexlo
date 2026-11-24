@@ -132,8 +132,8 @@ plugin renders or returns.
 
 ### Fixed
 
-- Every instance gets the same `in_data->pica_basicP`, which lives as long
-  as the process, as in After Effects. Before, each instance had its own,
+- Every instance shares one `in_data->pica_basicP`, which lives as long as
+  the process, as in After Effects. Before, each instance had its own,
   freed with it, so a plugin such as AutoFill2 that keeps the first one in a
   static called through freed memory once that instance was dropped.
 - `PF_GetCurrentState` covers arbitrary data as the plugin flattens it

@@ -84,8 +84,10 @@ a red cross.
 
 HEISEI_DEMO is Windows-only, so it is not in the macOS fixtures above. Its
 coverage is 98.1%, so it is not on the list either: one scenario crashes in
-the plugin's own code. HEISEI_DEMO asks for no suites. Every scenario that
-applies goes `ok` except `size:1x1`, which ends in a `crash`. That crash is a bug in the plugin, not a
+the plugin's own code.
+
+HEISEI_DEMO asks for no suites. Every scenario that applies goes `ok` except
+`size:1x1`, which ends in a `crash`. That crash is a bug in the plugin, not a
 gap in aexlo: the plugin's own code reads through a null pointer, whichever
 host runs it. The plugin shrinks the layer into a buffer of
 `(width / Factor) x (height / Factor)` pixels, with `Factor` (4 by default)

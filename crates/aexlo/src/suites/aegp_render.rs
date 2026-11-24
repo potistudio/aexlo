@@ -980,12 +980,32 @@ mod tests {
 
 	#[test]
 	fn render_suite_4_declines_the_plain_layer_frame() {
+		#[derive(Default)]
+		struct Gaps(Mutex<Vec<String>>);
+		impl crate::Observer for Gaps {
+			fn unsupported(&self, event: &crate::UnsupportedEvent) {
+				let gap = format!("{:?} {}", event.kind, event.name);
+				self.0.lock().unwrap().push(gap);
+			}
+		}
+		let gaps = std::sync::Arc::new(Gaps::default());
 		let checkout = render_suite_4().AEGP_RenderAndCheckoutLayerFrame.unwrap();
 		let options = publish_options(fresh_options(std::ptr::null_mut()));
 		let mut receipt = std::ptr::null_mut();
-		let err = unsafe { checkout(options, 1, None, std::ptr::null_mut(), &mut receipt) };
+		let err = {
+			let installed = crate::observe::Installed {
+				observer: gaps.clone(),
+				level: crate::ObserveLevel::Commands,
+			};
+			let _guard = crate::observe::enter(Some(&installed));
+			unsafe { checkout(options, 1, None, std::ptr::null_mut(), &mut receipt) }
+		};
 		assert_eq!(err, crate::sys::A_Err_GENERIC);
 		assert!(receipt.is_null());
+		assert_eq!(
+			*gaps.0.lock().unwrap(),
+			["Declined AEGP_RenderSuite4/AEGP_RenderAndCheckoutLayerFrame"]
+		);
 		// The effect input goes through `AEGP_RenderSuite5`'s checkout, which
 		// refuses options that name no instance.
 		let err = unsafe { checkout(options, 0, None, std::ptr::null_mut(), &mut receipt) };

@@ -437,9 +437,9 @@ impl PluginInstance {
 	/// per instance left them calling through freed memory once the first
 	/// instance was dropped.
 	pub(crate) fn pica_suite() -> *mut crate::sys::SPBasicSuite {
-		static PICA: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-		let address = *PICA.get_or_init(|| {
-			let suite = Box::leak(Box::new(crate::sys::SPBasicSuite {
+		static PICA: std::sync::OnceLock<&'static crate::sys::SPBasicSuite> = std::sync::OnceLock::new();
+		let suite = *PICA.get_or_init(|| {
+			Box::leak(Box::new(crate::sys::SPBasicSuite {
 				AcquireSuite: Some(crate::suites::rusty_acquire_suite),
 				ReleaseSuite: Some(crate::suites::rusty_release_suite),
 				IsEqual: None,
@@ -447,10 +447,10 @@ impl PluginInstance {
 				FreeBlock: None,
 				ReallocateBlock: None,
 				Undefined: None,
-			}));
-			suite as *mut crate::sys::SPBasicSuite as usize
+			}))
 		});
-		address as *mut crate::sys::SPBasicSuite
+		// `PF_InData::pica_basicP` is `*mut`; aexlo never writes through it.
+		std::ptr::from_ref(suite).cast_mut()
 	}
 
 	fn wire_self_pointers(&mut self) {
@@ -780,7 +780,8 @@ impl PluginInstance {
 			path: module_path.clone(),
 			source: Box::new(e),
 		})?;
-		// SAFETY: `pica_suite` is never freed, and nothing writes through it.
+		// SAFETY: `pica_suite` is never freed and aexlo never writes through it;
+		// this borrow ends with `resolve_entry_point`.
 		let pica = unsafe { &*Self::pica_suite() };
 		let (entry_point, resolved_name, metadata) = Self::resolve_entry_point(&lib, pica, &module_path)?;
 

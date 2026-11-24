@@ -450,11 +450,12 @@ fn every_instance_gets_the_same_pica_suite_and_it_outlives_them() {
 	let seen = SEEN.lock().unwrap().clone();
 	assert_eq!(seen.len(), 2, "{seen:?}");
 	assert_eq!(seen[0], seen[1], "each instance got its own pica suite");
-	// The first instance is gone; its pointer still acquires suites.
+	// Both instances are gone; the pointer they were handed still acquires
+	// suites.
+	drop(second);
 	let pica = unsafe { &*(seen[0] as *const crate::sys::SPBasicSuite) };
 	let mut suite: *const c_void = std::ptr::null();
 	let err = unsafe { pica.AcquireSuite.unwrap()(c"PF ANSI Suite".as_ptr(), 1, &mut suite) };
 	assert_eq!(err, PF_Err_NONE);
 	assert!(!suite.is_null());
-	drop(second);
 }

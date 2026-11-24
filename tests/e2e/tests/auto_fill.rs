@@ -28,11 +28,15 @@ impl Observer for Gaps {
 
 /// An opaque gradient, so that the fill reveals something other than black.
 fn gradient() -> Layer<Depth8> {
+	gradient_with_blue(128)
+}
+
+fn gradient_with_blue(blue: u8) -> Layer<Depth8> {
 	let (w, h) = SIZE;
 	let mut px = Vec::with_capacity((w * h * 4) as usize);
 	for y in 0..h {
 		for x in 0..w {
-			px.extend([(x * 255 / w) as u8, (y * 255 / h) as u8, 128, 255]);
+			px.extend([(x * 255 / w) as u8, (y * 255 / h) as u8, blue, 255]);
 		}
 	}
 	Layer::<Depth8>::from_rgba8(px, w, h).unwrap()
@@ -58,7 +62,9 @@ fn render_at(instance: &mut PluginInstance, frame: i32) -> Vec<u8> {
 	out
 }
 
-/// The fill grows over time, and nothing it asks for is missing.
+/// The fill grows over time, and nothing it asks for is reported unsupported.
+/// (aexlo refuses `AEGP_GetCurrentTimestamp` without reporting it, so this
+/// cannot see that call.)
 #[needs_fixture("AutoFill2")]
 #[test]
 fn grows_a_fill_through_smart_render() {
@@ -72,8 +78,9 @@ fn grows_a_fill_through_smart_render() {
 }
 
 /// A render after a parameter change matches a fresh instance with that
-/// value, at a frame where the fill has not covered the layer yet: the plugin caches its simulation, and `AEGP_GetCurrentTimestamp`
-/// does not give it a timestamp to invalidate that cache with.
+/// value, at a frame where the fill has not covered the layer yet. The plugin
+/// caches its simulation, and `AEGP_GetCurrentTimestamp` does not give it a
+/// timestamp to invalidate that cache with.
 #[needs_fixture("AutoFill2")]
 #[test]
 fn re_renders_after_a_parameter_change() {
@@ -87,5 +94,22 @@ fn re_renders_after_a_parameter_change() {
 	let expected = render_at(&mut fresh, 15);
 
 	assert_ne!(before, after, "Radius 80 rendered as the default did");
+	assert_eq!(after, expected, "the reused instance rendered a stale frame");
+}
+
+/// A render after an input change matches a fresh instance with that input.
+#[needs_fixture("AutoFill2")]
+#[test]
+fn re_renders_after_an_input_change() {
+	let mut reused = load(Arc::default());
+	let before = render_at(&mut reused, 15);
+	reused.set_input_layer(gradient_with_blue(0));
+	let after = render_at(&mut reused, 15);
+
+	let mut fresh = load(Arc::default());
+	fresh.set_input_layer(gradient_with_blue(0));
+	let expected = render_at(&mut fresh, 15);
+
+	assert_ne!(before, after, "the new input rendered as the old one did");
 	assert_eq!(after, expected, "the reused instance rendered a stale frame");
 }
