@@ -339,6 +339,8 @@ mod tests {
 		run `cargo run -p aexlo_sdk_layout --bin snapshot` here with the SDK (docs/sdk-layout.md)";
 
 	/// `compare` on hand-made data, so each check is tested on every target.
+	/// Covers `Size`, every per-field kind and `SdkFieldNotInRust`; not `Align`,
+	/// `NamedDifferently`, `StructNotInSdk` or `StructIncomplete`.
 	#[test]
 	fn compare_reports_each_kind_of_field_mismatch() {
 		use snapshot::{Bindings, Field, Hole, Struct};
