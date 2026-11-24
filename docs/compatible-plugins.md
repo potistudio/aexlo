@@ -68,12 +68,14 @@ The loop that closes one of these is in
 
 ## On Windows
 
-This plugin is Windows-only, so it is not in the macOS fixtures above.
-Measured on Windows 10 x64 with aexlo v0.3.0, on 2026-11-24:
+This plugin is Windows-only, so it is not in the macOS fixtures above. Its
+coverage is 98.1%, so it is not on the list either: one scenario crashes in
+the plugin's own code. Measured on Windows 10 x64 with aexlo v0.3.0, on
+2026-11-24:
 
 | Plugin | Scenarios | `ok` | `n/a` | `crash` | Depths | Smart render | GPU |
 | ------ | --------: | ---: | ----: | ------: | ------ | ------------ | --- |
-| HEISEI_DEMO | 60 | 52 | 7 | 1 | 8 | no | no |
+| HEISEI_DEMO | 60 | 52 | 7 | 1 | 8, 16 | no | no |
 
 HEISEI_DEMO asks for no suites. Every scenario that applies goes `ok` except
 `size:1x1`, which ends in a `crash`. That crash is a bug in the plugin, not a
@@ -82,8 +84,14 @@ host runs it. The plugin shrinks the layer into a buffer of
 `(width / Factor) x (height / Factor)` pixels, with `Factor` (4 by default)
 truncated to an integer. When the layer is narrower or shorter than `Factor`,
 that buffer is empty, and the plugin reads its null data. With `Factor` set
-to 1, a 1x1 layer renders. `tests/e2e/tests/heisei_demo.rs` checks both
-cases.
+to 1, a 1x1 layer renders. `tests/e2e/tests/heisei_demo.rs` checks that the
+layers `Factor` fits render; the crash itself is what `compat` measured.
+
+Only its 8 bpc output is right. The plugin declares 16 bpc
+(`PF_OutFlag_DEEP_COLOR_AWARE`), but reads and writes a 16 bpc world as if
+its pixels were 8 bpc: the left half of each row comes out garbled and the
+right half is left untouched. `compat` counts that scenario `ok`, because it
+only checks that the plugin runs.
 
 ## Regenerating the list
 
@@ -95,6 +103,8 @@ a plugin is compatible when its `coverage` is `1`:
 cargo build -p aexlo-cli
 target/debug/aexlo compat fixtures/plugins/macos --json > compat.json
 ```
+
+On Windows, run it over `fixtures/plugins/windows` instead.
 
 Pass a baseline from before a change to see whether the list grew or shrank;
 see [compat.md](compat.md#5-baselines).
