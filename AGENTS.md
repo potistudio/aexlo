@@ -26,3 +26,9 @@ means a scenario got worse. See [docs/compat.md](docs/compat.md).
 
 To close a gap that `compat` reports, follow the loop in
 [docs/compat-workflow.md](docs/compat-workflow.md).
+
+## Checking the SDK bindings
+
+To check that the `after-effects-sys` structs aexlo and the probe use match
+the After Effects SDK headers, run `cargo test -p aexlo_sdk_layout`. When it
+asks for a new snapshot, see [docs/sdk-layout.md](docs/sdk-layout.md).

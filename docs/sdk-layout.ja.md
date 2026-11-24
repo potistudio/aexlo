@@ -19,7 +19,7 @@ aexlo と `playground/probe` は、After Effects SDK の同じ Rust バインデ
    SDK なしで CI でも実行します。
 
 ```bash
-cargo test -p aexlo_sdk_layout                         # 比較（どのマシンでも）
+cargo test -p aexlo_sdk_layout                         # 比較（スナップショットがあるターゲット）
 cargo run -p aexlo_sdk_layout --bin snapshot           # 再生成（SDK が必要）
 AE_SDK_DIR="/path/to/AE SDK" cargo run -p aexlo_sdk_layout --bin snapshot
 ```
@@ -43,13 +43,18 @@ bindgen による名前の変更は元に戻します。
 `type_` は C では `type` です。
 匿名メンバーのフィールド（`__bindgen_anon_1.x`）は C のフィールド `x` です。
 名前付きメンバーが持つ匿名型（`PF_ParamDef__bindgen_ty_1`）は、そのメンバーの型として測ります。
+今のバインディングには匿名メンバーがないので、`__bindgen_anon_1.x` の経路は試していません。
 バインディングで中身がない構造体（C では宣言だけのもの）は、理由とともに `skipped` に入ります。
+
+生成器は、バインディングの中に読めないフィールドや型エイリアスを見つけると止まります。
+そのため、bindgen の出力の書き方が変わっても、調べる範囲が黙って狭まることはありません。
 
 テストはスナップショットにあるすべての構造体を調べます。Rust 側は、同じ一覧から `build.rs` が生成します。
 ほかに2つのテストが、スナップショットを最新に保ちます。
 
 - `snapshot_covers_every_struct_the_sources_use` は、スナップショットにない構造体をソースが使い始めると失敗します。
   そうした構造体につながる名前は、スナップショットの `unchecked` に並んでいます。
+  このテストはコメントも含めてすべての識別子を読むので、そうした構造体の名前をコメントに書いただけでも失敗します。
 - `snapshot_is_of_the_locked_bindings` は、測ったときと違うバージョンの `after-effects-sys` が `Cargo.lock` にあると失敗します。
 
 今スナップショットがあるのは Windows x64 だけです。
@@ -66,13 +71,14 @@ bindgen による名前の変更は元に戻します。
 | structs the SDK only declares | ヘッダーは型を宣言しているが、定義していない |
 | named differently in the SDK headers | ヘッダーでは、構造体かフィールドが古い名前になっている。レイアウトはその名前で比べる |
 | `size_of` / `align_of` differs | 構造体全体 |
-| field offsets differ / field sizes differ | フィールド1つ |
+| field offsets / sizes / alignments differ | フィールド1つ |
 | Rust fields the SDK struct does not have | ヘッダーにないフィールド名 |
 | SDK fields the Rust struct does not have | アラインメントの詰め物では説明できず、どの Rust フィールドにも属さない SDK のバイト |
 
 最後の種類は数値から見つけます。
 各フィールドは、前のフィールドの終わりを自分のアラインメントに切り上げた位置より後ろには始まりません。
-それより後ろのバイトは、バインディングが名前を持たないフィールドのものです。
+構造体は、最後のフィールドの終わりを構造体のアラインメントに切り上げた位置より後ろには終わりません。
+どちらかの位置より後ろのバイトは、バインディングが名前を持たないフィールドのものです。
 
 理由が分かっていて害のない不一致は、`tests/sdk_layout/src/allowlist.rs` に、不一致1つにつき1エントリ、理由とともに加えます。
 どの不一致にも一致しないエントリがあるとテストは失敗するので、一覧が古くなることはありません。
@@ -93,6 +99,10 @@ Windows のスナップショットは 23.4 の SDK（`PF_AE_PLUG_IN_SUBVERS` 28
 
 オフセット・サイズ・アラインメントが違うものはありません。
 
+SDK 25.x で加わった構造体やフィールドは、23.4 のヘッダーにはないものとして報告されます。
+今はそうしたものはありません。
+出てきたら、新しいヘッダーで測るか、allowlist にエントリを加えます。
+
 ## 3. スナップショットの再生成
 
 `after-effects-sys` を上げたとき、カバレッジのテストに求められたとき、新しい SDK ヘッダーを使うときに再生成します。
@@ -105,9 +115,11 @@ Windows のスナップショットは 23.4 の SDK（`PF_AE_PLUG_IN_SUBVERS` 28
    C++ コンパイラは、`crates/aexlo/build.rs` と同じく `cc` クレートで探します（Windows では MSVC）。
 4. `cargo test -p aexlo_sdk_layout` を実行し、スナップショットを、それが必要になった変更と一緒にコミットします。
 
-プログラムは、`after-effects-sys` の `wrapper.hpp` と同じヘッダーを include し、Windows では `_WINDOWS` を定義します。
-ただし `Mach-O_prefix.h` は include しません。
-このヘッダーは `__MACH__` を定義するだけで、Windows のプラグインは include しないからです。
+プログラムは、`after-effects-sys` の `wrapper.hpp` と同じ SDK ヘッダーを、同じ順番で include します。
+Windows では、`after-effects-sys` と同じく `_WINDOWS` を定義します。
+あわせて、`<windows.h>` がフィールド名をマクロに変えないように `NOMINMAX` も定義します。
+また Windows では `Mach-O_prefix.h` を include しません。
+`wrapper.hpp` はどの OS でもこれを include しますが、23.4 の SDK では `__MACH__` を定義するだけで、Windows のプラグインは include しないからです。
 
 ## 4. 制限
 
@@ -115,6 +127,9 @@ Windows のスナップショットは 23.4 の SDK（`PF_AE_PLUG_IN_SUBVERS` 28
   そのフィールドは `bitfield` として並び、その構造体ではバイトの抜けを調べません。
   今の Windows のバインディングにビットフィールドはありません。
 - 共用体では、バインディングにない SDK メンバーが共用体より小さいと、抜けが出ないので見つかりません。
+- バインディングにない SDK フィールドが、Rust のレイアウトにもともとある詰め物に収まる場合も見つかりません。
+  たとえば SDK の `{ int a; int b; double c; }` と Rust の `{ a: i32, c: f64 }` は、どちらも `c` を 8 に置きます。
+  `#pragma pack` の下では、フィールド本来のアラインメントで位置を見積もるので、さらに見逃しやすくなります。
 - 生成器は Windows の MSVC でしか実行していません。
   macOS のスナップショットには Mac での実行が必要です。
   コードはホストに合わせてバインディングのファイルとコンパイラのフラグを選びますが、その経路は試していません。

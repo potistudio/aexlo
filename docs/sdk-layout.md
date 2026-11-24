@@ -23,7 +23,7 @@ prebuilt bindings, so nothing else compares them with the real headers. The
    in CI, with no SDK.
 
 ```bash
-cargo test -p aexlo_sdk_layout                         # compare (every machine)
+cargo test -p aexlo_sdk_layout                         # compare (where a snapshot exists)
 cargo run -p aexlo_sdk_layout --bin snapshot           # regenerate (needs the SDK)
 AE_SDK_DIR="/path/to/AE SDK" cargo run -p aexlo_sdk_layout --bin snapshot
 ```
@@ -49,15 +49,22 @@ program measures the SDK field of the same name. bindgen's renames are
 undone: `type_` is `type` in C, a field of an anonymous member
 (`__bindgen_anon_1.x`) is the C field `x`, and an anonymous type held by a
 named member (`PF_ParamDef__bindgen_ty_1`) is measured as the type of that
-member. Structs that the bindings leave opaque (only declared in C) are
-listed under `skipped` with the reason.
+member. The current bindings have no anonymous members, so the
+`__bindgen_anon_1.x` path is untested. Structs that the bindings leave
+opaque (only declared in C) are listed under `skipped` with the reason.
+
+The generator stops if it sees a struct field or type alias in the bindings
+that it cannot read, so a change in bindgen's formatting cannot shrink what
+is checked.
 
 The test checks all structs in the snapshot; `build.rs` generates the Rust
 side from the same list. Two more tests keep the snapshot current:
 
 - `snapshot_covers_every_struct_the_sources_use` fails when the sources
   start to use a struct the snapshot does not cover. `unchecked` in the
-  snapshot lists the names that lead to such structs.
+  snapshot lists the names that lead to such structs. The test reads every
+  identifier, comments included, so naming such a struct in a comment also
+  fails it.
 - `snapshot_is_of_the_locked_bindings` fails when `Cargo.lock` has another
   version of `after-effects-sys` than the one measured.
 
@@ -75,13 +82,14 @@ The test reports every mismatch in one failure, grouped by kind:
 | structs the SDK only declares | The headers declare the type but do not define it |
 | named differently in the SDK headers | The headers have the struct or field under an older name. The layout is still compared, under that name |
 | `size_of` / `align_of` differs | The whole struct |
-| field offsets differ / field sizes differ | One field |
+| field offsets / sizes / alignments differ | One field |
 | Rust fields the SDK struct does not have | A field name the headers lack |
 | SDK fields the Rust struct does not have | SDK bytes that no Rust field accounts for, beyond alignment padding |
 
-The last kind is found from the numbers: each field starts at most at the
-end of the previous one rounded up to its alignment, so bytes past that
-belong to a field the bindings do not name.
+The last kind is found from the numbers. Each field starts at most at the
+end of the previous one rounded up to its alignment, and the struct ends at
+most at its last field's end rounded up to the struct's alignment. Bytes
+past either bound belong to a field the bindings do not name.
 
 A mismatch that is understood and harmless goes into
 `tests/sdk_layout/src/allowlist.rs`, one entry per mismatch, with the
@@ -103,6 +111,10 @@ under its old name (`RENAMED`), and the offsets and sizes are the same:
 
 No offset, size or alignment differs.
 
+A struct or field that SDK 25.x added would show up as missing from the 23.4
+headers. None does today. If one appears, measure newer headers or add an
+allowlist entry for it.
+
 ## 3. Regenerating the snapshot
 
 Regenerate after upgrading `after-effects-sys`, when the coverage test asks
@@ -119,10 +131,12 @@ for it, or with newer SDK headers:
 4. Run `cargo test -p aexlo_sdk_layout`, then commit the snapshot with the
    change that needed it.
 
-The program includes the same headers as `after-effects-sys`'s
-`wrapper.hpp`, with `_WINDOWS` defined on Windows, but not
-`Mach-O_prefix.h`. That header only defines `__MACH__`, and a Windows plugin
-never includes it.
+The program includes the same SDK headers as `after-effects-sys`'s
+`wrapper.hpp`, in the same order. On Windows it defines `_WINDOWS`, as
+`after-effects-sys` does, and `NOMINMAX`, so that `<windows.h>` turns no field
+name into a macro. On Windows it also leaves out `Mach-O_prefix.h`:
+`wrapper.hpp` includes it on every OS, but in the 23.4 SDK it only defines
+`__MACH__`, and a Windows plugin never includes it.
 
 ## 4. Limits
 
@@ -130,6 +144,10 @@ never includes it.
   struct gets no hole check. The current Windows bindings have no bitfields.
 - In a union, an SDK member smaller than the union that the bindings lack
   leaves no hole, so it goes unseen.
+- An SDK field the bindings lack also goes unseen when it fits in padding
+  the Rust layout has anyway. For example, SDK `{ int a; int b; double c; }`
+  and Rust `{ a: i32, c: f64 }` both put `c` at 8. Under `#pragma pack` the
+  bound uses the field's natural alignment, so it is looser still.
 - The generator has only run with MSVC on Windows. A macOS snapshot needs a
   run on a Mac; the code takes the bindings file and compiler flags for the
   host, but that path is untested.
