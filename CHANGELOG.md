@@ -131,14 +131,19 @@ plugin renders or returns.
   `PF_Cmd_UPDATE_PARAMS_UI`, `PF_Cmd_DO_DIALOG` and `PF_Cmd_EVENT` for a
   click or a drag. Drawing a custom control and `PluginInstance::set_time`
   do not increase it. AutoFill2 asks for it in `PF_Cmd_SMART_PRE_RENDER`.
+- `AEGP_HasItemChangedSinceTimestamp` answers from that timestamp, where it
+  was refused: an item has changed when the current timestamp differs from
+  the one the plugin passes. It does not look at the item or the time span,
+  so it can answer "changed" for an item that did not change, but never
+  "unchanged" for one that did. It refuses an item handle aexlo does not
+  know.
 
 ### Changed
 
 - The Render Suite functions aexlo does not implement report themselves as
   `UnsupportedKind::Stub`: `AEGP_IsRenderedFrameSufficient`,
-  `AEGP_RenderNewItemSoundData`, `AEGP_HasItemChangedSinceTimestamp`,
-  `AEGP_IsItemWorthwhileToRender`, `AEGP_CheckinRenderedFrame` and
-  `AEGP_GetReceiptGuid`. They still return `PF_Err_BAD_CALLBACK_PARAM`, but
+  `AEGP_RenderNewItemSoundData`, `AEGP_IsItemWorthwhileToRender`,
+  `AEGP_CheckinRenderedFrame` and `AEGP_GetReceiptGuid`. They still return `PF_Err_BAD_CALLBACK_PARAM`, but
   `aexlo compat` now counts a scenario in which a plugin calls them and
   still runs as `partial`. Such a scenario was `ok` in a baseline saved
   before this change, so `--baseline` reports it as worse and exits 1.

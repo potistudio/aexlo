@@ -378,3 +378,49 @@ fn a_new_project_moves_the_timestamp_and_the_same_one_does_not() {
 	fx.set_project(None);
 	assert!(touches() > before, "dropping the project left the timestamp alone");
 }
+
+#[test]
+fn has_item_changed_answers_from_the_project_timestamp() {
+	let mut fx = load();
+	let (unchanged, changed, refused) = during(&mut fx, |p| {
+		let render: &AEGP_RenderSuite5 = p.suite(c"AEGP Render Suite", kAEGPRenderSuiteVersion5);
+		let (now, ask) = (
+			render.AEGP_GetCurrentTimestamp.unwrap(),
+			render.AEGP_HasItemChangedSinceTimestamp.unwrap(),
+		);
+		let item = crate::suites::layer::item_handle(p.effect);
+		let time = A_Time { value: 0, scale: 1 };
+		let stamp = || {
+			let mut stamp = AEGP_TimeStamp { a: [0; 4] };
+			// SAFETY: the out pointer is live.
+			assert_eq!(unsafe { now(&mut stamp) }, PF_Err_NONE);
+			stamp.a
+		};
+		let changed_since = |item, a| {
+			let mut out: A_Boolean = 7;
+			// SAFETY: every pointer is live for the call.
+			let err = unsafe { ask(item, &time, &time, &AEGP_TimeStamp { a }, &mut out) };
+			(err, out)
+		};
+		// Other tests move the shared timestamp too: only an answer given while
+		// it stood still has to be "unchanged".
+		let unchanged = (0..1000).find_map(|_| {
+			let before = stamp();
+			let answer = changed_since(item, before);
+			(stamp() == before).then_some(answer)
+		});
+		let old = stamp();
+		crate::timestamp::touch();
+		let changed = changed_since(item, old);
+		let refused = [
+			changed_since(std::ptr::null_mut(), old).0,
+			// SAFETY: aexlo refuses the null pointers before it reads anything.
+			unsafe { ask(item, &time, &time, std::ptr::null(), &mut 0) },
+			unsafe { ask(item, &time, &time, &AEGP_TimeStamp { a: old }, std::ptr::null_mut()) },
+		];
+		(unchanged, changed, refused)
+	});
+	assert_eq!(unchanged, Some((PF_Err_NONE, 0)));
+	assert_eq!(changed, (PF_Err_NONE, 1));
+	assert_eq!(refused, [PF_Err_BAD_CALLBACK_PARAM; 3]);
+}

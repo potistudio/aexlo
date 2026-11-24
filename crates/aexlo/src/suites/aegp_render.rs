@@ -542,14 +542,34 @@ unsafe extern "C" fn get_current_timestamp(stamp_out: *mut AEGP_TimeStamp) -> A_
 	})
 }
 
+/// Whether the project changed since `stamp` (see [`crate::timestamp`]).
+///
+/// aexlo keeps one timestamp for the whole process, so any change since then
+/// counts, whatever the item and the time span asked about. The answer may
+/// be "changed" when the item did not change, but never "unchanged" when it
+/// did.
 unsafe extern "C" fn has_item_changed(
-	_itemH: AEGP_ItemH,
+	itemH: AEGP_ItemH,
 	_start: *const A_Time,
 	_duration: *const A_Time,
-	_stamp: *const AEGP_TimeStamp,
-	_changed_out: *mut A_Boolean,
+	stamp: *const AEGP_TimeStamp,
+	changed_out: *mut A_Boolean,
 ) -> A_Err {
-	crate::core::ffi::guard("has_item_changed", || unserved("AEGP_HasItemChangedSinceTimestamp"))
+	crate::core::ffi::guard("has_item_changed", || {
+		diag!("AEGP_RenderSuite/AEGP_HasItemChangedSinceTimestamp",
+			"itemH" => format!("{:#x}", itemH as usize));
+		// SAFETY: a non-null stamp is the caller's, for this call.
+		let Some(stamp) = (unsafe { stamp.as_ref() }) else {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		};
+		if changed_out.is_null() || super::layer::Item::of(itemH).is_none() {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+		let changed = stamp.a.map(|byte| byte as u8) != crate::timestamp::current();
+		// SAFETY: checked non-null; the caller owns the flag.
+		unsafe { changed_out.write(A_Boolean::from(changed)) };
+		PF_Err_NONE
+	})
 }
 
 unsafe extern "C" fn is_item_worthwhile(
@@ -1151,20 +1171,18 @@ mod tests {
 						null_mut(),
 						null_mut(),
 					),
-					suite.AEGP_HasItemChangedSinceTimestamp.unwrap()(null_mut(), &time, &time, &stamp, &mut flag),
 					suite.AEGP_IsItemWorthwhileToRender.unwrap()(null_mut(), &stamp, &mut flag),
 					suite.AEGP_CheckinRenderedFrame.unwrap()(null_mut(), &stamp, 0, null_mut()),
 					suite.AEGP_GetReceiptGuid.unwrap()(null_mut(), null_mut()),
 				]
 			}
 		};
-		assert_eq!(errs, [PF_Err_BAD_CALLBACK_PARAM; 6]);
+		assert_eq!(errs, [PF_Err_BAD_CALLBACK_PARAM; 5]);
 		assert_eq!(
 			*gaps.0.lock().unwrap(),
 			[
 				"Stub AEGP_RenderSuite/AEGP_IsRenderedFrameSufficient",
 				"Stub AEGP_RenderSuite/AEGP_RenderNewItemSoundData",
-				"Stub AEGP_RenderSuite/AEGP_HasItemChangedSinceTimestamp",
 				"Stub AEGP_RenderSuite/AEGP_IsItemWorthwhileToRender",
 				"Stub AEGP_RenderSuite/AEGP_CheckinRenderedFrame",
 				"Stub AEGP_RenderSuite/AEGP_GetReceiptGuid",
