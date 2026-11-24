@@ -95,6 +95,8 @@ After Effects はプラグインを起動時にしか読み込みません。起
 - **カーネル**：`gaussian_kernel` の直径と正規化された重み。
 - **スイート関数**：利用可否の一覧より一段深く調べます。同じ固定入力を `PF ANSI Suite`、`PF Handle Suite`、`PF World Suite v2`（ピクセル形式ごとの割り当てと `PF_GetPixelFormat` の応答）、`PF Iterate8 Suite v2` に渡します。
 
+`premultiply`、`iterate`、スイート版の `iterate8`、そして World Transform と Batch Sampling の fact は、最初のレンダリング時に記録します。実際の After Effects は GLOBAL_SETUP 中のこれらの呼び出しを `PF_Err_INVALID_CALLBACK` で拒否するためです。
+
 トレースには fact に加えて**コンテキスト**も記録されます。スイートの利用可否（約 45 スイート × 各バージョン）と `PF_UtilCallbacks` の有無は決定的なので、どちらも既定の比較対象です。一方、コマンドの流れ、`PF_InData` のスナップショット、レンダリング時のパラメーターと world のハッシュは参考情報としてのみ記録し、既定の差分から除外します。
 
 プローブは、パラメーターに応じた決定的なテストパターン（浮動小数点スライダー、チェックボックス、ポップアップ、色、角度、ポイント）もレンダリングするため、AE 内の画面でもパラメーターの受け渡しを確認できます。

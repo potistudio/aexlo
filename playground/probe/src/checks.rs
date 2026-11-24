@@ -9,6 +9,11 @@
 //!
 //! Worlds needed by pixel-level checks are allocated *through the host*
 //! (`utils.new_world`), keeping every check self-contained.
+//!
+//! `run_all` runs every check real hosts accept during GLOBAL_SETUP;
+//! `guarded_render_checks` collects the rest - callbacks whose host machinery
+//! polls the abort callback, valid only in render contexts - for the first
+//! render.
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -31,9 +36,16 @@ fn guarded(name: &str, run: impl FnOnce()) {
 	}
 }
 
-/// The World Transform and Batch Sampling facts, which need a render.
-pub fn guarded_xform(in_data: *mut ae::PF_InData) {
+/// The World Transform, Batch Sampling, premultiply and iterate facts, which
+/// need a render. Real hosts refuse those callbacks during GLOBAL_SETUP:
+/// the premultiply and iterate machinery polls the abort callback, which is
+/// valid only in render contexts (After Effects 27 answered
+/// PF_Err_INVALID_CALLBACK and parked a deferred error that failed the next
+/// apply), so all of these run in the first render.
+pub fn guarded_render_checks(in_data: *mut ae::PF_InData) {
 	guarded("xform", || unsafe { crate::xform::run(in_data) });
+	guarded("iterate", || unsafe { iterate_checks(in_data) });
+	guarded("suite.iterate8", || unsafe { suite_iterate8_checks(in_data) });
 }
 
 pub unsafe fn run_all(in_data: *mut ae::PF_InData) {
@@ -46,7 +58,6 @@ pub unsafe fn run_all(in_data: *mut ae::PF_InData) {
 	guarded("suite.ansi", || unsafe { suite_ansi_checks(in_data) });
 	guarded("suite.handle", || unsafe { suite_handle_checks(in_data) });
 	guarded("suite.world", || unsafe { suite_world_checks(in_data) });
-	guarded("suite.iterate8", || unsafe { suite_iterate8_checks(in_data) });
 }
 
 // ---- Variables ------------------------------------------------------------
@@ -497,6 +508,19 @@ unsafe fn world_checks(in_data: *mut ae::PF_InData) {
 		fact("world.blend", json!("unavailable"));
 	}
 
+	unsafe { dispose_world(in_data, &mut world) };
+}
+
+/// `world.premultiply` and `world.iterate`: host machinery that polls the
+/// abort callback, valid only in render contexts (see
+/// `guarded_render_checks`). The iterate input can not reuse the GLOBAL_SETUP
+/// master world, so this fills its own fixed input first.
+unsafe fn iterate_checks(in_data: *mut ae::PF_InData) {
+	let Some(u) = (unsafe { (*in_data).utils.as_ref() }) else {
+		return;
+	};
+	let effect_ref = unsafe { (*in_data).effect_ref };
+
 	if let (Some(fill), Some(premultiply)) = (u.fill, u.premultiply) {
 		if let Some(mut w) = unsafe { make_world(in_data) } {
 			let color = ae::PF_Pixel {
@@ -518,15 +542,24 @@ unsafe fn world_checks(in_data: *mut ae::PF_InData) {
 		fact("world.premultiply", json!("unavailable"));
 	}
 
-	if let Some(iterate) = u.iterate {
-		if let Some(mut dst) = unsafe { make_world(in_data) } {
+	if let (Some(fill), Some(iterate)) = (u.fill, u.iterate) {
+		let (src, dst) = unsafe { (make_world(in_data), make_world(in_data)) };
+		if let (Some(mut src), Some(mut dst)) = (src, dst) {
+			// One gray everywhere: the fact depends only on the host's iterate.
+			let gray100 = ae::PF_Pixel {
+				alpha: 255,
+				red: 100,
+				green: 100,
+				blue: 100,
+			};
+			unsafe { fill(effect_ref, &gray100, std::ptr::null(), &mut src.world) };
 			let count = AtomicU64::new(0);
 			let err = unsafe {
 				iterate(
 					in_data,
 					0,
 					1,
-					&mut world.world,
+					&mut src.world,
 					std::ptr::null(),
 					&count as *const AtomicU64 as *mut c_void,
 					Some(count_and_increment),
@@ -541,13 +574,14 @@ unsafe fn world_checks(in_data: *mut ae::PF_InData) {
 					"dst_hash": world_hash(&dst.world),
 				}),
 			);
-			unsafe { dispose_world(in_data, &mut dst) };
+			unsafe {
+				dispose_world(in_data, &mut src);
+				dispose_world(in_data, &mut dst);
+			}
 		}
 	} else {
 		fact("world.iterate", json!("unavailable"));
 	}
-
-	unsafe { dispose_world(in_data, &mut world) };
 }
 
 /// FNV-1a of an all-zero 16x8 ARGB world (the expected hash after

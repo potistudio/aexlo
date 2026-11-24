@@ -140,6 +140,10 @@ broken host service can't silence the rest. Every fact is
   `PF World Suite v2` (per-pixel-format allocation + `PF_GetPixelFormat`
   echo), and `PF Iterate8 Suite v2`.
 
+The `premultiply`, `iterate`, suite-`iterate8`, World Transform and Batch
+Sampling facts are recorded at the first render: real After Effects refuses
+those calls during GLOBAL_SETUP (`PF_Err_INVALID_CALLBACK`).
+
 Alongside the facts, the trace also captures **context**: the suite
 availability map (~45 suites × versions), the `PF_UtilCallbacks` presence
 map (both compared by default too, since they're deterministic), plus

@@ -268,14 +268,14 @@ unsafe fn dispatch(
 		}
 
 		ae::PF_Cmd_RENDER => unsafe {
-			xform_once(in_data);
+			render_checks_once(in_data);
 			render::render(in_data, params, output)
 		},
 
 		ae::PF_Cmd_SMART_PRE_RENDER => unsafe { smart::pre_render(in_data, extra.cast()) },
 
 		ae::PF_Cmd_SMART_RENDER => unsafe {
-			xform_once(in_data);
+			render_checks_once(in_data);
 			smart::render(in_data, extra.cast())
 		},
 
@@ -301,12 +301,13 @@ unsafe fn dispatch(
 	}
 }
 
-/// The World Transform and Batch Sampling facts, once per process. After
-/// Effects refuses the World Transform Suite during GLOBAL_SETUP
-/// (PF_Err_INVALID_CALLBACK), so they run in the first render, legacy or smart.
-fn xform_once(in_data: *mut ae::PF_InData) {
-	static XFORM: std::sync::Once = std::sync::Once::new();
-	XFORM.call_once(|| checks::guarded_xform(in_data));
+/// The render-context facts, once per process: World Transform, Batch
+/// Sampling, premultiply and iterate. After Effects refuses these callbacks
+/// during GLOBAL_SETUP (PF_Err_INVALID_CALLBACK), so they run in the first
+/// render, legacy or smart.
+fn render_checks_once(in_data: *mut ae::PF_InData) {
+	static RENDER_CHECKS: std::sync::Once = std::sync::Once::new();
+	RENDER_CHECKS.call_once(|| checks::guarded_render_checks(in_data));
 }
 
 /// About text doubles as discovery UX: inside AE, the effect's About dialog
