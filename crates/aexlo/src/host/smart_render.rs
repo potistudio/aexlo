@@ -1,3 +1,6 @@
+//! The `PF_PreRenderCallbacks` and `PF_SmartRenderCallbacks` entries of a
+//! smart render.
+
 use std::ptr::{null, null_mut};
 
 use crate::sys::*;
@@ -6,8 +9,7 @@ use crate::PluginInstance;
 use crate::core::constants::{DEFAULT_HEIGHT as HEIGHT, DEFAULT_WIDTH as WIDTH};
 use crate::core::diagnostics::diag;
 
-//==== Stub implementations ================================
-unsafe extern "C" fn checkout_layer_stub(
+unsafe extern "C" fn checkout_layer_sys(
 	effect_ref: PF_ProgPtr,
 	index: PF_ParamIndex,
 	checkout_idL: A_long,
@@ -17,7 +19,7 @@ unsafe extern "C" fn checkout_layer_stub(
 	time_scale: A_u_long,
 	checkout_result: *mut crate::sys::PF_CheckoutResult,
 ) -> PF_Err {
-	crate::core::ffi::guard("checkout_layer_stub", || {
+	crate::core::ffi::guard("checkout_layer_sys", || {
 		//== Validation ==//
 		if effect_ref.is_null() {
 			log::error!("checkout_layer: effect_ref is null");
@@ -171,12 +173,12 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 	})
 }
 
-unsafe extern "C" fn checkout_layer_pixels_stub(
+unsafe extern "C" fn checkout_layer_pixels_sys(
 	effect_ref: PF_ProgPtr,
 	_checkout_idL: A_long,
 	pixels: *mut *mut PF_EffectWorld,
 ) -> PF_Err {
-	crate::core::ffi::guard("checkout_layer_pixels_stub", || {
+	crate::core::ffi::guard("checkout_layer_pixels_sys", || {
 		//== Validation ==//
 		if effect_ref.is_null() {
 			log::error!("checkout_layer_pixels: effect_ref is null");
@@ -227,8 +229,16 @@ unsafe extern "C" fn checkout_layer_pixels_stub(
 	})
 }
 
-unsafe extern "C" fn checkin_layer_pixels_stub(_effect_ref: PF_ProgPtr, _checkout_idL: A_long) -> PF_Err {
-	crate::core::ffi::guard("checkin_layer_pixels_stub", || {
+/// `PF_SmartRenderCallbacks::checkin_layer_pixels`: the plugin is done reading
+/// the world `checkout_layer_pixels` handed out for `checkout_idL`. The world
+/// belongs to the instance and stays valid, so nothing is released here.
+///
+/// # Safety
+///
+/// `effect_ref` is only logged as an address and `checkout_idL` is an integer,
+/// so any values are accepted.
+unsafe extern "C" fn checkin_layer_pixels_sys(_effect_ref: PF_ProgPtr, _checkout_idL: A_long) -> PF_Err {
+	crate::core::ffi::guard("checkin_layer_pixels_sys", || {
 		crate::strict::checkout(crate::CheckoutKind::CheckinLayerPixels, _checkout_idL, 0);
 		diag!("PF_SmartRenderCallbacks/checkin_layer_pixels",
 			"effect_ref" => format!("{:#x}", _effect_ref as usize),
@@ -474,7 +484,7 @@ impl SmartRenderData {
 			}),
 			pre_output: Box::new(empty_pre_render_output()),
 			pre_callbacks: Box::new(crate::sys::PF_PreRenderCallbacks {
-				checkout_layer: Some(checkout_layer_stub),
+				checkout_layer: Some(checkout_layer_sys),
 				GuidMixInPtr: Some(guid_mix_in),
 			}),
 
@@ -499,8 +509,8 @@ impl SmartRenderData {
 				device_index: 4294967295,
 			}),
 			callbacks: Box::new(crate::sys::PF_SmartRenderCallbacks {
-				checkout_layer_pixels: Some(checkout_layer_pixels_stub),
-				checkin_layer_pixels: Some(checkin_layer_pixels_stub),
+				checkout_layer_pixels: Some(checkout_layer_pixels_sys),
+				checkin_layer_pixels: Some(checkin_layer_pixels_sys),
 				checkout_output: Some(checkout_output_sys),
 			}),
 			cpu_bitdepth: 8,

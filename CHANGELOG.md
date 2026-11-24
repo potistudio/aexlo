@@ -153,6 +153,13 @@ plugin renders or returns.
   when the plugin declares smart render and returns a `PF_Err` from
   `PF_Cmd_RENDER`. After Effects never sends that command to a smart-render
   plugin, and Furikake refuses it outright.
+- `PF_UtilCallbacks::iterate` now uses `PF_Iterate8Suite2::iterate` instead
+  of keeping a second copy: the pixels and return values are unchanged. Its
+  trace event is named `Iterate8Suite/iterate` instead of
+  `UtilityCallbacks/iterate`, and reports the suite entry's arguments: no
+  `in_data` or progress range, and an `origin` of null. Implemented
+  callbacks that still carried a `_stub` suffix now use `_sys`, so `_stub`
+  marks only callbacks that return `PF_Err_INVALID_CALLBACK`.
 
 ### Fixed
 
