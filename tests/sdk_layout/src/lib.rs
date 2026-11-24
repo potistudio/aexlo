@@ -338,6 +338,88 @@ mod tests {
 	const NO_SNAPSHOT: &str = "no SDK layout snapshot for this target in fixtures/sdk-layout: \
 		run `cargo run -p aexlo_sdk_layout --bin snapshot` here with the SDK (docs/sdk-layout.md)";
 
+	/// `compare` on hand-made data, so each check is tested on every target.
+	#[test]
+	fn compare_reports_each_kind_of_field_mismatch() {
+		use snapshot::{Bindings, Field, Hole, Struct};
+
+		let found = |rust: &str, offset, size, align| Field {
+			rust: rust.into(),
+			cpp: rust.into(),
+			sdk_name: None,
+			sdk: FieldSdk::Found { offset, size, align },
+		};
+		let snapshot = Snapshot {
+			target: String::new(),
+			compiler: String::new(),
+			sdk: Default::default(),
+			bindings: Bindings {
+				package: String::new(),
+				version: String::new(),
+				file: String::new(),
+			},
+			structs: vec![Struct {
+				rust: "S".into(),
+				cpp: "S".into(),
+				sdk_name: None,
+				union: false,
+				sdk: StructSdk::Found {
+					size: 24,
+					align: 8,
+					fields: vec![
+						found("same", 0, 4, 4),
+						found("moved", 4, 4, 4),
+						found("resized", 8, 4, 4),
+						found("realigned", 16, 8, 8),
+						Field {
+							rust: "extra".into(),
+							cpp: "extra".into(),
+							sdk_name: None,
+							sdk: FieldSdk::Missing,
+						},
+					],
+					holes: vec![Hole { offset: 12, size: 4 }],
+					holes_unknown: None,
+				},
+			}],
+			skipped: Vec::new(),
+			unchecked: Vec::new(),
+		};
+		let field = |rust, offset, size, align| RustField {
+			rust,
+			offset,
+			size,
+			align,
+		};
+		let measured = [RustStruct {
+			rust: "S",
+			size: 32,
+			align: 8,
+			fields: vec![
+				field("same", 0, 4, 4),
+				field("moved", 8, 4, 4),
+				field("resized", 8, 8, 4),
+				field("realigned", 16, 8, 4),
+				field("extra", 24, 4, 4),
+			],
+		}];
+
+		let (mismatches, compared) = compare(&snapshot, &measured);
+		let kinds: Vec<(Kind, Option<&str>)> = mismatches.iter().map(|m| (m.kind, m.field.as_deref())).collect();
+		assert_eq!(compared, 4);
+		assert_eq!(
+			kinds,
+			[
+				(Kind::Size, None),
+				(Kind::FieldNotInSdk, Some("extra")),
+				(Kind::FieldOffset, Some("moved")),
+				(Kind::FieldSize, Some("resized")),
+				(Kind::FieldAlign, Some("realigned")),
+				(Kind::SdkFieldNotInRust, Some("@12+4")),
+			]
+		);
+	}
+
 	fn snapshot() -> Snapshot {
 		this_target_snapshot().unwrap_or_else(|| {
 			panic!("{NO_SNAPSHOT} ({}.json)", env!("SDK_LAYOUT_SNAPSHOT_NAME"));

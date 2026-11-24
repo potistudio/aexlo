@@ -41,7 +41,8 @@ impl Bindings {
 	/// snapshot covers.
 	pub fn parse(text: &str) -> Result<Bindings, String> {
 		let mut bindings = Bindings::default();
-		let mut aliases_seen = 0;
+		let (mut records_seen, mut records_read) = (0, 0);
+		let (mut aliases_seen, mut aliases_read) = (0, 0);
 		let mut lines = text.lines();
 		while let Some(line) = lines.next() {
 			let record = line
@@ -50,7 +51,13 @@ impl Bindings {
 				.or_else(|| line.strip_prefix("pub union ").map(|rest| (true, rest)));
 			if let Some((union, rest)) = record {
 				// Generic helpers (`__BindgenBitfieldUnit<Storage>`) and tuple
-				// structs are not SDK types.
+				// or unit structs (no body) are not SDK types.
+				if rest.contains('<') {
+					continue;
+				}
+				if rest.contains('{') {
+					records_seen += 1;
+				}
 				let Some(name) = rest.strip_suffix(" {") else { continue };
 				let mut body = Vec::new();
 				for line in lines.by_ref() {
@@ -58,9 +65,6 @@ impl Bindings {
 						break;
 					}
 					body.push(line);
-				}
-				if name.contains('<') {
-					continue;
 				}
 				let fields = parse_fields(&body);
 				let declared = body.iter().filter(|line| starts_field(line)).count();
@@ -71,6 +75,7 @@ impl Bindings {
 					));
 				}
 				bindings.records.insert(name.to_string(), Record { union, fields });
+				records_read += 1;
 			} else if let Some(rest) = line.strip_prefix("pub type ") {
 				aliases_seen += 1;
 				let mut item = rest.to_string();
@@ -79,17 +84,26 @@ impl Bindings {
 					item.push('\n');
 					item.push_str(next);
 				}
-				// bindgen breaks a long alias after the `=`.
-				if let Some((name, rhs)) = item.split_once('=') {
+				// rustfmt, which bindgen runs, breaks a long alias after the `=`.
+				// A generic alias would be keyed by `Name<T>` and reached by no
+				// name, so it counts as unread.
+				if let Some((name, rhs)) = item.split_once('=')
+					&& !name.contains('<')
+				{
 					let rhs = rhs.trim().trim_end_matches(';');
 					bindings.aliases.insert(name.trim().to_string(), rhs.to_string());
+					aliases_read += 1;
 				}
 			}
 		}
-		if bindings.aliases.len() != aliases_seen {
+		if records_read != records_seen {
 			return Err(format!(
-				"read {} of the {aliases_seen} type aliases in the bindings",
-				bindings.aliases.len()
+				"read {records_read} of the {records_seen} structs and unions in the bindings"
+			));
+		}
+		if aliases_read != aliases_seen {
+			return Err(format!(
+				"read {aliases_read} of the {aliases_seen} type aliases in the bindings"
 			));
 		}
 		Ok(bindings)
@@ -172,7 +186,7 @@ fn push_field(fields: &mut Vec<RecordField>, item: &str) {
 }
 
 /// Whether a line of a struct body starts a field: `    pub name: ...` or
-/// `    _name: ...` at bindgen's indent of four spaces.
+/// `    _name: ...` at the four-space indent of rustfmt, which bindgen runs.
 fn starts_field(line: &str) -> bool {
 	let Some(rest) = line.strip_prefix("    ") else {
 		return false;
@@ -268,5 +282,14 @@ pub type PF_LongFunc =
 		// An unbalanced bracket merges the two fields into one.
 		let text = "pub struct PF_Bad {\n    pub a: Weird<<,\n    pub b: A_long,\n}\n";
 		assert!(Bindings::parse(text).is_err());
+	}
+
+	#[test]
+	fn fails_on_a_struct_or_alias_it_cannot_read() {
+		assert!(Bindings::parse("pub struct PF_Bad{\n    pub a: A_long,\n}\n").is_err());
+		assert!(Bindings::parse("pub type PF_Gen<T> = T;\n").is_err());
+		// Tuple and generic structs are not SDK types and are skipped.
+		let text = "pub struct PF_Vtable(::std::os::raw::c_void);\npub struct Unit<T> {\n    pub t: T,\n}\n";
+		assert!(Bindings::parse(text).unwrap().records.is_empty());
 	}
 }
