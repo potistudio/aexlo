@@ -645,6 +645,63 @@ mod tests {
 	}
 
 	#[test]
+	fn legacy_iterate_walks_the_destination_when_the_input_is_null() {
+		use std::sync::atomic::{AtomicI32, Ordering};
+
+		// What the plugin's pixel callback was asked to visit.
+		struct Visit {
+			calls: AtomicI32,
+			distinct_inputs: AtomicI32,
+		}
+
+		unsafe extern "C" fn count(
+			refcon: *mut c_void,
+			_x: A_long,
+			_y: A_long,
+			input: *mut PF_Pixel,
+			out: *mut PF_Pixel,
+		) -> PF_Err {
+			// SAFETY: `refcon` is the `Visit` this test passes below, which outlives the call.
+			let visit = unsafe { &*refcon.cast::<Visit>() };
+			visit.calls.fetch_add(1, Ordering::Relaxed);
+			if input != out {
+				visit.distinct_inputs.fetch_add(1, Ordering::Relaxed);
+			}
+			// SAFETY: `out` points into the world being iterated and is writable for the call.
+			unsafe { (*out).alpha = 255 };
+			PF_Err_NONE
+		}
+
+		// A generator effect has no input layer, so it passes a null `src`; the walk
+		// then covers `dst`, the bounds and both pixel pointers coming from it.
+		let mut dst_layer = Layer::<Depth8>::blank(4, 3);
+		let mut dst_world = dst_layer.as_sys();
+		let visit = Visit {
+			calls: AtomicI32::new(0),
+			distinct_inputs: AtomicI32::new(0),
+		};
+		let iterate = create_utility_callbacks().iterate.unwrap();
+		let err = unsafe {
+			iterate(
+				std::ptr::null_mut(),
+				0,
+				1,
+				std::ptr::null_mut(),
+				std::ptr::null(),
+				(&raw const visit).cast_mut().cast(),
+				Some(count),
+				&mut dst_world,
+			)
+		};
+		assert_eq!(err, PF_Err_NONE);
+		assert_eq!(visit.calls.load(Ordering::Relaxed), 12);
+		assert_eq!(visit.distinct_inputs.load(Ordering::Relaxed), 0);
+		// SAFETY: `dst_world` covers the 4x3 pixels of the layer still alive above.
+		let pixels = unsafe { std::slice::from_raw_parts(dst_world.data as *const PF_Pixel8, 12) };
+		assert!(pixels.iter().all(|pixel| pixel.alpha == 255));
+	}
+
+	#[test]
 	fn test_copy() {
 		//== Create dummy worlds ==//
 		let mut src_layer = Layer::<Depth8>::black(4, 4);

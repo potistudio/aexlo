@@ -243,7 +243,8 @@ unsafe fn iterate_pixels<P>(
 
 /// Generates the `extern "C"` iterate entry points for one pixel depth: the
 /// plain `iterate`, the clipped `iterate_origin` and the clamping
-/// `iterate_origin_non_clip_src`, all delegating to [`iterate_pixels`].
+/// `iterate_origin_non_clip_src`, all delegating to [`iterate_pixels`] through
+/// [`guard`](crate::core::ffi::guard).
 macro_rules! define_iterate_entries {
 	($pix:ty, $iterate:ident, $origin:ident, $non_clip:ident, $diag_prefix:literal) => {
 		pub(crate) unsafe extern "C" fn $iterate(
@@ -256,17 +257,19 @@ macro_rules! define_iterate_entries {
 			pix_fn: Option<IterPixFn<$pix>>,
 			dst: *mut PF_EffectWorld,
 		) -> PF_Err {
-			report_iterate(
-				concat!($diag_prefix, "/iterate"),
-				src,
-				area,
-				std::ptr::null(),
-				refcon,
-				pix_fn.is_some(),
-				dst,
-			);
+			crate::core::ffi::guard(concat!($diag_prefix, "/iterate"), || {
+				report_iterate(
+					concat!($diag_prefix, "/iterate"),
+					src,
+					area,
+					std::ptr::null(),
+					refcon,
+					pix_fn.is_some(),
+					dst,
+				);
 
-			unsafe { iterate_pixels::<$pix>(src, area, std::ptr::null(), true, refcon, pix_fn, dst) }
+				unsafe { iterate_pixels::<$pix>(src, area, std::ptr::null(), true, refcon, pix_fn, dst) }
+			})
 		}
 
 		pub(crate) unsafe extern "C" fn $origin(
@@ -280,17 +283,19 @@ macro_rules! define_iterate_entries {
 			pix_fn: Option<IterPixFn<$pix>>,
 			dst: *mut PF_EffectWorld,
 		) -> PF_Err {
-			report_iterate(
-				concat!($diag_prefix, "/iterate_origin"),
-				src,
-				area,
-				origin,
-				refcon,
-				pix_fn.is_some(),
-				dst,
-			);
+			crate::core::ffi::guard(concat!($diag_prefix, "/iterate_origin"), || {
+				report_iterate(
+					concat!($diag_prefix, "/iterate_origin"),
+					src,
+					area,
+					origin,
+					refcon,
+					pix_fn.is_some(),
+					dst,
+				);
 
-			unsafe { iterate_pixels::<$pix>(src, area, origin, true, refcon, pix_fn, dst) }
+				unsafe { iterate_pixels::<$pix>(src, area, origin, true, refcon, pix_fn, dst) }
+			})
 		}
 
 		pub(crate) unsafe extern "C" fn $non_clip(
@@ -304,17 +309,19 @@ macro_rules! define_iterate_entries {
 			pix_fn: Option<IterPixFn<$pix>>,
 			dst: *mut PF_EffectWorld,
 		) -> PF_Err {
-			report_iterate(
-				concat!($diag_prefix, "/iterate_origin_non_clip_src"),
-				src,
-				area,
-				origin,
-				refcon,
-				pix_fn.is_some(),
-				dst,
-			);
+			crate::core::ffi::guard(concat!($diag_prefix, "/iterate_origin_non_clip_src"), || {
+				report_iterate(
+					concat!($diag_prefix, "/iterate_origin_non_clip_src"),
+					src,
+					area,
+					origin,
+					refcon,
+					pix_fn.is_some(),
+					dst,
+				);
 
-			unsafe { iterate_pixels::<$pix>(src, area, origin, false, refcon, pix_fn, dst) }
+				unsafe { iterate_pixels::<$pix>(src, area, origin, false, refcon, pix_fn, dst) }
+			})
 		}
 	};
 }
