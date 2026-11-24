@@ -75,16 +75,17 @@ Windows 10 x64、aexlo v0.3.0、2026-11-24 に `fixtures/plugins/windows` を
 | AutoFill2   | 100%  | 474 | 469 | 5 | 0 | 8, 32 | あり | なし |
 | HEISEI_DEMO | 98.1% |  60 |  52 | 7 | 1 | 8, 16 | なし | なし |
 
-AutoFill2 は Windows で互換です。`PF_Cmd_SMART_PRE_RENDER` で
-"AEGP Render Suite" をワイヤーバージョン 5（`AEGP_RenderSuite4`）で取得し、
-それを通して `AEGP_GetCurrentTimestamp` を呼びます。aexlo はこの呼び出しを
+AutoFill2 は Windows で互換です。`PF_Cmd_SMART_PRE_RENDER` で、
+ワイヤーバージョン 5（`AEGP_RenderSuite4`）の "AEGP Render Suite" を
+取得し、それを通して `AEGP_GetCurrentTimestamp` を呼びます。aexlo はこの呼び出しを
 断りますが、プラグインはタイムスタンプなしで処理を続けます。
 フィクスチャはライセンス未登録のため、出力に赤い × 印が入ります。
 
 HEISEI_DEMO は Windows 専用のため、上の macOS フィクスチャには含まれません。
 カバレッジは 98.1% で、1 つのシナリオがプラグイン自身のコードでクラッシュするため、
-一覧にも入っていません。HEISEI_DEMO はスイートを 1 つも求めません。該当するシナリオは `size:1x1` を
-除いてすべて `ok` になり、`size:1x1` だけが `crash` になります。このクラッシュは
+一覧にも入っていません。HEISEI_DEMO はスイートを 1 つも求めません。
+該当するシナリオは `size:1x1` を除いてすべて `ok` になり、`size:1x1` だけが
+`crash` になります。このクラッシュは
 aexlo の不足ではなくプラグイン自身のバグです。どのホストで動かしても、
 プラグイン自身のコードがヌルポインタを参照します。
 このプラグインは、レイヤーを `(幅 / Factor) x (高さ / Factor)` ピクセルの

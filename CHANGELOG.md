@@ -119,7 +119,7 @@ plugin renders or returns.
   `PF_Cmd_SMART_PRE_RENDER`.
 - "AEGP Render Suite" at wire version 5 (`AEGP_RenderSuite4`). It serves what
   wire version 8 does; its `AEGP_RenderAndCheckoutLayerFrame` checks out the
-  effect's input, and declines `render_plain_layer_frameB = true`. AutoFill2
+  effect's input and declines `render_plain_layer_frameB = true`. AutoFill2
   acquires it in `PF_Cmd_SMART_PRE_RENDER` and crashed when the acquire
   failed.
 
@@ -133,9 +133,9 @@ plugin renders or returns.
 ### Fixed
 
 - Every instance gets the same `in_data->pica_basicP`, which lives as long
-  as the process, as in After Effects. Each instance had its own, freed with
-  it, so a plugin that keeps the first one in a static (AutoFill2) called
-  through freed memory once that instance was dropped.
+  as the process, as in After Effects. Before, each instance had its own,
+  freed with it, so a plugin such as AutoFill2 that keeps the first one in a
+  static called through freed memory once that instance was dropped.
 - `PF_GetCurrentState` covers arbitrary data as the plugin flattens it
   (`PF_Arbitrary_FLAT_SIZE_FUNC` and `PF_Arbitrary_FLATTEN_FUNC`), so a change
   in what a value points to is no longer called unchanged. The host flattens
