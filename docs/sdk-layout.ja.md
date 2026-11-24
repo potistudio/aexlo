@@ -17,7 +17,7 @@ aexlo と `playground/probe` は、After Effects SDK の同じ Rust バインデ
    スナップショットに入るのは数値と名前だけで、ヘッダーの本文は入りません。
 2. テストが、実行中のターゲットのスナップショットと `after_effects_sys` を比べます。
    比べるのは、各構造体の `size_of` と `align_of`、各フィールドの `offset_of!`・サイズ・アラインメントです。
-   SDK がいらないので CI でも実行します。スナップショットのないターゲットでは ignored として報告されます。
+   SDK がいらないので CI でも実行され、スナップショットのないターゲットでは ignored として報告されます。
 
 ```bash
 cargo test -p aexlo_sdk_layout                         # 比較（スナップショットがあるターゲット）
@@ -124,7 +124,7 @@ Windows では、`after-effects-sys` と同じく `_WINDOWS` を定義します�
 
 `wrapper.hpp` は、After Effects SDK にない `PrSDKStringSuite` を、Premiere SDK からコピーして自分で定義しています。
 プログラムはこれを定義しません。
-そのため、ソースが `PrSDKStringSuite` を使い始めると、再生成したスナップショットはこれを「SDK ヘッダーが宣言していない構造体」として報告します。
+そのため、ソースが `PrSDKStringSuite` を使い始めると、スナップショットを再生成したあと、テストはこれを `structs the SDK headers do not declare`（ヘッダーにない型）として報告します。
 この場合は allowlist にエントリを加えます。新しい After Effects のヘッダーで測っても解決しません。
 
 ## 4. 制限

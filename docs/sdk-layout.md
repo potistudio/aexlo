@@ -18,9 +18,9 @@ prebuilt bindings, so nothing else compares them with the real headers. The
    `fixtures/sdk-layout/<os>-<arch>.json`. It needs the SDK and a C++
    compiler, so a maintainer runs it and commits the result. The snapshot
    holds only numbers and names, no header text.
-2. A test compares `size_of` and `align_of` of each struct, and the
-   `offset_of!`, size and alignment of each field, in `after_effects_sys`
-   with the snapshot for the target it runs on. It needs no SDK, so it runs
+2. A test compares each struct's `size_of` and `align_of`, and each
+   field's `offset_of!`, size and alignment, in `after_effects_sys` with
+   the snapshot for the target it runs on. It needs no SDK, so it runs
    in CI; on a target without a snapshot it is reported as ignored.
 
 ```bash
@@ -141,9 +141,10 @@ name into a macro. On Windows it also leaves out `Mach-O_prefix.h`:
 
 `wrapper.hpp` also defines `PrSDKStringSuite` itself, copied from the
 Premiere SDK, because the After Effects SDK lacks it. The program does not,
-so if the sources start to use `PrSDKStringSuite`, the regenerated snapshot
-reports it as a struct the SDK headers do not declare. That needs an
-allowlist entry; newer After Effects headers do not fix it.
+so if the sources start to use `PrSDKStringSuite`, then after the snapshot is
+regenerated, the test reports it under
+`structs the SDK headers do not declare`. That needs an allowlist entry;
+newer After Effects headers do not fix it.
 
 ## 4. Limits
 

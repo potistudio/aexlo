@@ -29,8 +29,8 @@ To close a gap that `compat` reports, follow the loop in
 
 ## Checking the SDK bindings
 
-To check that the `after-effects-sys` structs aexlo and the probe use match
+To check that the `after-effects-sys` structs aexlo and `playground/probe` use match
 the After Effects SDK headers, run `cargo test -p aexlo_sdk_layout` on
-Windows x64, the only target with a snapshot so far. Elsewhere the snapshot
-tests are ignored and compare nothing. When it asks for a new snapshot, see
+Windows x64, the only target with a snapshot so far. Elsewhere, the snapshot
+tests are ignored and compare nothing. When a test asks for a new snapshot, see
 [docs/sdk-layout.md](docs/sdk-layout.md).
