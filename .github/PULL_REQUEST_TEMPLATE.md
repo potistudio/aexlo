@@ -29,6 +29,4 @@ Verified on:
 - [ ] `cargo fmt --all -- --check`
 - [ ] `cargo clippy --workspace --all-targets --locked -- -D warnings` (and `-p aexlo --features diagnostics`)
 - [ ] `cargo test --workspace`
-- [ ] Updated `CHANGELOG.md` (for user-visible changes)
-- [ ] Updated docs / `README.md` (`*.ja.md` as well) if applicable
 - [ ] Checked `aexlo compat --baseline` with no regressions (if applicable)
