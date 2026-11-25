@@ -836,6 +836,10 @@ impl PluginInstance {
 
 		if self.params_dirty {
 			self.params_ptr_cache = self.params.iter_mut().map(|p| p as *mut _).collect();
+			// The SDK passes the list argv-style, with a NULL after the last
+			// parameter (AE_Effect.h, "The params list"), so a plugin that walks
+			// it stops at the end instead of reading past the cache.
+			self.params_ptr_cache.push(std::ptr::null_mut());
 			self.params_dirty = false;
 		}
 
@@ -850,10 +854,11 @@ impl PluginInstance {
 				// InData carries num_params once: the ParamsSetup starting value,
 				// which counts the implicit layer parameter (AE_Effect.h,
 				// PF_OutData.num_params). After Effects leaves the field at 0 in
-				// every other command, RENDER and SMART_PRE_RENDER inclusive; both
-				// variants of the playground probe measure this on After Effects
-				// 2027 (trace-ae.jsonl, trace-ae-smart.jsonl).
-				num_params: i32::from(command == RawCommand::ParamsSetup),
+				// every other command the probe received, RENDER and
+				// SMART_PRE_RENDER inclusive; both variants of the playground probe
+				// measure this on After Effects 2027 (trace-ae.jsonl,
+				// trace-ae-smart.jsonl).
+				num_params: in_data_num_params(command, self.params.len()),
 			},
 		);
 
@@ -1000,6 +1005,20 @@ impl PluginInstance {
 	}
 }
 
+/// The `InData.num_params` one command carries.
+///
+/// After Effects reports the declared count, the implicit layer parameter
+/// included, only while the plugin builds its parameter list, and 0 in every
+/// other command the probe received (measured in `trace-ae.jsonl` and
+/// `trace-ae-smart.jsonl`).
+fn in_data_num_params(command: RawCommand, declared: usize) -> crate::sys::A_long {
+	if command == RawCommand::ParamsSetup {
+		declared as crate::sys::A_long
+	} else {
+		0
+	}
+}
+
 #[cfg(test)]
 mod lifecycle_tests {
 	use super::*;
@@ -1007,6 +1026,22 @@ mod lifecycle_tests {
 
 	static COMMANDS: Mutex<Vec<crate::sys::PF_Cmd>> = Mutex::new(Vec::new());
 	static FAIL: Mutex<crate::sys::PF_Cmd> = Mutex::new(-1);
+
+	#[test]
+	fn in_data_num_params_is_the_declared_count_only_at_params_setup() {
+		assert_eq!(in_data_num_params(RawCommand::ParamsSetup, 7), 7);
+		for command in [
+			RawCommand::GlobalSetup,
+			RawCommand::SequenceSetup,
+			RawCommand::Render,
+			RawCommand::SmartPreRender,
+			RawCommand::SmartRender,
+			RawCommand::GpuDeviceSetup,
+			RawCommand::UserChangedParam,
+		] {
+			assert_eq!(in_data_num_params(command, 7), 0, "{command:?}");
+		}
+	}
 
 	#[test]
 	fn plugin_registration_copies_identity_bytes() {

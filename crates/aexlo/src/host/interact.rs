@@ -323,7 +323,7 @@ mod tests {
 			// The stub declares only the implicit layer parameter (index 0).
 			// The two indices past it answer as empty parameters and the third is
 			// out of bounds; checkout validates against the declared count, not
-			// against InData.num_params, which is 0 outside ParamsSetup.
+			// against InData.num_params (see `in_data_num_params`).
 			for index in 1..4 {
 				let mut def = std::mem::MaybeUninit::<PF_ParamDef>::uninit();
 				// SAFETY: a byte fill of this frame's own slot, standing in for stack garbage.

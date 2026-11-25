@@ -196,8 +196,9 @@ pub unsafe fn render(
 	output: *mut ae::PF_LayerDef,
 ) -> ae::PF_Err {
 	// After Effects fills InData.num_params only at PARAMS_SETUP and sends 0
-	// in RENDER and SMART_RENDER, so the declared count is the only source
-	// that describes the parameter list on both hosts.
+	// in RENDER and SMART_RENDER (measured in `trace-ae.jsonl` and
+	// `trace-ae-smart.jsonl`), so the declared count is the only source that
+	// describes the parameter list on both hosts.
 	let num_params = PARAM_COUNT;
 
 	for index in 0..num_params {
