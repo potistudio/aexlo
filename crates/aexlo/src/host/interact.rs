@@ -16,6 +16,11 @@ use crate::host::app::with_app_host_ffi;
 /// error it frees that parameter's block but keeps the pointer, and its
 /// pre-render delete callback frees it again, so the effect only works in a
 /// host where both checkouts succeed. Indices beyond these are still errors.
+///
+/// The measurement predates the current `InData.num_params`: with 0 in
+/// `SMART_PRE_RENDER` (see `in_data_num_params`), Universe reaches index 1
+/// only, which is a declared parameter, so nothing here exercises the two
+/// trailing indices. Re-measure Universe before relying on the constant.
 const TRAILING_PARAMS: usize = 2;
 
 unsafe extern "C" fn checkout_param_sys(
