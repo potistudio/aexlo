@@ -191,11 +191,14 @@ pub(crate) unsafe fn read_settings(params: ae::PF_ParamList, num_params: usize) 
 /// Legacy `PF_Cmd_RENDER`: log every param value and both worlds (with pixel
 /// hashes), then write the test pattern into the output world.
 pub unsafe fn render(
-	in_data: *mut ae::PF_InData,
+	_in_data: *mut ae::PF_InData,
 	params: ae::PF_ParamList,
 	output: *mut ae::PF_LayerDef,
 ) -> ae::PF_Err {
-	let num_params = unsafe { (*in_data).num_params }.max(0) as usize;
+	// After Effects fills InData.num_params only at PARAMS_SETUP and sends 0
+	// in RENDER and SMART_RENDER, so the declared count is the only source
+	// that describes the parameter list on both hosts.
+	let num_params = PARAM_COUNT;
 
 	for index in 0..num_params {
 		let def = unsafe { param_at(params, index) }.unwrap_or(std::ptr::null());

@@ -320,7 +320,9 @@ struct CheckedOutParams {
 impl CheckedOutParams {
 	unsafe fn checkout(in_data: *mut ae::PF_InData) -> Self {
 		let d = unsafe { &*in_data };
-		let count = d.num_params.max(0) as usize;
+		// InData.num_params is 0 outside PARAMS_SETUP (see render::render), so
+		// the declared count describes the parameter list on both hosts.
+		let count = render::PARAM_COUNT;
 		let mut params = Self {
 			in_data,
 			defs: (0..count).map(|_| unsafe { std::mem::zeroed() }).collect(),
