@@ -34,8 +34,9 @@ pub unsafe fn setup_params(in_data: *mut ae::PF_InData, out_data: *mut ae::PF_Ou
 		return ae::PF_Err_BAD_CALLBACK_PARAM as ae::PF_Err;
 	};
 	let effect_ref = unsafe { (*in_data).effect_ref };
+	let mut registered: usize = 0;
 
-	let register = |name: &str, index: usize, fill: &dyn Fn(&mut ae::PF_ParamDef)| {
+	let mut register = |name: &str, index: usize, fill: &dyn Fn(&mut ae::PF_ParamDef)| {
 		let mut def: ae::PF_ParamDef = unsafe { std::mem::zeroed() };
 		def.uu.id = index as ae::A_long;
 
@@ -48,6 +49,9 @@ pub unsafe fn setup_params(in_data: *mut ae::PF_InData, out_data: *mut ae::PF_Ou
 
 		// -1 appends, exactly like the SDK's PF_ADD_PARAM convention.
 		let err = unsafe { add_param(effect_ref, -1, &mut def) };
+		if err == ae::PF_Err_NONE as ae::PF_Err {
+			registered += 1;
+		}
 		trace().emit("add_param", json!({ "index": index, "name": name, "err": err }));
 	};
 
@@ -116,6 +120,21 @@ pub unsafe fn setup_params(in_data: *mut ae::PF_InData, out_data: *mut ae::PF_Ou
 		def.u.td.restrict_bounds = 0;
 	});
 
+	// The render paths iterate PARAM_COUNT without consulting InData; it
+	// must equal the implicit layer parameter plus the registrations above,
+	// so a drift stops the probe here instead of reading past the list inside
+	// the host.
+	if registered + 1 != PARAM_COUNT {
+		trace().emit(
+			"note",
+			json!({
+				"registered": registered,
+				"expected": PARAM_COUNT - 1,
+				"msg": "param registration count does not match PARAM_COUNT"
+			}),
+		);
+		return ae::PF_Err_INTERNAL_STRUCT_DAMAGED as ae::PF_Err;
+	}
 	unsafe { (*out_data).num_params = PARAM_COUNT as ae::A_long };
 	ae::PF_Err_NONE as ae::PF_Err
 }

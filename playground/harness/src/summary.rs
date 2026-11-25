@@ -99,6 +99,10 @@ pub fn summarize(events: &[Value]) -> Summary {
 						if name == "RENDER" && !summary.contains_key("render/in/width") && !in_data.is_null() {
 							flatten_into(&mut summary, "render/in", in_data);
 						}
+						// Every command's InData.num_params joins the `diff --all`
+						// comparison, so a host that fills it outside PARAMS_SETUP
+						// shows up as a divergence.
+						summary.insert(format!("cmd/{name}/in/num_params"), compact(&in_data["num_params"]));
 					}
 					Some("end") => {
 						summary.insert(format!("cmd/{name}/err"), compact(&event["err"]));

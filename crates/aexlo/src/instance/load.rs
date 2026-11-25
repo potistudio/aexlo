@@ -1007,13 +1007,14 @@ impl PluginInstance {
 
 /// The `InData.num_params` one command carries.
 ///
-/// After Effects reports the declared count, the implicit layer parameter
-/// included, only while the plugin builds its parameter list, and 0 in every
+/// After Effects fills the field only while the plugin builds its parameter
+/// list, with the count registered when the command starts — the implicit
+/// layer parameter alone on a fresh PARAMS_SETUP — and leaves 0 in every
 /// other command the probe received (measured in `trace-ae.jsonl` and
 /// `trace-ae-smart.jsonl`).
-fn in_data_num_params(command: RawCommand, declared: usize) -> crate::sys::A_long {
+fn in_data_num_params(command: RawCommand, registered: usize) -> crate::sys::A_long {
 	if command == RawCommand::ParamsSetup {
-		declared as crate::sys::A_long
+		registered as crate::sys::A_long
 	} else {
 		0
 	}
@@ -1028,8 +1029,10 @@ mod lifecycle_tests {
 	static FAIL: Mutex<crate::sys::PF_Cmd> = Mutex::new(-1);
 
 	#[test]
-	fn in_data_num_params_is_the_declared_count_only_at_params_setup() {
-		assert_eq!(in_data_num_params(RawCommand::ParamsSetup, 7), 7);
+	fn in_data_num_params_is_the_registered_count_only_at_params_setup() {
+		// A fresh session registers only the implicit layer parameter before
+		// the plugin adds its own controls.
+		assert_eq!(in_data_num_params(RawCommand::ParamsSetup, 1), 1);
 		for command in [
 			RawCommand::GlobalSetup,
 			RawCommand::SequenceSetup,
@@ -1039,7 +1042,7 @@ mod lifecycle_tests {
 			RawCommand::GpuDeviceSetup,
 			RawCommand::UserChangedParam,
 		] {
-			assert_eq!(in_data_num_params(command, 7), 0, "{command:?}");
+			assert_eq!(in_data_num_params(command, 1), 0, "{command:?}");
 		}
 	}
 
@@ -1127,5 +1130,40 @@ mod lifecycle_tests {
 				PF_Cmd_GLOBAL_SETDOWN
 			]
 		);
+	}
+
+	static RECEIVED_NUM_PARAMS: Mutex<Vec<(crate::sys::PF_Cmd, crate::sys::A_long)>> = Mutex::new(Vec::new());
+
+	unsafe extern "C" fn entry_receiving_in_data(
+		cmd: crate::sys::PF_Cmd,
+		input: *mut crate::sys::PF_InData,
+		_: *mut crate::sys::PF_OutData,
+		_: crate::sys::PF_ParamList,
+		_: *mut crate::sys::PF_LayerDef,
+		_: *mut std::ffi::c_void,
+	) -> crate::sys::PF_Err {
+		RECEIVED_NUM_PARAMS
+			.lock()
+			.unwrap()
+			.push((cmd, unsafe { (*input).num_params }));
+		crate::sys::PF_Err_NONE
+	}
+
+	#[test]
+	fn the_entry_point_receives_num_params_only_during_params_setup() {
+		RECEIVED_NUM_PARAMS.lock().unwrap().clear();
+		let mut instance = unsafe { crate::Host::get().entry_loader(entry_receiving_in_data) }
+			.size(16, 16)
+			.load()
+			.unwrap();
+		instance.render_with(crate::RenderPath::Smart).unwrap();
+		instance.render_with(crate::RenderPath::Legacy).unwrap();
+		drop(instance);
+		let received = RECEIVED_NUM_PARAMS.lock().unwrap().clone();
+		assert!(!received.is_empty(), "the lifecycle alone must reach the entry point");
+		for (cmd, num_params) in received {
+			let expected = if cmd == crate::sys::PF_Cmd_PARAMS_SETUP { 1 } else { 0 };
+			assert_eq!(num_params, expected, "command {cmd}");
+		}
 	}
 }
