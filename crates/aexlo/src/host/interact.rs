@@ -320,20 +320,22 @@ mod tests {
 			}
 			let input = unsafe { &*input };
 			let checkout = input.inter.checkout_param.unwrap();
-			// As Universe does: probe up to `num_params + 1`, and fail on an error.
-			for past in 0..3 {
+			// The stub declares only the implicit layer parameter (index 0).
+			// The two indices past it answer as empty parameters and the third is
+			// out of bounds; checkout validates against the declared count, not
+			// against InData.num_params, which is 0 outside ParamsSetup.
+			for index in 1..4 {
 				let mut def = std::mem::MaybeUninit::<PF_ParamDef>::uninit();
 				// SAFETY: a byte fill of this frame's own slot, standing in for stack garbage.
 				unsafe { std::ptr::write_bytes(def.as_mut_ptr(), 0xa5, 1) };
-				let index = input.num_params + past;
 				let err = unsafe { checkout(input.effect_ref, index, 0, 1, 30, def.as_mut_ptr()) };
-				let expected = if past < 2 { PF_Err_NONE } else { PF_Err_INVALID_INDEX };
+				let expected = if index < 3 { PF_Err_NONE } else { PF_Err_INVALID_INDEX };
 				// Written either way, so it is initialised and has no stray handle.
 				let def = unsafe { def.assume_init() };
 				if err != expected || !unsafe { def.u.arb_d.value }.is_null() {
 					return PF_Err_BAD_CALLBACK_PARAM;
 				}
-				if past < 2 && def.param_type != PF_Param_NO_DATA as PF_ParamType {
+				if index < 3 && def.param_type != PF_Param_NO_DATA as PF_ParamType {
 					return PF_Err_BAD_CALLBACK_PARAM;
 				}
 			}

@@ -847,7 +847,13 @@ impl PluginInstance {
 				effect_ref,
 				utils: self.utility_callbacks.as_mut() as *mut _,
 				pica: Self::pica_suite(),
-				num_params: self.params.len() as i32,
+				// InData carries num_params once: the ParamsSetup starting value,
+				// which counts the implicit layer parameter (AE_Effect.h,
+				// PF_OutData.num_params). After Effects leaves the field at 0 in
+				// every other command, RENDER and SMART_PRE_RENDER inclusive; both
+				// variants of the playground probe measure this on After Effects
+				// 2027 (trace-ae.jsonl, trace-ae-smart.jsonl).
+				num_params: i32::from(command == RawCommand::ParamsSetup),
 			},
 		);
 
